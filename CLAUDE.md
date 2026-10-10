@@ -1,0 +1,31 @@
+# BankHeist
+
+Top-down 2D pixel-art stealth game. Phaser 4 + TypeScript + Vite, shipped as an offline-capable PWA on GitHub Pages.
+
+## Commands
+- `npm run dev` – Vite dev server with hot reload.
+- `npm run typecheck` / `npm test` – TypeScript and Vitest unit tests (pure logic in `src/logic`, `src/level`).
+- `npm run test:e2e` – builds, serves the production build and drives it in Chromium with Playwright. Writes `screenshots/*.png`.
+- `npm run screenshot` – only the boot test; the fastest way to look at the current visuals.
+
+## Verifying changes
+- Run typecheck, unit tests and e2e before pushing. For any visual change, read `screenshots/start.png` (and add a
+  screenshot to the relevant e2e test when a new feature isn't visible at boot) – don't call visual work done unseen.
+- `window.game` and `window.Phaser` are exposed; `game.scene.getScene('vault').debugState` gives test-friendly state.
+- In the cloud sandbox Playwright uses the preinstalled Chromium at `/opt/pw-browsers`, which is why `@playwright/test`
+  is pinned to 1.56.1. Bumping it needs a matching browser.
+
+## Rendering
+- Internal resolution is 320x180 with `pixelArt: true`, scaled to fit with nearest-neighbour filtering. Keep art on a
+  16px grid (`TILE`).
+- Lighting is Phaser's Light2D: objects opt in with `setLighting(true)`; normal maps are the texture's data source.
+  `render.maxLights` is 32 – lights beyond that are silently dropped, so raise it if a scene gets busier.
+- All art is generated in `src/art` from palette grids, with a height per colour that becomes the normal map. Real art
+  can replace it by loading PNGs plus `-n.png` normal maps in a preload scene and keeping the `TEX` keys.
+- Camera post-processing (bloom, vignette) lives in `VaultScene.create`. Phaser's vignette goes near black at its
+  radius, so keep `strength` low.
+- The HUD is an HTML overlay (`src/ui/Hud.ts`) so text stays crisp, not canvas text.
+
+## Deploy
+Pushing to `main` runs `.github/workflows/deploy.yml`: tests, then builds with `BASE_PATH=/<repo>/` and deploys to
+GitHub Pages. The service worker (vite-plugin-pwa, `registerType: autoUpdate`) caches everything for offline play.

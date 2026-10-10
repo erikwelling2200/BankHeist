@@ -1,0 +1,4 @@
+.hud { position: fixed; inset: 0; pointer-events: none; font: 600 clamp(12px, 2.4vw, 20px) ui-monospace, Menlo, Consolas, monospace; color: #f2e6c8; text-shadow: 0 2px 0 #000; letter-spacing: 0.08em; }
+.hud-gold { position: absolute; top: max(12px, env(safe-area-inset-top)); right: max(16px, env(safe-area-inset-right)); color: #f2c94c; }
+.hud-message { position: absolute; left: 0; right: 0; top: 18%; text-align: center; opacity: 0; transition: opacity 0.3s; }
+.hud-message.visible { opacity: 1; }
