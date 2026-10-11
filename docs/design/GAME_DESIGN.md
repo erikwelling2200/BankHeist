@@ -301,15 +301,22 @@ There are no classes. **What a crew member can do comes from what they carry** (
 comes from who they are.** Any crew member can carry any kit, so a recognisable veteran can hand theirs to a fresh
 face (§19.7).
 
-**Kits** are gadgets (§12.2) that unlock actions:
+**Equipment comes in three kinds**, told apart by the slot it uses (§7.3):
+
+| Kind | Slot | What it is | Examples |
+| --- | --- | --- | --- |
+| **Weapons** | Primary, sidearm | Combat stats (§12.1). Some also have a **weapon action**. | Shotgun: **Breach** doors and locks. LMG: **Suppress** (§11.9). DMR and LMG: **Brace** on a bipod (§6.3). |
+| **Kits** | Gadget | Reusable tools that unlock non-combat actions. | Hacking kit, lockpick set, glass cutter, drill. |
+| **Consumables** | Gadget | Used up when used. | Breach and shaped charges, thermite, flashbangs, smoke, noisemakers, tripwires, medkits. |
+
+What the kits unlock:
 
 | Kit | Unlocks |
 | --- | --- |
 | **Hacking kit** | Loop a camera feed for 4 phases (at a junction box or the console). Disable the alarm panel or a vault sensor (4 actions). Pull the code or time-lock schedule from the manager's PC (2 actions). Ring any desk phone remotely. |
 | **Lockpick set** | Open mechanical locks and deposit boxes (2 actions). |
-| **Shaped charge, thermite** | Open Reinforced walls, vault doors and floors (§14.2). |
-| **Medkit** | Revive and heal (§12.2). |
-| **DMR or LMG** | **Brace** (bipod): no moving penalty on the next turn (§6.3). |
+| **Glass cutter** | Cut a quiet 1-tile hole in a window (2 actions). |
+| **Drill** | Drill a vault door, safe or deposit-box wall (§15.3). |
 
 **Traits** belong to the person. A recruit comes with **one** trait; the player picks another from three offered
 for every two jobs that crew member survives. Traits make a crew member better with certain gear or situations; they
@@ -338,7 +345,7 @@ personal motives and barks rather than from a class.
 | Primary | Long gun, or nothing. |
 | Sidearm | Pistol, machine pistol or taser, or nothing. |
 | Armour | None, light vest, medium or heavy. |
-| Gadgets ×2 | Kits (hacking kit, lockpick set, medkit), throwables, charges, drill, jammer, glass cutter, noisemaker, duffel. |
+| Gadgets ×2 | Kits (hacking kit, lockpick set, glass cutter, drill), consumables (charges, thermite, throwables, tripwires, medkits), the jammer or the duffel. |
 | Fixed | Zip-ties ×4, phone, mask. |
 
 A **duffel** (gadget) holds one long gun and one armour piece, and shows as Concealed. *Gear up* takes them out
@@ -954,6 +961,9 @@ tiles · **Noise** = radius in tiles · **Profile** · **Mvd** = Aim multiplier 
 | Assault rifle | 2 | 3 | 3 | 4 | 1 | 20 | 5 | 14 | Armed | ×2 | 30 | Generalist. Kept in check by profile, moving penalty and noise. |
 | DMR | 1 | — | 1 | 9 | 3 | 30 | 5 | 18 | Armed (Concealed when cased) | ×6 | 5 | Armour, overpenetration, the sniper nest. |
 | LMG (2 actions) | 6 | 2 (1 braced) | 10 | 3 | 1 | 20 | 6 | 18 | Heavy | ×2 (×1 braced) | 100 | Suppression, crowd control, holding a choke point. |
+
+**Weapon actions:** the pump shotgun can **Breach** a door or lock (1 action). The LMG can **Suppress** (§11.9).
+The DMR and LMG can **Brace** on their bipod (§6.3).
 
 Expected hits against a standing target with no cover, at 2 / 5 / 9 / 14 tiles (from the aiming research's cone
 model; halve them against cover): pistol 2.0 / 1.6 / 1.0 / 0.6 · machine pistol 4.2 / 1.7 / 0.9 / 0.6 · SMG 4.0 /
