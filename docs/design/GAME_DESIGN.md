@@ -1798,3 +1798,5 @@ challenge, never a login reward), and any multiplayer.
 
 7. **Stratified spread.** Bullets fan out evenly to bound the variance. Should spread be rawer and fully independent
    instead? Decide in playtesting (M3).
+8. **Hostage release cap.** Keep the hard cap (one per turn, three per heist), or switch to diminishing returns (−3,
+   then −2, then −1 per release, uncapped)? Decide in playtesting (M3).
