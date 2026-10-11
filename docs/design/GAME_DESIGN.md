@@ -677,7 +677,7 @@ vault sensors. What is left are people with radios, phones and legs.
 
 | Ring | Radius | Effect |
 | --- | --- | --- |
-| **Command** | The weapon's **Threat** (in line of sight; +2 for Muscle; ×1.5 on GO) | Ordinary NPCs **always comply**: Commanded, 2 pips. Resisters roll their shown chance (§10.4). |
+| **Command** | The weapon's **Threat** (in line of sight; +2 for Muscle; ×1.5 on GO) | Ordinary NPCs **always comply**: Commanded, 2 pips. Resisters roll their shown chance (§10.4). **Hostile NPCs and NPCs reaching for a weapon ignore commands**: an escalated situation can only be subdued or shot. |
 | **Panic** | The shout's noise radius (the final command radius + 3), outside the Command ring or out of line of sight | Civilians **panic** and pick a reaction (shown as intent). Staff and guards become **Alerted**, and the ones who can become carriers do. |
 | **Noise** | Same as panic | It is a loud noise: the bank is now Loud. |
 
@@ -767,9 +767,11 @@ turn a slipping crowd into an escalating situation.
   can't know which civilian it is, only that one might be.
 - **Found by a frisk:** zip-tying includes a frisk, which finds and removes the weapon.
 - **When he acts:** while Commanded or tied, never. When he is **Panicked** or his command **lapses**, his reaction
-  is always ***Reach for weapon***. The intent shows for one world phase, and he becomes Hostile only after it: his
-  cover is blown, but the player gets one crew phase to command him again, tie him, take him down or shoot first. No
+  is always ***Reach for weapon***. The intent shows for one world phase, and he becomes Hostile only after it. No
   unannounced shots, ever [R28].
+- **Once he reaches, shouting is too late.** Commands no longer work on him, and zip-ties need a subdued target. The
+  player gets one crew phase to defuse it by **subduing** him (a melee knockout, the taser, or a flashbang followed by
+  a knockout or zip-tie) or to **shoot first**. A gunman can't be talked back into the crowd.
 
 ---
 
@@ -880,7 +882,8 @@ percentage is ever shown**, and there are no hidden assists [R18].
 
 - **Knockout:** adjacent, 1 action, on any NPC that isn't Hostile (or is Hostile but Surprised or Suppressed). The
   target is **out cold for 4 world phases**, then wakes **Alerted** in the same tile. Quiet noise radius 2.
-- **Taser:** ranged knockout (4 tiles), 3 cartridges. Doesn't work through armour 2+.
+- **Taser:** ranged knockout (4 tiles), 3 cartridges. Works on Hostile targets and on anyone reaching for a weapon.
+  Doesn't work through armour 2+.
 - **Flashbang:** everyone within 2 tiles of the landing tile is Surprised for one phase. Civilians are Commanded.
 - Lethal and non-lethal choices are tactical, never a morality score. Non-lethal costs actions and supplies; lethal
   costs heat, payout and Squeeze (§13.2, §19).
