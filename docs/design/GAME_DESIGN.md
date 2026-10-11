@@ -100,7 +100,7 @@ design sharpens it. Each change below is deliberate and can be reversed by the d
 | Cover gives a 50% block if it is right in front. | Kept for **half cover**, with an exact definition of "in front" (a 90° arc). **Full cover** (walls, pillars) blocks line of sight; you lean out from corners. | Cover has to be readable from one icon, and the icon has to match the hit logic exactly [R19]. |
 | Floor shows where a character can go without raising alarms. | Kept as a **strict promise**: calculated per character, along the whole path, against what NPCs *will* do in their next phase, using the same rules as the real check. Three colours: safe, suspicious, spotted. | One wrong tile destroys trust in the whole stealth layer [R1, R2]. |
 | Each character is spotted individually. | Kept. NPCs who know something is wrong become **Alerted** and read every crew member as **one profile more suspicious**, with wider vision; knowledge spreads physically (radio, shouts, people running to tell someone). | Without some link between characters, spotting each one separately becomes a string of easy ambushes, or guards ignoring the gunman next to their partner [R11]. An on-edge state is easier to show than a rule about who was seen with whom (director's suggestion). |
-| Off-limits areas at the back. | Three zones: **Public, Staff, Secure**. Being caught in Staff gets you escorted out on a first offence; Secure means instant exposure. | Binary detection is the most hated stealth design; Payday 3's tiers fixed it [R7]. |
+| Off-limits areas at the back. | Three zones: **Public, Staff, Secure**. Being caught in Staff gets you **challenged** on a first offence: walk back to Public by the end of your next turn (§8.6). Secure means instant exposure. | Being caught is never a game over, but a single sighting shouldn't instantly flip the whole bank from stealth to loud either. That all-or-nothing switch was Payday 2's most criticised stealth design; Payday 3's tiers fixed it [R7]. |
 | Sound is a circle; anyone in it is alerted. | The circle is drawn **clipped by walls**: closed doors and soft walls take reach away, reinforced walls stop it. **Quiet** sounds make people curious; **loud** sounds alert them. | Closing a door and choosing a quiet route become decisions, and the preview stays exact [R4]. |
 | A command keeps an NPC down for 2 turns. | Kept, plus a **Hold** stance that pauses the timer, and a **telegraphed lapse**: when the timer runs out, the NPC shows what it will do one turn before doing it. | Re-shouting at 20 people every 2 turns is a chore, and an NPC acting without warning is a gotcha [R26, R2]. |
 | Release a commanded NPC to reduce heat. | Kept: −3 heat ticks, **at most once per turn and three times per heist**, and only at an exit the police control. The released hostage tells the police where they saw the crew. | Otherwise command → release → repeat is an infinite heat-reduction loop [R25]. |
@@ -302,7 +302,7 @@ quieter or uniquely.
 
 | Role | Defining verb | Passives |
 | --- | --- | --- |
-| **Face** | *Talk*: once per heist, talk an NPC from 2 pips down to 0, or end an escort without a strike. | +1 answered radio check-in per heist. Bribes take 1 action (others can't bribe). Staff uniforms also work on the Security Chief. |
+| **Face** | *Talk*: once per heist, talk an NPC from 2 pips down to 0, or talk off a trespass challenge without being Warned. | +1 answered radio check-in per heist. Bribes take 1 action (others can't bribe). Staff uniforms also work on the Security Chief. |
 | **Tech** | *Hack*: loop a camera feed for 4 phases at a junction box or console. Disable the alarm panel or a vault sensor in 2 actions (others 4). | Lockpick in 1 action (others 2). Fixes a jammed drill for free when adjacent at the start of the crew phase. |
 | **Muscle** | *Dominate*: Command radius +2. | Carries Very Heavy loot at −1 move instead of half move. Every resister rolls at half its chance against this character's command. |
 | **Marksman** | *Brace*: no moving penalty for the DMR or LMG on the turn after bracing; recoil halved while braced. | Starts in a sniper nest if one was rented. Watch wedges can be 10° narrower. |
@@ -422,16 +422,29 @@ drawer or box, picking a pocket.
   - **3 pips, Exposed** (§8.7).
 - The move preview shows exactly what a move will cost: "+2 (teller)", "! (guard)".
 
-### 8.6 Trespass and the escort
+### 8.6 Trespass: the challenge
 
-When a Clean crew member is seen in the Staff zone by staff or an enforcer:
+The player never loses control of a crew member. An "escort" in a turn-based game is a **challenge with a deadline**,
+not a forced move. When a Clean crew member is seen in the Staff zone by staff or an enforcer:
 
-- **First offence:** "You can't be back here." In the next world phase, the NPC walks over and the crew member is
-  escorted to the nearest Public tile. The crew member loses their position and is **Warned** by that NPC for the rest
-  of the heist (an icon over the NPC; it isn't suspicion and doesn't make the NPC follow them).
-- **Second offence by a Warned crew member,** seen by an NPC who warned them, or by any enforcer: Exposed.
+1. **Challenge** (the moment they are seen): "Hey, you can't be back here." The crew member gets a **Challenged**
+   marker showing the challenger and an arrow to the nearest Public tile. Nothing else happens yet.
+2. **Next world phase:** the challenger walks toward the crew member (telegraphed path) and keeps watching them.
+3. **Next crew phase, the deadline:** the crew member must **end this crew phase on a Public tile**. They walk out
+   themselves, using their normal actions.
+   - **They comply:** the challenger follows them to the boundary, watches for one more world phase, then returns to
+     its routine. The crew member is **Warned** by that NPC for the rest of the heist (an icon over the NPC; it isn't
+     suspicion and doesn't make the NPC follow them).
+   - **They don't** (still in Staff, hiding out of sight, or going deeper): they are **Exposed** to the challenger,
+     who reacts by role (§16.2).
+   - **Another way out:** the Face can talk the challenger off once per heist (§7.2). Teammates can also deal with the
+     challenger before the deadline (knockout, command), which is an illegal act if anyone else sees it.
+4. **Second offence by a Warned crew member,** seen by an NPC who warned them or by any enforcer: Exposed, with no
+   challenge.
 
-A mistake costs time and position, not the heist [R7].
+A mistake costs a turn and position, not the heist [R7]. It can also be used on purpose: a challenged crew member
+pulls the challenger toward the lobby, and while it follows them, a teammate slips through the staff door behind its
+back.
 
 ### 8.7 Exposure and how knowledge spreads
 
@@ -1733,7 +1746,7 @@ world-phase speed setting, guidance levels, and full rebinding on desktop.
 **Three hand-authored jobs come before procedural banks.** Each teaches one layer, and the rules stay identical
 afterwards [R16 in immersive-sims notes]:
 
-1. **The Walk-in** (one Clean crew member, small branch): zones, the safe-floor overlay, suspicion and the escort,
+1. **The Walk-in** (one Clean crew member, small branch): zones, the safe-floor overlay, suspicion and the trespass challenge,
    evidence, knockout plus the radio check-in, disabling the alarm panel, walking out with a drawer's cash. No combat.
 2. **Everybody Down** (three crew, city branch): masks, GO, the three command rings, Hold, lapsing commands, zip-ties
    and frisking, alarm carriers and their counters, loot weights, a bag relay, the getaway.

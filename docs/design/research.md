@@ -65,12 +65,15 @@ The finding that came up in every area: a deep simulation is only fun if the pla
 
 ## 2. Stealth that bends instead of breaking
 
-7. **Binary fail-on-detection is the genre's most hated stealth design.** Payday 2: one guard you lost track of
-   ends a 20-minute run, so players restart until they get good spawns. Payday 3 fixed this with tiered zones:
+7. **All-or-nothing detection is the genre's most hated stealth design.** "Binary" here means one sighting instantly
+   flips the whole level from stealth to loud. It is not a game over, but the stealth plan is gone with no chance to
+   recover. In Payday 2, one guard you lost track of raises the alarm and ends a 20-minute stealth run on the spot,
+   so players restart until they get good spawns. Payday 3 fixed this with tiered zones:
    public (free), private (you're escorted out) and secure (shootout). Reviewers called its stealth the highlight.
    Phantom Doctrine was criticised because "nobody ever comes to investigate anything… none of the tension of a
    near-miss".
-   → Zones are Public, Staff and Secure. Being caught in Staff gets you escorted out. Every escalation has steps.
+   → Zones are Public, Staff and Secure. Being caught in Staff gets you challenged and sent back to Public. Every
+   escalation has steps, and every step can still be recovered from.
    ([VGC: Payday 3 preview](https://www.videogameschronicle.com/features/preview-payday-3-wants-to-be-oceans-eleven-the-game/))
 8. **The gear you carry should set who notices you.** In Payday 2, the concealment values of all your gear add up to
    your detection risk. Phantom Doctrine ties outfit tiers to restricted zones. Hitman keeps "enforcers" (the few
