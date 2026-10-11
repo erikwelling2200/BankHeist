@@ -2,6 +2,14 @@
 
 Top-down 2D pixel-art stealth game. Phaser 4 + TypeScript + Vite, shipped as an offline-capable PWA on GitHub Pages.
 
+## Game design
+- `docs/design/GAME_DESIGN.md` is the source of truth for how the game plays: rules, numbers, canonical tables and the
+  milestone order (§22). The current playable content is only a stack demo and doesn't reflect it.
+- `docs/design/research.md` holds the key research findings behind each design decision, with the full notes per area in
+  `docs/design/research/`.
+- The design's hard promises: the safe-floor overlay and every preview use the same rules as the real outcome; every
+  alarm carrier shows a countdown of at least 2; no NPC acts without a telegraphed intent.
+
 ## Commands
 - `npm run dev` – Vite dev server with hot reload.
 - `npm run typecheck` / `npm test` – TypeScript and Vitest unit tests (pure logic in `src/logic`, `src/level`).
