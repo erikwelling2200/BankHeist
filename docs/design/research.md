@@ -278,5 +278,6 @@ The finding that came up in every area: a deep simulation is only fun if the pla
   uses the clipped ring.
 - **Disguises.** Hitman shows they add a lot of social-stealth depth, but they add an enforcer layer the brief didn't
   ask for. The design keeps a light version (staff uniforms only) and marks it as cuttable.
-- **Run-ending roguelite or persistent campaign?** The design picks a finite campaign with arrests instead of
-  instant death and a carry-over veteran, and lists it as an open question for the director.
+- **Run-ending roguelite or persistent campaign?** The director chose a known final target that can be attempted at
+  any time, with an accelerating campaign clock (the Squeeze). This combines the campaign-clock findings [R48] with
+  Hitman Freelancer's prepare-then-showdown structure.

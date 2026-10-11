@@ -31,11 +31,11 @@ All numbers are **starting values for playtesting**. The rules around them are t
 16. [People of the bank](#16-people-of-the-bank)
 17. [The procedural bank](#17-the-procedural-bank)
 18. [Planning a heist](#18-planning-a-heist)
-19. [The campaign](#19-the-campaign)
+19. [The campaign: the road to The Big One](#19-the-campaign-the-road-to-the-big-one)
 20. [Presentation and controls](#20-presentation-and-controls)
 21. [Onboarding](#21-onboarding)
 22. [Scope and build order](#22-scope-and-build-order)
-23. [Open questions for the director](#23-open-questions-for-the-director)
+23. [Director decisions and open questions](#23-director-decisions-and-open-questions)
 
 ---
 
@@ -45,7 +45,8 @@ All numbers are **starting values for playtesting**. The rules around them are t
 your way: an unarmed inside man who quietly kills the alarm panel before the heavies walk in, a van through the front
 glass, or a sniper on the roof across the street covering the drill. It plays in turns on a grid like XCOM. It is
 about *control* like Payday: of people, doors and time. And any plan the rules allow will work, as in an immersive
-sim.
+sim. Every job builds toward one final score, The Big One, which you can attempt whenever you dare. Go too early and
+you won't come back; wait too long and it closes in on you.
 
 **The core fantasy is a heist film.** You scout, you plan, the plan runs, and then you improvise once it breaks.
 The signature moment is a takeover turn you set up during stealth: four people act at once, and "Everybody down!" is
@@ -70,6 +71,21 @@ the plan working, not stealth failing.
   rolls.
 - **Not a puzzle with one answer.** Every hard obstacle has a social, a technical and a violent way past it.
 
+### Tone
+
+**Gritty, with Hotline Miami-style violence.** Pixel-scale but unflinching: bullet hits spatter, bodies and blood
+pools stay where they fall, explosions scorch, and wounded people crawl and scream. Violence is fast, ugly and has
+consequences that the simulation remembers.
+
+**The arc of a heist** is the emotional design goal. The crew walks in confident and professional: clipped callouts
+("Lobby's ours." "Panel's dead."), clean movement, masks on in unison. If the job drags on, it falls apart: wounded
+crew limp and leave **blood trails**, barks turn desperate ("I'm hit, I'm hit!" "Don't leave me!"), heat climbs, and
+it can end in a scramble back to the van where someone has to be left behind. The mechanics produce that arc on
+their own (wounds §11.12, heat §13, arrest and leaving crew behind §15.4); the presentation leans into it with crew
+barks and animations that change with wounds and heat level.
+
+A **reduced gore** option exists for players who want it (§19.9). It changes the visuals only, never the rules.
+
 ---
 
 ## 2. How this design reads the brief
@@ -89,7 +105,8 @@ design sharpens it. Each change below is deliberate and can be reversed by the d
 | A command keeps an NPC down for 2 turns. | Kept, plus a **Hold** stance that pauses the timer, and a **telegraphed lapse**: when the timer runs out, the NPC shows what it will do one turn before doing it. | Re-shouting at 20 people every 2 turns is a chore, and an NPC acting without warning is a gotcha [R26, R2]. |
 | Release a commanded NPC to reduce heat. | Kept: −3 heat ticks, **at most once per turn and three times per heist**, and only at an exit the police control. The released hostage tells the police where they saw the crew. | Otherwise command → release → repeat is an infinite heat-reduction loop [R25]. |
 | Small chance an NPC is armed. | Armed civilians are **decided when the bank is generated**. They have **tells** and are found by frisking, and they need one **telegraphed turn** to draw before they shoot. | A random gunman in a game of perfect information feels unfair, not exciting [R28]. |
-| (not in brief) | Added: **masks**, **staff uniforms** (light disguise), **Notoriety** per crew member, a **campaign investigation meter**, **radio check-ins**, and a **takeover (GO) turn**. | Each one ties an existing system (conspicuousness, the alarm, heat) to the campaign or the core fantasy. Disguises are the most cuttable. |
+| (not in brief) | Added: **masks**, **disguises** (staff and guard uniforms, confirmed by the director), **Notoriety** per crew member, **radio check-ins**, **wounds and blood trails**, and a **takeover (GO) turn**. | Each one ties an existing system (conspicuousness, the alarm, heat) to the campaign or the core fantasy. |
+| Campaign (director's answer) | A known final target, attempted whenever the player chooses. Money buys gear, prep missions give finale advantages, and **the Squeeze** adds accelerating complications as days pass (§19). | The tension between preparation and taking too long is the campaign's core decision. |
 
 ---
 
@@ -167,7 +184,8 @@ These words mean exactly one thing everywhere: UI, tutorial, code and this docum
 | **Loud** | The bank has heard a gunshot, explosion, shout or scream. Ends the chance to take over. |
 | **Heat** | The police response level after the Alarm: levels 1–5, 5 ticks each. |
 | **Notoriety** | Per crew member, carried between heists: how recognisable they are. |
-| **Investigation** | The campaign-wide meter of how close the feds are. |
+| **Squeeze** | The campaign clock. It rises every day, faster as time goes on, and with messy jobs; each step adds a complication to the finale. |
+| **Hurt** | A crew member at half HP or less: limping, bleeding and leaving a blood trail. |
 | **Intent** | What an NPC will do in the next world phase, drawn on the map. |
 | **Hostile** | An armed NPC that is fighting the crew: a guard who has confronted someone or been shot at, police on scene, an armed civilian who has drawn. Hostile NPCs can't be knocked out unless they are Surprised or Suppressed. |
 | **Surprised** | Loses its next world phase (GO, flashbang). Lasts until the end of that world phase. |
@@ -177,14 +195,15 @@ These words mean exactly one thing everywhere: UI, tutorial, code and this docum
 ## 5. Structure of play
 
 ```
-Campaign (8–12 heists, 6–12 h)
- └─ City map: pick a contract, lay low, launder, recruit, heal, case a bank
+Campaign (about 8–15 days, 5–10 h)
+ └─ City map, one action per day: contract, prep mission, case, lay low; recruit and shop for free
+     · The Big One can be launched on any day: the final, single attempt
      └─ Heist (20–40 min)
          ├─ Planning screen: starts, loadouts, positional assets, getaway spot
          ├─ Execution, one continuous turn-based map:
          │    Stealth ──(GO / accident)──► Loud ──► Escape
          │        └ the Alarm can fire at any point; heat ticks only after it
-         └─ Debrief: payout, styles, notoriety, injuries, investigation
+         └─ Debrief: payout, styles, notoriety, injuries, Squeeze
 ```
 
 - A heist is one continuous map and one turn loop. "Stealth" and "loud" are states of the bank, not separate modes.
@@ -236,7 +255,7 @@ No NPC ever acts on a decision the player hasn't had a crew phase to see.
 | Pick up / drop / throw bag | 1 | |
 | Reload | 1 | |
 | Gear up / stow | 1 | Take a long gun or armour out of a duffel, or put it back. Changes profile. |
-| Mask up | 1 (free during GO) | Sets profile to Heavy. Masked crew gain no Notoriety from witnesses (§19.5). |
+| Mask up | 1 (free during GO) | Sets profile to Heavy. Masked crew gain no Notoriety from witnesses (§19.7). |
 | Revive | 1 | Adjacent downed ally, back on their feet with 3 HP. |
 | Answer radio / phone | 1 | Radio check-ins (§8.11), police negotiator (§13.4). |
 | Use throwable | 1 | Flashbang, smoke, noisemaker. |
@@ -307,7 +326,7 @@ A **duffel** (gadget) holds one long gun and one armour piece, and shows as Conc
 
 ### 7.4 Profile
 
-**A crew member's profile is their most conspicuous visible item**, raised by Notoriety (§19.5).
+**A crew member's profile is their most conspicuous visible item**, raised by Notoriety (§19.7).
 
 | Profile | Visible items |
 | --- | --- |
@@ -555,6 +574,22 @@ Misdirection must be reliable, so the player can deliberately pull a specific NP
   generator restores power after 3 phases unless it is also disabled (1 action at the generator).
 - **(v2) Fire alarm:** the bank evacuates to the street and the fire department arrives in 8 turns (more
   witnesses). It empties the bank but brings eyes.
+
+### 8.14 Disguises
+
+Disguises (confirmed by the director) are clothing. They replace the crew member's look but not their gear, so the
+profile rules still apply to anything visible on top. A disguised crew member's portrait shows the uniform.
+
+| Uniform | Source | Effect | Seen through by |
+| --- | --- | --- | --- |
+| **Staff** | Break room at shift change, the Staff uniforms asset, an insider | The Staff zone counts as Public. | The manager and the security chief (in Core view): trespass. |
+| **Guard** | Taken from a knocked-out or tied guard: 2 actions, adjacent, out of everyone's sight | The Staff zone counts as Public. In the Secure zone, staff give +1 instead of `!`, and cameras ignore them. A holstered pistol counts as Clean. | Any guard within 2 tiles in Core view ("You're not Dave."): `!`. The security chief at any range in Core view. |
+| **Courier** | The *Hijack an armoured truck* prep mission (finale only) | Enter the loading bay during the transfer as couriers. | As guard. |
+
+- **Changing** into a uniform takes 2 actions and must happen out of every NPC's sight. The stripped guard left
+  behind is major evidence (§8.10).
+- **Armour above a light vest, long guns, loot bags and masks break the disguise:** profile is computed normally.
+- **Changing outfit is also how an Exposed crew member shakes off a description** (§8.7).
 
 ---
 
@@ -814,7 +849,7 @@ percentage is ever shown**, and there are no hidden assists [R18].
 - **Taser:** ranged knockout (4 tiles), 3 cartridges. Doesn't work through armour 2+.
 - **Flashbang:** everyone within 2 tiles of the landing tile is Surprised for one phase. Civilians are Commanded.
 - Lethal and non-lethal choices are tactical, never a morality score. Non-lethal costs actions and supplies; lethal
-  costs heat, payout and investigation (§13.2, §19).
+  costs heat, payout and Squeeze (§13.2, §19).
 
 ### 11.11 Ammo and reloading
 
@@ -823,12 +858,17 @@ weapon.
 
 ### 11.12 Downed, arrested, dead
 
+- **Hurt** (half HP or less): the crew member is visibly wounded. They **limp** (−1 move per move action), aim
+  worse (Aim ×1.25), **bleed** (−1 HP every 2 world phases until bandaged with a medkit, 1 action), and leave a
+  **blood trail** on every tile they cross. Before the bank is loud, blood is major evidence (§8.10). Afterwards,
+  police follow fresh trails to a hidden crew member.
 - **Crew at 0 HP are downed** and bleed out over **3 world phases**. **Revive** (adjacent, 1 action) brings them back
   with 3 HP. A downed crew member can be **carried**, with Very Heavy carry rules.
 - **Police reaching a downed crew member arrest them:** they are moved to a police van. They can be traded back
-  (§10.7). If they're still in custody when the heist ends, they are jailed (§19.4).
+  (§10.7). If they're still in custody when the heist ends, they are jailed (§19.6).
 - A crew member under "Hands up!" (§16.2) can **surrender**, which is the same as being arrested.
-- **NPCs at 0 HP die,** unless the damage was non-lethal (knockout, taser, flashbang).
+- **NPCs at 0 HP die,** unless the damage was non-lethal (knockout, taser, flashbang). Wounded NPCs (half HP or
+  less) crawl toward exits and scream: a loud noise, radius 6, once per world phase.
 - **NPCs use the same rules:** their cones, cover and armour work exactly like the crew's. A hostile NPC that will
   fire next phase shows its target and a threat wedge during the crew phase.
 - **Police target priority:** the crew member who shot at police last phase, then the nearest visible crew member,
@@ -933,8 +973,8 @@ SWAT or use the DMR.
 | A hostage escapes to the police | +1 |
 | **Release** a hostage (§10.7) | −3 (once per turn, three times per heist) |
 
-Kills witnessed before the Alarm are added when the Alarm fires. Kills also cost payout and push the campaign
-investigation forward (§19), so killing always costs something even when nobody sees it.
+Kills witnessed before the Alarm are added when the Alarm fires. Kills also cost payout and tighten the campaign's
+Squeeze (§19), so killing always costs something even when nobody sees it.
 
 ### 13.3 Escalation by level (cumulative)
 
@@ -1115,7 +1155,7 @@ dark, so no codes either.
 - **Drill choices** (planning assets): **Silent** (noise 3, +50% time), **Beast** (never jams, +50% time).
 - Drilling or burning a Class II+ vault adds +1 heat tick per phase once the Alarm is up.
 - **Deposit boxes:** lockpick each box (2 actions, Tech 1; Light loot) or drill the whole wall (4 phases). One random box per
-  campaign bank holds **intel** for a later job (§19.6).
+  campaign bank holds **intel**, such as documents a prep mission needs (§19.5).
 
 ### 15.4 The getaway
 
@@ -1138,7 +1178,7 @@ dark, so no codes either.
 | **Failure** | Every crew member is out (dead, arrested or bleeding out) or none can still escape. |
 
 The **payout** is the loot that left the map, minus dye-pack losses, minus **10% per civilian killed** and **5% per guard,
-staff member or police officer killed** (the "cleaner" fees) and the crew's shares (§19.2), plus **style** bonuses (§19.7).
+staff member or police officer killed** (the "cleaner" fees) and the crew's shares (§19.4), plus **style** bonuses (§19.8).
 
 ---
 
@@ -1394,88 +1434,173 @@ more than about 60% of winning plans [R47].
 
 ---
 
-## 19. The campaign
+## 19. The campaign: the road to The Big One
 
-A campaign is **finite**: 8–12 heists building to **The Big One**, about 6–12 hours. It has a clock, and progression
-widens options instead of inflating power [R45–R48].
+The campaign is a race. The player knows the final target from day one and can attack it **whenever they choose**.
+Every other job is preparation: money for better gear, and prep missions that give **tangible advantages** in the
+finale. Waiting costs more and more: a campaign clock, **the Squeeze**, adds complications to the finale, each step
+arriving sooner than the last. The game is the balance between being ready and being too late [R48].
 
-### 19.1 The city map
+```
+Day 1 ──► [contract | prep mission | case | recruit | lay low] ──► … ──► THE BIG ONE (any day you choose)
+            money → gear     advantages     intel                         win or lose: the campaign ends
+                    ▲                                                     unprepared crews don't come back
+                    └── every day and every messy job tightens the Squeeze → complications on the finale
+```
 
-- Districts with banks belonging to **chains**. Contracts appear on the map with tier, target value, crew size,
-  headline feature and known intel.
-- Each **day**, the crew does one thing: **pull a heist**, **case a bank** (a short no-combat visit with one Clean
-  crew member that fills in casing knowledge; it only costs Notoriety if something goes wrong), **lay low**,
-  **launder**, **recruit**, or **heal**.
-- **Chain escalation:** after a heist on one branch of a chain, its other branches add a security step (an extra
-  camera, an armed guard, dye packs, faster police). "Which bank next?" becomes a strategic choice.
+### 19.1 The Big One
 
-### 19.2 Money
+- On day 1, the player gets the **dossier** for the final target, for example the Halvorsen Federal Depository
+  during its quarterly cash transfer. It lists every known **Defence** (guards, response team, vault class and
+  sensors, police ETA, cameras, mantraps, metal detectors, helicopter, roadblocks) and the **target value** (for
+  example $2M, mostly Very Heavy gold).
+- **The finale can be launched from the city map on any day.** It is a single attempt. Win or lose, the campaign
+  ends.
+- The finale is a **hand-authored site** with population and schedule variation (§17.3, Reserve depot). Each Defence
+  is a real, tuned obstacle. **An unprepared crew should not get out alive**: a crew with starter gear and no prep
+  advantages faces a Class III vault with seismic and motion sensors, an on-site armed response team, police in 3
+  turns and a helicopter from Heat 3.
+- The dossier shows, next to each Defence, which prep mission or gear counters it. "Ready" is something the player
+  can read, not a guess.
 
-- Loot comes out as **dirty money**, which can't buy gear until it is **laundered**.
-- **Weekly laundering capacity** comes from fronts the crew buys (laundromat, car wash, nightclub: each adds
-  capacity).
-- A **fence** launders instantly but takes a 50% cut. Spending dirty money directly raises Investigation.
-- **The crew are paid a share of the take** (8–20% each, set at recruitment), not wages. A bigger crew means smaller
-  shares. Crew paid late lose loyalty and may talk if arrested.
-- **Failed heists lose the gear brought in,** so choosing what to bring is a real risk.
+**Endings:**
 
-### 19.3 Crew
+| Ending | Condition |
+| --- | --- |
+| **Retired rich** | Out with the target value. The epilogue lists who made it. |
+| **Got away** | Out with less than the target. A lesser epilogue. |
+| **Lost** | Nobody escapes. Campaign over. |
 
-- **Recruits** come with a role, one or two traits and a **personal motive**: "pay off my $80k debt", "get my brother
-  out of county jail", "never kill anyone", "hit the bank that foreclosed on my house". When the motive is met, the
-  recruit can **retire** with their cut and leave a permanent perk (a contact, safehouse, fence or vehicle).
-- **Perks:** each role has a small perk list; a crew member picks one per two heists survived. No HP growth.
-- **Crew pairs:** two crew members who complete 3 heists together unlock a small joint action (for example a cover
-  swap). Seeing a partner killed costs the survivor a turn of nerve. (v2)
+### 19.2 The Squeeze (the campaign clock)
 
-### 19.4 Injury, arrest, death
+The Squeeze is a points track. Every **threshold** (every 5 points) adds a **complication** to the finale or the
+city. The next complication and its threshold are always shown on the city map, so the player can see exactly what
+waiting will cost.
 
-- **Downed during a heist** (even if revived) → injured, out for a number of days.
-- **Arrested** → jailed. Options: a lawyer (money and days), a **jailbreak or prison-transfer contract**, or leave
-  them, in which case they may **talk** (+Investigation, +Notoriety for crew they name).
-- **Killed** → gone. Their gear is lost unless the body was carried out.
-- Default is **arrest-first**: crew left behind are arrested, not executed. A permadeath-heavy mode is an option
-  (§19.9).
+**Squeeze gained:**
 
-### 19.5 Notoriety (per crew member, 0–5)
+| Source | Points |
+| --- | --- |
+| Each day that passes, days 1–5 | +1 |
+| Each day that passes, days 6–10 | +2 |
+| Each day that passes, days 11–15 | +3 |
+| Each day that passes, day 16 on | +4 |
+| A job reached the Alarm | +2 |
+| Each kill | +1 |
+| Each crew member who gained Notoriety | +1 |
+| A failed job | +2 |
+| An arrested crew member talks | +4 |
+| "Leak a false tip" side job (once per campaign) | −5 |
+
+Because daily gain accelerates, complications come faster and faster: with clean play, about days 5, 8, 10, 12, 14,
+15 and 17, with the Raid around day 18. Messy jobs bring every step forward.
+
+**Complications** are drawn from a pool when the campaign starts, so their order is fixed and visible:
+
+- The depot adds 2 guard posts.
+- The police response contract is renegotiated: finale police ETA −1.
+- The vault is upgraded: drill time +4, or a second sensor.
+- A security chief transfers in and recognises any crew member with Notoriety 1+.
+- The camera network is upgraded: every feed is live, and a second operator is added.
+- The task force tails the crew: Notoriety +2 for the crew member with the most.
+- The fence gets nervous: fence cut +15%.
+- A city checkpoint closes one finale getaway route.
+- A snitch burns one prep advantage, chosen at random from those not yet used.
+- The armed response team doubles.
+
+**The final threshold (40 points) is "The Raid."** The task force raids the safehouse: a forced escape mission. A
+crew that survives must attempt the finale **the next day**, with every complication drawn so far. The clock is
+therefore a hard deadline as well as a growing cost.
+
+### 19.3 Contracts and stakes
+
+Contracts appear on the city map. Each takes **1 day**. Higher stakes earn money faster but risk coming back with
+nothing, or without crew members.
+
+| Stakes | Typical target | Crew | Payout | Risk |
+| --- | --- | --- | --- | --- |
+| **Low** | Small branch, ATM service run | 2–3 | $40–90k | Police ETA 8, 1 guard, Class M vault |
+| **Medium** | City branch | 3–4 | $120–250k | ETA 6, operator, Class I–II, dye packs |
+| **High** | Regional HQ, armoured-car interception | 4–5 | $300–600k | ETA 4, security chief, Class II–III, response time scaled up |
+
+- **Failure loses the gear brought in**, and any crew left behind (§19.6). A failed high-stakes job can cost the
+  best rifles, the heavy armour and two crew members in one afternoon.
+- **Chain escalation:** after a heist on one branch, the chain's other branches add a security step.
+- Contracts refresh as days pass. Some expire, which forces choices between them.
+- **Other day actions:** **case a bank** (1 day: one Clean crew member's no-combat visit fills in casing knowledge
+  for that contract), **lay low** (1 day: injured crew heal and Notoriety decays). **Recruiting** and **shopping** take
+  no time.
+
+### 19.4 Money and gear
+
+- **Loot comes out as dirty money.** The safehouse launders a fixed amount per day (raised by buying fronts: a
+  laundromat, a car wash). A **fence** launders instantly for a 50% cut.
+- **The crew take a share** of each job (8–20% each, set at recruitment). A bigger crew means smaller shares.
+- **The black market** sells everything in §12: weapons, armour, gadgets, charges, drills, vehicles. Its higher
+  tiers (thermal lance, heavy armour, DMR, LMG) open as the crew makes **contacts**, from high-stakes jobs and some
+  prep missions. Gear is kept between jobs unless it is lost.
+- **Better gear changes options, not HP:** slugs that answer shields, a suppressed SMG for quiet loud phases, heavy
+  armour for the drill defence, a jammer, extra charges.
+
+### 19.5 Prep missions
+
+**Prep missions** are 1-day jobs on smaller sites built with the same systems and parcels (§17): an office, a yard,
+a street ambush, a records room. Each grants one **finale advantage** that counters a specific Defence on the
+dossier. A failed prep mission adds Squeeze and may be lost for good.
+
+| Prep mission | Site | Finale advantage |
+| --- | --- | --- |
+| **Steal the blueprints** | Architect's office, after hours | Full layout and wall materials known from the start. |
+| **Case the depot** | The depot's public visitor hall; one Clean crew member, no combat | Guard rota, camera feeds and the transfer schedule known. |
+| **Turn an insider** | Follow and blackmail a depot employee (social mission in a bar or home) | One employee unlocks a staff door and won't raise the alarm. |
+| **Steal a thermal lance** | Construction company yard | Vault door opens in 4 phases, without triggering the seismic sensor. |
+| **Hijack an armoured truck** | Street ambush on the transfer route | Drive into the loading bay as the transfer, with 2 guard uniforms. |
+| **Raid the dispatch office** | Police substation records room | Finale police ETA +3, and the first assault delayed by 2 turns. |
+| **Map the sewers** | Utility depot | A sewer approach and an escape exit at the depot. |
+| **Take the rooftop** | Office tower opposite the depot | A sniper nest over the depot yard. |
+| **Plant the charges** | Night break-in next door | Shaped charges pre-placed on the depot's outer wall. |
+| **Discredit the security chief** | Documents from a deposit box at a specific bank (a regular heist with a side objective) | The security chief is absent on the day. |
+| **Get half the code** | The manager's home safe | One half of the dual-control code. |
+| **Stash a second getaway** | Garage job | A backup getaway car, and one finale roadblock doesn't happen. |
+
+Not every prep mission is offered in every campaign. 6–8 are drawn, enough for several valid finale plans but not
+all of them.
+
+### 19.6 Crew: hiring, injury, arrest, death
+
+- **Recruits** come with a role, one or two traits and a **personal motive** ("pay off my $80k debt", "never kill
+  anyone", "get even with the bank that foreclosed on me"). Meeting it before the finale gives a one-time bonus (a
+  perk or a contact).
+- **Perks:** each role has a small perk list; a crew member picks one per two jobs survived. No HP growth.
+- **Downed during a job** (even if revived) → injured, out for a number of days. Time is the cost.
+- **Arrested** → jailed. Options: a lawyer (money and days), a **jailbreak contract**, or leave them, in which case
+  they may **talk** (+4 Squeeze, +Notoriety for the crew they name).
+- **Killed** → gone, with their gear unless the body was carried out.
+- The default is **arrest-first** for crew left behind (confirmed by the director). Permadeath-heavy play is an
+  option (§19.9).
+
+### 19.7 Notoriety (per crew member, 0–5)
 
 | Gain | Amount |
 | --- | --- |
-| Seen **unmasked** committing an illegal act by a witness who reached the police (escapee, released hostage, survivor at the debrief) | +1 per heist |
-| Filmed unmasked doing something illegal, with the recorder not destroyed or taken | +1 per heist |
+| Seen **unmasked** committing an illegal act by a witness who reached the police (escapee, released hostage, survivor at the debrief) | +1 per job |
+| Filmed unmasked doing something illegal, with the recorder not destroyed or taken | +1 per job |
 | Arrested | +2 |
 
 | Level | Effect |
 | --- | --- |
 | 0–1 | Unknown |
 | 2–3 **Known** | Enforcers and cameras treat them **one profile higher** (Clean counts as Concealed: frisk range). |
-| 4–5 **Wanted** | Everyone treats them one profile higher. Contracts in their home district warn about them. |
+| 4–5 **Wanted** | Everyone treats them one profile higher. |
 
-**Decay:** −1 per heist the crew member sits out. Notoriety is the anti-snowball rule: veterans become loud
-specialists, and fresh faces become the best infiltrators [R45].
+**Decay:** −1 for every 2 days the crew member isn't deployed. Notoriety is the anti-snowball rule: veterans become
+loud specialists, and fresh faces become the best infiltrators [R45]. It is also why the finale crew can't simply be
+whoever did every job.
 
-### 19.6 Investigation (the campaign clock, 0–100)
+### 19.8 Styles
 
-| Event | Change |
-| --- | --- |
-| Any heist | +5 |
-| Heist reached the Alarm | +10 |
-| Each kill | +5 |
-| Each crew member who gained Notoriety | +3 |
-| Arrested crew member talks | +15 |
-| Laying low (3 days) | −10 |
-| Bribing a detective | −15, costs money |
-| "Destroy evidence" side contract | −20 |
-
-At **100**, the task force **raids the safehouse**: a final defend-or-escape mission. Losing it ends the campaign.
-
-**The Big One** unlocks when the crew has collected 3 pieces of intel (for example the depot blueprint, an insider,
-the vault-code scheme). Intel comes from deposit-box finds, opportunities and side contracts in earlier heists.
-
-### 19.7 Styles
-
-The debrief lists every **style** the crew earned. Each pays a one-time bonus (reputation, an unlock, or a payout
-percentage) per contract tier, so every way of playing is rewarded on its own terms [R46]:
+The debrief lists every **style** the crew earned. Each pays a one-time bonus (a payout percentage, or a contact for
+the black market) per contract tier, so every way of playing is rewarded on its own terms [R46]:
 
 | Style | Condition |
 | --- | --- |
@@ -1489,26 +1614,24 @@ percentage) per contract tier, so every way of playing is rewarded on its own te
 | **Greedy** | Took at least twice the target. |
 
 Payouts must never make stealth strictly best. Loud play reaches deeper vaults and more bags; stealth keeps heat,
-Notoriety and Investigation low.
+Notoriety and Squeeze low.
 
-### 19.8 End of a run and meta unlocks
+### 19.9 Between campaigns, difficulty and options
 
-- A run ends with **The Big One** (victory) or with the **crew wiped or the raid lost** (defeat).
-- Either way, the player unlocks **options**: new roles and archetypes, contract types (armoured-truck job,
-  gold-reserve run, casino cage), starting perks (a fence, a bent cop, a garage) and gadgets.
-- **One surviving crew member can carry over** into the next campaign as a veteran.
+- After the finale, the player unlocks **options** for the next campaign: new roles and archetypes, other final
+  targets (a casino cage, a gold-reserve train), starting perks (a fence, a bent cop, a garage) and gadgets. **One
+  surviving crew member can carry over** as a veteran.
 - No prestige resets, no XP gates, nothing bought with real money.
-
-### 19.9 Difficulty and options
 
 | Setting | Casual | Normal | Hard | Ironman |
 | --- | --- | --- | --- | --- |
 | Turn rewinds per heist | Unlimited | 3 | 1 | 0 (one save) |
 | Armed civilians | Off | On | On | On |
+| Squeeze per day | ×0.75 | ×1 | ×1 | ×1.25 |
 | Crew left behind | Arrested | Arrested | Arrested; executed at Heat 5 | Arrested; executed at Heat 5 |
 
 **Toggles:** permadeath versus arrest-only, armed-civilian frequency, world-phase speed, guidance level (Full,
-Minimal, Off).
+Minimal, Off), reduced gore.
 
 ---
 
@@ -1619,29 +1742,31 @@ next starts.
 | **M3 Loud** | Cones, fan-out spread, cover, armour and pierce, penetration, the shot preview, Watch, Suppress, downed and arrested, police staging, rhythm, heat, negotiation, release and trade, getaway and escape, the outcome screen. | Loud is a tactical game, not a losing state. |
 | **M4 Sandbox v1** | Breach and shaped charges, barricade, reinforce, blinds, tripwire, the ram truck, the sniper nest, power and generator, the planning screen with assets and starts. | Plans made on the planning screen pay off in play. |
 | **M5 Procedural banks** | Plots, archetypes, parcels, key graph, population and schedule, opportunities, validation, knowledge layers, seeds. | Generated banks are plannable and varied. |
-| **M6 Campaign** | City map, money and laundering, crew, Notoriety, Investigation, styles, chain escalation, The Big One, meta unlocks, difficulty options. | Every heist matters beyond its own map. |
+| **M6 Campaign** | City map and day actions, contracts by stakes, money and laundering, the black market, crew, Notoriety, styles, chain escalation, **the Squeeze and its complications**, prep missions on small sites. | The preparation-versus-time decision is tense every day. |
+| **M7 The Big One** | The hand-authored depot with its Defences, the dossier, prep advantages wired into the finale, endings, the Raid mission, carry-over and unlocks. | An unprepared crew dies there; a prepared crew has several plans that work. |
 
 **Deliberately v2 or later:** fire alarm and firefighters, crew pairs, a nemesis SWAT commander, multiple floors
 beyond a basement or mezzanine, armoured-truck and casino contracts, a daily or shared-seed challenge (only if it is a
 challenge, never a login reward), and any multiplayer.
 
-**Cut first if needed:** staff uniforms (disguises), the security chief's face memory, dye packs, the hero trait.
+**Cut first if needed:** the security chief's face memory, dye packs, the hero trait, crew personal motives.
 
 ---
 
-## 23. Open questions for the director
+## 23. Director decisions and open questions
 
-1. **Heat before the Alarm.** This design reads "the longer the heist goes on" as *after the Alarm*, with the bank's
-   schedule and the closing sweep as the pressure before it. Is that right, or should something tick from the
-   start?
-2. **Losing crew.** The default here is arrest-first, with permadeath as an option. Should death be more common by
-   default?
-3. **Campaign shape.** A finite run (8–12 heists, roguelite unlocks, one veteran carries over) versus an open-ended
-   persistent career. This design picks the finite run.
-4. **Disguises.** Staff uniforms add a lot of social-stealth depth but aren't in the brief. Keep them, or cut them
-   to keep the profile system pure?
-5. **Tone.** "Professional robbers": violence is possible but costly, and civilians can be killed but cost a lot.
-   How dark should it look?
-6. **Multiplayer.** This design assumes single-player only. Is co-op ever in scope?
-7. **Stratified spread.** Bullets fan out evenly to bound the variance. Does the director want rawer, fully
-   independent spread instead?
+**Decided (October 2026):**
+
+1. **Heat before the Alarm:** none. The bank's schedule and the closing sweep are the pressure before it (§2, §13).
+2. **Losing crew:** arrest-first by default; permadeath is an option (§19.6, §19.9).
+3. **Campaign:** a known final target the player can attack at any time. Money buys gear, prep missions give finale
+   advantages, and the accelerating Squeeze punishes waiting; higher stakes earn faster but risk more (§19).
+4. **Disguises:** in. Staff, guard and courier uniforms (§8.14).
+5. **Tone:** gritty, Hotline Miami-style violence. Visible wounds, blood trails, and the arc from a confident,
+   professional crew to a desperate scramble back to the van (§1, §11.12).
+6. **Multiplayer:** single-player only.
+
+**Still open:**
+
+7. **Stratified spread.** Bullets fan out evenly to bound the variance. Should spread be rawer and fully independent
+   instead? Decide in playtesting (M3).
