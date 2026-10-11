@@ -50,3 +50,23 @@ test('registers a service worker for offline play', async ({ page }) => {
     const registered = await page.evaluate(async () => !!(await navigator.serviceWorker.ready));
     expect(registered).toBe(true);
 });
+
+test.describe('on a phone', () => {
+    test.use({ viewport: { width: 844, height: 390 }, hasTouch: true, isMobile: true });
+
+    test('fills a wide landscape screen and offers fullscreen', async ({ page }) => {
+        const errors = await boot(page);
+        const canvas = (await page.locator('canvas').boundingBox())!;
+        expect(canvas.width).toBeCloseTo(844, -1);
+        expect(canvas.height).toBeCloseTo(390, -1);
+        await expect(page.locator('.fullscreen-button')).toBeVisible();
+        await page.screenshot({ path: 'screenshots/phone-landscape.png' });
+        expect(errors).toEqual([]);
+    });
+
+    test('asks to rotate in portrait', async ({ page }) => {
+        await page.setViewportSize({ width: 390, height: 844 });
+        await boot(page);
+        await expect(page.locator('.rotate-hint')).toBeVisible();
+    });
+});

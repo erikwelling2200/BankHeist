@@ -25,6 +25,10 @@ Top-down 2D pixel-art stealth game. Phaser 4 + TypeScript + Vite, shipped as an 
 - Camera post-processing (bloom, vignette) lives in `VaultScene.create`. Phaser's vignette goes near black at its
   radius, so keep `strength` low.
 - The HUD is an HTML overlay (`src/ui/Hud.ts`) so text stays crisp, not canvas text.
+- Scale mode is `EXPAND`: height stays 180px and width follows the screen's aspect ratio, so never assume a 320px-wide
+  view – position screen-space UI from `this.scale.width`/`height`.
+- Fullscreen (`src/ui/Fullscreen.ts`) puts the whole document fullscreen (so the HUD stays visible) on first touch in
+  a browser tab. iPhone Safari has no Fullscreen API; there only the installed PWA is fullscreen.
 
 ## Deploy
 Pushing to `main` runs `.github/workflows/deploy.yml`: tests, then builds and deploys to GitHub Pages. Vite uses

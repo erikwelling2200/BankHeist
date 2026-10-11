@@ -10,10 +10,20 @@ Sneak through the bank, grab every gold bar, and get back to the green exit with
 - **Phone:** touch and drag anywhere to move (floating joystick). Play in landscape.
 - **Desktop:** WASD or arrow keys.
 
+## Fullscreen
+- **Installed to the home screen** (below): always fullscreen, no browser bars.
+- **In a browser tab:** Android goes fullscreen on your first touch; the ⛶ button top-left toggles it. iPhone Safari
+  doesn't allow web pages to go fullscreen, so on iPhone install it to the home screen.
+
 ## Install for offline play
-Open the link on your phone, then use **Add to Home Screen** (Safari share menu, or Chrome's ⋮ menu). The game then
-launches full screen and works without a connection. New versions are picked up automatically the next time it opens
-online.
+1. Open the link once while online (this caches the whole game).
+2. Add it to your home screen:
+   - **iPhone (Safari):** Share button → **Add to Home Screen**.
+   - **Android (Chrome):** ⋮ menu → **Add to Home screen** / **Install app**.
+3. Launch it from the new icon. It runs fullscreen and works in airplane mode.
+
+New versions are picked up automatically the next time it opens with a connection (close and reopen it once more to
+see them).
 
 ## Development
 ```bash

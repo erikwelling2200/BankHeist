@@ -1,6 +1,7 @@
 import Phaser from 'phaser';
 import { registerSW } from 'virtual:pwa-register';
 import { VaultScene } from './scenes/VaultScene';
+import { Fullscreen } from './ui/Fullscreen';
 import './style.css';
 
 const game = new Phaser.Game({
@@ -12,7 +13,8 @@ const game = new Phaser.Game({
     pixelArt: true,
     // Each light costs a little per pixel, but at 320x180 even 32 lights are cheap on phones.
     render: { maxLights: 32 },
-    scale: { mode: Phaser.Scale.FIT, autoCenter: Phaser.Scale.CENTER_BOTH },
+    // EXPAND keeps 180px of height and widens the view to the screen's aspect ratio, so there are no black bars on phones.
+    scale: { mode: Phaser.Scale.EXPAND, autoCenter: Phaser.Scale.CENTER_BOTH },
     physics: { default: 'arcade', arcade: { debug: false } },
     input: { activePointers: 3 },
     scene: [VaultScene]
@@ -21,4 +23,5 @@ const game = new Phaser.Game({
 // Handle for Playwright tests and console debugging.
 Object.assign(window, { game, Phaser });
 
+new Fullscreen();
 registerSW({ immediate: true });

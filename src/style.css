@@ -2,3 +2,9 @@
 .hud-gold { position: absolute; top: max(12px, env(safe-area-inset-top)); right: max(16px, env(safe-area-inset-right)); color: #f2c94c; }
 .hud-message { position: absolute; left: 0; right: 0; top: 18%; text-align: center; opacity: 0; transition: opacity 0.3s; }
 .hud-message.visible { opacity: 1; }
+.fullscreen-button { position: fixed; top: max(8px, env(safe-area-inset-top)); left: max(12px, env(safe-area-inset-left)); width: 36px; height: 36px; border: 1px solid rgba(242, 230, 200, 0.35); border-radius: 6px; background: rgba(11, 13, 23, 0.5); color: #f2e6c8; font-size: 20px; line-height: 1; padding: 0; z-index: 10; }
+.fullscreen-button.active { opacity: 0.4; }
+.rotate-hint { display: none; }
+@media (orientation: portrait) and (pointer: coarse) {
+  .rotate-hint { display: flex; position: fixed; inset: 0; z-index: 20; align-items: center; justify-content: center; padding: 24px; text-align: center; background: #0b0d17; color: #f2e6c8; font: 600 18px ui-monospace, Menlo, Consolas, monospace; letter-spacing: 0.08em; }
+}
