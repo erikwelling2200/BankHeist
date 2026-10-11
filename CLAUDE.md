@@ -22,6 +22,8 @@ Top-down 2D pixel-art stealth game. Phaser 4 + TypeScript + Vite, shipped as an 
   `render.maxLights` is 32 – lights beyond that are silently dropped, so raise it if a scene gets busier.
 - All art is generated in `src/art` from palette grids, with a height per colour that becomes the normal map. Real art
   can replace it by loading PNGs plus `-n.png` normal maps in a preload scene and keeping the `TEX` keys.
+- Before generating or restyling art, read `docs/pixel-art/PROMPTING.md` (rules) and `docs/pixel-art/README.md`
+  (findings, example scripts in `scripts/pixel-art/`).
 - Camera post-processing (bloom, vignette) lives in `VaultScene.create`. Phaser's vignette goes near black at its
   radius, so keep `strength` low.
 - The HUD is an HTML overlay (`src/ui/Hud.ts`) so text stays crisp, not canvas text.
