@@ -95,48 +95,57 @@ design sharpens it. Each change below is deliberate and can be reversed by the d
 
 ## 3. A heist on one page
 
-*City branch, mid-morning. Crew of four: Mara (Face), Jun (Tech), Dex (Muscle), Sol (Marksman). Contract target:
-$150k.*
+*City branch (Mezzanine Watch archetype), mid-morning. Crew of four: Mara (Face), Jun (Tech), Dex (Muscle), Sol
+(Marksman). Contract target: $150k.*
 
-**Planning.** The blueprint shows a Two Wing bank: lobby at the bottom, staff corridor on the right, CCTV room on the
-left mezzanine, vault at the top. Jun rents a room in the office tower across the alley for Sol (DMR, rooftop view
-into the staff corridor windows). The van, with Dex inside in heavy armour carrying an LMG, parks at the curb right of
-the entrance. The favour budget covers a cut phone line and a stash duffel in the public restroom.
+**Planning.** The blueprint shows the lobby at the bottom, the staff corridor on the right, the CCTV room on a
+mezzanine to the left and the vault at the top. The crew rents a room in the office tower across the alley for Sol,
+with a DMR and a rooftop view into the staff corridor windows. The van, with Dex inside in heavy armour carrying an
+LMG, parks at the curb right of the entrance. The favour budget covers a stash duffel (shotgun) in the public
+restroom and a cut phone line. The tooltip warns that dispatch will notice the dead line after 15 phases and send a
+car to check. That is the crew's clock.
 
-**Stealth (turns 1–14).** Mara and Jun walk in as customers, *Clean*. The floor overlay is green almost everywhere in
-the lobby. Tapping the teller line shows amber: "Guard: frisk range (Jun's pistol)". Jun keeps three tiles from the
-guard. Mara queues at a window. The timeline strip, filled in as they watch, shows "Manager → lunch, turn 8" and
-"Cash cart to vault, turn 12". On turn 8 the manager leaves and the staff door swings shut behind him. Jun dashes for
-it: the overlay shows a hatched amber tile where the cleaner's committed path will see him. He waits one turn, then
-slips through. In the electrical closet he disables the alarm panel (2 actions). The teller buttons and the
-operator's panel are now dead. The cleaner mopping two tiles away stays calm: panel work is a quiet sound with
-radius 1, and the preview showed it wouldn't reach her. Jun creeps up to the CCTV room. The operator has his back to the door.
-Knockout, then zip-tie. His radio check-in is due in 3 turns.
+**Stealth (turns 1–13).** Mara walks in *Clean*; Jun, with a pistol under his jacket, walks in *Concealed*. The
+floor overlay is green almost everywhere in the lobby for Mara. For Jun, the tiles near the guard are amber: "Guard:
+frisk range (Concealed)". Jun keeps three tiles from the guard. Mara queues at a window. The timeline strip, filled
+in as they watch, shows "Manager → lunch, turn 8" and "Cash cart to vault, turn 12". On turn 8 the manager leaves
+and the staff door swings shut behind him. Jun drags a path to it. The overlay shows a hatched amber tile where the
+cleaner's committed path will see him, so he waits one turn, then slips through. In the alarm closet he disables the
+alarm panel (2 actions). The teller buttons and the operator's panel are now dead. The
+cleaner mopping two tiles away stays calm: panel work is a quiet sound with radius 1, and the preview showed it
+wouldn't reach her. On turn 13 Jun creeps up to the CCTV room. The operator has his back to the door: knockout,
+zip-tie. With the operator gone, nobody calls the guards any more, but dispatch will notice the silence in 10
+phases.
 
-**Takeover (turn 15).** Mara stands centre lobby. Dex's van door is 4 tiles from the glass entrance. Sol has the
-corridor guard in her scope. **GO.** Everyone masks up and gets a third action. Dex dashes in and shouts: an LMG's
-command radius of 6, ×1.5 on a takeover turn, catches the whole lobby. Eleven people drop with two-pip timers. Mara
-commands the tellers' row. Sol fires once through the corridor window and the guard goes down. Nobody watched it live,
-but the corridor camera recorded it, so Jun will want that recorder. The lobby guard was Calm when GO was pressed, so he is
-Surprised and loses his next phase. Jun answers the operator's buzzing radio: "All quiet."
+**Takeover (turn 14).** Mara stands next to the restroom. Dex's van door is 4 tiles from the glass entrance. Sol has
+the corridor guard in her scope. **GO.** Everyone masks up and gets a third action. Dex moves 4 tiles in and shouts.
+His LMG's Threat of 6, +2 for Muscle and ×1.5 on a takeover turn, gives a command radius of 12: the whole lobby.
+Eleven people drop with two-pip timers. The lobby guard was Calm when GO was pressed, so he is Surprised. His resist
+chance shows 5% (halved for Muscle), and he complies. Mara grabs the shotgun from the duffel and commands the
+tellers' row. Sol fires once through the corridor window and the corridor guard goes down. Nobody watched it live,
+but the corridor camera recorded it, so Jun will want that recorder.
 
-**The leak (turn 16).** One customer near the back was outside every command ring. The panic ring caught her, and her
-intent icon shows *Flee → front door, escapes in 2*. Mara moves to block the doorway. Escape cancelled.
+**The leak (turn 15).** One customer was in the restroom corridor, out of Dex's line of sight but inside the panic
+ring. Her intent icon shows *Flee → front door, escapes in 2*. Mara steps into the doorway and the escape is
+cancelled. Dex zip-ties the lobby guard. Then the dispatch car rolls past on the street. Nobody closed the blinds, and
+its officers see masked figures through the glass: *Radio: 2*. Killing two police officers would cost +10 heat at
+the Alarm, so the crew lets the call go through.
 
-**Loud (turns 17–34).** Dex zip-ties the lobby guard, who shows a 40% resist chance; tying beats commanding him.
-The vault is dual-control with a time lock, so the manager's and head teller's codes won't open it until the
-armoured car at turn 30. That's too long, so Jun sets the drill: 8 turns, 15% chance of a jam each turn. On turn 22
-the scheduled patrol car rolls past and its officers see masked figures through the lobby glass. **ALARM.** "Police in 6." Heat starts at level 1. The crew
-barricades the front windows and leaves the side door open as a choke point, with Dex on a Watch wedge covering it.
-Police arrive, contain, and call during Negotiate: five hostages buy 7 turns. The drill jams twice; Jun fixes it.
-Assault: SWAT breach the side door (announced a turn ahead) into Dex's wedge, and a flashbang hits the lobby. Sol is
-counter-sniped at heat 4, also announced, and relocates.
+**Loud (turns 16–37).** **ALARM** at the end of turn 16: "Police in 6." Heat starts at level 1. The Class I vault
+is dual-control with a time lock, and the codes won't open it until the armoured car at turn 30. That's too long, so
+Jun sets the drill: 8 phases, 15% chance of a jam each phase. The crew barricades the front windows and leaves the
+side door open as a choke point, with Dex on a Watch wedge covering it. Police arrive on turn 22, by which time heat
+has passed level 2, so they bring the level 1 and level 2 units together. They contain for 3 turns, then the
+negotiator calls: five hostages buy 7 turns of Negotiate (turns 25–31). The drill jams twice; Jun fixes it, and the
+vault opens on turn 27. Heat 4 arrives on turn 31. A police sniper team is announced against the tower, so Sol
+relocates. Assault, turns 32–37: SWAT breach the side door (announced a turn ahead) into Dex's wedge, and a
+flashbang hits the lobby. A roadblock is announced for the right street end, the side nearest the van.
 
-**Escape (turns 35–40).** The vault yields four heavy cash bags and a gold crate. Mara releases a hostage at the
-front door (−3 ticks; the police learn Dex's position). Bags are thrown along a chain to the van, and the gold
-crawls along on Dex's back. A roadblock is announced at the left street end, so the van leaves right. Payout:
-$212k dirty. Styles earned: *Inside Job*, *Fortress*. Nobody was filmed unmasked doing anything illegal, and Jun
-took the recorder anyway, so nobody gains Notoriety.
+**Escape (turns 38–41, through Regroup and the next Negotiate).** The vault yields four heavy cash bags and a gold crate. Mara releases a
+hostage at the front door (−3 ticks; the police learn Dex's position). Bags are thrown along a chain to the van, and
+the gold crawls along on Dex's back. Jun takes the CCTV recorder. Mara drives the van out the long way, to the left.
+Payout: $212k dirty. Style earned: *Inside Job*. Nobody was filmed unmasked doing anything illegal, and the recorder
+is gone anyway, so nobody gains Notoriety.
 
 ---
 
@@ -160,6 +169,8 @@ These words mean exactly one thing everywhere: UI, tutorial, code and this docum
 | **Notoriety** | Per crew member, carried between heists: how recognisable they are. |
 | **Investigation** | The campaign-wide meter of how close the feds are. |
 | **Intent** | What an NPC will do in the next world phase, drawn on the map. |
+| **Hostile** | An armed NPC that is fighting the crew: a guard who has confronted someone or been shot at, police on scene, an armed civilian who has drawn. Hostile NPCs can't be knocked out unless they are Surprised or Suppressed. |
+| **Surprised** | Loses its next world phase (GO, flashbang). Lasts until the end of that world phase. |
 
 ---
 
@@ -205,6 +216,10 @@ So if Jun is seen, Mara can still drop the witness in the same crew phase, and t
 taking down two guards in one turn is the basic stealth move, with no extra system needed. The only exceptions are
 NPCs already Hostile and on a **Watch** wedge (§11.8), whose reaction arc is drawn.
 
+The same holds in the other direction: **anything an NPC decides during a world phase** (a panic reaction, a new
+exposure, a lapsed command's intent) **is shown during the next crew phase and carried out in the next world phase.**
+No NPC ever acts on a decision the player hasn't had a crew phase to see.
+
 ### 6.3 Actions
 
 | Action | Cost | Notes |
@@ -223,9 +238,10 @@ NPCs already Hostile and on a **Watch** wedge (§11.8), whose reaction arc is dr
 | Gear up / stow | 1 | Take a long gun or armour out of a duffel, or put it back. Changes profile. |
 | Mask up | 1 (free during GO) | Sets profile to Heavy. Masked crew gain no Notoriety from witnesses (§19.5). |
 | Revive | 1 | Adjacent downed ally, back on their feet with 3 HP. |
-| Answer radio / phone | 1 | Radio check-ins (§8.10), police negotiator (§13.4). |
+| Answer radio / phone | 1 | Radio check-ins (§8.11), police negotiator (§13.4). |
 | Use throwable | 1 | Flashbang, smoke, noisemaker. |
-| Place / detonate charge | 1 / free | Detonation happens in the crew phase, by the placing character or a trap trigger. |
+| Place charge / place trap / detonate | 1 / 2 (Demolitions 1) / free | Detonation happens in the crew phase, by whoever holds that charge's detonator (the placer, or the crew member chosen for a pre-placed charge), or by a trap trigger. |
+| Brace (Marksman) | 1 | Must be the last action. Counts as braced until the character moves. |
 
 ### 6.4 Time scale
 
@@ -269,10 +285,10 @@ quieter or uniquely.
 | --- | --- | --- |
 | **Face** | *Talk*: once per heist, talk an NPC from 2 pips down to 0, or end an escort without a strike. | +1 answered radio check-in per heist. Bribes take 1 action (others can't bribe). Staff uniforms also work on the Security Chief. |
 | **Tech** | *Hack*: loop a camera feed for 4 phases at a junction box or console. Disable the alarm panel or a vault sensor in 2 actions (others 4). | Lockpick in 1 action (others 2). Fixes a jammed drill for free when adjacent at the start of the crew phase. |
-| **Muscle** | *Dominate*: Command radius +2. | Carries Very Heavy loot at −1 move instead of half move. Guards resisting this character's command roll at half the chance. |
+| **Muscle** | *Dominate*: Command radius +2. | Carries Very Heavy loot at −1 move instead of half move. Every resister rolls at half its chance against this character's command. |
 | **Marksman** | *Brace*: no moving penalty for the DMR or LMG on the turn after bracing; recoil halved while braced. | Starts in a sniper nest if one was rented. Watch wedges can be 10° narrower. |
 | **Demolitions** | *Shape*: shaped charges and thermite (others can use breach charges only). | Carries +2 charges. Traps take 1 action to place (others 2). Previews which loot an explosion would destroy. |
-| **Driver** | *Drive*: drive, ram and reposition vehicles. Anyone can ride; only a Driver drives in combat. | The getaway arrives 1 turn faster. One free vehicle reposition per heist. |
+| **Driver** | *Drive*: ram, run a police block, and drive twice as far per action. Anyone can drive a vehicle normally (§14.4). | One free vehicle move per heist (no action). |
 
 A contract sets the crew size: 2 to 5, usually 4 [R45].
 
@@ -364,7 +380,9 @@ Each cell is what happens when that observer sees a crew member of that profile 
 
 **Secure zone:** any crew member seen by staff or an enforcer is `!`. A staff uniform doesn't help here.
 
-**Illegal acts** are `!` for any observer who sees them, in any zone: lockpicking, hacking, zip-tying, commanding,
+**Cameras** register only `!` cells (in their Core) and major evidence. They never build suspicion pips.
+
+**Illegal acts** are `!` for any observer who sees them, in any zone, **in Peripheral view too**: lockpicking, hacking, zip-tying, commanding,
 attacking, knockouts, dragging a body, breaching, drilling, planting charges, putting on a mask, taking loot from a
 drawer or box, picking a pocket.
 
@@ -389,9 +407,9 @@ drawer or box, picking a pocket.
 When a Clean crew member is seen in the Staff zone by staff or an enforcer:
 
 - **First offence:** "You can't be back here." In the next world phase, the NPC walks over and the crew member is
-  escorted to the nearest Public tile. The crew member loses their position and the NPC gets 2 pips that don't decay
-  for the rest of the heist (a *warning*).
-- **Second offence by the same crew member,** seen by anyone who saw the first, or by any enforcer: Exposed.
+  escorted to the nearest Public tile. The crew member loses their position and is **Warned** by that NPC for the rest
+  of the heist (an icon over the NPC; it isn't suspicion and doesn't make the NPC follow them).
+- **Second offence by a Warned crew member,** seen by an NPC who warned them, or by any enforcer: Exposed.
 
 A mistake costs time and position, not the heist [R7].
 
@@ -429,6 +447,7 @@ When a crew member is selected, every reachable tile is tinted:
 | **Amber** (+ pip count) | Someone gains suspicion, or a trespass warning. |
 | **Red** (eye icon) | Someone Exposes this crew member. |
 | **Hatched** version of amber or red | The same outcome, but it happens during the coming world phase as NPCs walk their committed paths. |
+| **Red with a camera icon** | A camera would see a `!` and start the operator's verify carrier. Cameras whose feed status is unknown (CCTV room not scouted) count as live. |
 | **Grey** | No data: unscouted area. **Never drawn as safe.** |
 
 Rules:
@@ -469,7 +488,7 @@ Nobody is ever Exposed by sound alone: sound makes NPCs look, and looking can ex
 | Noisemaker (thrown) | 3 at the landing tile | Quiet |
 | Suppressed pistol | 3 | Quiet |
 | Suppressed SMG | 4 | Quiet |
-| Command shout | Threat + 3 | Loud |
+| Command shout | Command radius + 3 | Loud |
 | Scream (panicked NPC) | 6 | Loud |
 | Pistol | 8 | Loud |
 | Machine pistol, SMG | 9–10 | Loud |
@@ -545,21 +564,21 @@ Misdirection must be reliable, so the player can deliberately pull a specific NP
 
 **The Alarm is raised only when an alarm carrier finishes its action.** Every carrier shows its countdown in world
 phases, and the minimum is **2**, so there is always at least one full crew phase to respond. Every carrier has at
-least two counters.
+least two counters that still work once its countdown is running.
 
 | Carrier | Starts when | Countdown | Counters |
 | --- | --- | --- | --- |
 | **Teller silent alarm** (foot rail or button) | A teller is Alerted at their station | 2 (away from station: path + 1) | Command, knock out, zip-tie, block the path, **disable the alarm panel**, inside man |
 | **Manager's desk button** | Manager Alerted in the office | 2 | As above |
 | **Guard radio** | A guard is Alerted (confronting, finding evidence, hearing gunfire) | 2 (draws and takes cover, then calls) | Kill, knock out, command (resist chance), **jammer** |
-| **Operator verifies camera** | A live camera sees a `!` | 2 | Neutralise the operator, loop or cut the camera, **disable the alarm panel**, power cut |
+| **Operator verifies camera** | A live camera sees a `!` | 2 | Neutralise the operator, **disable the alarm panel** |
 | **Phone call** (landline or mobile) | A panicked civilian or staff member hides out of crew sight | 2 | Command, find them, **cut the phone line** (landlines), **jammer** (mobiles) |
-| **Escapee** | A civilian flees toward an exit | Path to the plot edge | Block the door, command, barricade, tackle |
-| **Missed check-in** | Second unanswered radio call | 2 | Answer the radio, neutralise the operator first |
-| **Vault seismic sensor** (Class II+) | Drilling starts | Shown before drilling (for example 4) | Tech disables the sensor at the vault wiring box first |
+| **Escapee** | A civilian (or passer-by) flees toward the plot edge | max(2, path length in phases) | Block the route, command, barricade, tackle (adjacent, 1 action), park a vehicle across their lane |
+| **Missed check-in** | Second unanswered radio call | 2 | Neutralise the operator, jammer in range of the CCTV room |
+| **Vault seismic sensor** (Class II+) | Drilling or thermite starts | Shown before drilling (for example 4) | Tech disables the sensor at the vault wiring box (also during the countdown), disable the alarm panel |
 | **Vault motion sensor** (Class III) | Movement inside the vault | 2 | Disable at the wiring box, time-lock window |
-| **Passing patrol car** | Its officers see a `!`, major evidence, or hear a loud noise from the street | 2 | Blinds, barricades, closed doors, timing (the drive-by is on the schedule) |
-| **Dispatch: lost contact** | Jammer running, or operator silent for 10 phases | Sends a patrol drive-by (not the Alarm itself) | Finish first, or hide the evidence from the street |
+| **Passing patrol car** | Its officers see a `!`, major evidence, or hear a loud noise from the street | 2 | Jammer in range, take both officers down (they resist like guards; killing them banks +5 heat each). Prevent it beforehand with blinds, barricades, closed doors and timing. |
+| **Dispatch: lost contact** | Jammer running, operator silent for 10 phases, or the cut phone line noticed (15 phases) | Sends a patrol drive-by (not the Alarm itself) | Finish first, or hide the evidence from the street |
 
 **The alarm panel** (electrical or alarm closet, Secure zone) is the heart of the inside job. Disabling it (Tech 2
 actions, others 4) kills every **wired** carrier: teller buttons, the manager's button, the operator's panel and the
@@ -596,7 +615,7 @@ vault sensors. What is left are people with radios, phones and legs.
 | Ring | Radius | Effect |
 | --- | --- | --- |
 | **Command** | The weapon's **Threat** (in line of sight; +2 for Muscle; ×1.5 on GO) | Ordinary NPCs **always comply**: Commanded, 2 pips. Resisters roll their shown chance (§10.4). |
-| **Panic** | The shout's noise radius (Threat + 3), outside the Command ring | Civilians **panic** and pick a reaction (shown as intent). Staff and guards become **Alerted**, and the ones who can become carriers do. |
+| **Panic** | The shout's noise radius (the final command radius + 3), outside the Command ring or out of line of sight | Civilians **panic** and pick a reaction (shown as intent). Staff and guards become **Alerted**, and the ones who can become carriers do. |
 | **Noise** | Same as panic | It is a loud noise: the bank is now Loud. |
 
 A bigger gun controls more people but also scares more people just beyond its reach [R27].
@@ -656,14 +675,15 @@ Hostages are a resource with exchange rates the player can see [R25]:
 | **Negotiation** | Each living hostage (Commanded or tied, inside) adds +1 turn to the police Negotiate phase, up to +6. The HUD shows it: "Negotiate: 7 turns (+5 hostages)". |
 | **Release** | Walk a hostage out an exit the police control: **−3 heat ticks**. At most one release per turn and three per heist. The released hostage tells the police which crew they saw and where. |
 | **Trade** | During Negotiate, release a hostage to get back one **arrested** crew member at that exit, at the start of the next crew phase. |
-| **Shield** | Police **never fire if any non-crew body is in their cone**. They reposition or use flashbangs and gas instead. Hostages near windows deter snipers. |
+| **Shield** | Police **never fire a shot whose preview would hit a standing non-crew body** (hostages lying down are below the line of fire and don't count). An escorted hostage held in front of a crew member is a real shield; police reposition or use flashbangs and gas. Hostages standing at windows deter snipers. |
 | **Keys** | Key-holding staff (manager, head teller) can be **coerced** at the vault console (1 action each, adjacent, Commanded or tied). |
 | **Cash drawers** | A Commanded or tied teller can be made to open their drawer (Light loot). |
 
 ### 10.8 Panic
 
-- Seeing violence, or hearing a loud noise outside a command ring, makes a civilian **Panicked**. In the next phase,
-  panic spreads to civilians within 3 tiles who can see them.
+- Seeing violence, or hearing a loud noise outside a command ring, makes a civilian **Panicked**. In the next world
+  phase, panic spreads to civilians within 3 tiles who can see them. Newly panicked NPCs pick their reaction then and
+  carry it out a world phase later (§6.2), so a hero never tackles without warning.
 - Each panicked NPC picks a reaction weighted by archetype (§16.2): **Cower** (stays put, easy to command), **Flee**
   (escapee), **Hide** (under a desk or in a restroom; may become a phone carrier), **Go for alarm** (staff),
   **Fight** (armed archetypes), **Tackle** (heroes).
@@ -707,7 +727,8 @@ bullet lands within its slice of the cone, and the cover roll. Everything else i
   slice, and place it at a random point inside that slice (scaled to that bullet's arc). A burst therefore always
   spreads across the cone. It can never clump into a full miss when the target fills a real share of the cone, and a
   six-round burst at a target covering a third of the cone almost always lands about two.
-- **Random rolls are seeded per turn.** A rewind replays the same rolls.
+- **Random rolls are seeded per action:** from the turn, the shooter and that shooter's action number. A rewind
+  replays the same rolls for the same action, and reordering actions can't fish for a better spread.
 - Bullets that miss **keep flying** to the weapon's Range and can hit whatever is behind.
 
 ### 11.3 What a bullet hits
@@ -737,7 +758,7 @@ bullet lands within its slice of the cone, and the cover roll. Everything else i
 > **Damage per hit = max(0, Damage − max(0, Armour − Pierce))**
 
 Damage is fixed per weapon, with no damage ranges and no random crits. A **precision bonus** is deterministic: DMR
-shots against Unaware or Surprised targets deal ×1.5. Armour runs from 0 to 3 (§12.3). This gives each weapon class
+shots against Calm, Curious or Surprised targets deal ×1.5. Armour runs from 0 to 3 (§12.3). This gives each weapon class
 a job: the Uzi shreds unarmoured crowds and does nothing to heavy SWAT; the AR and DMR deal with armour [R20].
 
 ### 11.6 Penetration and materials
@@ -851,7 +872,7 @@ model; halve them against cover): pistol 2.0 / 1.6 / 1.0 / 0.6 · machine pistol
 | Noisemaker ×3 | Quiet sound (radius 3) at the landing tile: a lure. | 3 | Clean |
 | Breach charge ×2 | Glass, Soft walls and doors: opens a 1-tile gap, 4 damage to the 3 tiles on the far side. | 14 | Concealed |
 | Shaped charge ×1 (Demolitions) | Reinforced walls: 1-tile gap, 6 damage on the far side, debris gives half cover. | 18 | Concealed |
-| Thermite ×1 (Demolitions) | Vault door or floor: burns 3 phases, can't be stopped, fire on the tile. | 6 per phase | Armed |
+| Thermite ×1 (Demolitions) | Vault door or floor: burns 3 phases (5 on Class III), can't be stopped, fire on the tile, scorches loot within 1 tile of the door. Counts as drilling for sensors and heat. | 6 per phase | Armed |
 | Drill | Vault door, safe or deposit-box wall: see §15.3. | 6 per phase | Armed |
 | Tripwire charge ×2 | Placed on a door or tile; detonates when a non-crew NPC crosses it: 6 damage in radius 1. Police spot it within 3 tiles from Heat 3 and disarm it in 1 action. | 14 | Concealed |
 | Jammer | Placed; radius 8, blocks radios and phones. Dispatch notices "lost contact" after 10 phases (§9.1). | 0 | Concealed |
@@ -859,6 +880,7 @@ model; halve them against cover): pistol 2.0 / 1.6 / 1.0 / 0.6 · machine pistol
 | Glass cutter | A quiet 1-tile hole in a window: 2 actions. | 1 | Clean |
 | Medkit ×2 | Revive or heal 4 HP: 1 action. | 0 | Clean |
 | Duffel | Holds one long gun and one armour piece. | 0 | Concealed |
+| Reinforcement kit ×2 | Reinforce a Soft wall or door (§14.3). | 2 | Concealed |
 
 ### 12.3 Armour and enemy stats
 
@@ -894,7 +916,10 @@ SWAT or use the DMR.
 - At the Alarm, heat becomes **Heat 1, tick 0**. Each level has **5 ticks**: 5 ticks reach Heat 2, 10 reach Heat 3,
   15 reach Heat 4 and 20 reach Heat 5.
 - The HUD always shows the next step, when it arrives and where: **"Heat 3 in 2 turns: SWAT van, rear lot"**.
-- Heat can fall back a level. Units already on the map stay; later waves are weaker.
+- Heat can fall back a level, but never below Heat 1, tick 0. A release that would go lower shows the capped amount.
+  Units already on the map stay; later waves are weaker.
+- **Arrival:** the first police arrival brings the units of **every level reached so far**. After that, each new
+  level's units reach their staging points one world phase after the level is reached.
 
 ### 13.2 Heat events (canonical)
 
@@ -904,7 +929,7 @@ SWAT or use the DMR.
 | A guard or staff member killed, **witnessed** by police, a live camera (through the operator) or a civilian who reaches the police | +3 |
 | A civilian killed, by any cause including traps and explosions | +5 |
 | A police officer killed | +5 |
-| Each turn drilling a Class II+ vault | +1 |
+| Each turn drilling or burning a Class II+ vault | +1 |
 | A hostage escapes to the police | +1 |
 | **Release** a hostage (§10.7) | −3 (once per turn, three times per heist) |
 
@@ -942,7 +967,8 @@ Contain (3) ──► Negotiate (2 + hostages, max +6) ──► Assault (4, +1 
 - **Negotiate:** police hold fire unless fired on. The negotiator calls any bank phone. Answering (1 action) offers:
   **Release** (§10.7), **Trade** (§10.7), **Stall** (+2 Negotiate turns, once per heist), or hang up. Shooting
   police, or killing a hostage where police can see, ends Negotiate and starts an **immediate Assault**.
-- **Assault:** units push in from 2+ announced breach points, flashbang clusters and held positions, cut tied
+- **Assault:** at Heat 1–2, units push in only through open or unlocked doors and windows (flashbangs from Heat 2).
+  From Heat 3, units push in from 2+ announced breach points, flashbang clusters and held positions, cut tied
   hostages free (1 action), arrest downed crew, and target crew by priority (§11.12).
 - **Regroup:** pull back the wounded and re-stage. Snipers keep watching.
 
@@ -953,7 +979,8 @@ the breaks.
 
 Police answer every player tool plausibly and audibly, and announce the answer at least a turn ahead [R32]:
 
-- **They never fire if a non-crew body is in their cone.** They reposition, or use flashbangs and gas.
+- **They never fire a shot whose preview would hit a standing non-crew body.** They reposition, or use flashbangs and
+  gas.
 - **Barricades:** break them (barricades have 2 HP against police actions). If every entry is barricaded, they place
   a breach charge on a nearby Soft wall (announced).
 - **Traps:** after the first trap triggers, SWAT "clear" unexplored rooms one tile per action. From Heat 3 they spot
@@ -976,7 +1003,7 @@ a one-off script [R29].
 
 | Thing | Properties |
 | --- | --- |
-| Tile or object | Zone · Material (Glass, Soft, Reinforced, Vault, Boundary) · BlocksSight · BlocksMove · Cover (none, half, full) · HP · Powered · Lit · Lock (none, mechanical, keycard, maglock, vault) · Open/Closed · NoiseDamping · Flammable · Evidence |
+| Tile or object | Zone · Material (Glass, Teller glass, Soft, Reinforced, Vault, Boundary) · BlocksSight · BlocksMove · Cover (none, half, full) · HP (or indestructible) · Powered · Lit · Lock (none, mechanical, keycard, maglock, vault) · Open/Closed · NoiseDamping · Flammable · Evidence |
 | NPC | Role · Observer class · Schedule · State · Suspicion (per crew) · Knowledge (who is Exposed to them, what they saw) · Intent · Command pips · Traits (armed, hero, key holder, bribable) |
 | Crew | Role · HP · Actions · Profile · Loadout · Carry · Exposed-to list · Notoriety |
 
@@ -1003,14 +1030,16 @@ a one-off script [R29].
 
 - **Barricade** a door or window: 1 action, unlimited (furniture is everywhere). It blocks movement and sight, but
   bullets pass, as through half cover. Police need actions to break it (§13.5).
-- **Reinforce** a Soft wall or door: 2 actions, 2 per kit. It becomes Reinforced: bulletproof, and only shaped
+- **Reinforce** a Soft wall or door: 2 actions, needs a reinforcement kit (2 uses). It becomes Reinforced: bulletproof, and only shaped
   charges or heavy SWAT can open it.
 - **Blinds** on windows: 1 action, quiet. They block sight from the street, so they work during stealth too (against
   the patrol car drive-by).
 
 ### 14.4 Vehicles
 
-Vehicles move along **street lanes** on the plot (main street, alley, service road). Only a Driver drives in combat.
+Vehicles move along **street lanes** on the plot (main street, alley, service road). **Anyone** can drive: **Drive**
+(1 action) moves a vehicle up to 8 lane tiles (a Driver 16) with everyone aboard. **Ram** and running a police block
+need a Driver.
 
 | Vehicle | Source | Use |
 | --- | --- | --- |
@@ -1066,7 +1095,7 @@ can all plan [R35].
 | **Social: codes** | Dual control: the manager and the head teller each enter half the code at the console (coerced: 1 action each, adjacent, Commanded or tied). Single-code vaults: the code comes from the manager's PC (Tech, 2 actions in the office) or from a bribed or inside staff member. |
 | **Social: time lock** | The vault opens itself during its scheduled window (usually the armoured-car delivery). Patient stealth crews walk in. |
 | **Technical: drill** | §15.3. |
-| **Violent: thermite** | Vault door or floor (Demolitions): 3 phases, can't be stopped, loud. |
+| **Violent: thermite** | Vault door or floor (Demolitions): 3 phases (5 on Class III), can't be stopped, loud, scorches loot near the door. It counts as drilling for sensors and heat. |
 
 The **time lock** blocks codes outside its window. Drills and thermite still work. A **power cut** makes the console
 dark, so no codes either.
@@ -1084,20 +1113,18 @@ dark, so no codes either.
 - **Jams:** 15% per phase, announced at the start of the crew phase. Fixing it takes 1 action adjacent (free for a
   Tech who is adjacent).
 - **Drill choices** (planning assets): **Silent** (noise 3, +50% time), **Beast** (never jams, +50% time).
-- Drilling a Class II+ vault adds +1 heat tick per phase once the Alarm is up.
-- **Deposit boxes:** lockpick each box (1 action, Light loot) or drill the whole wall (4 phases). One random box per
+- Drilling or burning a Class II+ vault adds +1 heat tick per phase once the Alarm is up.
+- **Deposit boxes:** lockpick each box (2 actions, Tech 1; Light loot) or drill the whole wall (4 phases). One random box per
   campaign bank holds **intel** for a later job (§19.6).
 
 ### 15.4 The getaway
 
-- **The van** waits at its spot from the start. With no Driver in the crew, it is parked and locked, and a hired
-  driver brings it when called (+2 turns).
-- **Calling the getaway** (any crew member, phone, 1 action) brings a vehicle that isn't already waiting in **2–4
-  turns**, depending on the spot (a curb is close, the back garage is farther but safer).
+- **Vehicles wait at their spots from the start:** the van, and the backup car if bought. Where they park is the
+  decision: a curb spot is close to the door but in police view; the back garage is farther but safer.
 - **Boarding:** adjacent, 1 action. Loot can be thrown in.
-- **Leaving:** a Driver, or anyone in the driver's seat, takes the **Drive off** action. The vehicle follows the
-  street lanes to the plot edge in 1–2 turns. Roadblocks (Heat 5) and police cars in the lane must be avoided or
-  rammed once. **Crew left behind are arrested.**
+- **Leaving:** anyone aboard drives the vehicle off along the street lanes to a plot edge (§14.4). Roadblocks (Heat
+  5) and police cars in the lane must be avoided, or rammed through once by a Driver. **Crew left behind are
+  arrested.**
 - **Other exits** (when the plot has them): a sewer manhole (crowbar, Light loot only), a neighbour's garage with the
   backup car, a rooftop route to an adjacent building (blocked by the helicopter at Heat 4+).
 - **Escape is always possible.** Leaving with less loot is a partial success, never a failure screen.
@@ -1110,8 +1137,8 @@ dark, so no codes either.
 | **Partial** | Crew escape below the target. Payout scales; there is no contract bonus. |
 | **Failure** | Every crew member is out (dead, arrested or bleeding out) or none can still escape. |
 
-The **payout** is the loot that left the map, minus dye-pack losses, minus **−10% per civilian killed** (the
-"cleaner" fee) and the crew's shares (§19.2), plus **style** bonuses (§19.7).
+The **payout** is the loot that left the map, minus dye-pack losses, minus **10% per civilian killed** and **5% per guard,
+staff member or police officer killed** (the "cleaner" fees) and the crew's shares (§19.2), plus **style** bonuses (§19.7).
 
 ---
 
@@ -1174,8 +1201,9 @@ building at closing faces the most thorough search of the day [R14].
 
 ### 16.4 Outside the bank
 
-- **Passers-by** walk the street: Public observers who can become escapees by definition, since they are already
-  outside. Treat them as civilians who can flee off the map edge (an escapee carrier).
+- **Passers-by** walk the street. They are Public civilians, and a panicked one becomes an escapee heading for the
+  nearest plot edge, with the same max(2, path) countdown. Commanding, tackling or parking a vehicle across their lane
+  stops them.
 - **The patrol drive-by** (§16.3) and **dispatch's lost-contact check** (§9.1) are the outside world's eyes before
   the Alarm.
 - After the Alarm, the street belongs to the police (§13).
@@ -1212,8 +1240,8 @@ building at closing faces the most thorough search of the day [R14].
 2. **Archetype**, which sets the loop structure:
    - **Two Wing:** public and service routes both reach the vault corridor.
    - **Atrium:** the lobby is a central space ringed by offices and a mezzanine.
-   - **Three Keys:** the vault needs the manager's card, the CCTV room disabled and the time lock, each in a
-     different wing.
+   - **Three Keys:** the social key needs three parts (the manager's card, the CCTV room disabled, the time-lock
+     window), each in a different wing. The drill and thermite still work, slower and louder.
    - **Fortress:** one hardened core with many breachable outer walls.
    - **Basement Vault:** the vault sits under the lobby (floor breach).
    - **Mezzanine Watch:** the CCTV room overlooks the floor.
@@ -1236,7 +1264,7 @@ be shared.
 | Tier | Interior | Security | Vault | Extras | Police ETA |
 | --- | --- | --- | --- | --- | --- |
 | **Small branch** | ~32×22 | 1 guard, 2–4 record-only cameras, no operator (check-ins go to dispatch) | M, time lock | — | 8 |
-| **City branch** | ~40×28 | 2 guards, 6–8 cameras, operator with 4 monitors | I–II, dual control | Staff mantrap, dye packs | 6 |
+| **City branch** | ~40×28 (+ mezzanine in the Mezzanine Watch archetype) | 2 guards, 6–8 cameras, operator with 4 monitors | I–II, dual control, time lock on some | Staff mantrap, dye packs, armoured-car event on some | 6 |
 | **Regional HQ** | ~48×32 + mezzanine or basement | 3–4 guards + security chief, 10–12 cameras, operator + guard in CCTV room | II–III, dual control + time lock | Armoured-car event, motion sensors, **metal detector** at the entrance (frisks Concealed items) | 4 |
 | **Reserve depot** (finale) | Hand-authored | On-site response team | III, seismic, biometric | Unique | 3 |
 
@@ -1338,7 +1366,6 @@ One screen (not a chain of prep missions [R47]) showing the plot at whatever kno
    - **Inside** (walks in as a customer; Clean or Concealed only; an HQ metal detector flags Concealed items);
    - **Van** (any loadout; starts in the van);
    - **Nest** (Marksman, needs the rental);
-   - **On call** (arrives with the van when called);
 3. places the **van**, and optionally a backup car and ram truck, on candidate spots;
 4. buys **assets** with **cash**, under a **favour cap of 8 points** ("you can only call in so many favours before
    someone notices").
@@ -1357,11 +1384,10 @@ One screen (not a chain of prep missions [R47]) showing the plot at whatever kno
 | Tow truck | $5k | 2 | Blocks one street end: police arriving from that side take +3 turns. |
 | Ram truck | $8k | 2 | Parked at a chosen lane spot (§14.4). |
 | Backup car | $6k | 1 | A second getaway at another spot. |
-| Pre-placed charge | $4k each | 1 | A breach or shaped charge on a chosen *exterior* wall, planted the night before. |
+| Pre-placed charge | $4k each | 1 | A breach charge (or a shaped charge, if the crew has a Demolitions member) on a chosen *exterior* wall, planted the night before. Assign who holds its detonator. |
 | Staff uniforms (×2) | $3k | 1 | Needs an insider or a casing find. |
 | Silent drill / Beast drill | $5k | 1 | §15.3. |
 | Medic bag | $2k | 0 | +2 medkits shared. |
-| Hired driver | $4k | 0 | Brings the van when called, if there's no Driver in the crew (+2 turns). |
 
 Assets are **positional** on the generated map, so the best pick changes with each bank. Tuning goal: no asset in
 more than about 60% of winning plans [R47].
