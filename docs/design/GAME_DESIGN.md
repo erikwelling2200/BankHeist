@@ -277,14 +277,14 @@ clock. NPC schedules are written in turns.
   next schedule event".
 - **Target:** no player should press End Turn more than twice in a row with nothing to decide.
 
-### 6.6 Undo and rewind
+### 6.6 Undo
 
 - **Undo** is free for any action that revealed nothing new, triggered no perception check and rolled no dice. A
-  move that changed nothing can always be taken back, so a mis-tap never costs a heist.
-- **Rewind turn** returns to the start of the crew phase. Charges per heist by difficulty: Casual unlimited, Normal
-  3, Hard 1, Ironman 0. A rewind **replays the same random seed**: it fixes a bad plan, but you can't reroll your way
-  to a lucky shot [R42].
-- Every action is two-step: **preview, then confirm** (§20.2).
+  move that changed nothing can always be taken back, so a mis-tap never costs a heist [R42].
+- Everything else is final. There is **no turn rewind** and no manual save: the game autosaves after every
+  committed action (§20.6), so a bad plan or an unlucky burst has to be played out.
+- Every action is two-step: **preview, then confirm** (§20.2). Together with the exact previews, that is the
+  protection against mistakes.
 
 ---
 
@@ -798,8 +798,8 @@ bullet lands within its slice of the cone, and the cover roll. Everything else i
   slice, and place it at a random point inside that slice (scaled to that bullet's arc). A burst therefore always
   spreads across the cone. It can never clump into a full miss when the target fills a real share of the cone, and a
   six-round burst at a target covering a third of the cone almost always lands about two.
-- **Random rolls are seeded per action:** from the turn, the shooter and that shooter's action number. A rewind
-  replays the same rolls for the same action, and reordering actions can't fish for a better spread.
+- **Rolls are made when an attack is confirmed** and saved with it, so quitting and reopening the game can't reroll
+  a shot.
 - Bullets that miss **keep flying** to the weapon's Range and can hit whatever is behind.
 
 ### 11.3 What a bullet hits
@@ -1662,10 +1662,12 @@ Notoriety and Squeeze low.
 
 | Setting | Casual | Normal | Hard | Ironman |
 | --- | --- | --- | --- | --- |
-| Turn rewinds per heist | Unlimited | 3 | 1 | 0 (one save) |
+| Restart a heist from its planning screen | Yes | Yes | No | No |
 | Armed civilians | Off | On | On | On |
 | Squeeze per day | ×0.75 | ×1 | ×1 | ×1.25 |
 | Crew left behind | Arrested | Arrested | Arrested; executed at Heat 5 | Arrested; executed at Heat 5 |
+
+There is no turn rewind on any difficulty (§6.6).
 
 **Toggles:** permadeath versus arrest-only, armed-civilian frequency, world-phase speed, guidance level (Full,
 Minimal, Off), reduced gore.

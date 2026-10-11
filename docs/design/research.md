@@ -240,7 +240,8 @@ The finding that came up in every area: a deep simulation is only fun if the pla
 42. **Undo removes the fear of experimenting; limited rewinds keep the tension.** Tactical Breach Wizards' free
     rewind removes "the fear of failure and mistakes". Klei added rewinds to Invisible Inc. after many runs were
     "spoiled… because of its low tolerance for even small mistakes".
-    → Free undo until new information appears. Turn rewinds by difficulty, replaying the same random seed.
+    → Free undo until new information appears. The design originally added limited turn rewinds too; the director
+    removed them as too strong and too costly to build, so preview-then-confirm and exact previews carry the load.
 43. **Long enemy turns are the main pacing killer.** Jagged Alliance 3 players waited "up to a minute". XCOM 2: War
     of the Chosen added Zip Mode.
     → Groups move simultaneously, the camera visits only important events, there are speed settings and a skip,
