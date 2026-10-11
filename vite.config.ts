@@ -1,9 +1,9 @@
 import { defineConfig } from 'vite';
 import { VitePWA } from 'vite-plugin-pwa';
 
-// GitHub Pages serves the site from /<repo>/, so CI sets BASE_PATH=/BankHeist/.
+// Relative asset paths, so the build works under any sub-path (GitHub Pages serves it from /<repo>/) and survives repo renames.
 export default defineConfig({
-    base: process.env.BASE_PATH ?? '/',
+    base: './',
     build: { chunkSizeWarningLimit: 2000 },
     plugins: [
         VitePWA({

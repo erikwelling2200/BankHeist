@@ -27,5 +27,5 @@ Top-down 2D pixel-art stealth game. Phaser 4 + TypeScript + Vite, shipped as an 
 - The HUD is an HTML overlay (`src/ui/Hud.ts`) so text stays crisp, not canvas text.
 
 ## Deploy
-Pushing to `main` runs `.github/workflows/deploy.yml`: tests, then builds with `BASE_PATH=/<repo>/` and deploys to
-GitHub Pages. The service worker (vite-plugin-pwa, `registerType: autoUpdate`) caches everything for offline play.
+Pushing to `main` runs `.github/workflows/deploy.yml`: tests, then builds and deploys to GitHub Pages. Vite uses
+`base: './'`, so the build works under any sub-path and survives repo renames. The service worker (vite-plugin-pwa, `registerType: autoUpdate`) caches everything for offline play.
