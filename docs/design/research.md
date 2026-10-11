@@ -90,8 +90,9 @@ The finding that came up in every area: a deep simulation is only fun if the pla
 11. **Spotting per character works, but needs a rule for linking characters.** XCOM 2's squad-wide reveal works
     because XCOM has no social stealth. Payday tracks detection per player, so an unmasked player can keep
     blending in while the rest of the crew fights.
-    → Each character is Exposed separately. A witness also exposes anyone they see cooperating with an Exposed
-    character, and information spreads through radios and shouts.
+    → Each character is Exposed separately. NPCs who know something is wrong become Alerted and read every crew
+    member one profile higher, so being seen near a burned partner gets dangerous without a separate linking rule.
+    Information spreads through radios and shouts.
 12. **The stealth phase needs active goals and ways to mislead the AI.** Phantom Doctrine's infiltration
     "basically amounts to hovering around windows and doorways". Tom Francis's AI rule from Gunpoint: "you must be
     able to knowingly misdirect the AI".

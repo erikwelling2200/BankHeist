@@ -99,7 +99,7 @@ design sharpens it. Each change below is deliberate and can be reversed by the d
 | Cone aim with Aim, Recoil and Bullets. | Kept, plus **Damage, Pierce, Range, Threat, Noise, Profile** and a **moving penalty**. Bullets **fan out evenly** across the cone rather than landing at independent random points. | A 50% per-bullet cover roll otherwise makes spray weapons the answer to everything [R20], and independent random bullets produce whole-burst misses that feel like bugs [R21]. |
 | Cover gives a 50% block if it is right in front. | Kept for **half cover**, with an exact definition of "in front" (a 90° arc). **Full cover** (walls, pillars) blocks line of sight; you lean out from corners. | Cover has to be readable from one icon, and the icon has to match the hit logic exactly [R19]. |
 | Floor shows where a character can go without raising alarms. | Kept as a **strict promise**: calculated per character, along the whole path, against what NPCs *will* do in their next phase, using the same rules as the real check. Three colours: safe, suspicious, spotted. | One wrong tile destroys trust in the whole stealth layer [R1, R2]. |
-| Each character is spotted individually. | Kept. A witness also **exposes anyone they see cooperating** with an exposed character, and knowledge spreads physically (radio, shouts, people running to tell someone). | Without a linking rule, spotting each character separately becomes a string of easy ambushes, or guards ignoring the gunman next to their partner [R11]. |
+| Each character is spotted individually. | Kept. NPCs who know something is wrong become **Alerted** and read every crew member as **one profile more suspicious**, with wider vision; knowledge spreads physically (radio, shouts, people running to tell someone). | Without some link between characters, spotting each one separately becomes a string of easy ambushes, or guards ignoring the gunman next to their partner [R11]. An on-edge state is easier to show than a rule about who was seen with whom (director's suggestion). |
 | Off-limits areas at the back. | Three zones: **Public, Staff, Secure**. Being caught in Staff gets you escorted out on a first offence; Secure means instant exposure. | Binary detection is the most hated stealth design; Payday 3's tiers fixed it [R7]. |
 | Sound is a circle; anyone in it is alerted. | The circle is drawn **clipped by walls**: closed doors and soft walls take reach away, reinforced walls stop it. **Quiet** sounds make people curious; **loud** sounds alert them. | Closing a door and choosing a quiet route become decisions, and the preview stays exact [R4]. |
 | A command keeps an NPC down for 2 turns. | Kept, plus a **Hold** stance that pauses the timer, and a **telegraphed lapse**: when the timer runs out, the NPC shows what it will do one turn before doing it. | Re-shouting at 20 people every 2 turns is a chore, and an NPC acting without warning is a gotcha [R26, R2]. |
@@ -178,7 +178,7 @@ These words mean exactly one thing everywhere: UI, tutorial, code and this docum
 | **Profile** | How conspicuous a crew member looks: Clean, Concealed, Armed, Heavy. |
 | **Suspicion** | 0–3 pips an NPC holds about one crew member. 3 = Exposed. |
 | **Exposed** | That NPC knows that crew member is a criminal. Exposure is per NPC, per crew member. |
-| **Alert / Alerted** | An NPC knows something is wrong and acts by role. It is local; it never means the police were called. |
+| **Alert / Alerted** | An NPC knows something is wrong and acts by role. An Alerted NPC is also **on edge**: it reads every crew member one profile higher and sees further (§8.7). It is local; it never means the police were called. |
 | **Alarm** | A single event: the police have been called. Only an alarm carrier can raise it. |
 | **Alarm carrier** | An NPC or device in the middle of raising the Alarm, always shown with a countdown. |
 | **Loud** | The bank has heard a gunshot, explosion, shout or scream. Ends the chance to take over. |
@@ -362,7 +362,8 @@ Zones are drawn into the floor material, so the art carries the rule, and the zo
 
 ### 8.3 Vision
 
-- NPCs see a **Core** arc (6 tiles, 90°) and a **Peripheral** arc (8 tiles, 140°, including Core). Walls,
+- NPCs see a **Core** arc (6 tiles, 90°) and a **Peripheral** arc (8 tiles, 140°, including Core). **Alerted** NPCs see
+  further and treat Peripheral as Core (§8.7). Walls,
   full-height objects and closed doors block sight. Glass doesn't.
 - **Cameras** have Core only (7 tiles, 70°). They are either fixed or panning; a panning camera alternates between
   two facings each world phase, and its next facing is telegraphed.
@@ -438,23 +439,37 @@ When an NPC reaches 3 pips on a crew member, **only that NPC knows**. The crew m
 teller K." The NPC reacts by role (§16.2) in the next world phase, and most reactions spread the knowledge
 physically:
 
-- **Radio** (guards, operator): a telegraphed action that tells all guards and the operator.
+- **Radio** (guards, operator): a telegraphed action that makes all guards and the operator Alerted and Exposes the
+  described crew member to them.
 - **Shout or scream:** a loud noise; anyone hearing it becomes Alerted with *cause unknown*.
 - **Telling someone:** a civilian or staff member walks to a guard (path shown, interceptable).
 
-**Linking rule.** A witness also exposes a crew member who:
+**On edge: what an Alerted NPC sees.** Instead of a rule about who was seen with whom, every NPC that knows
+something is wrong becomes **Alerted**, and an Alerted NPC is **on edge** toward *everyone*:
 
-1. commits an illegal act in their view,
-2. hits a `!` cell for that observer, or
-3. **cooperates with a crew member already Exposed to that witness**, within 2 tiles and in view: handing over an
-   item, reviving, dragging a body together, or ending a move adjacent to them.
+- it reads every crew member **one profile higher** (Clean as Concealed, Concealed as Armed, Armed as Heavy);
+- its **Peripheral view counts as Core**, and both reach 2 tiles further (Core 8, Peripheral 10);
+- it stays Alerted for the rest of the heist (guards and staff), or until it is Commanded or tied (civilians).
+
+An NPC becomes Alerted when it Exposes a crew member, sees violence, hears a loud noise, finds major evidence,
+hears a shout, or receives a radio call. Exposure itself stays strictly per crew member: being Alerted only makes the
+NPC quicker to Expose the *next* one.
+
+What this does in play: once the guard has seen the gunman, the unarmed inside man standing next to him isn't
+automatically burned, but he can no longer walk up to that guard. A pistol under his jacket now reads as a drawn
+weapon. The player sees it at once: Alerted NPCs wear a red `!` badge, their cones are drawn red and wider, and the
+safe-floor overlay of every crew member shrinks around them.
+
+**Eyes down.** Commanded and tied NPCs are face down: they don't build suspicion or Expose anyone while they stay that
+way.
 
 **Shaking it off.** An Exposed crew member who changes their look (stows the item they were seen with, or puts on or
 takes off a uniform) and stays out of every witness's sight for 2 world phases returns to unknown. Witnesses who saw
 the change still remember. This only works at Clean or Concealed profile, because armour can't be hidden.
 
-**Once loud,** an unexposed Clean crew member counts as a civilian to staff and police. Police may even order them to
-get down. The inside man can stay inside [R11].
+**Once loud,** an unexposed Clean crew member counts as a civilian to staff and police. Since everyone is now
+Alerted, that only holds at a distance: within 2 tiles of an enforcer they read as Concealed and get frisked. Police
+may even order them to get down. The inside man can stay inside, but has to keep his distance [R11].
 
 ### 8.8 The safe-floor overlay (the promise)
 
