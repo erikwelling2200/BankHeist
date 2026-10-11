@@ -104,7 +104,7 @@ design sharpens it. Each change below is deliberate and can be reversed by the d
 | Sound is a circle; anyone in it is alerted. | The circle is drawn **clipped by walls**: closed doors and soft walls take reach away, reinforced walls stop it. **Quiet** sounds make people curious; **loud** sounds alert them. | Closing a door and choosing a quiet route become decisions, and the preview stays exact [R4]. |
 | A command keeps an NPC down for 2 turns. | Kept, plus a **Hold** stance that pauses the timer, and a **telegraphed lapse**: when the timer runs out, the NPC shows what it will do one turn before doing it. | Re-shouting at 20 people every 2 turns is a chore, and an NPC acting without warning is a gotcha [R26, R2]. |
 | Release a commanded NPC to reduce heat. | Kept: −3 heat ticks, **at most once per turn and three times per heist**, and only at an exit the police control. The released hostage tells the police where they saw the crew. | Released hostages leave the map, so this is never infinite. But a busy bank holds 15–25 people, and at −3 ticks each that is 45–75 ticks: enough to hold heat at level 1 for the whole loud phase and remove the pressure. The cap keeps releases a tactical choice rather than a way to switch heat off [R25]. |
-| Small chance an NPC is armed. | Armed civilians are **decided when the bank is generated**. They have **tells** and are found by frisking, and they need one **telegraphed turn** to draw before they shoot. | A random gunman in a game of perfect information feels unfair, not exciting [R28]. |
+| Small chance an NPC is armed. | Armed civilians are **decided when the bank is generated** and look like everyone else. A **frisk** finds them, and they need one **telegraphed turn** to draw before they shoot. | They exist to make crowd control matter: any uncontrolled civilian might be the one who draws, and shooting him escalates the situation. The draw turn keeps it fair without giving him away beforehand (director's decision) [R28]. |
 | (not in brief) | Added: **masks**, **disguises** (staff and guard uniforms, confirmed by the director), **Notoriety** per crew member, **radio check-ins**, **wounds and blood trails**, and a **takeover (GO) turn**. | Each one ties an existing system (conspicuousness, the alarm, heat) to the campaign or the core fantasy. |
 | Campaign (director's answer) | A known final target, attempted whenever the player chooses. Money buys gear, prep missions give finale advantages, and **the Squeeze** adds accelerating complications as days pass (§19). | The tension between preparation and taking too long is the campaign's core decision. |
 
@@ -697,11 +697,12 @@ within their Threat radius and line of sight. One crew member can hold a room wh
 
 ### 10.4 Resisters
 
-Guards, the security chief, an off-duty cop and the rare *hero* can resist. Their chance is shown before you commit.
+Guards, the security chief and the rare *hero* can resist. Their chance is shown before you commit. Armed civilians
+comply like any other customer, so a command never gives them away (§10.9).
 
 | Situation | Resist chance |
 | --- | --- |
-| Alone against one crew member's command | 40% (off-duty cop 50%) |
+| Alone against one crew member's command | 40% |
 | 2+ crew within Threat radius aiming at them, or Surprised, or flashbanged | 10% |
 | Muscle commanding | Half the chance |
 
@@ -757,13 +758,18 @@ Hostages are a resource with exchange rates the player can see [R25]:
 
 ### 10.9 Armed civilians
 
-- Decided **when the bank is generated**: 0–2 per bank by tier (an off-duty cop among the customers, an armed
-  courier during an armoured-car event).
-- **Tells:** visible within 3 tiles (a holster outline, a badge glint), and on Inspect. Casing intel or an inside man
-  can mark them.
-- Found and disarmed by a **frisk** (zip-tie).
-- An armed civilian who goes for the weapon shows ***Reach for weapon*** for one world phase, and becomes Hostile
-  only after that. No unannounced shots, ever [R28].
+Armed civilians are another reason to **keep the crowd under control**. One on his own isn't much of a threat, but if
+he draws, the crew probably has to shoot him: a loud noise, a body, panic, and heat if the police are watching. They
+turn a slipping crowd into an escalating situation.
+
+- **Decided when the bank is generated:** 0–2 per bank by tier, usually an off-duty cop among the customers.
+- **No tells.** He looks, moves and inspects exactly like any other customer, and no intel marks him. The player
+  can't know which civilian it is, only that one might be.
+- **Found by a frisk:** zip-tying includes a frisk, which finds and removes the weapon.
+- **When he acts:** while Commanded or tied, never. When he is **Panicked** or his command **lapses**, his reaction
+  is always ***Reach for weapon***. The intent shows for one world phase, and he becomes Hostile only after it: his
+  cover is blown, but the player gets one crew phase to command him again, tie him, take him down or shoot first. No
+  unannounced shots, ever [R28].
 
 ---
 
@@ -1242,7 +1248,7 @@ staff member or police officer killed** (the "cleaner" fees) and the crew's shar
 | **Patrol guard** | Patrol route through Staff and Secure areas | Enforcer | Resists | As lobby guard |
 | **Security chief** (HQ) | Roams. Remembers crew faces: crew seen once count one profile higher to him. Sees through uniforms. | Enforcer | Resists | Radio (2) |
 | **CCTV operator** | Console; check-in calls; lunch or smoke break on some banks | Staff in person; Enforcer through cameras | 30 / 20 / 10 / **panel 40** | Verify → alarm (2) |
-| **Off-duty cop** (hidden, 0–1) | Looks like a customer | Civilian until Alerted | **Reach for weapon** | Draws (telegraphed), then fights |
+| **Off-duty cop** (hidden, 0–2) | Identical to a customer, in look and on Inspect | Civilian | Always **reach for weapon** (telegraphed for one phase) | Same as when panicked |
 | **Hero** (rare trait) | Any customer or staff member, tagged "Bold" on Inspect within 3 tiles | — | Flees while others cower, or **tackles** an adjacent crew member | Tackle: an adjacent crew member loses their next action |
 | **Armoured-car couriers** (event) | 2–3 armed; bay → vault → bay while the time lock is open | Enforcer | Resist; armed | Radio (2) |
 
@@ -1416,7 +1422,7 @@ set to Full, Minimal or Off [R16 in immersive-sims notes]:
 1. **Blueprint:** the exterior and the public floor plan are always known. Staff and Secure rooms show only as
    outlines unless the Blueprints asset is bought.
 2. **Casing:** anything a crew member has seen is known (rooms, cameras, NPCs tagged with schedules).
-3. **Intel:** bought or earned: guard rota, vault class, the operator's schedule, armed civilians, shared walls.
+3. **Intel:** bought or earned: guard rota, vault class, the operator's schedule, shared walls.
 
 **Unknown is drawn as unknown** (`?` rooms, unscanned walls, grey overlay), never as empty. Nothing the player sees
 is ever wrong [R11 in procedural-banks notes].

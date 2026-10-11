@@ -175,8 +175,9 @@ The finding that came up in every area: a deep simulation is only fun if the pla
     → A command has three rings: Command (gets down), Panic (picks a reaction) and the outer noise ring.
 28. **Hidden random threats destroy trust in a game of perfect information.** Disguised insurgents among hostages
     work in Door Kickers 2 as a shock in a game about reacting fast, not in a stealth planner.
-    → Armed civilians are rolled when the bank is generated, have tells, are found by frisking, and must spend a
-    telegraphed turn drawing before they can shoot.
+    → Armed civilians are rolled when the bank is generated, are found by frisking, and must spend a telegraphed
+    turn drawing before they can shoot. The research also suggested visible tells; the director dropped them, so
+    the uncertainty keeps crowd control important while the draw turn keeps it fair.
 
 ## 6. Sandbox freedom needs few, general rules
 
