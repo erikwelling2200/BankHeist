@@ -343,7 +343,7 @@ never unlock an action that gear doesn't.
 | **Bruiser** | Carries Very Heavy loot at −1 move instead of half movement. |
 | **Marksman** | Recoil halved while braced. Watch wedges can be 10° narrower. |
 | **Sapper** | Placing a charge or trap takes 1 action less (at least 1). Carries +2 charges. |
-| **Wheelman** | Drives twice as far per action. Rams and runs police blocks without the vehicle taking damage. One free vehicle move per heist. |
+| **Wheelman** | Drives twice as far per action. Rams for half damage to the vehicle. One free vehicle move per heist. |
 | **Medic** | Revives to 6 HP instead of 3, and a medkit heals 6 instead of 4. |
 | **Forgettable** | Notoriety gains are halved (rounded down). |
 | **Cool Head** | No aim penalty while Hurt (§11.12). |
@@ -1221,7 +1221,7 @@ Police answer every player tool plausibly and audibly, and announce the answer a
   traps within 3 tiles.
 - **Sniper nest:** a sniper team targets it at Heat 4 ("Shooter in the office tower! Sierra team, move."). At Heat 5,
   SWAT clear the building.
-- **A crew vehicle in the street:** police cars park to block its way out from Heat 3. A vehicle can ram them aside (a Wheelman without damage).
+- **A crew vehicle in the street:** police cars park to block its way out from Heat 3. A vehicle can ram them aside (§14.4).
 - **Overwatch camping:** flashbangs and gas from Heat 2.
 - **Barks** announce each counter in a speech bubble, so the player knows what the AI is doing.
 
@@ -1345,11 +1345,13 @@ Vehicles are physical objects on the grid with a footprint: **van 2×4 tiles, ca
 cover and block movement and sight. They drive on **Drivable** tiles: streets, lots, sidewalks, open ground, and any
 gap rammed into a building. Breakable dressing in the way gets smashed (§20.9).
 
-| Vehicle | Source | Use |
-| --- | --- | --- |
-| **Crew van** | Always. Parked at the spot chosen in planning. | Holds the crew who start in it. The default getaway. Side door and rear doors. |
-| **Ram truck** | Planning asset, parked at a chosen spot | Built for ramming (below). |
-| **Backup car** | Planning asset, at a second spot | A second getaway. |
+| Vehicle | Size | HP / armour | Source | Use |
+| --- | --- | --- | --- | --- |
+| **Crew van** | 2×4 | 30 / 2 | Always. Parked at the spot chosen in planning. | Holds the crew who start in it. The default getaway. Side door and rear doors. |
+| **Ram truck** | 2×4 | 40 / 3 | Planning asset, parked at a chosen spot | Built for ramming (below). |
+| **Backup car** | 2×3 | 20 / 1 | Planning asset, at a second spot | A second getaway. |
+| **Police car** | 2×3 | 20 / 1 | Perimeter (§13.4) | Police cover and blocks. |
+| **Police van** | 2×4 | 30 / 2 | Transport (§13.4) | Drops units and leaves. |
 
 **Driving.** Tap a vehicle to select it. Someone has to be in the driver's seat: the vehicle's portrait shows the
 driver, and driving uses that crew member's actions. **Drive** (1 action) moves the vehicle up to **8 tiles** of
@@ -1375,7 +1377,7 @@ drives into the first thing ahead:
 - a **police car, wreck or roadblock** is shoved aside, out of the way;
 - **anything harder** (Reinforced walls, Vault) stops the vehicle dead.
 
-The vehicle takes 10 damage from a ram unless a Wheelman is driving.
+The ramming vehicle takes 10 damage (5 with a Wheelman driving), and a vehicle that is rammed takes 10.
 
 **Doors and occupants.**
 
@@ -1386,8 +1388,9 @@ The vehicle takes 10 damage from a ram unless a Wheelman is driving.
 - **In stealth**, a parked vehicle is ignored as long as nobody sees inside. Crew getting in or out in view of an NPC
   are seen with their own profile.
 
-**Damage.** The van has 30 HP and armour 2; at 0 HP it is disabled. The crew falls back on the backup car or an
-on-foot escape.
+**Damage.** Bullets and explosions damage vehicles like anything else (HP and armour in the table above). At 0 HP a
+vehicle is **disabled** and stays where it is as full cover; a destroyed police car becomes a burnt-out wreck. If the
+crew van is disabled, the crew falls back on the backup car or an on-foot escape.
 
 ### 14.5 The sniper nest
 
