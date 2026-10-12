@@ -262,6 +262,9 @@ firefight is decided when it happens and is not previewed (§13.6).
 | Interact | 1–2 | Doors, panels, consoles, lockpicks, loot. Some need a kit, and traits make some faster (§7.2). |
 | Pick up / drop / throw bag | 1 | |
 | Reload | 1 | |
+| Swap weapon | free (once per turn) | Primary ↔ sidearm. |
+| Melee strike | 1 | Adjacent, 3 damage, lethal. Quiet noise radius 2 (§11.11). |
+| Pick up weapon / take ammo / hand over magazine | 1 | §11.11. |
 | Gear up / stow | 1 | Take a long gun or armour out of a duffel, or put it back. Changes profile. |
 | Mask up | 1 (free during GO) | Sets profile to Heavy. Masked crew gain no Notoriety from witnesses (§19.7). |
 | Revive | 1 | Adjacent downed ally, back on their feet with 3 HP. |
@@ -354,7 +357,7 @@ personal motives and barks rather than from a class.
 | Primary | Long gun, or nothing. |
 | Sidearm | Pistol, machine pistol or taser, or nothing. |
 | Armour | None, light vest, medium or heavy. |
-| Gadgets ×2 | Kits (hacking kit, lockpick set, glass cutter, drill), consumables (charges, thermite, throwables, tripwires, medkits), the jammer or the duffel. |
+| Gadgets ×2 | Kits (hacking kit, lockpick set, glass cutter, drill), consumables (charges, thermite, throwables, tripwires, medkits, ammo bag), the jammer or the duffel. |
 | Fixed | Zip-ties ×4, phone, mask, police scanner (§8.15). |
 
 A **duffel** (gadget) holds one long gun and one armour piece, and shows as Concealed. *Gear up* takes them out
@@ -975,7 +978,22 @@ percentage is ever shown**, and there are no hidden assists [R18].
 ### 11.11 Ammo and reloading
 
 Each attack takes its bullets from the magazine. **Reloading costs 1 action.** Crew carry 3 spare magazines per
-weapon.
+weapon. Running dry is a real problem in a long fight, part of the desperate end of a heist gone wrong, but there is
+always something to do about it:
+
+- **Switch to the sidearm:** swapping between primary and sidearm is free once per turn.
+- **Scavenge:** pick up a downed guard's or officer's weapon (1 action), with whatever is left in its magazine, or
+  take spare magazines off a downed enemy whose weapon uses the same ammo (1 action). Police carry pistols, shotguns
+  and ARs, so a long firefight can feed itself, for crew willing to step into the open to loot a body.
+- **Share:** hand a spare magazine to an adjacent teammate with the same weapon (1 action).
+- **Ammo bag:** a consumable gadget (§12.2). Drop it on a tile (1 action); anyone adjacent refills their spare
+  magazines (1 action) until its 4 uses run out. It can also go in the van or a stash drop.
+- **Melee strike:** adjacent, 1 action, 3 damage, quiet noise radius 2. It always works, and unlike the knockout it is
+  lethal and works on someone who is fighting.
+- **Bluffing:** an empty gun still looks like a gun. Command range comes from the weapon being held (§10.1), and NPCs
+  don't know it's empty.
+
+Ammo shows on each crew portrait, with a warning when a crew member is on their last magazine.
 
 ### 11.12 Downed, arrested, dead
 
@@ -1045,6 +1063,7 @@ model; halve them against cover): pistol 2.0 / 1.6 / 1.0 / 0.6 · machine pistol
 | Glass cutter | A quiet 1-tile hole in a window: 2 actions. | 1 | Clean |
 | Medkit ×2 | Revive or heal 4 HP: 1 action. | 0 | Clean |
 | Duffel | Holds one long gun and one armour piece. | 0 | Concealed |
+| Ammo bag | Drop on a tile; adjacent crew refill their spare magazines (1 action each), 4 uses (§11.11). | 0 | Concealed |
 | Reinforcement kit ×2 | Reinforce a Soft wall or door (§14.3). | 2 | Concealed |
 
 ### 12.3 Armour and enemy stats
@@ -1634,7 +1653,7 @@ One screen (not a chain of prep missions [R47]) showing the plot at whatever kno
 | Blueprints | $2k | 1 | Reveals the full layout: rooms, doors, wall materials. |
 | Guard rota | $3k | 1 | Reveals patrol routes and check-in times. |
 | Inside man | $10k | 3 | One named employee won't raise the alarm and unlocks the staff door at a set turn. |
-| Stash drop | $4k | 2 | A duffel (one long gun and one armour piece) hidden in the public restroom. |
+| Stash drop | $4k | 2 | A duffel (one long gun and one armour piece) and an ammo bag hidden in the public restroom. |
 | Cut phone line | $3k | 1 | Landlines are dead. Dispatch notices after 15 phases (a drive-by). |
 | Jammer pre-placed | $5k | 2 | A jammer in a chosen spot next to the building (§12.2). |
 | Sniper nest rental | $6k | 2 | One crew member starts in a chosen neighbour room. |
@@ -1886,7 +1905,7 @@ Tooltips open on long-press, not hover [R16 in touch-ux notes].
 | Area | Contents |
 | --- | --- |
 | **Top strip** | Bank state ("Quiet" / "ALARM: police in 4" / "Heat 2 ▮▮▮▯▯ — Heat 3 in 2: SWAT, rear lot"), the schedule timeline (before the Alarm) or the police phase (after it), turn number. |
-| **Left edge** | Crew portraits: action pips, profile icon, Exposed marker, HP, carried loot. The left thumb also gets camera and overlay controls. |
+| **Left edge** | Crew portraits: action pips, profile icon, Exposed marker, HP, ammo (warning on the last magazine), carried loot. The left thumb also gets camera and overlay controls. |
 | **Right edge** | Contextual action bar, Confirm, Undo, End Turn. |
 | **Threat ledger** (pull-out) | Every live alarm carrier, reinforcement ETA, check-in, drill jam and lapsing command, sorted by urgency. Tap an entry to jump the camera. On phones this is the main planning surface [R21 in immersive-sims notes]. |
 | **Overlay drawer** | Toggles: zones, all vision cones, cameras, cover, sound map, wall materials. |
