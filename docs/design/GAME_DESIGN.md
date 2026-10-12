@@ -263,6 +263,7 @@ No NPC ever acts on a decision the player hasn't had a crew phase to see.
 | Gear up / stow | 1 | Take a long gun or armour out of a duffel, or put it back. Changes profile. |
 | Mask up | 1 (free during GO) | Sets profile to Heavy. Masked crew gain no Notoriety from witnesses (§19.7). |
 | Revive | 1 | Adjacent downed ally, back on their feet with 3 HP. |
+| Flip table | 1 | Adjacent table or light desk becomes half cover (§11.4). Quiet noise radius 4. |
 | Answer radio / phone | 1 | Radio check-ins (§8.11), police negotiator (§13.4). |
 | Use throwable | 1 | Flashbang, smoke, noisemaker. |
 | Place charge / place trap / detonate | 1 / 2 (Sapper 1) / free | Detonation happens in the crew phase, by whoever holds that charge's detonator (the placer, or the crew member chosen for a pre-placed charge), or by a trap trigger. |
@@ -858,6 +859,11 @@ bullet lands within its arc, and the cover roll. Everything else is fixed and pr
   destroyed).
 - **Full cover** (walls, pillars, vehicles, ATMs, vault door): blocks line of sight. A character adjacent to a
   full-cover corner can **lean**: shoot and be shot from the open tile next to it, as in XCOM.
+- **Improvised cover: flip a table.** Any crew member, guard or police officer can flip an adjacent **flippable**
+  object (tables, light desks, café tables) with 1 action. It stays on its tile as half cover, with its cover arc
+  facing away from whoever flipped it, and keeps its HP (a wooden table has 6). Whatever was on top goes flying. It is
+  a quiet noise (radius 4), and anyone who sees it during stealth gains +2 suspicion of that crew member: people
+  don't flip furniture in a bank for no reason.
 - **Height** (§14.7): a shooter on a raised tile ignores the half cover of a target on the ground. A crew member at
   the railing of a raised tile has half cover against shots from below.
 - **Flanked:** outside every cover arc. The preview shows a half-shield on covered targets, greyed out when flanked,
@@ -1125,7 +1131,7 @@ a one-off script [R29].
 
 | Thing | Properties |
 | --- | --- |
-| Tile or object | Zone · Raised · Material (Glass, Teller glass, Soft, Reinforced, Vault, Boundary) · BlocksSight · BlocksMove · Cover (none, half, full) · HP (or indestructible) · Powered · Lit · Lock (none, mechanical, keycard, maglock, vault) · Open/Closed · NoiseDamping · Flammable · Evidence |
+| Tile or object | Zone · Raised · Material (Glass, Teller glass, Soft, Reinforced, Vault, Boundary) · BlocksSight · BlocksMove · Cover (none, half, full) · HP (or indestructible) · Powered · Lit · Lock (none, mechanical, keycard, maglock, vault) · Open/Closed · Flippable · NoiseDamping · Flammable · Evidence |
 | NPC | Role · Observer class · Schedule · State · Suspicion (per crew) · Knowledge (who is Exposed to them, what they saw) · Intent · Command pips · Traits (armed, hero, key holder, bribable) |
 | Crew | Traits · HP · Actions · Profile · Loadout · Carry · Exposed-to list · Notoriety |
 
@@ -1819,6 +1825,44 @@ ends the turn, `Z` undoes, `Tab` opens the threat ledger, `O` the overlay drawer
 
 No timing or dexterity requirements anywhere. Shape plus colour for every state, scalable text in the HTML HUD, a
 world-phase speed setting, guidance levels, and full rebinding on desktop.
+
+### 20.9 Destruction and aftermath
+
+The bank starts the day tidy, and a shootout should wreck it: wood, glass, paper and blood flying everywhere, and a
+room that looks afterwards like a fight happened there. This is the visual half of the tone in §1.
+
+**Decoration never changes the rules.** Breakable dressing is purely visual: it never stops or slows a bullet, never
+gives cover and never blocks sight, so the shot preview stays exact. Anything that does affect play (windows, teller
+glass, desks, flipped tables, lights) is a real object with properties (§14.1), and it shows its damage the same way.
+
+**Breakable dressing**, placed in prop slots by the generator (§17.2) so every room has some:
+
+| Object | When hit |
+| --- | --- |
+| Glass bottles, coffee cups, water glasses | Shatter, with a splash of liquid. |
+| Vases and potted plants | Burst into shards and soil, and the plant drops. |
+| Pictures and certificates on the wall | Frame cracks, glass falls, the picture hangs crooked or drops. |
+| Computer monitors, desk lamps | Screen cracks and sparks, the lamp topples. |
+| Paper stacks, brochures, deposit slips | A burst of paper that drifts down over a few turns. |
+| Water cooler | Bottle bursts and leaks a spreading puddle. |
+| Fish tank (some banks) | Cracks, then empties across the floor. |
+| Clocks, signs, pens on chains | Chip, swing and fall. |
+
+**Hits on everything else:**
+
+- **Bullets** leave holes in walls, chips in counters and splinters from wooden cover. Blocked shots throw splinters or
+  stone dust from the cover that took them. A bullet passing through a tile breaks whatever dressing is there.
+- **Blood** sprays in the direction of the shot, onto the floor and nearby walls. Bodies leave pools that spread, and
+  the wounded leave trails (§11.12). Blood stays for the rest of the heist.
+- **Explosions** blacken the floor and walls in a scorch mark around the blast, destroy all dressing within their
+  radius, throw debris outward, knock over furniture and leave a slow haze that drifts and fades over a few turns. The
+  haze is visual only; smoke that blocks sight is a smoke grenade (§12.2).
+- **Spent casings** pile up around anyone who fires a lot.
+
+**Everything persists.** Holes, scorch marks, shards, paper and blood stay until the heist ends. After the job the
+lobby should tell the story of what happened in it, and a long, desperate fight should look like one.
+
+The **reduced gore** option (§1) swaps blood for dust and darker stains; everything else stays.
 
 ---
 
