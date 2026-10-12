@@ -1102,6 +1102,9 @@ SWAT or use the DMR.
 - The HUD always shows the next step, when it arrives and where: **"Heat 3 in 2 turns: SWAT van, rear lot"**.
 - Heat can fall back a level, but never below Heat 1, tick 0. A release that would go lower shows the capped amount.
   Units already on the map stay; later waves are weaker.
+- **Beyond Heat 5:** the track keeps filling. Every 5 ticks past Heat 5 (each time heat would have gone up a level)
+  sends **reinforcements that refill every lost unit** at once, on top of the refill in each Regroup (§13.3). They are
+  announced a phase ahead like any arrival.
 - **Arrival:** the first police arrival brings the units of **every level reached so far**. After that, each new
   level's units reach their staging points one world phase after the level is reached.
 
@@ -1153,8 +1156,19 @@ time until the next assault, not the end of the police.
 ### 13.4 Police rhythm
 
 Police arrive **physically**. Vehicles appear at **staging points** (street ends, alley mouth, back lot; raised
-positions in neighbouring buildings and the helicopter at Heat 4) at the end of one world phase with a siren marker, and officers get out in the next. **Doors,
-windows and walls they intend to breach are marked one turn ahead** [R16].
+positions in neighbouring buildings and the helicopter at Heat 4) at the end of one world phase with a siren marker,
+and officers get out in the next. **Doors, windows and walls they intend to breach are marked one turn ahead** [R16].
+
+**Vehicles on the street.** Only a few police vehicles stay; the rest drop their units and leave, so the street never
+fills up:
+
+- **Perimeter cars** park and stay: at most **2 per staging point**. They are full cover for the police, block their
+  lane (§13.3, Heat 3) and can be shot up or rammed. A destroyed car stays as a burnt-out wreck (full cover) and
+  frees its slot for a new one.
+- **Transport vans** (SWAT, reinforcements, replacements) drive in, unload in the next phase and **drive off** the
+  phase after. A van that can't leave (its lane blocked, or disabled) stays where it is.
+- The **helicopter** hovers over the plot and leaves when it is not needed; snipers walk in on foot to their raised
+  positions.
 
 Once on scene, they cycle through four phases, each announced with its length:
 
