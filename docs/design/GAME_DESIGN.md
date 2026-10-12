@@ -1143,8 +1143,10 @@ time until the next assault, not the end of the police.
 - **Reaching a level** brings the new units in at once (their vehicles arrive at staging points, §13.4).
 - **Replacements:** in every Regroup phase (§13.4), police bring the force back up to the current level's strength.
   New vehicles arrive at staging points a phase ahead, so the size of the next wave is always known.
-- **Who goes in:** during an Assault, the SWAT teams (and at Heat 1–2 the patrol officers) push into the bank; the
-  rest hold the perimeter, cover exits and the street.
+- **Who goes in:** during an Assault, every SWAT team and half the patrol officers push into the bank; the other
+  officers and the snipers hold the perimeter, the exits and the street. That gives an assault group of 2 officers at
+  Heat 1 (through open doors only), 4 at Heat 2, 8 at Heat 3 (a SWAT team and 4 officers), 12 at Heat 4 and 16 at
+  Heat 5, refilled after every assault.
 - **Greed:** the force size is scaled by loot already secured, +10% per bag, capped at +50%
   [R16 in npcs-hostages-police notes].
 
