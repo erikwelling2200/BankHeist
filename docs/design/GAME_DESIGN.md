@@ -793,7 +793,7 @@ silently resets an NPC to Calm.
 
 - **Zip-tie:** 1 action, adjacent, on a Commanded, Surprised, knocked-out or compliant NPC. 4 per crew member (more
   with a perk or asset).
-- A tied NPC never acts. **It can be freed** by a free NPC spending 2 phases adjacent, or by police (1 action).
+- A tied NPC never acts. **It can be freed** by a free NPC spending 2 phases adjacent, or by police (§10.10).
 - **Tying includes a frisk.** Hidden weapons are found and removed, and so are keycards, which can be taken.
 - **Escort:** a crew member can lead one tied or Commanded hostage, at half movement.
 
@@ -839,6 +839,20 @@ turn a slipping crowd into an escalating situation.
 - **Once he reaches, shouting is too late.** Commands no longer work on him, and zip-ties need a subdued target. The
   player gets one crew phase to defuse it by **subduing** him (a melee knockout, the taser, or a flashbang followed by
   a knockout or zip-tie) or to **shoot first**. A gunman can't be talked back into the crowd.
+
+### 10.10 Police freeing hostages
+
+Any police officer who reaches a hostage frees them:
+
+- **Commanded hostages:** an adjacent officer frees them for free as part of a move ("Go, go, go!"). **Tied
+  hostages** take the officer 1 action to cut loose.
+- **Freed hostages run** for the exit the police came in through, by the shortest safe path, and leave the map. Each
+  one counts as escaping to the police (+1 heat tick, §13.2) and tells them what they saw (§10.7).
+- **The crew loses them:** fewer negotiation turns, fewer bodies the police won't shoot through, fewer keys to coerce.
+- **SWAT make it part of the plan:** a team that can reach hostages without crossing crew fire sends a pair to free
+  them, so a crowd left unguarded near a breach point gets emptied. Holding the room (§10.3), Watch wedges on the
+  approach, and keeping hostages away from entry points are the counters.
+- **Patrol officers** free any hostage they happen to reach, but don't go out of their way for it.
 
 ---
 
@@ -1184,8 +1198,8 @@ Contain (3) ──► Negotiate (2 + hostages, max +6) ──► Assault (4, +1 
   **Release** (§10.7), **Trade** (§10.7), **Stall** (+2 Negotiate turns, once per heist), or hang up. Shooting
   police, or killing a hostage where police can see, ends Negotiate and starts an **immediate Assault**.
 - **Assault:** at Heat 1–2, units push in only through open or unlocked doors and windows (flashbangs from Heat 2).
-  From Heat 3, units push in from 2+ announced breach points, flashbang clusters and held positions, cut tied
-  hostages free (1 action), arrest downed crew, and target crew by priority (§11.12).
+  From Heat 3, units push in from 2+ announced breach points, flashbang clusters and held positions, free
+  hostages they can reach (§10.10), arrest downed crew, and target crew by priority (§11.12).
 - **Regroup:** pull back the wounded and re-stage. Snipers keep watching.
 
 The lulls are when the crew moves bags, re-ties hostages, fixes the drill and repositions. Schedule loud work into
@@ -1239,6 +1253,7 @@ together:
   that can be flanked, or Hurt. A pair works round to an angle outside that position's cover arc while the rest pin it
   from the front.
 - **Focus fire:** they concentrate on one target until it is down or out of sight, instead of spreading shots.
+- **Freeing hostages:** if hostages can be reached without crossing crew fire, a pair goes to free them (§10.10).
 - **Target priority:** a crew member exposed (flanked or leaning) → one who is Hurt → one carrying loot → the one with
   the heaviest weapon. They still never fire through a standing hostage (§10.7).
 - **Timed breaches:** they stack at two entry points and breach in the same world phase, flashbang first. The stack
