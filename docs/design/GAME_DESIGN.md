@@ -963,8 +963,8 @@ weapon.
   less) crawl toward exits and scream: a loud noise, radius 6, once per world phase.
 - **NPCs use the same rules:** their cones, cover and armour work exactly like the crew's. A hostile NPC that will
   fire next phase shows its target and a threat wedge during the crew phase.
-- **Police target priority:** the crew member who shot at police last phase, then the nearest visible crew member,
-  then the one carrying loot.
+- **How police choose targets and moves** depends on the unit: patrol officers follow a simple routine, SWAT fight as
+  a coordinated team (§13.6).
 
 ---
 
@@ -1126,6 +1126,50 @@ Police answer every player tool plausibly and audibly, and announce the answer a
 - **A crew vehicle in the street:** police cars block its lane from Heat 3. A vehicle can ram through once (a Wheelman without damage).
 - **Overwatch camping:** flashbangs and gas from Heat 2.
 - **Barks** announce each counter in a speech bubble, so the player knows what the AI is doing.
+
+### 13.6 Police tactics
+
+The police get smarter as heat rises. Low-level officers are predictable. SWAT should feel like a trained unit that
+cooperates, times its moves and flanks. Two limits apply to every unit:
+
+- **They only know what they have seen or been told:** their own sightlines, radio reports, escapees, released
+  hostages (§10.7), noises and fresh blood trails. They act on last known positions, never on hidden information.
+- **Every plan is telegraphed.** Movement arrows, Watch wedges, breach markers and target lines show during the crew
+  phase like any other intent (§6.2). Smart, never surprising.
+
+**Patrol officers and guards: a simple routine.** Each one, every phase:
+
+1. If a crew member is visible: move to the nearest cover that can see the **nearest visible crew member** and
+   shoot them, leaning from a corner if needed.
+2. If none is visible: advance carefully toward the last known crew position, cover to cover, along the way they came
+   in. (At Heat 1 they hold the exits instead, §13.3.)
+3. If Hurt: fall back out of sight and stay there.
+
+They act alone, bunch up in doorways, and are easy to read and exploit. That is the point.
+
+**SWAT: a coordinated team.** SWAT arrive as a team of four with a leader. Each world phase the team makes one plan
+together:
+
+- **Fire and movement:** half the team covers (Watch wedges or suppressive fire) while the other half moves. They
+  never all move at once.
+- **Flanking:** the team picks the crew position that is easiest to break: isolated, leaning out (§11.4), behind cover
+  that can be flanked, or Hurt. A pair works round to an angle outside that position's cover arc while the rest pin it
+  from the front.
+- **Focus fire:** they concentrate on one target until it is down or out of sight, instead of spreading shots.
+- **Target priority:** a crew member exposed (flanked or leaning) → one who is Hurt → one carrying loot → the one with
+  the heaviest weapon. They still never fire through a standing hostage (§10.7).
+- **Timed breaches:** they stack at two entry points and breach in the same world phase, flashbang first. The stack
+  and the "breach next phase" markers show a turn ahead.
+- **Using their kit:** flashbangs on clustered crew or a held doorway, the shield officer leading through corridors,
+  gas on barricaded rooms from Heat 4.
+- **Casualties:** when a member goes down, the team pulls back one step, covers the casualty and drags them out, then
+  re-plans.
+- **Barks** narrate the plan: "Moving!", "Covering!", "Flanking left!", "Flashbang out!"
+
+**Heavy SWAT (Heat 5)** advance slowly and pin with LMG suppression (§11.9) while a regular SWAT team flanks.
+
+**Police snipers** hold angles on windows and doors from raised positions (§14.7), take crew who lean out or stand
+in view of a window, and counter-snipe a known nest.
 
 ---
 
