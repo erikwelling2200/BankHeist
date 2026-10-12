@@ -1171,8 +1171,9 @@ together:
   re-plans.
 - **Barks** narrate the plan: "Moving!", "Covering!", "Flanking left!", "Flashbang out!"
 
-**What the player sees.** Full previews belong to the stealth phase (§8.8), where perception is deterministic. In a
-firefight, police show only their **commitments**:
+**What the player sees.** Full previews belong to the stealth phase (§8.8). There, perception is deterministic and
+most crew actions don't change what an NPC will do, so keeping the preview exact stays simple. In a firefight nearly
+every action changes what the police will do, and their shots involve dice, so they show only their **commitments**:
 
 | Commitment | Shown as |
 | --- | --- |
