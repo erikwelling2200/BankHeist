@@ -52,6 +52,12 @@ you won't come back; wait too long and it closes in on you.
 The signature moment is a takeover turn you set up during stealth: four people act at once, and "Everybody down!" is
 the plan working, not stealth failing.
 
+**Stealth buys advantage; combat is expected.** Combat is a real and substantial part of the game, not a punishment
+for failed stealth. Most heists end loud. What stealth decides is how well placed the crew is when they do: the alarm
+panel dead, the operator tied, the guards down, the heavies in position. A heist with no combat at all is possible,
+and a skilled crew might pull one off once or twice in a campaign, but it is a feat (the *Ghost* style), not the
+expected way to play.
+
 ### Pillars
 
 | # | Pillar | What it means in practice |
@@ -503,9 +509,9 @@ safe-floor overlay of every crew member shrinks around them.
 **Eyes down.** Commanded and tied NPCs are face down: they don't build suspicion or Expose anyone while they stay that
 way.
 
-**Shaking it off.** An Exposed crew member who changes their look (stows the item they were seen with, or puts on or
-takes off a uniform) and stays out of every witness's sight for 2 world phases returns to unknown. Witnesses who saw
-the change still remember. This only works at Clean or Concealed profile, because armour can't be hidden.
+**Exposure is permanent.** Once an NPC has Exposed a crew member, it stays that way for the rest of the heist: no
+change of clothes or hiding spot undoes it. The only way to contain it is to deal with the witness before they act
+or spread it (§6.2). Escalation is meant to happen; stealth decides how much advantage the crew has when it does.
 
 **Once loud,** an unexposed Clean crew member counts as a civilian to staff and police. Since everyone is now
 Alerted, that only holds at a distance: within 2 tiles of an enforcer they read as Concealed and get frisked. Police
@@ -644,7 +650,7 @@ profile rules still apply to anything visible on top. A disguised crew member's 
 - **Changing** into a uniform takes 2 actions and must happen out of every NPC's sight. The stripped guard left
   behind is major evidence (§8.10).
 - **Armour above a light vest, long guns, loot bags and masks break the disguise:** profile is computed normally.
-- **Changing outfit is also how an Exposed crew member shakes off a description** (§8.7).
+- A disguise prevents exposure; it never undoes it (§8.7).
 
 ---
 
