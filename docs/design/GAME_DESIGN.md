@@ -1126,18 +1126,27 @@ officer dies, and killing a civilian or hostage adds a lot. Kills never reduce t
 Squeeze. A fight that goes badly costs what it costs on its own: wounded crew, heat that forces an early exit, and
 loot left behind, which is time wasted on the campaign clock.
 
-### 13.3 Escalation by level (cumulative)
+### 13.3 Escalation by level
 
-| Heat | Arrives | New capabilities |
+Heat sets **how strong the police force on scene is** and what it can do. It is not a one-off delivery: losses are
+**replaced between assaults**, so a long loud phase faces fresh waves for as long as it lasts. Winning a fight buys
+time until the next assault, not the end of the police.
+
+| Heat | Force on scene | New capabilities |
 | --- | --- | --- |
-| 1 | 2 patrol cars, 4 officers | Cover the exits, return fire, arrest anyone leaving. They don't breach. |
-| 2 | +2 patrol cars, negotiator | Flashbangs. Negotiation starts. |
-| 3 | SWAT team (4, one with a shield) | Breach charges, assault waves from 2 entry points. They spot traps. Police cars block the crew vehicle's street lane. |
-| 4 | 2 sniper teams at raised positions in neighbouring buildings, helicopter | Counter-sniping a known nest (announced). Gas on barricaded rooms. The helicopter's spotlight lights up outdoor areas, and it blocks the roof route (§14.7). |
-| 5 | 2 heavy SWAT | Breach any wall type. A **roadblock** closes one street end, announced 2 turns ahead, on the side nearest the getaway. |
+| 1 | 4 patrol officers (2 cars) | Cover the exits, return fire, arrest anyone leaving. They don't breach. |
+| 2 | 8 patrol officers, negotiator | Flashbangs. Negotiation starts. |
+| 3 | 8 officers + 1 SWAT team (4, one with a shield) | Breach charges, assault waves from 2 entry points. They spot traps. Police cars block the crew vehicle's street lane. |
+| 4 | 8 officers + 2 SWAT teams + 2 sniper teams, helicopter | Counter-sniping a known nest (announced). Gas on barricaded rooms. The helicopter's spotlight lights up outdoor areas, and it blocks the roof route (§14.7). |
+| 5 | 8 officers + 2 SWAT teams + 1 heavy SWAT team (2 heavy, 2 SWAT) + snipers | Breach any wall type. A **roadblock** closes one street end, announced 2 turns ahead, on the side nearest the getaway. |
 
-The size of each wave is scaled by loot already secured: +10% per bag, capped at +50%. Greed visibly costs you
-[R16 in npcs-hostages-police notes].
+- **Reaching a level** brings the new units in at once (their vehicles arrive at staging points, §13.4).
+- **Replacements:** in every Regroup phase (§13.4), police bring the force back up to the current level's strength.
+  New vehicles arrive at staging points a phase ahead, so the size of the next wave is always known.
+- **Who goes in:** during an Assault, the SWAT teams (and at Heat 1–2 the patrol officers) push into the bank; the
+  rest hold the perimeter, cover exits and the street.
+- **Greed:** the force size is scaled by loot already secured, +10% per bag, capped at +50%
+  [R16 in npcs-hostages-police notes].
 
 ### 13.4 Police rhythm
 
@@ -1160,7 +1169,8 @@ Contain (3) ──► Negotiate (2 + hostages, max +6) ──► Assault (4, +1 
 - **Assault:** at Heat 1–2, units push in only through open or unlocked doors and windows (flashbangs from Heat 2).
   From Heat 3, units push in from 2+ announced breach points, flashbang clusters and held positions, cut tied
   hostages free (1 action), arrest downed crew, and target crew by priority (§11.12).
-- **Regroup:** pull back the wounded and re-stage. Snipers keep watching.
+- **Regroup:** pull back the wounded, re-stage, and bring the force back up to strength with fresh units (§13.3).
+  Snipers keep watching.
 
 The lulls are when the crew moves bags, re-ties hostages, fixes the drill and repositions. Schedule loud work into
 the breaks.
