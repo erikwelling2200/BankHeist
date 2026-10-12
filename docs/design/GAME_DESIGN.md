@@ -1157,7 +1157,7 @@ heat step, not the end of the police.
 | --- | --- | --- |
 | 1 | 4 patrol officers (2 cars) | Cover the exits, return fire, arrest anyone leaving. They don't breach. |
 | 2 | 8 patrol officers, negotiator | Flashbangs. Negotiation starts. |
-| 3 | 8 officers + 1 SWAT team (4, one with a shield) | Breach charges, assault waves from 2 entry points. They spot traps. Police cars block the crew vehicle's street lane. |
+| 3 | 8 officers + 1 SWAT team (4, one with a shield) | Breach charges, assault waves from 2 entry points. They spot traps. Police cars park to block the crew vehicle's way out. |
 | 4 | 8 officers + 2 SWAT teams + 2 sniper teams, helicopter | Counter-sniping a known nest (announced). Gas on barricaded rooms. The helicopter's spotlight lights up outdoor areas, and it blocks the roof route (§14.7). |
 | 5 | 8 officers + 2 SWAT teams + 1 heavy SWAT team (2 heavy, 2 SWAT) + snipers | Breach any wall type. A **roadblock** closes one street end, announced 2 turns ahead, on the side nearest the getaway. |
 
@@ -1181,11 +1181,11 @@ and officers get out in the next. **Doors, windows and walls they intend to brea
 **Vehicles on the street.** Only a few police vehicles stay; the rest drop their units and leave, so the street never
 fills up:
 
-- **Perimeter cars** park and stay: at most **2 per staging point**. They are full cover for the police, block their
-  lane (§13.3, Heat 3) and can be shot up or rammed. A destroyed car stays as a burnt-out wreck (full cover) and
+- **Perimeter cars** park and stay: at most **2 per staging point**. They are full cover for the police, block the
+  crew vehicle's way out (§13.3, Heat 3) and can be shot up or rammed. A destroyed car stays as a burnt-out wreck (full cover) and
   frees its slot for a new one.
 - **Transport vans** (SWAT, reinforcements, replacements) drive in, unload in the next phase and **drive off** the
-  phase after. A van that can't leave (its lane blocked, or disabled) stays where it is.
+  phase after. A van that can't leave (its way blocked, or disabled) stays where it is.
 - The **helicopter** hovers over the plot and leaves when it is not needed; snipers walk in on foot to their raised
   positions.
 
@@ -1221,7 +1221,7 @@ Police answer every player tool plausibly and audibly, and announce the answer a
   traps within 3 tiles.
 - **Sniper nest:** a sniper team targets it at Heat 4 ("Shooter in the office tower! Sierra team, move."). At Heat 5,
   SWAT clear the building.
-- **A crew vehicle in the street:** police cars block its lane from Heat 3. A vehicle can ram through once (a Wheelman without damage).
+- **A crew vehicle in the street:** police cars park to block its way out from Heat 3. A vehicle can ram them aside (a Wheelman without damage).
 - **Overwatch camping:** flashbangs and gas from Heat 2.
 - **Barks** announce each counter in a speech bubble, so the player knows what the AI is doing.
 
@@ -1307,7 +1307,7 @@ a one-off script [R29].
 
 | Thing | Properties |
 | --- | --- |
-| Tile or object | Zone · Raised · Material (Glass, Teller glass, Soft, Reinforced, Vault, Boundary) · BlocksSight · BlocksMove · Cover (none, half, full) · HP (or indestructible) · Powered · Lit · Lock (none, mechanical, keycard, maglock, vault) · Open/Closed · Flippable · NoiseDamping · Flammable · Evidence |
+| Tile or object | Zone · Raised · Material (Glass, Teller glass, Soft, Reinforced, Vault, Boundary) · BlocksSight · BlocksMove · Cover (none, half, full) · HP (or indestructible) · Powered · Lit · Lock (none, mechanical, keycard, maglock, vault) · Open/Closed · Drivable · Flippable · NoiseDamping · Flammable · Evidence |
 | NPC | Role · Observer class · Schedule · State · Suspicion (per crew) · Knowledge (who is Exposed to them, what they saw) · Intent · Command pips · Traits (armed, hero, key holder, bribable) |
 | Crew | Traits · HP · Actions · Profile · Loadout · Carry · Exposed-to list · Notoriety |
 
@@ -1341,18 +1341,53 @@ a one-off script [R29].
 
 ### 14.4 Vehicles
 
-Vehicles move along **street lanes** on the plot (main street, alley, service road). **Anyone** can drive: **Drive**
-(1 action) moves a vehicle up to 8 lane tiles (a Wheelman 16) with everyone aboard. Anyone can **Ram**; the vehicle
-takes 10 damage unless a Wheelman is driving.
+Vehicles are physical objects on the grid with a footprint: **van 2×4 tiles, car 2×3, ram truck 2×4**. They are full
+cover and block movement and sight. They drive on **Drivable** tiles: streets, lots, sidewalks, open ground, and any
+gap rammed into a building. Breakable dressing in the way gets smashed (§20.9).
 
 | Vehicle | Source | Use |
 | --- | --- | --- |
-| **Crew van** | Always. Parked at the van spot chosen in planning. | Holds the crew who start in the van. It is the default getaway. Full cover. |
-| **Ram truck** | Planning asset, parked at a chosen lane spot | **Ram** a Glass or Soft frontage facing its lane: a 3-wide gap, 6 damage across the 3×2 impact area (civilians included), loud noise radius 16. The truck stays as full cover in the breach. |
+| **Crew van** | Always. Parked at the spot chosen in planning. | Holds the crew who start in it. The default getaway. Side door and rear doors. |
+| **Ram truck** | Planning asset, parked at a chosen spot | Built for ramming (below). |
 | **Backup car** | Planning asset, at a second spot | A second getaway. |
 
-Vehicles can be shot: the van has 30 HP and armour 2. At 0 HP it is disabled. The crew falls back on the backup car
-or an on-foot escape.
+**Driving.** Tap a vehicle to select it. Someone has to be in the driver's seat: the vehicle's portrait shows the
+driver, and driving uses that crew member's actions. **Drive** (1 action) moves the vehicle up to **8 tiles** of
+path (a Wheelman 16) with everyone aboard:
+
+- **Same orientation:** the vehicle drives forward or backward and can drift 1 tile sideways for every 2 tiles it
+  travels. Every footprint position it can reach is highlighted.
+- **Turning:** rotate buttons pick a new orientation (90° left or right, or 180°). The highlight redraws to show where
+  the vehicle can end up facing that way, driving the turn as a real curve. A car pointing up and turned 90°
+  clockwise ends up somewhere up and to the right, facing right. Turned 180°, it ends up beside its starting point
+  facing down. The curve's length counts against the 8 tiles, and turns can be made going forward or in reverse.
+- **Clear path:** every tile the vehicle sweeps along the way must be clear: Drivable, and free of walls, cover
+  objects, vehicles and wrecks. There is no separate clearance rule; a turn fits where its curve fits.
+- **People in the way** are hit (6 damage) unless they move. The preview shows the swept path, the end footprint and
+  anyone in it before you confirm.
+
+**Ram** (1 action): straight forward only, and the vehicle needs at least 2 clear tiles of run-up in front of it. It
+drives into the first thing ahead:
+
+- a **Glass or Soft** frontage, door or rolling shutter opens a gap as wide as the vehicle plus one, deals 6 damage
+  across the impact area (civilians included) and makes a loud noise (radius 16). The vehicle ends up in the breach
+  as full cover;
+- a **police car, wreck or roadblock** is shoved aside, out of the way;
+- **anything harder** (Reinforced walls, Vault) stops the vehicle dead.
+
+The vehicle takes 10 damage from a ram unless a Wheelman is driving.
+
+**Doors and occupants.**
+
+- **Getting in** costs 1 action from a tile next to a door; **getting out** costs 1 action, onto any free tile next to
+  a door. Loot can be thrown in through an open door.
+- With the doors shut, occupants **can't shoot or be shot**. Opening the side door (free, once per turn) lets them
+  shoot out and be shot, like leaning out from cover (§11.4), until it is shut again.
+- **In stealth**, a parked vehicle is ignored as long as nobody sees inside. Crew getting in or out in view of an NPC
+  are seen with their own profile.
+
+**Damage.** The van has 30 HP and armour 2; at 0 HP it is disabled. The crew falls back on the backup car or an
+on-foot escape.
 
 ### 14.5 The sniper nest
 
@@ -1452,8 +1487,8 @@ dark, so no codes either.
 - **Vehicles wait at their spots from the start:** the van, and the backup car if bought. Where they park is the
   decision: a curb spot is close to the door but in police view; the back garage is farther but safer.
 - **Boarding:** adjacent, 1 action. Loot can be thrown in.
-- **Leaving:** anyone aboard drives the vehicle off along the street lanes to a plot edge (§14.4). Roadblocks (Heat
-  5) and police cars in the lane must be avoided, or rammed through once. **Crew left behind are
+- **Leaving:** the driver drives the vehicle off a plot edge (§14.4). Roadblocks (Heat 5) and police cars in the way
+  must be driven around or rammed aside. **Crew left behind are
   arrested.**
 - **Other exits** (when the plot has them): a sewer manhole (crowbar, Light loot only), a neighbour's garage with the
   backup car, or the roof route out (blocked by the helicopter at Heat 4+) (§14.7).
@@ -1711,7 +1746,7 @@ One screen (not a chain of prep missions [R47]) showing the plot at whatever kno
 | Jammer pre-placed | $5k | 2 | A jammer in a chosen spot next to the building (§12.2). |
 | Sniper nest rental | $6k | 2 | One crew member starts in a chosen neighbour room. |
 | Tow truck | $5k | 2 | Blocks one street end: police arriving from that side take +3 turns. |
-| Ram truck | $8k | 2 | Parked at a chosen lane spot (§14.4). |
+| Ram truck | $8k | 2 | Parked at a chosen spot (§14.4). |
 | Backup car | $6k | 1 | A second getaway at another spot. |
 | Pre-placed charge | $4k each | 1 | A breach or shaped charge on a chosen *exterior* wall, planted the night before. Assign who holds its detonator. |
 | Staff uniforms (×2) | $3k | 1 | Needs an insider or a casing find. |
