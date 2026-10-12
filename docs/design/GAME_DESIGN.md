@@ -721,8 +721,8 @@ A bigger gun controls more people but also scares more people just beyond its re
 
 - A Commanded NPC lies down and **doesn't act**. It shows **2 pips**, and loses 1 at the end of each world phase.
 - **Re-commanding** refreshes it to 2.
-- People lying down are below the line of fire: **bullets pass over prone and commanded bodies** unless the shooter
-  is adjacent. Explosions still hurt them. Commanding people also protects them.
+- People lying down are below the line of fire: **stray bullets pass over prone and commanded bodies**. Explosions
+  still hurt them. Commanding people also protects them. Someone lying down can still be **shot on purpose** (§11.3).
 
 ### 10.3 Hold
 
@@ -840,7 +840,12 @@ bullet lands within its arc, and the cover roll. Everything else is fixed and pr
 
 - **Hitboxes are per tile, not per pixel:** a standing body is 0.5 tile wide, centred in its tile. A bullet hits the
   first standing body or blocking object its line crosses.
-- **Prone, commanded, tied and downed bodies are below the line of fire**, unless the shooter is adjacent to them.
+- **Prone, commanded, tied and downed bodies are below the line of fire:** bullets aimed at anyone else pass over
+  them, at any range.
+- **Shooting someone lying down is a deliberate act.** Tap the person on the floor as the target, and the cone is
+  aimed at them from any range, with hits previewed as usual. Other people lying in the line of fire are still passed
+  over. In this tone it is possible but brutal: killing a hostage adds heat and a payout penalty (§13.2, §15.5), and
+  police who see it end negotiation and storm the building at once (§13.4).
 - **Full-height objects and walls** stop bullets unless the weapon's Pierce allows a pass (§11.6).
 - **Angles do the rest:** a target covers about 14° of arc at 2 tiles, 7° at 4, 3.6° at 8 and 2.4° at 12. Range
   falloff comes from the geometry, so there are no range tables [R2 in aiming notes].
