@@ -1103,8 +1103,7 @@ SWAT or use the DMR.
 - Heat can fall back a level, but never below Heat 1, tick 0. A release that would go lower shows the capped amount.
   Units already on the map stay; later waves are weaker.
 - **Beyond Heat 5:** the track keeps filling. Every 5 ticks past Heat 5 (each time heat would have gone up a level)
-  sends **reinforcements that refill every lost unit** at once, on top of the refill in each Regroup (§13.3). They are
-  announced a phase ahead like any arrival.
+  sends **reinforcements that refill every lost unit** at once. They are announced a phase ahead like any arrival.
 - **Arrival:** the first police arrival brings the units of **every level reached so far**. After that, each new
   level's units reach their staging points one world phase after the level is reached.
 
@@ -1132,8 +1131,9 @@ loot left behind, which is time wasted on the campaign clock.
 ### 13.3 Escalation by level
 
 Heat sets **how strong the police force on scene is** and what it can do. It is not a one-off delivery: losses are
-**replaced between assaults**, so a long loud phase faces fresh waves for as long as it lasts. Winning a fight buys
-time until the next assault, not the end of the police.
+**replaced every time heat goes up a level**, so a long loud phase faces fresh waves for as long as it lasts. Since
+heat rises 1 tick per phase, that is at least every 5 phases. Wiping out a wave buys breathing room until the next
+heat step, not the end of the police.
 
 | Heat | Force on scene | New capabilities |
 | --- | --- | --- |
@@ -1143,13 +1143,14 @@ time until the next assault, not the end of the police.
 | 4 | 8 officers + 2 SWAT teams + 2 sniper teams, helicopter | Counter-sniping a known nest (announced). Gas on barricaded rooms. The helicopter's spotlight lights up outdoor areas, and it blocks the roof route (§14.7). |
 | 5 | 8 officers + 2 SWAT teams + 1 heavy SWAT team (2 heavy, 2 SWAT) + snipers | Breach any wall type. A **roadblock** closes one street end, announced 2 turns ahead, on the side nearest the getaway. |
 
-- **Reaching a level** brings the new units in at once (their vehicles arrive at staging points, §13.4).
-- **Replacements:** in every Regroup phase (§13.4), police bring the force back up to the current level's strength.
-  New vehicles arrive at staging points a phase ahead, so the size of the next wave is always known.
+- **Each heat step** brings in the new level's units and **refills every lost unit** back to that level's strength.
+  Past Heat 5, every 5 ticks does the same (§13.1). Vehicles arrive at staging points a phase ahead (§13.4), so the
+  size of the next wave is always known.
+- **No other refills.** Between heat steps, losses stay lost.
 - **Who goes in:** during an Assault, every SWAT team and half the patrol officers push into the bank; the other
   officers and the snipers hold the perimeter, the exits and the street. That gives an assault group of 2 officers at
   Heat 1 (through open doors only), 4 at Heat 2, 8 at Heat 3 (a SWAT team and 4 officers), 12 at Heat 4 and 16 at
-  Heat 5, refilled after every assault.
+  Heat 5, refilled at each heat step.
 - **Greed:** the force size is scaled by loot already secured, +10% per bag, capped at +50%
   [R16 in npcs-hostages-police notes].
 
@@ -1185,8 +1186,7 @@ Contain (3) ──► Negotiate (2 + hostages, max +6) ──► Assault (4, +1 
 - **Assault:** at Heat 1–2, units push in only through open or unlocked doors and windows (flashbangs from Heat 2).
   From Heat 3, units push in from 2+ announced breach points, flashbang clusters and held positions, cut tied
   hostages free (1 action), arrest downed crew, and target crew by priority (§11.12).
-- **Regroup:** pull back the wounded, re-stage, and bring the force back up to strength with fresh units (§13.3).
-  Snipers keep watching.
+- **Regroup:** pull back the wounded and re-stage. Snipers keep watching.
 
 The lulls are when the crew moves bags, re-ties hostages, fixes the drill and repositions. Schedule loud work into
 the breaks.
