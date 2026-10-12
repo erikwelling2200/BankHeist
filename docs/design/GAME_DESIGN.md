@@ -103,7 +103,7 @@ design sharpens it. Each change below is deliberate and can be reversed by the d
 | --- | --- | --- |
 | Heat rises the longer the heist goes on. | Heat is **0 until the Alarm**, then rises by 1 tick per turn plus event spikes, in 5 announced levels. Before the alarm, the time pressure is the bank's own schedule, ending in a closing-time sweep. | Timers that start at mission start punish scouting and planning, which are half the game (XCOM 2's timer backlash, Invisible Inc.'s "doom clock") [R14]. |
 | Cone aim with Aim, Recoil and Bullets. | Kept, plus **Damage, Pierce, Range, Threat, Noise, Profile** and a **moving penalty**. Each bullet lands at a **random point within its arc**: this replaces XCOM's hit chance (director's decision). | A 50% per-bullet cover roll otherwise makes spray weapons the answer to everything [R20]. The randomness stays visible as geometry: the player sees the arc the bullet can land in, never a percentage [R18]. |
-| Cover gives a 50% block if it is right in front. | Kept for **half cover**, with an exact definition of "in front" (a 90° arc). **Full cover** (walls, pillars) blocks line of sight; you lean out from corners. | Cover has to be readable from one icon, and the icon has to match the hit logic exactly [R19]. |
+| Cover gives a 50% block if it is right in front. | Kept for **half cover**, with an exact definition of "in front" (a 90° arc). **Full cover** (walls, pillars) blocks line of sight; attacking from a corner means **leaning out**, which leaves the shooter exposed until their next turn. | Cover has to be readable from one icon, and the icon has to match the hit logic exactly [R19]. |
 | Floor shows where a character can go without raising alarms. | Kept as a **strict promise**: calculated per character, along the whole path, against what NPCs *will* do in their next phase, using the same rules as the real check. Three colours: safe, suspicious, spotted. | One wrong tile destroys trust in the whole stealth layer [R1, R2]. |
 | Each character is spotted individually. | Kept. NPCs who know something is wrong become **Alerted** and read every crew member as **one profile more suspicious**, with wider vision; knowledge spreads physically (radio, shouts, people running to tell someone). | Without some link between characters, spotting each one separately becomes a string of easy ambushes, or guards ignoring the gunman next to their partner [R11]. An on-edge state is easier to show than a rule about who was seen with whom (director's suggestion). |
 | Off-limits areas at the back. | Three zones: **Public, Staff, Secure**. Being caught in Staff gets you **challenged** on a first offence: walk back to Public by the end of your next turn (§8.6). Secure means instant exposure. | Being caught is never a game over, but a single sighting shouldn't instantly flip the whole bank from stealth to loud either. That all-or-nothing switch was Payday 2's most criticised stealth design; Payday 3's tiers fixed it [R7]. |
@@ -857,8 +857,13 @@ bullet lands within its arc, and the cover roll. Everything else is fixed and pr
   against bullets arriving within the **90° arc** facing the cover. Each bullet that would hit is **blocked 50% of
   the time**. Blocked bullets damage the cover (desk 6 HP, planter 4, counter 10; marble counters can't be
   destroyed).
-- **Full cover** (walls, pillars, vehicles, ATMs, vault door): blocks line of sight. A character adjacent to a
-  full-cover corner can **lean**: shoot and be shot from the open tile next to it, as in XCOM.
+- **Full cover** (walls, pillars, vehicles, ATMs, vault door): blocks line of sight. Standing next to a corner
+  doesn't expose anyone: a character behind full cover can't be seen or shot from beyond it.
+- **Leaning out.** A character next to a full-cover corner can attack (or set a Watch wedge) by **leaning out**. The
+  shot is traced from the open tile beside the corner. Leaning puts them in the **Leaning** state until the start of
+  their side's next phase: they are visible and can be shot from anything that can see that open tile, with half
+  cover from the corner itself. The lean shows on the map (pose plus an icon), and NPCs lean by the same rules, so
+  a police officer who leaned out to fire is exposed until his next turn. Moving away ends the lean.
 - **Improvised cover: flip a table.** Any crew member, guard or police officer can flip an adjacent **flippable**
   object (tables, light desks, café tables) with 1 action. It stays on its tile as half cover, with its cover arc
   facing away from whoever flipped it, and keeps its HP (a wooden table has 6). Whatever was on top goes flying. It is
