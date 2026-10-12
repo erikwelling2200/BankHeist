@@ -123,7 +123,7 @@ carrying the hacking kit), Dex (Intimidating, Bruiser), Sol (Marksman). Contract
 
 **Planning.** The blueprint shows the lobby at the bottom, the staff corridor on the right, the CCTV room on a
 mezzanine to the left and the vault at the top. The crew rents a room in the office tower across the alley for Sol,
-with a DMR and a rooftop view into the staff corridor windows. The van, with Dex inside in heavy armour carrying an
+with a DMR and a raised firing position (an upper-floor window) looking into the staff corridor windows. The van, with Dex inside in heavy armour carrying an
 LMG, parks at the curb right of the entrance. The favour budget covers a stash duffel (shotgun) in the public
 restroom and a cut phone line. The tooltip warns that dispatch will notice the dead line after 15 phases and send a
 car to check. That is the crew's clock.
@@ -397,7 +397,8 @@ Zones are drawn into the floor material, so the art carries the rule, and the zo
 
 - NPCs see a **Core** arc (6 tiles, 90°) and a **Peripheral** arc (8 tiles, 140°, including Core). **Alerted** NPCs see
   further and treat Peripheral as Core (§8.7). Walls,
-  full-height objects and closed doors block sight. Glass doesn't.
+  full-height objects and closed doors block sight. Glass doesn't. An observer on a **raised tile** also sees over
+  low objects (§14.7).
 - **Cameras** have Core only (7 tiles, 70°). They are either fixed or panning; a panning camera alternates between
   two facings each world phase, and its next facing is telegraphed.
 - **Darkness** (power cut, unlit rooms) halves all vision ranges. Cameras below Regional HQ tier go blind in the
@@ -852,6 +853,8 @@ bullet lands within its slice of the cone, and the cover roll. Everything else i
   destroyed).
 - **Full cover** (walls, pillars, vehicles, ATMs, vault door): blocks line of sight. A character adjacent to a
   full-cover corner can **lean**: shoot and be shot from the open tile next to it, as in XCOM.
+- **Height** (§14.7): a shooter on a raised tile ignores the half cover of a target on the ground. A crew member at
+  the railing of a raised tile has half cover against shots from below.
 - **Flanked:** outside every cover arc. The preview shows a half-shield on covered targets, greyed out when flanked,
   and cracked if this attack will destroy the cover [R19].
 - **Glass partitions** don't block sight and give no cover. A bullet passes and the pane shatters (a loud noise).
@@ -1013,7 +1016,7 @@ model; halve them against cover): pistol 2.0 / 1.6 / 1.0 / 0.6 · machine pistol
 | Patrol officer | 6 | 1 | Pistol or shotgun |
 | SWAT | 7 | 2 | AR, flashbang |
 | Shield SWAT | 7 | 2 | Pistol. Frontal shield (90°) stops bullets with Pierce < 3. |
-| Police sniper | 6 | 1 | DMR, from a rooftop |
+| Police sniper | 6 | 1 | DMR, from a raised position in a neighbouring building |
 | Heavy SWAT | 12 | 3 | LMG |
 
 How the numbers play out: an Uzi does 2 per hit to guards, 1 to officers, 0 to SWAT. An AR does 3 to SWAT and 2 to
@@ -1057,7 +1060,7 @@ Squeeze (§19), so killing always costs something even when nobody sees it.
 | 1 | 2 patrol cars, 4 officers | Cover the exits, return fire, arrest anyone leaving. They don't breach. |
 | 2 | +2 patrol cars, negotiator | Flashbangs. Negotiation starts. |
 | 3 | SWAT team (4, one with a shield) | Breach charges, assault waves from 2 entry points. They spot traps. Police cars block the crew vehicle's street lane. |
-| 4 | 2 sniper teams on neighbouring rooftops, helicopter | Counter-sniping a known nest (announced). Gas on barricaded rooms. The helicopter's spotlight reveals the roof and blocks a roof escape. |
+| 4 | 2 sniper teams at raised positions in neighbouring buildings, helicopter | Counter-sniping a known nest (announced). Gas on barricaded rooms. The helicopter's spotlight lights up outdoor areas, and it blocks the roof route (§14.7). |
 | 5 | 2 heavy SWAT | Breach any wall type. A **roadblock** closes one street end, announced 2 turns ahead, on the side nearest the getaway. |
 
 The size of each wave is scaled by loot already secured: +10% per bag, capped at +50%. Greed visibly costs you
@@ -1065,8 +1068,8 @@ The size of each wave is scaled by loot already secured: +10% per bag, capped at
 
 ### 13.4 Police rhythm
 
-Police arrive **physically**. Vehicles appear at **staging points** (street ends, alley mouth, back lot; rooftops and
-helicopter at Heat 4) at the end of one world phase with a siren marker, and officers get out in the next. **Doors,
+Police arrive **physically**. Vehicles appear at **staging points** (street ends, alley mouth, back lot; raised
+positions in neighbouring buildings and the helicopter at Heat 4) at the end of one world phase with a siren marker, and officers get out in the next. **Doors,
 windows and walls they intend to breach are marked one turn ahead** [R16].
 
 Once on scene, they cycle through four phases, each announced with its length:
@@ -1117,7 +1120,7 @@ a one-off script [R29].
 
 | Thing | Properties |
 | --- | --- |
-| Tile or object | Zone · Material (Glass, Teller glass, Soft, Reinforced, Vault, Boundary) · BlocksSight · BlocksMove · Cover (none, half, full) · HP (or indestructible) · Powered · Lit · Lock (none, mechanical, keycard, maglock, vault) · Open/Closed · NoiseDamping · Flammable · Evidence |
+| Tile or object | Zone · Raised · Material (Glass, Teller glass, Soft, Reinforced, Vault, Boundary) · BlocksSight · BlocksMove · Cover (none, half, full) · HP (or indestructible) · Powered · Lit · Lock (none, mechanical, keycard, maglock, vault) · Open/Closed · NoiseDamping · Flammable · Evidence |
 | NPC | Role · Observer class · Schedule · State · Suspicion (per crew) · Knowledge (who is Exposed to them, what they saw) · Intent · Command pips · Traits (armed, hero, key holder, bribable) |
 | Crew | Traits · HP · Actions · Profile · Loadout · Carry · Exposed-to list · Notoriety |
 
@@ -1166,8 +1169,8 @@ or an on-foot escape.
 
 ### 14.5 The sniper nest
 
-- A rented room or roof in a **neighbouring building** on the plot, chosen in planning from candidate tiles with
-  sightlines into the bank (windows, skylights, the lot).
+- A rented upper-floor room in a **neighbouring building** on the plot: a **raised tile** (§14.7), chosen in planning
+  from candidate tiles with sightlines into the bank (windows, the lot).
 - The crew member assigned to the nest starts there. The first shot through a window breaks the pane (loud).
 - The nest is on the grid: police respond to it at Heat 4 and 5 (§13.5). They can leave by the building's
   stairs.
@@ -1180,6 +1183,32 @@ alarm panel has its own battery, so cutting the power doesn't silence it. Some l
 - Cutting power opens fail-safe maglocks on staff doors, but the vault console goes dark: no code entry during an
   outage.
 - Darkness halves vision for everyone, police included, and gives the crew an edge in the loud phase too.
+
+### 14.7 Height and off-map routes
+
+Each map is **one playable level**: the street, the bank interior and the neighbouring parcels all share one grid.
+Height is a tile property, not a separate floor (director's decision).
+
+- **Raised tiles:** mezzanines, the loading dock, scaffolding, and upper-floor windows or roof spots in neighbouring
+  buildings. They are reached by stair or ladder tiles and drawn with a raised edge and railing.
+- **Seeing from height:** an observer on a raised tile sees over low objects (desks, counters, cars, low walls). Walls
+  and full-height objects still block. Observers on the ground see raised tiles normally.
+- **Shooting from height:** a shooter on a raised tile ignores the half cover of a target on the ground. The railing
+  gives a crew member at the edge half cover against shots from below (§11.4). This is what makes a sniper nest worth
+  renting.
+- **Sound** ignores height.
+
+**Off-map routes** replace roofs and basements as floors. A route is a pair of access points on the map:
+
+| Route | Outside end | Inside end | Transit |
+| --- | --- | --- | --- |
+| **Roof** | A ladder in the alley, or scaffolding next door | A roof hatch or skylight inside the bank | 2 turns |
+| **Sewer** | A manhole in the street or back lot | A floor grate in a utility room | 3 turns |
+
+A crew member who steps onto an access point is **in transit**. They are shown on a transit track at the screen
+edge, can't act and can't be targeted, and appear at the other end when the transit ends. Loot heavier than Light
+can't travel by either route. The helicopter (Heat 4) blocks the roof route; anyone still on the roof when it arrives
+is forced back to the end they started from. The sewer can also be used as an escape exit (§15.4).
 
 ---
 
@@ -1240,7 +1269,7 @@ dark, so no codes either.
   5) and police cars in the lane must be avoided, or rammed through once. **Crew left behind are
   arrested.**
 - **Other exits** (when the plot has them): a sewer manhole (crowbar, Light loot only), a neighbour's garage with the
-  backup car, a rooftop route to an adjacent building (blocked by the helicopter at Heat 4+).
+  backup car, or the roof route out (blocked by the helicopter at Heat 4+) (§14.7).
 - **Escape is always possible.** Leaving with less loot is a partial success, never a failure screen.
 
 ### 15.5 Outcome
@@ -1357,7 +1386,6 @@ building at closing faces the most thorough search of the day [R14].
    - **Three Keys:** the social key needs three parts (the manager's card, the CCTV room disabled, the time-lock
      window), each in a different wing. The drill and thermite still work, slower and louder.
    - **Fortress:** one hardened core with many breachable outer walls.
-   - **Basement Vault:** the vault sits under the lobby (floor breach).
    - **Mezzanine Watch:** the CCTV room overlooks the floor.
 3. **Core first:** place the vault (class by tier), then the CCTV room in **another wing**, then the alarm or
    electrical closet, then the approach points the archetype and neighbours allow.
@@ -1379,12 +1407,12 @@ be shared.
 | --- | --- | --- | --- | --- | --- |
 | **Small branch** | ~32×22 | 1 guard, 2–4 record-only cameras, no operator (check-ins go to dispatch) | M, time lock | — | 8 |
 | **City branch** | ~40×28 (+ mezzanine in the Mezzanine Watch archetype) | 2 guards, 6–8 cameras, operator with 4 monitors | I–II, dual control, time lock on some | Staff mantrap, dye packs, armoured-car event on some | 6 |
-| **Regional HQ** | ~48×32 + mezzanine or basement | 3–4 guards + security chief, 10–12 cameras, operator + guard in CCTV room | II–III, dual control + time lock | Armoured-car event, motion sensors, **metal detector** at the entrance (frisks Concealed items) | 4 |
+| **Regional HQ** | ~48×32 + mezzanine | 3–4 guards + security chief, 10–12 cameras, operator + guard in CCTV room | II–III, dual control + time lock | Armoured-car event, motion sensors, **metal detector** at the entrance (frisks Concealed items) | 4 |
 | **Reserve depot** (finale) | Hand-authored | On-site response team | III, seismic, biometric | Unique | 3 |
 
 The whole plot, including street and neighbours, is about **60×40 tiles**. Keep the lobby within about 16 tiles
 corner to corner, so most firefights fit on one screen. Corridors are 2 tiles wide where crews must pass each other.
-v1 is a ground floor plus roof; basements and mezzanines are separate layers.
+Every map is one level; height is a tile property and roofs and sewers are off-map routes (§14.7).
 
 ### 17.4 Rooms and their jobs
 
@@ -1404,30 +1432,30 @@ v1 is a ground floor plus roof; basements and mezzanines are separate layers.
 | Vault antechamber, vault | Secure | Console, sensors' wiring box, loot |
 | Deposit-box room | Secure | Optional loot, intel box |
 | Loading bay | Staff | Vehicle access, armoured-car event, rolling shutter (rammable) |
-| Generator | Outside / basement | Backup power |
+| Generator | Back lot | Backup power |
 
 ### 17.5 Neighbours and approaches
 
 **Neighbour parcels**, 2–4 per plot:
 
-- **Office tower:** sniper nest, roof bridge.
+- **Office tower:** raised sniper positions in its upper windows.
 - **Café:** shares a wall with the lobby; window seat for casing.
 - **Parking garage:** getaway spot, raised firing line.
-- **Construction site:** scaffold to the roof, tools.
-- **Vacant shop:** tunnel start toward a basement vault.
+- **Construction site:** scaffolding (a raised position and the outside end of the roof route), tools.
+- **Vacant shop:** shares a wall with the bank (wall breach).
 - **Utility manhole:** sewer exit.
 
 **Guaranteed approaches:** at least **4 approach points from at least 3 categories**:
 
 - **Social:** front door during opening hours, staff door with a keycard or the mantrap.
-- **Covert:** roof hatch or skylight, sewer or basement, air duct.
+- **Covert:** the roof route (hatch or skylight), the sewer route (§14.7), an air duct.
 - **Forced:** wall breach, the loading-bay shutter, a vehicle ram through the glass front.
 
 At least one covert approach reaches the CCTV room or the alarm closet, which the inside-man plan needs.
 
 ### 17.6 Headline features and opportunities
 
-**Headline features** (1–2 per bank): a glass atrium roof, a basement vault under the lobby, a mezzanine CCTV room,
+**Headline features** (1–2 per bank): a glass atrium roof (skylight entry), a mezzanine CCTV room,
 scaffolding next door, an armoured-car delivery mid-heist, a manager working late, an old bank with a round vault door
 and metre-thick walls, a bank inside a mall (crowds, many exits), a drive-through teller lane.
 
@@ -1631,7 +1659,7 @@ dossier. A failed prep mission adds Squeeze and may be lost for good.
 | **Hijack an armoured truck** | Street ambush on the transfer route | Drive into the loading bay as the transfer, with 2 guard uniforms. |
 | **Raid the dispatch office** | Police substation records room | Finale police ETA +3, and the first assault delayed by 2 turns. |
 | **Map the sewers** | Utility depot | A sewer approach and an escape exit at the depot. |
-| **Take the rooftop** | Office tower opposite the depot | A sniper nest over the depot yard. |
+| **Take the high ground** | Office tower opposite the depot | A raised sniper position over the depot yard. |
 | **Plant the charges** | Night break-in next door | Shaped charges pre-placed on the depot's outer wall. |
 | **Discredit the security chief** | Documents from a deposit box at a specific bank (a regular heist with a side objective) | The security chief is absent on the day. |
 | **Get half the code** | The manager's home safe | One half of the dual-control code. |
@@ -1821,8 +1849,8 @@ next starts.
 | **M6 Campaign** | City map and day actions, contracts by stakes, money and laundering, the black market, crew, Notoriety, styles, chain escalation, **the Squeeze and its complications**, prep missions on small sites. | The preparation-versus-time decision is tense every day. |
 | **M7 The Big One** | The hand-authored depot with its Defences, the dossier, prep advantages wired into the finale, endings, the Raid mission, carry-over and unlocks. | An unprepared crew dies there; a prepared crew has several plans that work. |
 
-**Deliberately v2 or later:** fire alarm and firefighters, crew pairs, a nemesis SWAT commander, multiple floors
-beyond a basement or mezzanine, armoured-truck and casino contracts, a daily or shared-seed challenge (only if it is a
+**Deliberately v2 or later:** fire alarm and firefighters, crew pairs, a nemesis SWAT commander, real
+multiple floors (basements, a vault under the lobby, upper storeys), armoured-truck and casino contracts, a daily or shared-seed challenge (only if it is a
 challenge, never a login reward), and any multiplayer.
 
 **Cut first if needed:** the security chief's face memory, dye packs, the hero trait, crew personal motives.
@@ -1843,10 +1871,12 @@ challenge, never a login reward), and any multiplayer.
 6. **Multiplayer:** single-player only.
 7. **No classes:** kits decide what a crew member can do, traits decide how well (§7.2). Turn rewind is removed
    (§6.6).
+8. **One level per map:** height is a tile property, and roofs and sewers are off-map routes (§14.7). Exposure is
+   permanent, and combat is an expected part of most heists (§1, §8.7).
 
 **Still open:**
 
-8. **Stratified spread.** Bullets fan out evenly to bound the variance. Should spread be rawer and fully independent
+9. **Stratified spread.** Bullets fan out evenly to bound the variance. Should spread be rawer and fully independent
    instead? Decide in playtesting (M3).
-9. **Hostage release cap.** Keep the hard cap (one per turn, three per heist), or switch to diminishing returns (−3,
+10. **Hostage release cap.** Keep the hard cap (one per turn, three per heist), or switch to diminishing returns (−3,
    then −2, then −1 per release, uncapped)? Decide in playtesting (M3).
