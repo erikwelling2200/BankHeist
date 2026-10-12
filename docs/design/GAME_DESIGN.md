@@ -243,7 +243,9 @@ NPCs already Hostile and on a **Watch** wedge (§11.8), whose reaction arc is dr
 
 The same holds in the other direction: **anything an NPC decides during a world phase** (a panic reaction, a new
 exposure, a lapsed command's intent) **is shown during the next crew phase and carried out in the next world phase.**
-No NPC ever acts on a decision the player hasn't had a crew phase to see.
+No NPC ever acts on a decision the player hasn't had a crew phase to see. In a firefight this means NPCs announce
+*what* they will do (raise the alarm, draw, breach, throw a grenade, hold a Watch angle); routine moving and shooting
+adapts when it happens (§13.6).
 
 ### 6.3 Actions
 
@@ -1134,8 +1136,8 @@ cooperates, times its moves and flanks. Two limits apply to every unit:
 
 - **They only know what they have seen or been told:** their own sightlines, radio reports, escapees, released
   hostages (§10.7), noises and fresh blood trails. They act on last known positions, never on hidden information.
-- **Every plan is telegraphed.** Movement arrows, Watch wedges, breach markers and target lines show during the crew
-  phase like any other intent (§6.2). Smart, never surprising.
+- **Every plan is telegraphed, but as a plan, not as a guaranteed outcome** (see *How police adapt* below). Smart,
+  never surprising.
 
 **Patrol officers and guards: a simple routine.** Each one, every phase:
 
@@ -1152,6 +1154,9 @@ together:
 
 - **Fire and movement:** half the team covers (Watch wedges or suppressive fire) while the other half moves. They
   never all move at once.
+- **Locking down angles:** the team sets Watch wedges on the angles its plan depends on: the doorway the crew would
+  use to flank them, the corridor to the loot, the crew's route back to the van. Crossing a locked angle draws fire,
+  so the wedges shape where the crew can safely go.
 - **Flanking:** the team picks the crew position that is easiest to break: isolated, leaning out (§11.4), behind cover
   that can be flanked, or Hurt. A pair works round to an angle outside that position's cover arc while the rest pin it
   from the front.
@@ -1165,6 +1170,23 @@ together:
 - **Casualties:** when a member goes down, the team pulls back one step, covers the casualty and drags them out, then
   re-plans.
 - **Barks** narrate the plan: "Moving!", "Covering!", "Flanking left!", "Flashbang out!"
+
+**How police adapt (what is fixed, what isn't).** Previewing every police reaction to every crew action would be
+complex (shots involve dice) and would let the player probe the AI for free. So police intents come in two kinds:
+
+| Kind | What | Rule |
+| --- | --- | --- |
+| **Commitments** | Watch wedges, breach points and their timing, grenade and gas targets, sniper lanes | Fixed at the end of the world phase and shown. They happen exactly as shown, so the player can plan around them. |
+| **Plans** | Movement destinations, flank routes, who each officer means to shoot | Shown as dimmer arrows and target lines: what the team intends *if nothing changes*. They are **not** recalculated while the player acts. |
+
+When the world phase comes, each officer carries out its plan **adapting to what actually happened**, using the
+rules above: if the planned target moved out of sight, they pick the next one by priority; if the planned cover is
+gone or flanked, they take the nearest cover that serves the same goal; if a teammate went down, the team re-plans.
+Shots are rolled then, like the crew's.
+
+So the player reads police like a real opposing team: the commitments are certain, the intentions are informative,
+and changing the situation (killing the flanker, closing a door, moving the target) makes the police adapt instead of
+following a script into a trap. Patrol officers re-decide every phase anyway, so their arrows are short and simple.
 
 **Heavy SWAT (Heat 5)** advance slowly and pin with LMG suppression (§11.9) while a regular SWAT team flanks.
 
