@@ -244,8 +244,8 @@ NPCs already Hostile and on a **Watch** wedge (§11.8), whose reaction arc is dr
 The same holds in the other direction: **anything an NPC decides during a world phase** (a panic reaction, a new
 exposure, a lapsed command's intent) **is shown during the next crew phase and carried out in the next world phase.**
 No NPC ever acts on a decision the player hasn't had a crew phase to see. In a firefight this means NPCs announce
-*what* they will do (raise the alarm, draw, breach, throw a grenade, hold a Watch angle); routine moving and shooting
-adapts when it happens (§13.6).
+*what* they will do (raise the alarm, draw, breach, throw a grenade, hold a Watch angle); moving and shooting in a
+firefight is decided when it happens and is not previewed (§13.6).
 
 ### 6.3 Actions
 
@@ -963,8 +963,8 @@ weapon.
 - A crew member under "Hands up!" (§16.2) can **surrender**, which is the same as being arrested.
 - **NPCs at 0 HP die,** unless the damage was non-lethal (knockout, taser, flashbang). Wounded NPCs (half HP or
   less) crawl toward exits and scream: a loud noise, radius 6, once per world phase.
-- **NPCs use the same rules:** their cones, cover and armour work exactly like the crew's. A hostile NPC that will
-  fire next phase shows its target and a threat wedge during the crew phase.
+- **NPCs use the same rules:** their cones, cover and armour work exactly like the crew's. Hostile NPCs don't preview
+  where they will move or whom they will shoot; only their commitments are shown (§13.6).
 - **How police choose targets and moves** depends on the unit: patrol officers follow a simple routine, SWAT fight as
   a coordinated team (§13.6).
 
@@ -1136,8 +1136,8 @@ cooperates, times its moves and flanks. Two limits apply to every unit:
 
 - **They only know what they have seen or been told:** their own sightlines, radio reports, escapees, released
   hostages (§10.7), noises and fresh blood trails. They act on last known positions, never on hidden information.
-- **Every plan is telegraphed, but as a plan, not as a guaranteed outcome** (see *How police adapt* below). Smart,
-  never surprising.
+- **Only commitments are telegraphed** (see *What the player sees* below). Their movement and target choice are not
+  previewed: in a firefight the player reads the police like a real opposing team.
 
 **Patrol officers and guards: a simple routine.** Each one, every phase:
 
@@ -1171,22 +1171,21 @@ together:
   re-plans.
 - **Barks** narrate the plan: "Moving!", "Covering!", "Flanking left!", "Flashbang out!"
 
-**How police adapt (what is fixed, what isn't).** Previewing every police reaction to every crew action would be
-complex (shots involve dice) and would let the player probe the AI for free. So police intents come in two kinds:
+**What the player sees.** Full previews belong to the stealth phase (§8.8), where perception is deterministic. In a
+firefight, police show only their **commitments**:
 
-| Kind | What | Rule |
-| --- | --- | --- |
-| **Commitments** | Watch wedges, breach points and their timing, grenade and gas targets, sniper lanes | Fixed at the end of the world phase and shown. They happen exactly as shown, so the player can plan around them. |
-| **Plans** | Movement destinations, flank routes, who each officer means to shoot | Shown as dimmer arrows and target lines: what the team intends *if nothing changes*. They are **not** recalculated while the player acts. |
+| Commitment | Shown as |
+| --- | --- |
+| Watch wedges | The wedge on the floor. Anyone moving or acting inside it draws fire. |
+| Breach points and timing | A marker on the door, window or wall: "breach next phase". |
+| Grenade and gas targets | The target area, marked a phase ahead. |
+| Sniper lanes | The sniper's line of fire. |
 
-When the world phase comes, each officer carries out its plan **adapting to what actually happened**, using the
-rules above: if the planned target moved out of sight, they pick the next one by priority; if the planned cover is
-gone or flanked, they take the nearest cover that serves the same goal; if a teammate went down, the team re-plans.
-Shots are rolled then, like the crew's.
-
-So the player reads police like a real opposing team: the commitments are certain, the intentions are informative,
-and changing the situation (killing the flanker, closing a door, moving the target) makes the police adapt instead of
-following a script into a trap. Patrol officers re-decide every phase anyway, so their arrows are short and simple.
+Commitments are fixed at the end of the world phase and happen exactly as shown. Everything else (where each officer
+moves, who they shoot, which way a flank goes) is **decided when they act**, from what they know at that moment, and
+is **not previewed**. Shots are rolled then, like the crew's. The player reads the police from their positions,
+their wedges and their barks, and anticipates them the way they would a real opposing team. Changing the situation
+(killing the flanker, closing a door, moving the target) makes them adapt rather than walk into a trap.
 
 **Heavy SWAT (Heat 5)** advance slowly and pin with LMG suppression (§11.9) while a regular SWAT team flanks.
 
@@ -1863,8 +1862,8 @@ Tooltips open on long-press, not hover [R16 in touch-ux notes].
 
 ### 20.4 Overlay budget
 
-- **Always on:** the selected crew member's safe-floor tint, NPC intent arrows, countdown and command pips, state
-  badges.
+- **Always on:** the selected crew member's safe-floor tint, intent arrows of non-hostile NPCs (staff, civilians,
+  guards on routine), police commitments (§13.6), countdown and command pips, state badges.
 - **In context:** the noise ring and the cone while previewing an action, and the cover shields of targets in the
   cone.
 - **On demand:** long-press for a single NPC's cones, a tile's cover, or a wall's material and the tools that open
