@@ -64,7 +64,7 @@ expected way to play.
 | --- | --- | --- |
 | 1 | **The bank is clockwork you can read.** | Every person runs on a schedule, senses the world by fixed rules and shows what it will do next. You win by reading the bank and breaking it on purpose, not by out-rolling it. Perception is deterministic and always previewed. |
 | 2 | **Your gear is your identity.** | One loadout sets how conspicuous you are, how many people you can command, how much noise you make and what you can kill. The gun locker *is* the choice between stealth and going loud. |
-| 3 | **Control beats killing.** | Hostages, crowds, doors and the people who could raise the alarm are the real battlefield. Killing is a costly last resort that the simulation remembers. |
+| 3 | **Control the bank, fight the police.** | Hostages, crowds, doors and the people who could raise the alarm are the real battlefield inside. Fighting the police is part of the job; harming civilians is the costliest thing the crew can do, and the simulation remembers it. |
 | 4 | **One set of rules handles every approach.** | A small, closed set of object and NPC properties. Every tool is defined only through them, so a vent crawl, a breach charge and a rammed van are all valid and all predictable. No scripted special cases. |
 | 5 | **Pressure escalates; it never just fails you.** | Getting spotted, the alarm, police waves and heat all change the situation in visible steps. Losing ground means fighting harder or leaving with less, rarely a game-over screen. |
 
@@ -151,8 +151,8 @@ but the corridor camera recorded it, so Jun will want that recorder.
 **The leak (turn 15).** One customer was in the restroom corridor, out of Dex's line of sight but inside the panic
 ring. Her intent icon shows *Flee → front door, escapes in 2*. Mara steps into the doorway and the escape is
 cancelled. Dex zip-ties the lobby guard. Then the dispatch car rolls past on the street. Nobody closed the blinds, and
-its officers see masked figures through the glass: *Radio: 2*. Killing two police officers would cost +10 heat at
-the Alarm, so the crew lets the call go through.
+its officers see masked figures through the glass: *Radio: 2*. Killing two police officers would bank +4 heat ticks
+for the Alarm and start the shootout early, so the crew lets the call go through.
 
 **Loud (turns 16–37).** **ALARM** at the end of turn 16: "Police in 6." Heat starts at level 1. The Class I vault
 is dual-control with a time lock, and the codes won't open it until the armoured car at turn 30. That's too long, so
@@ -707,7 +707,7 @@ least two counters that still work once its countdown is running.
 | **Missed check-in** | Second unanswered radio call | 2 | Neutralise the operator, jammer in range of the CCTV room |
 | **Vault seismic sensor** (Class II+) | Drilling or thermite starts | Shown before drilling (for example 4) | Disable the sensor at the vault wiring box with a hacking kit (also during the countdown), disable the alarm panel |
 | **Vault motion sensor** (Class III) | Movement inside the vault | 2 | Disable at the wiring box, time-lock window |
-| **Passing patrol car** | Its officers see a `!`, major evidence, or hear a loud noise from the street | 2 | Jammer in range, take both officers down (they resist like guards; killing them banks +5 heat each). Prevent it beforehand with blinds, barricades, closed doors and timing. |
+| **Passing patrol car** | Its officers see a `!`, major evidence, or hear a loud noise from the street | 2 | Jammer in range, take both officers down (they resist like guards; killing them banks heat for when the alarm fires, §13.2). Prevent it beforehand with blinds, barricades, closed doors and timing. |
 | **Dispatch: lost contact** | Jammer running, operator silent for 10 phases, or the cut phone line noticed (15 phases) | Sends a patrol drive-by (not the Alarm itself) | Finish first, or hide the evidence from the street |
 
 **The alarm panel** (electrical or alarm closet, Secure zone) is the heart of the inside job. Disabling it (hacking kit, 4
@@ -1110,15 +1110,20 @@ SWAT or use the DMR.
 | Event | Ticks |
 | --- | --- |
 | Each world phase after the Alarm | +1 |
-| A guard or staff member killed, **witnessed** by police, a live camera (through the operator) or a civilian who reaches the police | +3 |
-| A civilian killed, by any cause including traps and explosions | +5 |
-| A police officer killed | +5 |
+| A guard or staff member killed, **witnessed** by police, a live camera (through the operator) or a civilian who reaches the police | +1 |
+| The **first** police officer killed in a heist (the police now know it's a shootout) | +3 |
+| Each further police officer killed | +1 |
+| A civilian or hostage killed, by any cause including traps and explosions | +5 |
 | Each turn drilling or burning a Class II+ vault | +1 |
 | A hostage escapes to the police | +1 |
 | **Release** a hostage (§10.7) | −3 (once per turn, three times per heist) |
 
-Kills witnessed before the Alarm are added when the Alarm fires. Kills also cost payout and tighten the campaign's
-Squeeze (§19), so killing always costs something even when nobody sees it.
+Kills witnessed before the Alarm are added when the Alarm fires.
+
+**Combat is expected, so fighting back is cheap; hurting civilians is not.** Shooting police and guards in a firefight
+adds a little heat, with one bigger step the first time a police officer dies. The pressure of a long fight comes
+mostly from time (+1 per phase). The line the game draws is civilians and hostages: killing one is the most expensive
+thing the crew can do, in heat, payout (§15.5) and the Squeeze (§19.2).
 
 ### 13.3 Escalation by level (cumulative)
 
@@ -1414,8 +1419,8 @@ dark, so no codes either.
 | **Partial** | Crew escape below the target. Payout scales; there is no contract bonus. |
 | **Failure** | Every crew member is out (dead, arrested or bleeding out) or none can still escape. |
 
-The **payout** is the loot that left the map, minus dye-pack losses, minus **10% per civilian killed** and **5% per guard,
-staff member or police officer killed** (the "cleaner" fees) and the crew's shares (§19.4), plus **style** bonuses (§19.8).
+The **payout** is the loot that left the map, minus dye-pack losses, minus **10% per civilian or hostage killed** (the
+"cleaner" fee) and the crew's shares (§19.4), plus **style** bonuses (§19.8).
 
 ---
 
@@ -1722,7 +1727,8 @@ waiting will cost.
 | Each day that passes, days 11–15 | +3 |
 | Each day that passes, day 16 on | +4 |
 | A job reached the Alarm | +2 |
-| Each kill | +1 |
+| Each civilian or hostage killed | +2 |
+| Police officers killed in a job (once per job) | +1 |
 | Each crew member who gained Notoriety | +1 |
 | A failed job | +2 |
 | An arrested crew member talks | +4 |
