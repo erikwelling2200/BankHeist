@@ -355,7 +355,7 @@ personal motives and barks rather than from a class.
 | Sidearm | Pistol, machine pistol or taser, or nothing. |
 | Armour | None, light vest, medium or heavy. |
 | Gadgets ×2 | Kits (hacking kit, lockpick set, glass cutter, drill), consumables (charges, thermite, throwables, tripwires, medkits), the jammer or the duffel. |
-| Fixed | Zip-ties ×4, phone, mask. |
+| Fixed | Zip-ties ×4, phone, mask, police scanner (§8.15). |
 
 A **duffel** (gadget) holds one long gun and one armour piece, and shows as Concealed. *Gear up* takes them out
 (1 action): the stash-in-the-restroom fantasy.
@@ -533,6 +533,7 @@ When a crew member is selected, every reachable tile is tinted:
 | **Hatched** version of amber or red | The same outcome, but it happens during the coming world phase as NPCs walk their committed paths. |
 | **Red with a camera icon** | A camera would see a `!` and start the operator's verify carrier. Cameras whose feed status is unknown (CCTV room not scouted) count as live. |
 | **Grey** | No data: unscouted area. **Never drawn as safe.** |
+| **Hatched grey** | Unknown risk: the tile can be seen from unscouted space, so an NPC the crew doesn't know about could be watching it (§8.15). |
 
 Rules:
 
@@ -542,8 +543,8 @@ Rules:
   "Guard: sees Armed".
 - When a crew action changes an NPC's intent (a noise draws a guard), that NPC's arrow is redrawn on the spot and
   every overlay updates.
-- **It must use exactly the same rules as the real perception check.** A tile shown as safe that gets a crew member
-  spotted by perception alone is a critical bug. Automated tests should replay large numbers of random moves and
+- **It must use exactly the same rules as the real perception check.** The promise covers every NPC the crew knows
+  about (§8.15): a tile shown as safe that gets a crew member spotted by a known NPC is a critical bug. Automated tests should replay large numbers of random moves and
   compare the preview against the outcome.
 
 ### 8.9 Sound
@@ -655,6 +656,32 @@ profile rules still apply to anything visible on top. A disguised crew member's 
   behind is major evidence (§8.10).
 - **Armour above a light vest, long guns, loot bags and masks break the disguise:** profile is computed normally.
 - A disguise prevents exposure; it never undoes it (§8.7).
+
+### 8.15 What the crew sees
+
+The player sees the bank through the crew's eyes. This holds in stealth and in a firefight.
+
+- **Crew vision:** each crew member sees all around them up to 10 tiles. Walls, full-height objects and closed doors
+  block it, and darkness halves it.
+- **Live NPCs:** an NPC is shown live only while at least one crew member can see it.
+- **Fading ghosts:** an NPC that leaves view stays on the map as a faded ghost at its last-seen position, labelled
+  "seen 1 turn ago", for **2 turns**, then disappears. Ghosts are only for NPCs without a known routine (mostly
+  police and Alerted guards). They answer "where did I just see him?", not "where is he now?". *Playtest whether
+  they stay (§23).*
+- **Known routines:** an NPC watched for long enough during stealth (3 turns in view, or revealed by the Guard rota
+  asset) has its schedule tagged. Because routines are deterministic in stealth, the game shows where it should be
+  even out of sight, as a dashed **predicted marker** with its route. Tagged NPCs count toward the safe-floor overlay
+  like visible ones. If something knocks a tagged NPC off its routine (a noise, evidence, the alarm), its prediction
+  stops and it becomes a ghost.
+- **Unknown NPCs** are not shown at all. Tiles that could be seen from unscouted space get the hatched "unknown risk"
+  pattern in the overlay (§8.8).
+- **Cameras:** with the CCTV room under control (operator neutralised and a crew member at the console), the player
+  also sees what every live camera sees. Looped feeds show nothing.
+- **Sound pings:** loud noises within a crew member's hearing (gunfire, breaching, a scream, police running in) show
+  as a ping at their source, even out of sight. Quiet noises don't.
+- **Police scanner:** every crew member carries one. It is why police **commitments** (breach markers, grenade and gas
+  targets, Watch wedges, sniper lanes) are always shown, even out of sight (§13.6). Police positions are not: out of
+  sight, police are only ghosts and sound pings.
 
 ---
 
@@ -1187,6 +1214,9 @@ moves, who they shoot, which way a flank goes) is **decided when they act**, fro
 is **not previewed**. Shots are rolled then, like the crew's. The player reads the police from their positions,
 their wedges and their barks, and anticipates them the way they would a real opposing team. Changing the situation
 (killing the flanker, closing a door, moving the target) makes them adapt rather than walk into a trap.
+
+Commitments are always shown, thanks to the crew's police scanner; police positions are only shown in sight, as
+fading ghosts or as sound pings (§8.15).
 
 **Heavy SWAT (Heat 5)** advance slowly and pin with LMG suppression (§11.9) while a regular SWAT team flanks.
 
@@ -1864,7 +1894,8 @@ Tooltips open on long-press, not hover [R16 in touch-ux notes].
 ### 20.4 Overlay budget
 
 - **Always on:** the selected crew member's safe-floor tint, intent arrows of non-hostile NPCs (staff, civilians,
-  guards on routine), police commitments (§13.6), countdown and command pips, state badges.
+  guards on routine), predicted markers and fading ghosts (§8.15), police commitments (§13.6), sound pings, countdown
+  and command pips, state badges.
 - **In context:** the noise ring and the cone while previewing an action, and the cover shields of targets in the
   cone.
 - **On demand:** long-press for a single NPC's cones, a tile's cover, or a wall's material and the tools that open
@@ -2002,3 +2033,5 @@ challenge, never a login reward), and any multiplayer.
 
 10. **Hostage release cap.** Keep the hard cap (one per turn, three per heist), or switch to diminishing returns (−3,
    then −2, then −1 per release, uncapped)? Decide in playtesting (M3).
+11. **Fading ghosts.** Keep the 2-turn ghosts of NPCs who left view, or drop them and rely on predicted routines and
+   sound pings? Decide in playtesting (M1).
