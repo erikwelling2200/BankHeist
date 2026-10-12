@@ -864,6 +864,9 @@ bullet lands within its arc, and the cover roll. Everything else is fixed and pr
   their side's next phase: they are visible and can be shot from anything that can see that open tile, with half
   cover from the corner itself. The lean shows on the map (pose plus an icon), and NPCs lean by the same rules, so
   a police officer who leaned out to fire is exposed until his next turn. Moving away ends the lean.
+- **Choosing a side.** Where a character has more than one corner to lean from (a pillar, or the end of a short wall),
+  the player picks the side: the aim preview offers each lean tile, and the cone and exposure follow the chosen one.
+  The other side stays covered.
 - **Improvised cover: flip a table.** Any crew member, guard or police officer can flip an adjacent **flippable**
   object (tables, light desks, café tables) with 1 action. It stays on its tile as half cover, with its cover arc
   facing away from whoever flipped it, and keeps its HP (a wooden table has 6). Whatever was on top goes flying. It is
