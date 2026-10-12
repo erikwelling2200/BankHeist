@@ -194,7 +194,7 @@ These words mean exactly one thing everywhere: UI, tutorial, code and this docum
 | **Hurt** | A crew member at half HP or less: limping, bleeding and leaving a blood trail. |
 | **Intent** | What an NPC will do in the next world phase, drawn on the map. |
 | **Hostile** | An armed NPC that is fighting the crew: a guard who has confronted someone or been shot at, police on scene, an armed civilian who has drawn. Hostile NPCs can't be knocked out unless they are Surprised or Suppressed. |
-| **Surprised** | Loses its next world phase (GO, flashbang). Lasts until the end of that world phase. |
+| **Surprised** | Loses its next world phase (GO, flashbang) and stays Surprised through the crew phase after it. |
 
 ---
 
@@ -244,8 +244,9 @@ NPCs already Hostile and on a **Watch** wedge (§11.8), whose reaction arc is dr
 The same holds in the other direction: **anything an NPC decides during a world phase** (a panic reaction, a new
 exposure, a lapsed command's intent) **is shown during the next crew phase and carried out in the next world phase.**
 No NPC ever acts on a decision the player hasn't had a crew phase to see. In a firefight this means NPCs announce
-*what* they will do (raise the alarm, draw, breach, throw a grenade, hold a Watch angle); moving and shooting in a
-firefight is decided when it happens and is not previewed (§13.6).
+raising the alarm, drawing a weapon and breaching; grenades land a phase before they go off (§12.2); Watch wedges and
+sniper lines are visible on the officers who hold them. Moving and shooting in a firefight is decided when it happens
+and is not previewed (§13.6).
 
 ### 6.3 Actions
 
@@ -682,8 +683,8 @@ The player sees the bank through the crew's eyes. This holds in stealth and in a
   also sees what every live camera sees. Looped feeds show nothing.
 - **Sound pings:** loud noises within a crew member's hearing (gunfire, breaching, a scream, police running in) show
   as a ping at their source, even out of sight. Quiet noises don't.
-- **Police scanner:** every crew member carries one. It is why police **commitments** (breach markers, grenade and gas
-  targets, Watch wedges, sniper lanes) are always shown, even out of sight (§13.6). Police positions are not: out of
+- **Police scanner:** every crew member carries one. It is why police **breach points** are always shown, even out
+  of sight (§13.6). Police positions are not: out of
   sight, police are only ghosts and sound pings.
 
 ---
@@ -986,6 +987,9 @@ good bet, a wide one at range isn't. There are no hidden assists either [R18].
 - **Taser:** ranged knockout (4 tiles), 3 cartridges. Works on Hostile targets and on anyone reaching for a weapon.
   Doesn't work through armour 2+.
 - **Flashbang:** everyone within 2 tiles of the landing tile is Surprised for one phase. Civilians are Commanded.
+- **Grenades are fused** (flashbangs, smoke and gas, for crew and police alike): a thrown grenade lands visibly, with
+  its radius drawn, and goes off at the start of the next world phase. A crew grenade therefore still goes off before
+  any NPC acts; a police grenade gives the crew one crew phase to move out.
 - Lethal and non-lethal choices are tactical, never a morality score. Non-lethal costs actions and supplies; lethal
   can add heat (§13.2). Nothing outside the heist punishes a kill.
 
@@ -1023,7 +1027,7 @@ Ammo shows on each crew portrait, with a warning when a crew member is on their 
 - **NPCs at 0 HP die,** unless the damage was non-lethal (knockout, taser, flashbang). Wounded NPCs (half HP or
   less) crawl toward exits and scream: a loud noise, radius 6, once per world phase.
 - **NPCs use the same rules:** their cones, cover and armour work exactly like the crew's. Hostile NPCs don't preview
-  where they will move or whom they will shoot; only their commitments are shown (§13.6).
+  where they will move or whom they will shoot; only their breach points are announced (§13.6).
 - **How police choose targets and moves** depends on the unit: patrol officers follow a simple routine, SWAT fight as
   a coordinated team (§13.6).
 
@@ -1063,7 +1067,7 @@ For tuning only (never shown to the player): expected hits against a standing ta
 
 | Item | Effect | Noise | Profile |
 | --- | --- | --- | --- |
-| Flashbang ×2 | Radius 2, thrown up to 6 tiles: everyone Surprised for one phase, civilians Commanded. | 14 | Concealed |
+| Flashbang ×2 | Radius 2, thrown up to 6 tiles: everyone Surprised for one phase, civilians Commanded. Fused: goes off at the start of the next world phase. | 14 | Concealed |
 | Smoke ×2 | Radius 2: blocks sight for 3 phases. | 4 | Concealed |
 | Noisemaker ×3 | Quiet sound (radius 3) at the landing tile: a lure. | 3 | Clean |
 | Breach charge ×2 | Glass, Soft walls and doors: opens a 1-tile gap, 4 damage to the 3 tiles on the far side. | 14 | Concealed |
@@ -1228,7 +1232,7 @@ cooperates, times its moves and flanks. Two limits apply to every unit:
 
 - **They only know what they have seen or been told:** their own sightlines, radio reports, escapees, released
   hostages (§10.7), noises and fresh blood trails. They act on last known positions, never on hidden information.
-- **Only commitments are telegraphed** (see *What the player sees* below). Their movement and target choice are not
+- **Only breach points are announced in advance** (see *What the player sees* below). Their movement and target choice are not
   previewed: in a firefight the player reads the police like a real opposing team.
 
 **Patrol officers and guards: a simple routine.** Each one, every phase:
@@ -1266,22 +1270,24 @@ together:
 
 **What the player sees.** Full previews belong to the stealth phase (§8.8). There, perception is deterministic and
 most crew actions don't change what an NPC will do, so keeping the preview exact stays simple. In a firefight nearly
-every action changes what the police will do, and their shots involve dice, so they show only their **commitments**:
+every action changes what the police will do, and their shots involve dice. So the only thing police announce in
+advance is their **breach points**: a marker on the door, window or wall, "breach next phase", fixed at the end of the
+world phase and carried out exactly as shown.
 
-| Commitment | Shown as |
-| --- | --- |
-| Watch wedges | The wedge on the floor. Anyone moving or acting inside it draws fire. |
-| Breach points and timing | A marker on the door, window or wall: "breach next phase". |
-| Grenade and gas targets | The target area, marked a phase ahead. |
-| Sniper lanes | The sniper's line of fire. |
+The rest of what the crew can react to is simply visible in the world, not announced:
 
-Commitments are fixed at the end of the world phase and happen exactly as shown. Everything else (where each officer
+- **Grenades and gas** are thrown in the world phase, land where everyone can see them with their blast radius drawn,
+  and go off at the start of the next world phase (§12.2). The crew has one crew phase to get clear.
+- **Watch wedges** are drawn on any officer the crew can see. Don't move or act inside one.
+- **Sniper lines** are always visible (scope glint and laser), even when the sniper is beyond the crew's sight.
+
+ Everything else (where each officer
 moves, who they shoot, which way a flank goes) is **decided when they act**, from what they know at that moment, and
 is **not previewed**. Shots are rolled then, like the crew's. The player reads the police from their positions,
 their wedges and their barks, and anticipates them the way they would a real opposing team. Changing the situation
 (killing the flanker, closing a door, moving the target) makes them adapt rather than walk into a trap.
 
-Commitments are always shown, thanks to the crew's police scanner; police positions are only shown in sight, as
+Breach points are always shown, thanks to the crew's police scanner; police positions are only shown in sight, as
 fading ghosts or as sound pings (§8.15).
 
 **Heavy SWAT (Heat 5)** advance slowly and pin with LMG suppression (§11.9) while a regular SWAT team flanks.
@@ -1958,7 +1964,8 @@ Tooltips open on long-press, not hover [R16 in touch-ux notes].
 ### 20.4 Overlay budget
 
 - **Always on:** the selected crew member's safe-floor tint, intent arrows of non-hostile NPCs (staff, civilians,
-  guards on routine), predicted markers and fading ghosts (§8.15), police commitments (§13.6), sound pings, countdown
+  guards on routine), predicted markers and fading ghosts (§8.15), police breach points, landed grenades, Watch
+  wedges of visible officers and sniper lines (§13.6), sound pings, countdown
   and command pips, state badges.
 - **In context:** the noise ring and the cone while previewing an action, and the cover shields of targets in the
   cone.
