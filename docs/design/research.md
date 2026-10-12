@@ -133,7 +133,8 @@ The finding that came up in every area: a deep simulation is only fun if the pla
 18. **A displayed percentage is an emotional contract that randomness will break.** Jake Solomon: players read odds
     "from an emotional sense"; "that 85 percent isn't actually 85 percent". XCOM needed hidden aim assist and streak
     breakers to feel fair.
-    → Show the cone and the expected hits, never a single percentage. No hidden assists.
+    → Show the cone, never a percentage. No hidden assists. (The research also suggested showing expected hits; the
+    director chose no numbers at all, leaving the estimate to the player's skill.)
     ([Solomon on randomness](https://www.gamedeveloper.com/design/jake-solomon-explains-the-careful-use-of-randomness-in-i-xcom-2-i-))
 19. **Free aim is loved, but only if the simulation matches the picture.** Phoenix Point's two-circle reticle was
     praised. Bullets clipping railings that the UI showed as clear, and cover labelled "full" that let shots
@@ -154,7 +155,7 @@ The finding that came up in every area: a deep simulation is only fun if the pla
     → Each item has a Profile (conspicuousness) and Threat (command radius) alongside its combat stats.
 23. **Everyone in the cone must be shown before the shot.** Fallout's invisible burst cones hit companions and
     bystanders, and players hated it.
-    → Every body in the cone is highlighted (hostile, civilian, crew) with its expected hits.
+    → Every body in the cone is highlighted (hostile, civilian, crew).
 
 ## 5. Hostages and crowds
 

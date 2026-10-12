@@ -937,13 +937,13 @@ Before Confirm, the preview shows:
 
 - the cone as nested arcs (bright for bullet 1, widening to the last), cut short at the first full-height blocker;
 - **every body in the cone**, colour- and shape-coded (hostile ◆ red, civilian ● white with a heat warning, crew ▲
-  blue), each with expected-hit pips;
-- the outcome for the main target, in words: **"Likely 2 hits (0–6 possible) → likely 6 damage → may go down"**;
+  blue), so nobody is hit by surprise;
 - cover shields and their state, through-wall paths, overpenetration's second target;
 - the noise ring and everyone who will hear it.
 
-Long-press shows the arithmetic: "Cone 14°, target 4.8°, 6 bullets, cover halves → 1.0 expected." **No hit
-percentage is ever shown**, and there are no hidden assists [R18].
+**No numbers.** The preview shows no hit count, no damage estimate and never a hit percentage. Reading the cone
+against the target, and knowing your weapon's damage, is the player's skill: a narrow cone on a close target is a
+good bet, a wide one at range isn't. There are no hidden assists either [R18].
 
 ### 11.8 Watch (overwatch)
 
@@ -1040,8 +1040,8 @@ tiles · **Noise** = radius in tiles · **Profile** · **Mvd** = Aim multiplier 
 **Weapon actions:** the pump shotgun can **Breach** a door or lock (1 action). The LMG can **Suppress** (§11.9).
 The DMR and LMG can **Brace** on their bipod (§6.3).
 
-Expected hits against a standing target with no cover, at 2 / 5 / 9 / 14 tiles (from the aiming research's cone
-model; halve them against cover): pistol 2.0 / 1.6 / 1.0 / 0.6 · machine pistol 4.2 / 1.7 / 0.9 / 0.6 · SMG 4.0 /
+For tuning only (never shown to the player): expected hits against a standing target with no cover, at 2 / 5 / 9 /
+14 tiles (from the aiming research's cone model; halve them against cover): pistol 2.0 / 1.6 / 1.0 / 0.6 · machine pistol 4.2 / 1.7 / 0.9 / 0.6 · SMG 4.0 /
 2.4 / 1.3 / 0.9 · shotgun 4.3 / 1.7 / 1.0 / 0.6 · AR (2 rounds) 2.0 / 2.0 / 1.6 / 1.4 · DMR 1.0 throughout · LMG
 8.6 / 4.6 / 2.6 / 1.6.
 
@@ -1892,7 +1892,7 @@ about 6mm on a phone, below touch minimums, so **precise input never depends on 
 2. **Choose:** tap a tile (snaps to the nearest valid tile) or drag a path, or pick an action from the contextual
    action bar.
 3. **Preview:** the path, the eye icon at the first unsafe tile, suspicion costs, the noise ring with ear icons, the
-   shot cone with its outcome band, and the alarm carriers this action would start.
+   shot cone and who is in it, and the alarm carriers this action would start.
 4. **Confirm:** a large button in the bottom-right corner (at least 48dp), or a second tap on the same tile. **Undo**
    sits beside it.
 5. **End turn:** hold to confirm, and an extra prompt if crew still have actions left.
