@@ -877,8 +877,8 @@ bullet lands within its arc, and the cover roll. Everything else is fixed and pr
   them, at any range.
 - **Shooting someone lying down is a deliberate act.** Tap the person on the floor as the target, and the cone is
   aimed at them from any range, with hits previewed as usual. Other people lying in the line of fire are still passed
-  over. In this tone it is possible but brutal: killing a hostage adds heat and a payout penalty (§13.2, §15.5), and
-  police who see it end negotiation and storm the building at once (§13.4).
+  over. In this tone it is possible but brutal: killing a hostage adds heat (§13.2), and police who
+  see it end negotiation and storm the building at once (§13.4).
 - **Full-height objects and walls** stop bullets unless the weapon's Pierce allows a pass (§11.6).
 - **Angles do the rest:** a target covers about 14° of arc at 2 tiles, 7° at 4, 3.6° at 8 and 2.4° at 12. Range
   falloff comes from the geometry, so there are no range tables [R2 in aiming notes].
@@ -973,7 +973,7 @@ good bet, a wide one at range isn't. There are no hidden assists either [R18].
   Doesn't work through armour 2+.
 - **Flashbang:** everyone within 2 tiles of the landing tile is Surprised for one phase. Civilians are Commanded.
 - Lethal and non-lethal choices are tactical, never a morality score. Non-lethal costs actions and supplies; lethal
-  costs heat, payout and Squeeze (§13.2, §19).
+  can add heat (§13.2). Nothing outside the heist punishes a kill.
 
 ### 11.11 Ammo and reloading
 
@@ -1120,10 +1120,11 @@ SWAT or use the DMR.
 
 Kills witnessed before the Alarm are added when the Alarm fires.
 
-**Combat is expected, so fighting back is cheap; hurting civilians is not.** Shooting police and guards in a firefight
-adds a little heat, with one bigger step the first time a police officer dies. The pressure of a long fight comes
-mostly from time (+1 per phase). The line the game draws is civilians and hostages: killing one is the most expensive
-thing the crew can do, in heat, payout (§15.5) and the Squeeze (§19.2).
+**Combat isn't punished; the danger of combat is the punishment.** Heat is the only consequence of a kill, and it
+stays inside the heist: shooting police and guards adds a little, with one bigger step the first time a police
+officer dies, and killing a civilian or hostage adds a lot. Kills never reduce the payout or tighten the campaign's
+Squeeze. A fight that goes badly costs what it costs on its own: wounded crew, heat that forces an early exit, and
+loot left behind, which is time wasted on the campaign clock.
 
 ### 13.3 Escalation by level (cumulative)
 
@@ -1419,8 +1420,8 @@ dark, so no codes either.
 | **Partial** | Crew escape below the target. Payout scales; there is no contract bonus. |
 | **Failure** | Every crew member is out (dead, arrested or bleeding out) or none can still escape. |
 
-The **payout** is the loot that left the map, minus dye-pack losses, minus **10% per civilian or hostage killed** (the
-"cleaner" fee) and the crew's shares (§19.4), plus **style** bonuses (§19.8).
+The **payout** is the loot that left the map, minus dye-pack losses and the crew's shares (§19.4), plus **style**
+bonuses (§19.8).
 
 ---
 
@@ -1726,9 +1727,6 @@ waiting will cost.
 | Each day that passes, days 6–10 | +2 |
 | Each day that passes, days 11–15 | +3 |
 | Each day that passes, day 16 on | +4 |
-| A job reached the Alarm | +2 |
-| Each civilian or hostage killed | +2 |
-| Police officers killed in a job (once per job) | +1 |
 | Each crew member who gained Notoriety | +1 |
 | A failed job | +2 |
 | An arrested crew member talks | +4 |
@@ -1855,8 +1853,8 @@ the black market) per contract tier, so every way of playing is rewarded on its 
 | **Smooth Operator** | Every check-in answered, no escapees. |
 | **Greedy** | Took at least twice the target. |
 
-Payouts must never make stealth strictly best. Loud play reaches deeper vaults and more bags; stealth keeps heat,
-Notoriety and Squeeze low.
+Payouts must never make stealth strictly best. Loud play reaches deeper vaults and more bags; stealth keeps heat and
+Notoriety low.
 
 ### 19.9 Between campaigns, difficulty and options
 
