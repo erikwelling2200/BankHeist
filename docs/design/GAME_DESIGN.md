@@ -102,7 +102,7 @@ design sharpens it. Each change below is deliberate and can be reversed by the d
 | Brief | This design | Why |
 | --- | --- | --- |
 | Heat rises the longer the heist goes on. | Heat is **0 until the Alarm**, then rises by 1 tick per turn plus event spikes, in 5 announced levels. Before the alarm, the time pressure is the bank's own schedule, ending in a closing-time sweep. | Timers that start at mission start punish scouting and planning, which are half the game (XCOM 2's timer backlash, Invisible Inc.'s "doom clock") [R14]. |
-| Cone aim with Aim, Recoil and Bullets. | Kept, plus **Damage, Pierce, Range, Threat, Noise, Profile** and a **moving penalty**. Bullets **fan out evenly** across the cone rather than landing at independent random points. | A 50% per-bullet cover roll otherwise makes spray weapons the answer to everything [R20], and independent random bullets produce whole-burst misses that feel like bugs [R21]. |
+| Cone aim with Aim, Recoil and Bullets. | Kept, plus **Damage, Pierce, Range, Threat, Noise, Profile** and a **moving penalty**. Each bullet lands at a **random point within its arc**: this replaces XCOM's hit chance (director's decision). | A 50% per-bullet cover roll otherwise makes spray weapons the answer to everything [R20]. The randomness stays visible as geometry: the player sees the arc the bullet can land in, never a percentage [R18]. |
 | Cover gives a 50% block if it is right in front. | Kept for **half cover**, with an exact definition of "in front" (a 90° arc). **Full cover** (walls, pillars) blocks line of sight; you lean out from corners. | Cover has to be readable from one icon, and the icon has to match the hit logic exactly [R19]. |
 | Floor shows where a character can go without raising alarms. | Kept as a **strict promise**: calculated per character, along the whole path, against what NPCs *will* do in their next phase, using the same rules as the real check. Three colours: safe, suspicious, spotted. | One wrong tile destroys trust in the whole stealth layer [R1, R2]. |
 | Each character is spotted individually. | Kept. NPCs who know something is wrong become **Alerted** and read every crew member as **one profile more suspicious**, with wider vision; knowledge spreads physically (radio, shouts, people running to tell someone). | Without some link between characters, spotting each one separately becomes a string of easy ambushes, or guards ignoring the gunman next to their partner [R11]. An on-edge state is easier to show than a rule about who was seen with whom (director's suggestion). |
@@ -812,7 +812,7 @@ turn a slipping crowd into an escalating situation.
 ## 11. Combat
 
 Combat uses the same grid and the same turn as stealth. Shooting has exactly **two random layers**: where each
-bullet lands within its slice of the cone, and the cover roll. Everything else is fixed and previewed [R21].
+bullet lands within its arc, and the cover roll. Everything else is fixed and previewed [R21].
 
 ### 11.1 Aiming
 
@@ -828,10 +828,10 @@ bullet lands within its slice of the cone, and the cover roll. Everything else i
 - Bullet *k* (counting from 1) flies within an arc of **Aim + (k − 1) × Recoil**, centred on the aim line. Bullet 1
   is the most precise; each later bullet spreads wider. The weapon's **moving penalty** multiplies Aim if the shooter
   moved this turn.
-- **Bullets fan out.** Split the spread pattern into as many equal slices as bullets fired, give each bullet a random
-  slice, and place it at a random point inside that slice (scaled to that bullet's arc). A burst therefore always
-  spreads across the cone. It can never clump into a full miss when the target fills a real share of the cone, and a
-  six-round burst at a target covering a third of the cone almost always lands about two.
+- **Each bullet lands at a random point within its own arc**, independently of the others. This is BankHeist's
+  replacement for XCOM's hit chance: the dice are still there, but the player sees exactly where a bullet can go, and
+  a narrower arc or a closer target is a better bet. Bursts can clump or scatter; a whole burst can miss, and a lucky
+  one can land every round.
 - **Rolls are made when an attack is confirmed** and saved with it, so quitting and reopening the game can't reroll
   a shot.
 - Bullets that miss **keep flying** to the weapon's Range and can hit whatever is behind.
@@ -887,7 +887,7 @@ Before Confirm, the preview shows:
 - the cone as nested arcs (bright for bullet 1, widening to the last), cut short at the first full-height blocker;
 - **every body in the cone**, colour- and shape-coded (hostile ◆ red, civilian ● white with a heat warning, crew ▲
   blue), each with expected-hit pips;
-- the outcome band for the main target, in words: **"Hits 2–3 (likely 2) → 6–9 damage → likely down"**;
+- the outcome for the main target, in words: **"Likely 2 hits (0–6 possible) → likely 6 damage → may go down"**;
 - cover shields and their state, through-wall paths, overpenetration's second target;
 - the noise ring and everyone who will hear it.
 
@@ -1843,7 +1843,7 @@ next starts.
 | --- | --- | --- |
 | **M1 Stealth core** | Turn loop, movement, undo, zones, profiles, vision, suspicion, the reaction matrix, the **safe-floor overlay** (with its preview = outcome test), sound, NPC schedules and intents, evidence, knockout, alarm carriers, check-ins, cameras and operator, auto-advance. One small hand-made bank. | The bank is readable clockwork. |
 | **M2 Takeover and control** | GO, the three command rings, Hold, lapse and intent, resisters, zip-ties and frisking, panic, armed civilians, loot weights and throwing, vault access (codes, time lock, drill). | "Everybody down!" is the best moment in the game. |
-| **M3 Loud** | Cones, fan-out spread, cover, armour and pierce, penetration, the shot preview, Watch, Suppress, downed and arrested, police staging, rhythm, heat, negotiation, release and trade, getaway and escape, the outcome screen. | Loud is a tactical game, not a losing state. |
+| **M3 Loud** | Cones, random spread within the arc, cover, armour and pierce, penetration, the shot preview, Watch, Suppress, downed and arrested, police staging, rhythm, heat, negotiation, release and trade, getaway and escape, the outcome screen. | Loud is a tactical game, not a losing state. |
 | **M4 Sandbox v1** | Breach and shaped charges, barricade, reinforce, blinds, tripwire, the ram truck, the sniper nest, power and generator, the planning screen with assets and starts. | Plans made on the planning screen pay off in play. |
 | **M5 Procedural banks** | Plots, archetypes, parcels, key graph, population and schedule, opportunities, validation, knowledge layers, seeds. | Generated banks are plannable and varied. |
 | **M6 Campaign** | City map and day actions, contracts by stakes, money and laundering, the black market, crew, Notoriety, styles, chain escalation, **the Squeeze and its complications**, prep missions on small sites. | The preparation-versus-time decision is tense every day. |
@@ -1873,10 +1873,9 @@ challenge, never a login reward), and any multiplayer.
    (§6.6).
 8. **One level per map:** height is a tile property, and roofs and sewers are off-map routes (§14.7). Exposure is
    permanent, and combat is an expected part of most heists (§1, §8.7).
+9. **Random spread:** each bullet lands at a random point within its arc, replacing XCOM's hit chance (§11.2).
 
 **Still open:**
 
-9. **Stratified spread.** Bullets fan out evenly to bound the variance. Should spread be rawer and fully independent
-   instead? Decide in playtesting (M3).
 10. **Hostage release cap.** Keep the hard cap (one per turn, three per heist), or switch to diminishing returns (−3,
    then −2, then −1 per release, uncapped)? Decide in playtesting (M3).

@@ -146,8 +146,9 @@ The finding that came up in every area: a deep simulation is only fun if the pla
 21. **Bound the variance and stack as few random layers as possible.** Independent random bullets still produce
     whole-burst misses. XCOM's hit roll × damage range × crit stack needed hidden fixes. Into the Breach removed
     nearly all randomness.
-    → Bullets fan out evenly across the cone. The only random layers are where each bullet lands within its slice
-    and the cover roll. Damage is fixed.
+    → The only random layers are where each bullet lands within its arc and the cover roll. Damage is fixed. The
+    research suggested spreading bullets evenly to bound the variance; the director chose fully random placement
+    within the arc, as the visible replacement for XCOM's hit chance.
 22. **Make concealment and threat weapon stats.** Payday 2 weapons carry Concealment and Threat values. That turns
     the gun locker into the choice between stealth and going loud, not just a damage race.
     → Each item has a Profile (conspicuousness) and Threat (command radius) alongside its combat stats.
@@ -274,11 +275,10 @@ The finding that came up in every area: a deep simulation is only fun if the pla
 
 ## Where the research disagreed or stayed open
 
-- **Is stratified spread too "gamey"?** It removes whole-burst misses, but some players want rawer simulation.
-  Playtest it against independent spread with the same average.
+- **Even or random spread?** Spreading bullets evenly removes whole-burst misses; fully random spread keeps the
+  tension of a dice roll. The director chose random spread within the arc.
 - **Should the first bullet always fly down the aim line?** The critique suggested it, so that a burst at point
-  blank never misses entirely. The design rejects it, because it would make Aim meaningless for single-shot weapons,
-  and gets the same protection from stratified spread instead.
+  blank never misses entirely. The design rejects it, because it would make Aim meaningless for single-shot weapons.
 - **Plain circle or wall-aware sound?** A plain circle is easier to read; a ring that wall-aware flood fill clips
   makes doors and breaching matter. Every source agrees the preview must show exactly the tiles affected. The design
   uses the clipped ring.
