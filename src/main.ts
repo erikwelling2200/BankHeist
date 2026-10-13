@@ -1,5 +1,6 @@
 import Phaser from 'phaser';
 import { registerSW } from 'virtual:pwa-register';
+import { LobbyScene } from './scenes/LobbyScene';
 import { VaultScene } from './scenes/VaultScene';
 import { Fullscreen } from './ui/Fullscreen';
 import './style.css';
@@ -17,7 +18,8 @@ const game = new Phaser.Game({
     scale: { mode: Phaser.Scale.EXPAND, autoCenter: Phaser.Scale.CENTER_BOTH },
     physics: { default: 'arcade', arcade: { debug: false } },
     input: { activePointers: 3 },
-    scene: [VaultScene]
+    // `?scene=lobby` opens the visual preview of the bank lobby instead of the stealth demo.
+    scene: new URLSearchParams(location.search).get('scene') === 'lobby' ? [LobbyScene] : [VaultScene]
 });
 
 // Handle for Playwright tests and console debugging.

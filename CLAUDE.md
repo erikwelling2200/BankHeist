@@ -5,6 +5,8 @@ Top-down 2D pixel-art stealth game. Phaser 4 + TypeScript + Vite, shipped as an 
 ## Game design
 - `docs/design/GAME_DESIGN.md` is the source of truth for how the game plays: rules, numbers, canonical tables and the
   milestone order (§22). The current playable content is only a stack demo and doesn't reflect it.
+- `docs/design/visual-preview.md` holds the visual style card, the lighting model and the example bank built to settle
+  them; `/?scene=lobby` opens it.
 - `docs/design/research.md` holds the key research findings behind each design decision, with the full notes per area in
   `docs/design/research/`.
 - The design's hard promises: the safe-floor overlay and every preview use the same rules as the real outcome; every

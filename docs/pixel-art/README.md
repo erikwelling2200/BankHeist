@@ -81,6 +81,11 @@ The game itself renders at 320x180, top-down, with Phaser Light2D and normal map
 directly: the locked hue-shifted palette, the style card, the sel-out outlines and the critique loop. Rim light
 and cast shadows would come from Light2D and the normal maps in-engine, not be baked in.
 
+The in-engine version of this look is the lobby preview ([visual-preview.md](../design/visual-preview.md),
+`/?scene=lobby`): the same palette rules and critique loop, with the light split between Light2D lamps, baked light
+maps (shafts, occlusion, sun shadows) and an exposure layer that lets a sunny street and a dim interior share one
+scene. Its renders are the `lobby-preview-*.png` files in `examples/`.
+
 ## Running the scripts
 
 ```bash

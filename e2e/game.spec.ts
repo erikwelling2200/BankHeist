@@ -70,3 +70,30 @@ test.describe('on a phone', () => {
         await expect(page.locator('.rotate-hint')).toBeVisible();
     });
 });
+
+test.describe('lobby visual preview', () => {
+    async function bootLobby(page: Page): Promise<string[]> {
+        const errors: string[] = [];
+        page.on('pageerror', e => errors.push(e.message));
+        page.on('console', m => { if (m.type() === 'error') errors.push(m.text()); });
+        await page.goto('/?scene=lobby');
+        await page.waitForFunction(() => (window as any).game?.scene.getScene('lobby')?.sys.isActive());
+        await page.waitForTimeout(1000);
+        return errors;
+    }
+
+    test('renders the lobby and the street within the light budget', async ({ page }) => {
+        const errors = await bootLobby(page);
+        const lobby = (x: number, y: number) => page.evaluate(([x, y]) => (window as any).game.scene.getScene('lobby').lookAt(x, y), [x, y]);
+        await lobby(176, 104);
+        await page.waitForTimeout(300);
+        await page.locator('canvas').screenshot({ path: 'screenshots/lobby.png' });
+        await lobby(176, 230);
+        await page.waitForTimeout(300);
+        await page.locator('canvas').screenshot({ path: 'screenshots/lobby-street.png' });
+        const state = await page.evaluate(() => (window as any).game.scene.getScene('lobby').debugState);
+        // Lights past render.maxLights are silently dropped.
+        expect(state.lights).toBeLessThanOrEqual(32);
+        expect(errors).toEqual([]);
+    });
+});
