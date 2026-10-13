@@ -22,6 +22,12 @@ export const PAL = {
     leaf: [0x14231e, 0x1d3626, 0x2a4c2e, 0x3b6537, 0x568044, 0x77a05a],
     terracotta: [0x3a2026, 0x5a2f2c, 0x7a4334, 0x985c42],
     paper: [0x8a8478, 0xb8b1a0, 0xddd6c2, 0xf0ead8],
+    /** Old red brick, sooty in its darks. */
+    brick: [0x2a1a1e, 0x45252a, 0x63332f, 0x7e4434, 0x985a40, 0xae7452],
+    /** Raw plywood and cardboard. */
+    plywood: [0x4a3a2c, 0x6e573e, 0x8f7550, 0xac9264, 0xc4ad7e],
+    /** Pale oak floorboards and café furniture. */
+    oak: [0x3e2c22, 0x5e4430, 0x7c5d3e, 0x9a7a52, 0xb59668],
     /** A work van's off-white paint, a little grimy: cool in the shade, warm where the light catches it. */
     vanBody: [0x31323d, 0x50525c, 0x72737a, 0x8f8e8c, 0xa7a49c, 0xbcb7aa],
     tyre: [0x141319, 0x1f1d25, 0x2c2a33],

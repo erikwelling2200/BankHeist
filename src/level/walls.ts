@@ -11,10 +11,12 @@ import { px, type Insets } from './space';
 export type WallRun = 'eastWest' | 'northSouth';
 
 /**
- * What a segment is made of. Plaster and concrete are solid walls (Soft and Reinforced in the design), doors and the
- * shop front's piers, windows, glass doors and ATM are segments of their own.
+ * What a segment is made of. Plaster, concrete and the vault's steel are solid walls (Soft, Reinforced and Vault in the
+ * design), brick the outside walls; doors, and the fronts' piers, windows, glass doors, ATM, boarded windows and
+ * shutters, are segments of their own.
  */
-export type WallKind = 'plaster' | 'concrete' | 'doorWood' | 'doorKeycard' | 'pier' | 'window' | 'doorGlass' | 'atm';
+export type WallKind = 'plaster' | 'concrete' | 'vault' | 'vaultDoor' | 'brick' | 'doorWood' | 'doorKeycard' | 'doorService'
+    | 'pier' | 'brickPier' | 'window' | 'doorGlass' | 'atm' | 'boarded' | 'shutter';
 
 export interface Wall { kind: WallKind; run: WallRun; tx: number; ty: number }
 
@@ -22,12 +24,19 @@ export interface Wall { kind: WallKind; run: WallRun; tx: number; ty: number }
 export const WALL_THICKNESS: Record<WallKind, number> = {
     plaster: px(0.2),
     concrete: px(0.4),
+    vault: px(0.6),
+    vaultDoor: px(0.6),
+    brick: px(0.3),
     doorWood: px(0.2),
     doorKeycard: px(0.2),
+    doorService: px(0.3),
     pier: px(0.3),
+    brickPier: px(0.3),
     window: px(0.3),
     doorGlass: px(0.3),
-    atm: px(0.3)
+    atm: px(0.3),
+    boarded: px(0.3),
+    shutter: px(0.3)
 };
 
 /** A wall segment's footprint on the floor, in pixels. */

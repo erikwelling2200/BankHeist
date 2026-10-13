@@ -8,6 +8,7 @@ export const BANK_TILE_NAMES = [
     'marble0', 'marble1', 'marble2',
     'runnerLeft', 'runnerRight', 'linoleum0', 'linoleum1',
     'sidewalkTL', 'sidewalkTR', 'sidewalkBL', 'sidewalkBR', 'curb', 'road0', 'road1', 'roadDash', 'roadGap',
+    'concrete0', 'concrete1', 'steelPlate', 'whiteTile', 'floorboards0', 'floorboards1', 'dusty0', 'dusty1', 'alley0', 'alley1',
     'offMap'
 ] as const;
 
@@ -16,7 +17,7 @@ export type BankTileName = typeof BANK_TILE_NAMES[number];
 type Painter = (b: PixelBitmap, ox: number, rand: () => number) => void;
 
 /**
- * Lobby marble: a calm cream field (so floor overlays stay readable) with dark green cabochons where four tiles meet,
+ * Level marble: a calm cream field (so floor overlays stay readable) with dark green cabochons where four tiles meet,
  * each ringed in brass. Veins wander through the cream from smooth noise.
  */
 const marble = (seed: number): Painter => (b, ox, rand) => {
@@ -111,6 +112,62 @@ const roadLine = (dash: boolean): Painter => (b, ox, rand) => {
     }
 };
 
+/** Sealed concrete for the Secure rooms (§8.1): cool grey, trowel marks and the odd stain, a saw cut every two tiles. */
+const concrete = (seed: number): Painter => (b, ox, rand) => {
+    const noise = valueNoise(mulberry32(seed), 3);
+    for (let y = 0; y < TILE; y++) for (let x = 0; x < TILE; x++) {
+        const n = noise(x / TILE, y / TILE) + rand() * 0.1;
+        let c = step(PAL.concrete, n > 0.7 ? 3 : n < 0.25 ? 1 : 2);
+        if (x === TILE - 1 && seed % 2) c = PAL.concrete[0];
+        b.set(ox + x, y, c, 0.5);
+    }
+};
+
+/** The vault's floor: diamond-tread steel plate, bolted at the corners. */
+const steelPlate: Painter = (b, ox) => {
+    for (let y = 0; y < TILE; y++) for (let x = 0; x < TILE; x++) {
+        let c: number = (x + y * 2) % 6 === 0 || (x * 2 - y + 32) % 6 === 0 ? PAL.steel[3] : PAL.steel[2];
+        if (x === TILE - 1 || y === TILE - 1) c = PAL.steel[1];
+        if ((x === 1 || x === TILE - 3) && (y === 1 || y === TILE - 3)) c = PAL.steel[4];
+        b.set(ox + x, y, c, (x + y * 2) % 6 === 0 ? 0.6 : 0.45);
+    }
+};
+
+/** Small white tiles with grey grout: the restrooms and the café's kitchen. */
+const whiteTile: Painter = (b, ox, rand) => {
+    for (let y = 0; y < TILE; y++) for (let x = 0; x < TILE; x++) {
+        const grout = x % 4 === 3 || y % 4 === 3;
+        b.set(ox + x, y, grout ? PAL.cloth.white[0]! : rand() > 0.9 ? PAL.cloth.white[1]! : PAL.cloth.white[2]!, grout ? 0.35 : 0.55);
+    }
+};
+
+/** The café's oak floorboards, running east-west, their joints staggered. */
+const floorboards = (offset: number): Painter => (b, ox, rand) => {
+    for (let y = 0; y < TILE; y++) for (let x = 0; x < TILE; x++) {
+        const board = Math.floor(y / 4), joint = y % 4 === 3 || (x + board * 5 + offset) % 16 === 0;
+        b.set(ox + x, y, joint ? PAL.oak[1] : step(PAL.oak, (board + offset) % 3 === 0 ? 2 : rand() > 0.9 ? 2 : 3), joint ? 0.35 : 0.55);
+    }
+};
+
+/** A vacant shop's floor: bare screed under a film of dust, scuffed where people walked, a scrap of paper. */
+const dusty = (seed: number): Painter => (b, ox, rand) => {
+    const noise = valueNoise(mulberry32(seed), 2);
+    for (let y = 0; y < TILE; y++) for (let x = 0; x < TILE; x++) {
+        const n = noise(x / TILE, y / TILE);
+        b.set(ox + x, y, mix(step(PAL.concrete, n > 0.55 ? 3 : 2), PAL.plywood[2], 0.25 + rand() * 0.08), 0.5);
+    }
+    if (seed % 2) b.rect(ox + 4 + Math.floor(rand() * 6), 5 + Math.floor(rand() * 6), 3, 2, PAL.paper[1], 0.55);
+};
+
+/** The alley's old, patched asphalt: darker than the road, a drain-stain here and there. */
+const alley = (stain: boolean): Painter => (b, ox, rand) => {
+    for (let y = 0; y < TILE; y++) for (let x = 0; x < TILE; x++) {
+        const r = rand();
+        b.set(ox + x, y, step(PAL.asphalt, r > 0.93 ? 3 : r < 0.2 ? 0 : 1), 0.4 + r * 0.1);
+    }
+    if (stain) b.ellipse(ox + 5 + rand() * 6, 5 + rand() * 6, 4, 2.5, PAL.asphalt[0], 0.35);
+};
+
 /** Off the map (a neighbour's building): dark and hatched like the walls' sections, so it reads as solid, not as floor. */
 const offMap: Painter = (b, ox) => {
     for (let y = 0; y < TILE; y++) for (let x = 0; x < TILE; x++) b.set(ox + x, y, (x + y) % 4 === 0 ? deepen(PAL.plaster[1], 0.3) : deepen(PAL.plaster[0], 0.3), 1);
@@ -121,6 +178,8 @@ const PAINTERS: Record<BankTileName, Painter> = {
     runnerLeft: runner('left'), runnerRight: runner('right'), linoleum0: linoleum, linoleum1: linoleum,
     sidewalkTL: sidewalk(false, false), sidewalkTR: sidewalk(true, false), sidewalkBL: sidewalk(false, true), sidewalkBR: sidewalk(true, true), curb,
     road0: road(false), road1: road(true), roadDash: roadLine(true), roadGap: roadLine(false),
+    concrete0: concrete(21), concrete1: concrete(22), steelPlate, whiteTile, floorboards0: floorboards(0), floorboards1: floorboards(7),
+    dusty0: dusty(41), dusty1: dusty(42), alley0: alley(false), alley1: alley(true),
     offMap
 };
 

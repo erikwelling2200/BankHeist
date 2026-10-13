@@ -1,11 +1,20 @@
 # Visual preview: the example bank
 
-A hand-made example level whose only job is to settle how the game looks. It has no rules yet; the stealth demo is
-still the default scene. Open it with `npm run dev` and go to `/?scene=lobby`; drag or use the arrow keys to look
-around. Built so far: **the lobby, the staff corridor behind it and the street in front of it**. The rest of the bank follows once the lobby's look
-is agreed.
+A hand-made example level whose only job is to settle how the game looks. It has no rules yet. It is the default page
+(`/`, also `/?scene=bank`); the old stack demo lives on at `/?scene=demo`. Built: **the whole plot** (§17): a city
+branch mid-block with every room of a small bank, a café sharing its west wall, a vacant shop to the east, the alley
+behind and the street in front, about 60x36 tiles, furnished and peopled, with guards and a passer-by on patrol.
 
-![In-game view of the lobby](../pixel-art/examples/lobby-preview-ingame.png)
+![In-game view of the lobby](../pixel-art/examples/bank-preview-lobby.png)
+
+## Camera (§20.1)
+
+Drag to pan, or use the arrow keys. The mouse wheel, a pinch, the `+`/`−` buttons on the left edge or the `+`/`-` keys
+zoom between about 11 and 34 tiles high, in whole-number steps so every art pixel covers a whole number of screen
+pixels (`src/logic/zoom.ts`). The **Map** button (or `M`) jumps to the tactical map, the whole plot at the largest zoom
+that fits, with every wall cut down; pressing it again or zooming in returns to the view before it. The canvas renders
+at the screen's device pixels divided by the zoom and the browser scales it up by that whole number, so the art stays
+crisp at any zoom and a closer view draws fewer pixels. The camera's middle can reach every tile.
 
 ## Style card
 
@@ -18,8 +27,10 @@ is agreed.
    between the two over a tenth of a second, with a dead band so nudging the camera doesn't make it flicker; outer
    walls with nothing behind them always stand. Dressing hung on a cut wall goes with it, except what matters for play
    (cameras, card readers). People are 16x24 and **stand in the middle of their tile**; depth follows each object's
-   base line. ([lobby](../pixel-art/examples/lobby-preview-ingame.png), [looking past the back wall into the
-   corridor](../pixel-art/examples/lobby-preview-corridor.png), [the street, shop front standing](../pixel-art/examples/lobby-preview-street.png).)
+   base line. ([lobby](../pixel-art/examples/bank-preview-lobby.png), [looking past the back wall into the
+   corridor](../pixel-art/examples/bank-preview-corridor.png), [the street, the fronts standing](../pixel-art/examples/bank-preview-street.png),
+   [the vault](../pixel-art/examples/bank-preview-vault.png), [the café](../pixel-art/examples/bank-preview-cafe.png),
+   [the tactical map](../pixel-art/examples/bank-preview-map.png).)
 2. **Every object is a box in a real scale** (`src/level/space.ts`, `src/level/catalog.ts`): 1px is about 8cm, so a
    tile is about 1.3m, people are 1.75m and walls are cut away at 1.9m. Each kind of object has its real width, depth
    and height, an elevation if it hangs, and an alignment within its tiles (centred, against an edge or corner, or on
@@ -28,7 +39,7 @@ is agreed.
    aligned north, at its height. The scene places, orders, shades and lets each box block the sun from those numbers;
    a test checks that no two boxes intersect and nothing stands inside a wall. **Every prop has four facings**, each
    drawn by hand as pixel art on a `View` that knows the projection, from one set of measurements per object so the
-   views agree (`van.ts`, `furniture.ts`, `dressing.ts` and `street.ts` in `src/art/bank/`). Boxy furniture is built
+   views agree (`van.ts`, `furniture.ts`, `dressing.ts`, `street.ts`, `rooms.ts` and `outside.ts` in `src/art/bank/`). Boxy furniture is built
    from parts whose faces are each painted for the view; round things (bins, the hydrant, posts, the planter) are drawn
    as curves with curved normals, and organic ones freehand: the rubber plant's oval leaves spiral round its stem, so
    each facing shows another side of the same plant. `/?scene=props` shows them all. ([sheet](../pixel-art/examples/props-four-facings.png): south, east, north, west.)
@@ -39,8 +50,9 @@ is agreed.
    Things flat on the floor keep their full depth, and rows of posts keep each post on its floor position.
 3. **Muted, hue-shifted ramps** (`src/art/palette.ts`). Darks drift cool, lights warm, the lightest steps desaturate.
    No pure black: the darkest colour is a cool ink. One ramp per material, so greens stay green.
-4. **Zones are drawn into the floor** (§8.1): cream marble and a red runner for Public, linoleum for Staff; concrete and
-   steel plate will mark Secure. The lobby floor is kept calm and mid-valued so the safe-floor overlay stays readable
+4. **Zones are drawn into the floor** (§8.1): cream marble and a red runner for Public, linoleum for Staff, concrete
+   and the vault's steel plate for Secure; the neighbours have their own (the café's floorboards, the vacant shop's
+   dusty boards). The lobby floor is kept calm and mid-valued so the safe-floor overlay stays readable
    on top of it.
 5. **Flat albedo, light from the lamps.** Sprites carry only material detail and a little top-light; the lamps and
    the normal maps (from per-colour heights) do the shading. Sel-out outlines on figures, never black ones.
@@ -50,83 +62,62 @@ is agreed.
 
 ## Layout
 
-Fixed orientation per §17.1: street along the bottom, public space at the front, the secure core at the top. A small
-city branch, roughly 40x30 tiles with the street.
+Fixed orientation per §17.1: the street along the bottom, public space at the front, the secure core at the back, the
+alley behind. The plan is `src/level/bank.ts`, drawn at double resolution: floor tiles at odd columns and rows, walls
+on the edges between them (legend in `src/level/plan.ts`). Its rooms (`BANK_ROOMS`) name each part, give it a zone and
+say how it is lit; the lamps hang from them. Simplified, x in tiles:
 
 ```
-              ALLEY: back door, dumpster, generator, manhole (sewer route)
- ┌─────────────┬───────────────────────┬─────────────┐
- │ Electrical  │  Vault antechamber    │ Deposit     │   Secure
- │ alarm panel │      [ VAULT ]        │ boxes       │
- ├─────────────┴───────────────────────┴──────┬──────┤
- │            Staff corridor (2 wide)         │ CCTV │   Staff
- ├──────────┬──────────────────────┬──────────┤ rec. │
- │ Manager  │ Teller line          │ Break    ├──────┤
- │ office   │ ══════ counter ═════ │ room     │Clean.│
- ├──────────┤        LOBBY         │          │closet│   Public (lobby, WC)
- │ WC       │                      ├──────────┴──────┤
- └──────────┴────── façade ────────┴─────────────────┘
-   sidewalk: street lamps, ATM in the wall, bollards, news box, hydrant
-   road: parked van, centre line, manhole
-```
-
-The built part, `src/level/lobby.ts`. The plan is drawn at double resolution: floor tiles at odd columns and rows,
-walls on the edges between them (legend in the file). Simplified, one character per tile:
-
-```
-xxxxxxxxxxxxxxxxxxxxxx   off the map
-xxxxxxxxxxxxxxxxxxxxxx
- R R R R R k R R R R     the vault's concrete wall, its steel door; always stands (nothing behind it)
-|,,,,,,,,,,,,,,,,,,,,|   staff corridor: notice board, clock, filing cabinet, a camera on the door
-|,,,,,,,,,,,,,,,,,,,,|
- - d - - - - - - k -     back wall (plaster): door to the corridor, keycard staff door (exit sign beside it)
-|,,,,,,,,,,,,,,,,,,,,|   teller line (Staff): back counters, filing cabinets, printer, water cooler
-|,,,,,,,,,,,,,,,,,,,,|   tellers stand here
-|,,,,,,,,,,,,,,,,,,,,|   counter: 4 windows behind teller glass, one closed, a gate at the right
-|........==..........|   lobby (Public): runner from the doors to the counter, queue rails along it
-|........==..........|
-d........==..........|   restroom door in the left wall
-|........==..........|   writing desk, sofa and coffee table, plants, brochure rack, guard post
-|........==..........|
-|........==..........|
-|........==..........|
-pgggpgggpDDpgggpApgggp   shop front: stone piers, windows with blinds, glass doors ("BANK"), ATM
-ssssssssssssssssssssss   sidewalk
-ssssssssssssssssssssss
-cccccccccccccccccccccc   curb
-rrrrrrrrrrrrrrrrrrrrrr   road
-llllllllllllllllllllll   centre line
-rrrrrrrrrrrrrrrrrrrrrr
-rrrrrrrrrrrrrrrrrrrrrr
+ 0         10    16  20            34      42      50        59
+ ════════════════ brick wall: the backdrop ══════════════════════   row 1
+  alley: dumpster, bins, generator, roof ladder, sewer manhole, the bank's back door  rows 1-3
+ ┌─────────┬─────┬───┬─────────────┬───────┬───────┬─────────┐
+ │ café    │elec-│ser│    VAULT    │deposit│ back  │ vacant  │   Secure core: concrete walls,
+ │ kitchen │tri- │ver│ steel walls │ boxes │ hall  │ back    │   the vault's steel, keycard doors
+ ├─────────┤cal  │   ├──── door ───┤       │       │ room    │
+ │         │     │   │ antechamber │       │       ├─────────┤
+ │         ├─────┴───┴─────────────┴───────┴───────┤         │
+ │  café   │          staff corridor               │ vacant  │   Staff
+ │         ├─────────┬────────────────────┬────────┤ shop    │
+ │ window  │ manager │ teller line        │ break  │         │
+ │ seats   │ office  │ ═════ counter ════ │ room   │ boarded │
+ │         ├────┬────┤                    ├───┬────┤ windows │
+ │         │ATM │WCs │       LOBBY        │pas│CCTV│         │   Public
+ │         │room│    │                    │sag├────┤         │
+ │         │    │    │                    │e  │clea│         │
+ └─glass───┴────┴────┴─pier window DOOR───┴───┴────┴─shutter─┘   street fronts, row 28
+   sidewalk: street lamps, ATM in the wall, bollards, news box, hydrant, café tables
+   road: parked van, centre line
 ```
 
 ## Sprites
 
-Everything is generated in code (`src/art/bank/`): `tiles.ts` (tileset), `furniture.ts`, `dressing.ts`, `street.ts` and
-`van.ts` (props, each with an unlit glow layer and the lights it gives off, dispatched by `props.ts`), `people.ts` (one
-parametric `person()` for the whole cast).
+Everything is generated in code (`src/art/bank/`): `tiles.ts` (tileset), `walls.ts` (every wall kind at each height,
+packed into one atlas), `furniture.ts`, `dressing.ts`, `rooms.ts` (back of house), `outside.ts` (the café and the
+alley), `street.ts` and `van.ts` (props, each with an unlit glow layer and the lights it gives off, dispatched by
+`props.ts`), `people.ts` (one parametric `person()` for the whole cast).
 
 | Area | Done | Still to make |
 | --- | --- | --- |
-| Floors | lobby marble (3 variants), red runner, linoleum, sidewalk (2x2 slabs), curb, road, centre line | concrete, steel plate, carpet for offices, tiled WC |
-| Walls | plaster with a walnut wainscot, painted concrete block, wood door, keycard door, each with its section on top and drawn at any height | vault wall with rivets, broken and holed walls, open doors |
-| Façade | stone pier, window with blinds, glass doors with gold leaf, ATM | blinds down (§14.3), broken glass |
-| Lobby props | teller counter, back counter, filing cabinet, printer, water cooler, crest, clock, painting, notice board, exit sign, CCTV camera, queue rails, mat, writing desk, sofa, coffee table, plant, brochure rack, bin | flipped table (half cover), breakable dressing and its damage states (§20.9) |
-| Street | street lamp, hydrant, news box, bin, bollard, manhole, panel van | police car, cones, barrier, scaffolding, neighbour fronts |
-| People | 13 looks, front and back: tellers, guard, customers, passer-by, two crew | side views, walk cycles, manager, cleaner, IT tech, police and SWAT, masked crew, downed and tied poses |
-| Back of house | staff corridor | office, break room, closet, CCTV room, electrical closet, vault and antechamber, alley |
+| Floors | lobby marble, red runner, linoleum, concrete, steel plate, white tiles, café floorboards, dusty boards, alley tarmac, sidewalk, curb, road, centre line | carpet for offices |
+| Walls | plaster with a walnut wainscot, painted concrete block, the vault's riveted steel and its round door, brick, wood door, keycard door, steel service door, each with its section on top and drawn at any height | broken and holed walls, open doors |
+| Fronts | stone and brick piers, windows with blinds, glass doors with gold leaf, the ATM, boarded windows, a rolling shutter | blinds down (§14.3), broken glass |
+| Lobby | teller counter, back counter, filing cabinet, printer, water cooler, crest, clock, painting, notice board, exit sign, CCTV camera, queue rails, mat, writing desk, sofa, coffee table, plant, brochure rack, bin | flipped table (half cover), breakable dressing and its damage states (§20.9) |
+| Back of house | deposit boxes, cash shelves and cart, vault console, server racks, alarm and breaker panels, CCTV desk, desks and chairs, bookshelf, lockers, shelving, mop bucket, the ATM's back, boxes, dining table, fridge, kitchen counter, toilets, washbasins | |
+| Neighbours and alley | café tables, café counter, menu board, dumpster, generator, roof ladder | |
+| Street | street lamp, hydrant, news box, bin, bollard, manhole, panel van | police car, cones, barrier, scaffolding |
+| People | 17 looks, front and back: tellers, guards, manager, operator, cleaner, barista, customers, passer-by, two crew | side views, walk cycles, IT tech, police and SWAT, masked crew, downed and tied poses |
 
 ## Lighting model
 
 Phaser's Light2D lights have no occlusion: a light shines through any wall. The preview doesn't use them; it splits
 the job instead:
 
-- **Half exposure, then an exposure layer.** The scene renders at half brightness: ambient is half the street's
-  sunlight. A full-screen layer drawn with a custom `2 × source × destination` blend then doubles the street and scales
-  the inside down to the building's shade, lifting towards the glass. Indoors is everything on screen above the top of
-  the shop front, so there is one layer per height of the front, swapped as it drops or stands; the cloud shadows'
-  top edge follows it the same way. Rendering at half first leaves the lamps
-  headroom; with a plain multiply the interior clipped to white before it was darkened, and every lamp pool vanished.
+- **Half exposure, then a baked exposure.** Light is worked out at half brightness (ambient is half the street's
+  sunlight), which leaves the lamps headroom, and then each baked texture is multiplied by an exposure
+  (`buildExposure`): twice for the street and the alley, the building's shade indoors, lifting towards the street
+  glass. Exposing each texture rather than the screen means a wall that stands in front of the street takes the
+  street's exposure along its whole face, and the cloud shadows' top edge follows the fronts' height.
 - **Lamps are baked, and walls block them** (`src/art/bank/lamps.ts`). When the level loads, each lamp's reach is
   traced across the floor against the walls (glass lets light through), and the floor, every wall segment at each of
   its heights, every prop and every person is lit with the same formula Light2D uses, normal maps included: a standing
@@ -140,10 +131,10 @@ the job instead:
   (multiply, floor only), sun shafts through the glass with the far end striped by the blinds (additive, banded,
   dithered only where bands meet), furniture cutting its shadow out of the shafts, and sheared sun shadows for
   everything fixed outdoors. People move, so they cast none of these, only their drop shadow; moving one relights
-  just its own sprite, with the lamps that reach where it now stands (`LobbyScene.movePerson`). The guard patrols the
-  lobby to show it: he brightens in the lamp pools and dims between them.
-- **Emissive bits** (screens, lamp shades, LEDs, the exit sign) are unlit sprites, with a second additive pass over
-  the exposure layer so they still glow indoors.
+  just its own sprite, with the lamps that reach where it now stands (`BankScene.movePerson`). The guards patrol the
+  corridor and the lobby to show it: they brighten in the lamp pools and dim between them.
+- **Emissive bits** (screens, lamp shades, LEDs, the exit sign) are unlit sprites drawn additively on top, so they
+  still glow indoors.
 - **Atmosphere:** slow cloud shadows drift over the street, dust motes hang in the shafts, a light bloom and a soft
   vignette on the camera.
 

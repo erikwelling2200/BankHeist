@@ -9,7 +9,7 @@ import { rows, Turn, View, type PropArt } from './view';
  */
 
 /** A pixel of a hung picture: its colour, and whether it glows (a lit sign) rather than takes the room's light. */
-type Picture = (u: number, v: number) => { c: number; glow?: boolean } | null;
+export type Picture = (u: number, v: number) => { c: number; glow?: boolean } | null;
 
 const inDisc = (u: number, v: number, cx: number, cy: number, rx: number, ry: number) => ((u + 0.5 - cx) / rx) ** 2 + ((v + 0.5 - cy) / ry) ** 2 <= 1;
 
@@ -18,7 +18,7 @@ const inDisc = (u: number, v: number, cx: number, cy: number, rx: number, ry: nu
  * round clock stays round), with its upper edge catching the light along the top; from behind, the same outline in its
  * plain backing; from the side, its edge: a one-pixel sliver receding along the wall.
  */
-function hung(s: Size, facing: Facing, picture: Picture, back: number, edge: number): PropArt {
+export function hung(s: Size, facing: Facing, picture: Picture, back: number, edge: number): PropArt {
     const t = new Turn(s, facing), view = new View(t.w, t.d, s.h);
     const at = (u: number, v: number) => (u >= 0 && u < s.w && v >= 0 && v < s.h ? picture(u, v) : null);
     for (let u = 0; u < s.w; u++) for (let v = 0; v < s.h; v++) {

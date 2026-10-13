@@ -1,9 +1,9 @@
 import { TILE } from '../../level/level';
-import type { LobbyProp } from '../../level/lobby';
+import type { LevelProp } from '../../level/plan';
 import type { Facing, Size } from '../../level/space';
 import { PAL, mix } from '../palette';
 import { mulberry32 } from '../random';
-import { NORMAL, rows, Turn, View, type Faces, type Part, type PropArt } from './view';
+import { NORMAL, part, roundBands, rows, Turn, View, type Faces, type Part, type PropArt } from './view';
 
 /*
  * The lobby's furniture, each drawn from its catalog box in its own frame: x across its front, y from its back (0) to
@@ -12,17 +12,8 @@ import { NORMAL, rows, Turn, View, type Faces, type Part, type PropArt } from '.
  */
 
 const W = PAL.walnut, S = PAL.steel, L = PAL.cloth.burgundy;
-const part = (x: number, y: number, z: number, w: number, d: number, h: number): Part => ({ x, y, z, w, d, h });
 /** Off-white office plastic, a little grubby in the shade. */
-const PLASTIC = [S[2], mix(PAL.paper[0], S[3], 0.5), PAL.paper[1], PAL.paper[2], PAL.paper[3]] as const;
-
-/** Bands across a round body: a dark edge on either side, a highlight a little left of centre. */
-function roundBands(ramp: readonly number[], s: number): number {
-    const a = Math.abs(s);
-    if (a > 0.75) return ramp[1]!;
-    if (s > -0.55 && s < -0.15) return ramp[ramp.length - 1]!;
-    return s > 0.35 ? ramp[2]! : ramp[3]!;
-}
+export const PLASTIC = [S[2], mix(PAL.paper[0], S[3], 0.5), PAL.paper[1], PAL.paper[2], PAL.paper[3]] as const;
 
 /** Raised walnut panels a tile wide on a face `h` tall, a brass kick rail along the floor. */
 function walnutPanel(w: number, h: number) {
@@ -44,7 +35,7 @@ function walnutPanel(w: number, h: number) {
  * the floor stands on the top's front edge between brass posts. Each window has a monitor on the shelf, its screen
  * towards the teller, and an open window a banker's lamp; a closed one has a sign up behind its glass.
  */
-export function counter(p: Extract<LobbyProp, { kind: 'counter' }>, s: Size, facing: Facing): PropArt {
+export function counter(p: Extract<LevelProp, { kind: 'counter' }>, s: Size, facing: Facing): PropArt {
     const glass = 28, shelf = 6;
     const t = new Turn(s, facing), view = new View(t.w, t.d, s.h, { headroom: glass + 1, margin: 2 });
     const stations = p.stations.map(st => ({ sx: (st - p.tx) * TILE, closed: p.closed.includes(st) }));
@@ -102,7 +93,7 @@ export function counter(p: Extract<LobbyProp, { kind: 'counter' }>, s: Size, fac
 }
 
 /** A walnut credenza along the back wall: paired doors on its front, papers, a cash tray and a phone on top. */
-export function backCounter(p: Extract<LobbyProp, { kind: 'backCounter' }>, s: Size, facing: Facing): PropArt {
+export function backCounter(p: Extract<LevelProp, { kind: 'backCounter' }>, s: Size, facing: Facing): PropArt {
     const t = new Turn(s, facing), view = new View(t.w, t.d, s.h, { headroom: 2 });
     const front = (u: number, v: number) => {
         const door = u % 8, knob = Math.floor(u / 8) % 2 === 0 ? 6 : 1;
@@ -376,7 +367,7 @@ export function writingDesk(s: Size, facing: Facing): PropArt {
  * A run of brass stanchions along its width, one in the middle of each tile, a velvet rope sagging between each pair.
  * Facing east or west the run goes north-south. Drawn without foreshortening, so each post stays on its floor position.
  */
-export function queueRail(p: Extract<LobbyProp, { kind: 'queueRail' }>, s: Size, facing: Facing): PropArt {
+export function queueRail(p: Extract<LevelProp, { kind: 'queueRail' }>, s: Size, facing: Facing): PropArt {
     const t = new Turn(s, facing), view = new View(t.w, t.d, s.h, { depthScale: 1 });
     const B = PAL.brass, oy = s.d / 2;
     const items: { y: number; draw: () => void }[] = [];

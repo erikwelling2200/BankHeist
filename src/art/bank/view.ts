@@ -42,6 +42,17 @@ export interface ViewOptions {
 
 const paint = (p: Paint, u: number, v: number): number | null => (typeof p === 'number' ? p : p(u, v));
 
+/** A part of a prop's own frame: x across its front, y from its back, z up; w, d and h its extent. */
+export const part = (x: number, y: number, z: number, w: number, d: number, h: number): Part => ({ x, y, z, w, d, h });
+
+/** Bands across a round body by `s` (-1 at its left edge, 1 at its right): dark edges, a highlight a little left of centre. */
+export function roundBands(ramp: readonly number[], s: number, highlight = true): number {
+    const a = Math.abs(s);
+    if (a > 0.75) return ramp[1]!;
+    if (highlight && s > -0.55 && s < -0.15) return ramp[ramp.length - 1]!;
+    return s > 0.35 ? ramp[2]! : ramp[3]!;
+}
+
 /**
  * A canvas for drawing one view of a prop by hand, in the projection the world uses. The view covers the prop's turned
  * footprint (`w` across the screen, `d` into it) and height `h`. Depth is foreshortened to `depthScale` of itself (by

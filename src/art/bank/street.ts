@@ -1,6 +1,6 @@
 import type { Facing, Size } from '../../level/space';
 import { PAL } from '../palette';
-import { rows, Turn, View, type PropArt } from './view';
+import { roundBands, rows, Turn, View, type PropArt } from './view';
 
 /*
  * Street furniture, each drawn from its catalog box in its own frame (front towards +y). Round things are round in
@@ -8,14 +8,6 @@ import { rows, Turn, View, type PropArt } from './view';
  */
 
 const IRON = PAL.steel;
-
-/** Bands across a round body: a dark edge on either side, a highlight a little left of centre. */
-function roundBands(ramp: readonly number[], s: number, highlight = true): number {
-    const a = Math.abs(s);
-    if (a > 0.75) return ramp[1]!;
-    if (highlight && s > -0.55 && s < -0.15) return ramp[ramp.length - 1]!;
-    return s > 0.35 ? ramp[2]! : ramp[3]!;
-}
 
 /** A cast-iron street lamp: a stepped foot, a fluted post, a collar, then a glass lantern under a cap and finial. */
 export function streetLamp(s: Size, facing: Facing): PropArt {

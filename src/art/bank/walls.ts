@@ -54,6 +54,19 @@ const stoneSection: Painter['section'] = (put, t, length) => {
     for (let v = 0; v < t; v++) for (let u = 0; u < length; u++) put(u, v, v === t - 1 ? PAL.limestone[5] : (u + v) % 4 === 0 ? PAL.limestone[1] : PAL.limestone[2]);
 };
 
+/** Brick laid in stretcher bond, the core hatched. */
+const brickSection: Painter['section'] = (put, t, length) => {
+    for (let v = 0; v < t; v++) for (let u = 0; u < length; u++) put(u, v, v === t - 1 ? PAL.brick[4] : (u + v) % 3 === 0 ? PAL.brick[1] : PAL.brick[2]);
+};
+
+/** The vault's steel: two plates with a dark filling, riveted through. */
+const vaultSection: Painter['section'] = (put, t, length) => {
+    for (let v = 0; v < t; v++) for (let u = 0; u < length; u++) {
+        const skin = v === 0 || v === t - 1;
+        put(u, v, skin ? (v === t - 1 ? PAL.steel[4] : PAL.steel[2]) : u % 4 === 1 && v === Math.floor(t / 2) ? PAL.steel[3] : PAL.steel[0]);
+    }
+};
+
 /** Glass between its frames: a thin bright line of pane in dark wood. */
 const glassSection: Painter['section'] = (put, t, length) => {
     for (let v = 0; v < t; v++) for (let u = 0; u < length; u++) {
@@ -85,6 +98,45 @@ const concreteFace: Painter['face'] = put => {
     }
 };
 
+/** Brick in stretcher bond, each brick its own shade, over a concrete plinth: the outside of a building. */
+const brickFace: Painter['face'] = (put, rand) => {
+    const shades = Array.from({ length: 64 }, () => (rand() > 0.8 ? 3 : rand() > 0.5 ? 2 : rand() > 0.15 ? 3 : 1));
+    for (let z = 1; z <= F; z++) for (let u = 0; u < TILE; u++) {
+        if (z <= 2) { put(u, z, z === 2 ? PAL.concrete[3] : PAL.concrete[2], 0.5); continue; }
+        const course = Math.floor((z - 3) / 3), mortar = (z - 3) % 3 === 2 || (u + (course % 2) * 4) % 8 === 0;
+        put(u, z, mortar ? PAL.concrete[2] : PAL.brick[shades[(course * 3 + Math.floor((u + (course % 2) * 4) / 8)) % 64]!]!, mortar ? 0.35 : 0.65);
+    }
+};
+
+/** Riveted steel plates with a dark kick plate: the vault from the antechamber. */
+const vaultFace: Painter['face'] = put => {
+    for (let z = 1; z <= F; z++) for (let u = 0; u < TILE; u++) {
+        if (z <= 2) { put(u, z, PAL.steel[1], 0.5); continue; }
+        const seamU = u % 8 === 0, seamZ = (z - 3) % 7 === 6;
+        const rivet = (u % 8 === 2 || u % 8 === 6) && ((z - 3) % 7 === 0 || (z - 3) % 7 === 5);
+        put(u, z, seamU || seamZ ? PAL.steel[1] : rivet ? PAL.steel[5] : (z - 3) % 7 === 5 ? PAL.steel[3] : PAL.steel[2], rivet ? 0.9 : 0.6);
+    }
+};
+
+/**
+ * One half of the round vault door, centred on the line between the two segments: a riveted rim, the polished door,
+ * the bolt-wheel at its middle.
+ */
+const vaultDoor = (side: 'left' | 'right'): Painter['face'] => (put, rand) => {
+    vaultFace(put, rand);
+    const cx = side === 'left' ? TILE : 0, cz = 12;
+    for (let z = 1; z <= F; z++) for (let u = 0; u < TILE; u++) {
+        const d = Math.hypot(u + 0.5 - cx, z - 0.5 - cz);
+        if (d > 11.5) continue;
+        let c: number = d > 10.5 ? PAL.steel[1] : d > 9.5 ? (Math.round(Math.atan2(z - cz, u - cx) * 4) % 2 ? PAL.steel[5] : PAL.steel[3]) : PAL.steel[3];
+        if (d <= 9.5 && z > cz + 3) c = PAL.steel[4];
+        if (d <= 4.5 && d > 3.5) c = PAL.brass[3];
+        if (d <= 4.5 && (Math.abs(u + 0.5 - cx) < 1 || Math.abs(z - 0.5 - cz) < 1)) c = PAL.brass[4];
+        if (d <= 1) c = PAL.brass[5];
+        put(u, z, c, d > 10.5 ? 0.5 : 0.85);
+    }
+};
+
 /** Doors are about 2m tall, taller than the cut, so they reach from the floor to the top of a full wall. */
 const doorWood: Painter['face'] = (put, rand) => {
     interiorFace(put, rand);
@@ -108,6 +160,18 @@ const doorKeycard: Painter['face'] = (put, rand) => {
     put(11, 9, PAL.steel[5], 0.8);
     put(11, 8, PAL.steel[5], 0.8);
     for (let z = 11; z <= 13; z++) { put(14, z, PAL.steel[0], 0.8); put(15, z, PAL.steel[1], 0.8); }
+};
+
+/** A steel service door in the stone front, with a push bar and a keypad. */
+const doorService: Painter['face'] = (put, rand) => {
+    stoneFace(put, rand);
+    for (let z = 1; z <= F - 2; z++) for (let u = 2; u < 14; u++) {
+        const frame = u === 2 || u === 13 || z === F - 2;
+        put(u, z, frame ? PAL.steel[1] : step(PAL.steel, u < 6 ? 3 : 2), frame ? 0.7 : 0.55);
+    }
+    for (let u = 4; u < 12; u++) put(u, 10, PAL.steel[5], 0.8);
+    put(14, 12, PAL.ink, 0.8);
+    put(14, 13, PAL.emissive.ledGreen, 0.8);
 };
 
 /** Limestone in courses with a darker plinth: the building's face to the street. */
@@ -139,6 +203,35 @@ const windowFace: Painter['face'] = put => {
         const streak = (u + z + 8) % 13 === 0;
         put(u, z, streak ? PAL.glass[3] : PAL.glass[0], 0.5, streak ? REFLECTION_ALPHA : GLASS_ALPHA);
     }
+};
+
+/** A brick pier between a neighbour's windows, a stone band at its top. */
+const brickPier: Painter['face'] = (put, rand) => {
+    brickFace(put, rand);
+    for (let u = 0; u < TILE; u++) { put(u, F, PAL.limestone[5], 0.8); put(u, F - 1, PAL.limestone[3], 0.8); }
+};
+
+/** A shop window boarded up with plywood: brick reveals, three sheets nailed across, a faded "to let" card. */
+const boarded: Painter['face'] = (put, rand) => {
+    brickPier(put, rand);
+    for (let z = 4; z <= F - 3; z++) for (let u = 1; u < TILE - 1; u++) {
+        const sheet = Math.floor((z - 4) / 6), seam = (z - 4) % 6 === 5;
+        const nail = (u === 2 || u === TILE - 3) && (z - 4) % 6 === 1;
+        put(u, z, seam ? PAL.plywood[1] : nail ? PAL.steel[1] : step(PAL.plywood, sheet % 2 ? 2 : 3), 0.6);
+    }
+    for (let z = 12; z <= 15; z++) for (let u = 5; u < 11; u++) put(u, z, z === 15 ? PAL.paper[1] : z === 13 && u > 5 && u < 10 ? PAL.carpet[2] : PAL.paper[2], 0.65);
+};
+
+/** A rolling steel shutter pulled down over the shop door: ribbed slats under its box, a padlock, a scrawl of paint. */
+const shutter: Painter['face'] = (put, rand) => {
+    brickPier(put, rand);
+    for (let z = 1; z <= F - 2; z++) for (let u = 1; u < TILE - 1; u++) {
+        let c: number = z >= F - 4 ? PAL.steel[1] : z % 2 ? PAL.steel[3] : PAL.steel[2];
+        if (z === 1) c = PAL.steel[0];
+        if (z >= 7 && z <= 9 && u >= 3 && u <= 11 && (u + z) % 3 !== 0) c = z === 8 ? PAL.cloth.teal[3]! : PAL.carpet[3];
+        put(u, z, c, z % 2 ? 0.6 : 0.5);
+    }
+    put(8, 3, PAL.brass[3], 0.8);
 };
 
 const glyphs: Record<string, string[]> = { B: ['##.', '###', '##.'], A: ['.#.', '###', '#.#'], N: ['#.#', '###', '#.#'], K: ['#.#', '##.', '#.#'] };
@@ -173,9 +266,17 @@ const atmFace: Painter['face'] = (put, rand) => {
     }
 };
 
-const PAINTERS: Record<Exclude<WallKind, 'doorGlass'>, Painter> & { doorGlassLeft: Painter; doorGlassRight: Painter } = {
+const PAINTERS: Record<Exclude<WallKind, 'doorGlass' | 'vaultDoor'>, Painter> & Record<'doorGlassLeft' | 'doorGlassRight' | 'vaultDoorLeft' | 'vaultDoorRight', Painter> = {
     plaster: { section: plasterSection, face: interiorFace },
     concrete: { section: concreteSection, face: concreteFace },
+    vault: { section: vaultSection, face: vaultFace },
+    vaultDoorLeft: { section: vaultSection, face: vaultDoor('left') },
+    vaultDoorRight: { section: vaultSection, face: vaultDoor('right') },
+    brick: { section: brickSection, face: brickFace },
+    doorService: { section: stoneSection, face: doorService },
+    brickPier: { section: brickSection, face: brickPier },
+    boarded: { section: brickSection, face: boarded },
+    shutter: { section: brickSection, face: shutter },
     doorWood: { section: doorSection(PAL.walnut[3], PAL.walnut[5]), face: doorWood },
     doorKeycard: { section: doorSection(PAL.steel[2], PAL.steel[4]), face: doorKeycard },
     pier: { section: stoneSection, face: stoneFace },
@@ -185,13 +286,14 @@ const PAINTERS: Record<Exclude<WallKind, 'doorGlass'>, Painter> & { doorGlassLef
     atm: { section: stoneSection, face: atmFace }
 };
 
-/** Which drawing a segment takes: its kind, except that the two leaves of a glass double door differ. */
 export type WallLook = keyof typeof PAINTERS;
 
+/** Which drawing a segment takes: its kind, except that the two leaves of a glass double door, and the two halves of the vault door, differ. */
 export function wallLook(wall: Wall, walls: readonly Wall[]): WallLook {
-    if (wall.kind !== 'doorGlass') return wall.kind;
-    const westIsDoor = walls.some(w => w.kind === 'doorGlass' && w.run === wall.run && w.tx === wall.tx - 1 && w.ty === wall.ty);
-    return westIsDoor ? 'doorGlassRight' : 'doorGlassLeft';
+    if (wall.kind !== 'doorGlass' && wall.kind !== 'vaultDoor') return wall.kind;
+    const westIsSame = walls.some(w => w.kind === wall.kind && w.run === wall.run && w.tx === wall.tx - 1 && w.ty === wall.ty);
+    if (wall.kind === 'vaultDoor') return westIsSame ? 'vaultDoorRight' : 'vaultDoorLeft';
+    return westIsSame ? 'doorGlassRight' : 'doorGlassLeft';
 }
 
 /**

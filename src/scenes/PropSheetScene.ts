@@ -3,19 +3,19 @@ import { propArt } from '../art/bank/props';
 import { PAL } from '../art/palette';
 import { CATALOG, propSize } from '../level/catalog';
 import { TILE } from '../level/level';
-import type { LobbyProp } from '../level/lobby';
+import type { LevelProp } from '../level/plan';
 import { FACINGS } from '../level/space';
 
 const GAP = 10;
 
 /** One of every kind of prop, with small parameters where a kind takes them. */
-function samples(): LobbyProp[] {
-    return (Object.keys(CATALOG) as LobbyProp['kind'][]).map((kind): LobbyProp => {
+function samples(): LevelProp[] {
+    return (Object.keys(CATALOG) as LevelProp['kind'][]).map((kind): LevelProp => {
         switch (kind) {
             case 'counter': return { kind, tx: 0, ty: 0, width: 4, stations: [0, 2], closed: [2], gate: 3 };
             case 'backCounter': return { kind, tx: 0, ty: 0, width: 2 };
             case 'queueRail': return { kind, tx: 0, ty: 0, length: 2 };
-            default: return { kind, tx: 0, ty: 0 } as LobbyProp;
+            default: return { kind, tx: 0, ty: 0 } as LevelProp;
         }
     });
 }

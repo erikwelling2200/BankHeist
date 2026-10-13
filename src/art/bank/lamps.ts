@@ -1,5 +1,5 @@
 import { TILE } from '../../level/level';
-import { isOffMap, isOutdoors, type Lobby } from '../../level/lobby';
+import { isOffMap, isOutdoors, type Level, type Room } from '../../level/plan';
 import { wallFootprint, type WallKind } from '../../level/walls';
 import { PixelBitmap } from '../PixelBitmap';
 
@@ -25,7 +25,7 @@ const CLEAR: WallKind[] = ['window', 'doorGlass'];
  * Pixels of the map that stop light (`blocks`: walls other than glass, and tiles off the map) and where lamp light
  * doesn't show (`drowned`: outdoors, where by day the sun drowns it).
  */
-export function lightBlockers(level: Lobby): { width: number; height: number; blocks: Uint8Array; drowned: Uint8Array } {
+export function lightBlockers(level: Level): { width: number; height: number; blocks: Uint8Array; drowned: Uint8Array } {
     const width = level.tiles[0]!.length * TILE, height = level.tiles.length * TILE;
     const blocks = new Uint8Array(width * height), drowned = new Uint8Array(width * height);
     level.tiles.forEach((row, ty) => row.forEach((t, tx) => {
@@ -83,16 +83,27 @@ export class LampReach {
 
 const channels = (c: number) => [((c >> 16) & 0xff) / 255, ((c >> 8) & 0xff) / 255, (c & 0xff) / 255] as const;
 
+/** An RGB exposure factor at a screen point (see `buildExposure`). */
+export type Exposure = (x: number, y: number) => readonly [number, number, number];
+
+/** Lamps are sorted into square cells of this size, so each pixel only weighs the lamps that can reach it. */
+const CELL = 32;
+
 /**
  * Bakes the lighting of a bitmap drawn with its top-left corner at screen (left, top), as Light2D would light it, but
- * only by the lamps `reaches` lets through for each of its pixels. Returns the lit colours (RGBA, alpha kept). Pass the
- * bitmap's `normals` when relighting it often, as something moving is.
+ * only by the lamps `reaches` lets through for each of its pixels, then exposes it (`exposure`). The lit colour clamps
+ * before exposure, as the framebuffer did when lighting ran at half exposure on the GPU. Returns RGBA, alpha kept. Pass
+ * the bitmap's `normals` when relighting it often, as something moving is.
  */
-export function bakeLighting(bitmap: PixelBitmap, left: number, top: number, ambient: number, lamps: readonly Lamp[], reaches: (lamp: Lamp, x: number, y: number) => boolean, normals = bitmap.normalMap()): Uint8ClampedArray {
+export function bakeLighting(bitmap: PixelBitmap, left: number, top: number, ambient: number, lamps: readonly Lamp[], reaches: (lamp: Lamp, x: number, y: number) => boolean, exposure: Exposure, normals = bitmap.normalMap()): Uint8ClampedArray {
     const out = new Uint8ClampedArray(bitmap.colors);
     const base = channels(ambient);
-    const near = lamps.filter(l => l.x + l.radius > left && l.x - l.radius < left + bitmap.width && l.y + l.radius > top && l.y - l.radius < top + bitmap.height);
-    const tints = near.map(l => channels(l.color).map(c => c * l.intensity));
+    const tints = new Map(lamps.map(l => [l, channels(l.color).map(c => c * l.intensity)] as const));
+    const cols = Math.ceil(bitmap.width / CELL), cells: Lamp[][] = [];
+    for (let cy = 0; cy < Math.ceil(bitmap.height / CELL); cy++) for (let cx = 0; cx < cols; cx++) {
+        const x0 = left + cx * CELL, y0 = top + cy * CELL;
+        cells.push(lamps.filter(l => l.x + l.radius > x0 && l.x - l.radius < x0 + CELL && l.y + l.radius > y0 && l.y - l.radius < y0 + CELL));
+    }
     for (let y = 0; y < bitmap.height; y++) for (let x = 0; x < bitmap.width; x++) {
         const i = y * bitmap.width + x;
         if (bitmap.colors[i * 4 + 3] === 0) continue;
@@ -100,25 +111,70 @@ export function bakeLighting(bitmap: PixelBitmap, left: number, top: number, amb
         const nx = (normals[i * 4]! / 255) * 2 - 1, ny = -((normals[i * 4 + 1]! / 255) * 2 - 1), nz = (normals[i * 4 + 2]! / 255) * 2 - 1;
         const light = [base[0], base[1], base[2]];
         const sx = left + x + 0.5, sy = top + y + 0.5;
-        near.forEach((lamp, k) => {
+        for (const lamp of cells[Math.floor(y / CELL) * cols + Math.floor(x / CELL)]!) {
             const dx = lamp.x - sx, dy = lamp.y - sy, dz = lamp.z;
             const d2 = dx * dx + dy * dy + dz * dz;
             const attenuation = 1 - d2 / (lamp.radius * lamp.radius);
-            if (attenuation <= 0 || !reaches(lamp, sx, sy)) return;
+            if (attenuation <= 0 || !reaches(lamp, sx, sy)) continue;
             const facing = Math.max(0, (nx * dx + ny * dy + nz * dz) / Math.sqrt(d2));
-            const tint = tints[k]!;
+            const tint = tints.get(lamp)!;
             for (let c = 0; c < 3; c++) light[c]! += tint[c]! * attenuation * facing;
-        });
-        for (let c = 0; c < 3; c++) out[i * 4 + c] = bitmap.colors[i * 4 + c]! * light[c]!;
+        }
+        const e = exposure(sx, sy);
+        for (let c = 0; c < 3; c++) out[i * 4 + c] = Math.min(255, bitmap.colors[i * 4 + c]! * light[c]!) * e[c]!;
     }
     return out;
+}
+
+/** Ceiling lights by kind: colour, intensity, height, and how far one reaches for the spacing it is hung at. */
+const LIGHTS: Record<Exclude<Room['light'], 'none'>, { color: number; intensity: number; z: number; reach: number }> = {
+    warm: { color: 0xffd8b0, intensity: 1.3, z: 48, reach: 0.85 },
+    bright: { color: 0xffdcb8, intensity: 1.6, z: 50, reach: 0.95 },
+    cool: { color: 0xdde6ff, intensity: 1.1, z: 40, reach: 0.85 },
+    dim: { color: 0xffc890, intensity: 0.8, z: 36, reach: 0.75 }
+};
+
+/**
+ * Ceiling lamps for every lit room, hung on a grid about five tiles apart and reaching about as far as their spacing,
+ * so pools overlap a little and leave darker floor between them.
+ */
+export function roomLamps(rooms: readonly Room[]): Lamp[] {
+    return rooms.flatMap(room => {
+        if (room.light === 'none') return [];
+        const kind = LIGHTS[room.light];
+        const nx = Math.max(1, Math.round(room.w / 5)), ny = Math.max(1, Math.round(room.h / 5));
+        const cellW = room.w / nx, cellH = room.h / ny;
+        const radius = Math.min(80, Math.max(40, Math.max(cellW, cellH) * TILE * kind.reach));
+        return Array.from({ length: nx * ny }, (_, k) => {
+            const x = (room.x + cellW * ((k % nx) + 0.5)) * TILE, y = (room.y + cellH * (Math.floor(k / nx) + 0.5)) * TILE;
+            return { x, y, z: kind.z, radius, color: kind.color, intensity: kind.intensity, from: { x, y } };
+        });
+    });
+}
+
+/**
+ * Daylight bouncing off the floor just inside the street glass: a soft warm patch two tiles in behind each run of
+ * windows, leaning up and to the left with the sun.
+ */
+export function windowPatches(level: Level, line: number): Lamp[] {
+    const glass = level.walls.filter(w => w.run === 'eastWest' && w.ty * TILE === line && (w.kind === 'window' || w.kind === 'doorGlass')).map(w => w.tx).sort((a, b) => a - b);
+    const runs: number[][] = [];
+    for (const tx of glass) {
+        const run = runs.at(-1);
+        if (run && run.at(-1) === tx - 1) run.push(tx);
+        else runs.push([tx]);
+    }
+    return runs.map(run => {
+        const x = ((run[0]! + run.at(-1)! + 1) / 2) * TILE - 20, y = line - 2 * TILE;
+        return { x, y, z: 30, radius: 52, color: 0xffd9a0, intensity: 0.6, from: { x: x + 20, y: y + 8 } };
+    });
 }
 
 /**
  * How much lamp light reaches the middle of each tile, on the scale of a lamp's intensity (a flat floor right under a
  * full-strength lamp is about its intensity). For the rules: a tile is lit when this reaches `LIT`.
  */
-export function tileLight(level: Lobby, lamps: readonly Lamp[], reach: LampReach): number[][] {
+export function tileLight(level: Level, lamps: readonly Lamp[], reach: LampReach): number[][] {
     return level.tiles.map((row, ty) => row.map((_, tx) => {
         const x = (tx + 0.5) * TILE, y = (ty + 0.5) * TILE;
         let total = 0;

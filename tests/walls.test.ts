@@ -1,11 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import { wallArt, wallLook } from '../src/art/bank/walls';
 import { TILE } from '../src/level/level';
-import { LOBBY_PLAN, parseLobby } from '../src/level/lobby';
+import { BANK_PLAN } from '../src/level/bank';
+import { parsePlan } from '../src/level/plan';
 import { WALL_STEPS } from '../src/level/space';
 import { WALL_THICKNESS } from '../src/level/walls';
 
-const { walls } = parseLobby(LOBBY_PLAN);
+const { walls } = parsePlan(BANK_PLAN);
 
 describe('wall art', () => {
     it('draws every segment of the lobby at every height, standing on its footprint', () => {
@@ -31,8 +32,9 @@ describe('wall art', () => {
         for (let v = 0; v < t; v++) for (let u = 0; u < TILE; u++) expect(cut.color(u, v)).toBe(full.color(u, v));
     });
 
-    it('tells the two leaves of the glass doors apart', () => {
-        const doors = walls.filter(w => w.kind === 'doorGlass');
-        expect(doors.map(d => wallLook(d, walls))).toEqual(['doorGlassLeft', 'doorGlassRight']);
+    it('tells the two leaves of a glass double door, and the two halves of the vault door, apart', () => {
+        const pair = (kind: 'doorGlass' | 'vaultDoor') => walls.filter(w => w.kind === kind && walls.some(o => o.kind === kind && Math.abs(o.tx - w.tx) === 1 && o.ty === w.ty));
+        expect(pair('doorGlass').map(d => wallLook(d, walls))).toEqual(['doorGlassLeft', 'doorGlassRight']);
+        expect(pair('vaultDoor').map(d => wallLook(d, walls))).toEqual(['vaultDoorLeft', 'vaultDoorRight']);
     });
 });

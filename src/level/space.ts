@@ -86,9 +86,10 @@ export function place(p: Placement, local: Size, insets: Insets = NO_INSETS): Bo
     const room = { x: p.tx * TILE + insets.west, y: p.ty * TILE + insets.north, w: span.w * TILE - insets.west - insets.east, d: span.d * TILE - insets.north - insets.south };
     if (size.w > room.w || size.d > room.d) throw new Error(`A ${size.w}x${size.d} footprint does not fit a ${room.w}x${room.d} space between walls`);
     const ax = p.alignX ?? 'center', ay = p.alignY ?? 'center';
-    // Centred things stay centred on their tiles; only things pushed to a side move off a wall.
-    const x = ax === 'center' ? align(p.tx * TILE, span.w * TILE, size.w, 'center') : align(room.x, room.w, size.w, ax === 'west' ? 'low' : 'high');
-    const y = ay === 'center' ? align(p.ty * TILE, span.d * TILE, size.d, 'center') : align(room.y, room.d, size.d, ay === 'north' ? 'low' : 'high');
+    // Centred things stay centred on their tiles unless a wall is in the way, then they stand just clear of it.
+    const clamp = (v: number, start: number, room: number, size: number) => Math.min(start + room - size, Math.max(start, v));
+    const x = ax === 'center' ? clamp(align(p.tx * TILE, span.w * TILE, size.w, 'center'), room.x, room.w, size.w) : align(room.x, room.w, size.w, ax === 'west' ? 'low' : 'high');
+    const y = ay === 'center' ? clamp(align(p.ty * TILE, span.d * TILE, size.d, 'center'), room.y, room.d, size.d) : align(room.y, room.d, size.d, ay === 'north' ? 'low' : 'high');
     return { x, y, z: p.elevation ?? 0, w: size.w, d: size.d, h: size.h, facing };
 }
 

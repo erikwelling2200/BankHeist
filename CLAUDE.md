@@ -6,7 +6,7 @@ Top-down 2D pixel-art stealth game. Phaser 4 + TypeScript + Vite, shipped as an 
 - `docs/design/GAME_DESIGN.md` is the source of truth for how the game plays: rules, numbers, canonical tables and the
   milestone order (§22). The current playable content is only a stack demo and doesn't reflect it.
 - `docs/design/visual-preview.md` holds the visual style card, the lighting model and the example bank built to settle
-  them; `/?scene=lobby` opens it.
+  them; it is the default page (`/`). The old stack demo is at `/?scene=demo`, the prop sheet at `/?scene=props`.
 - `docs/design/research.md` holds the key research findings behind each design decision, with the full notes per area in
   `docs/design/research/`.
 - The design's hard promises: the safe-floor overlay and every preview use the same rules as the real outcome; every
@@ -30,10 +30,13 @@ Top-down 2D pixel-art stealth game. Phaser 4 + TypeScript + Vite, shipped as an 
 ## Rendering
 - Internal resolution is 320x180 with `pixelArt: true`, scaled to fit with nearest-neighbour filtering. Keep art on a
   16px grid (`TILE`).
+- The bank scene sets its own resolution: the screen's device pixels over a whole-number zoom (`BankScene.applyZoom`,
+  steps from `src/logic/zoom.ts`, §20.1), by changing the game config's base size and calling `scale.refresh()` – a
+  plain `setGameSize` is undone by `EXPAND`. Pan, zoom and the tactical map buttons are HTML (`src/ui/CameraControls.ts`).
 - Lighting: Phaser's Light2D (objects opt in with `setLighting(true)`; normal maps are the texture's data source;
-  `render.maxLights` is 32 and lights beyond that are silently dropped) shines through walls, so the lobby doesn't use
+  `render.maxLights` is 32 and lights beyond that are silently dropped) shines through walls, so the bank doesn't use
   it. Its lamps are baked with Light2D's formula in `src/art/bank/lamps.ts`, traced against the walls; light anything
-  new in the lobby through `LobbyScene.bake`, and move people with `LobbyScene.movePerson`, which relights only them. The demo and the prop sheet still use Light2D.
+  new in the bank through `BankScene.bake`, and move people with `BankScene.movePerson`, which relights only them. The demo and the prop sheet still use Light2D.
 - All art is generated in `src/art` from palette grids, with a height per colour that becomes the normal map. Real art
   can replace it by loading PNGs plus `-n.png` normal maps in a preload scene and keeping the `TEX` keys.
 - Every object is a box at a real scale (`src/level/space.ts`: 1px ≈ 8cm, people 1.75m, walls cut at 1.9m). Floor tiles
@@ -50,10 +53,10 @@ Top-down 2D pixel-art stealth game. Phaser 4 + TypeScript + Vite, shipped as an 
   `/?scene=props`, which shows each facing south, east, north and west. The scene places and orders each prop from its
   box; tests reject boxes that intersect each other or a wall.
 - Walls stand on the edges between tiles at their real thickness (`src/level/walls.ts`), never on tiles; the level plan
-  is drawn at double resolution (legend in `src/level/lobby.ts`). Their tops follow the floor grid, unforeshortened,
+  is drawn at double resolution (`src/level/bank.ts`, legend in `src/level/plan.ts`). Their tops follow the floor grid, unforeshortened,
   and always show the wall in section (dark, hatched). Walls north of the middle of the screen stand full height; the
-  rest are cut down to `CUT_HEIGHT` (`LobbyScene.updateWalls`), so paint wall faces by height above the floor, and
-  anything whose look depends on a wall's height (the exposure layer, dressing hung on it) has to follow it.
+  rest are cut down to `CUT_HEIGHT` (`BankScene.updateWalls`), so paint wall faces by height above the floor, and
+  anything whose look depends on a wall's height (its exposure, the cloud shadows, dressing hung on it) has to follow it.
 - Before generating or restyling art, read `docs/pixel-art/PROMPTING.md` (rules) and `docs/pixel-art/README.md`
   (findings, example scripts in `scripts/pixel-art/`).
 - Camera post-processing (bloom, vignette) lives in `VaultScene.create`. Phaser's vignette goes near black at its

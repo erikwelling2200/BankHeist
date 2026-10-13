@@ -6,22 +6,28 @@ async function state(page: Page): Promise<DebugState> {
     return page.evaluate(() => (window as any).game.scene.getScene('vault').debugState);
 }
 
-async function boot(page: Page): Promise<string[]> {
+/** Opens a scene (the bank by default, the old stack demo with `?scene=demo`) and waits for it to run. */
+async function boot(page: Page, scene: 'bank' | 'vault' = 'vault'): Promise<string[]> {
     const errors: string[] = [];
     page.on('pageerror', e => errors.push(e.message));
     page.on('console', m => { if (m.type() === 'error') errors.push(m.text()); });
-    await page.goto('/');
-    await page.waitForFunction(() => (window as any).game?.scene.getScene('vault')?.sys.isActive());
+    await page.goto(scene === 'bank' ? '/' : '/?scene=demo');
+    await page.waitForFunction(s => (window as any).game?.scene.getScene(s)?.sys.isActive(), scene, { timeout: 60000 });
     await page.waitForTimeout(800);
     return errors;
 }
 
-test('boots without errors and renders a lit scene', async ({ page }) => {
-    const errors = await boot(page);
+test('boots into the bank without errors', async ({ page }) => {
+    const errors = await boot(page, 'bank');
     await page.locator('canvas').screenshot({ path: 'screenshots/start.png' });
     expect(errors).toEqual([]);
-    expect((await state(page)).total).toBeGreaterThan(0);
     console.log(`fps: ${await page.evaluate(() => (window as any).game.loop.actualFps.toFixed(1))}`);
+});
+
+test('runs the old stack demo on its own link', async ({ page }) => {
+    const errors = await boot(page);
+    expect(errors).toEqual([]);
+    expect((await state(page)).total).toBeGreaterThan(0);
 });
 
 test('keyboard moves the player', async ({ page }) => {
@@ -55,7 +61,7 @@ test.describe('on a phone', () => {
     test.use({ viewport: { width: 844, height: 390 }, hasTouch: true, isMobile: true });
 
     test('fills a wide landscape screen and offers fullscreen', async ({ page }) => {
-        const errors = await boot(page);
+        const errors = await boot(page, 'bank');
         const canvas = (await page.locator('canvas').boundingBox())!;
         expect(canvas.width).toBeCloseTo(844, -1);
         expect(canvas.height).toBeCloseTo(390, -1);
@@ -66,78 +72,107 @@ test.describe('on a phone', () => {
 
     test('asks to rotate in portrait', async ({ page }) => {
         await page.setViewportSize({ width: 390, height: 844 });
-        await boot(page);
+        await boot(page, 'bank');
         await expect(page.locator('.rotate-hint')).toBeVisible();
     });
 });
 
-test.describe('lobby visual preview', () => {
-    async function bootLobby(page: Page): Promise<string[]> {
-        const errors: string[] = [];
-        page.on('pageerror', e => errors.push(e.message));
-        page.on('console', m => { if (m.type() === 'error') errors.push(m.text()); });
-        await page.goto('/?scene=lobby');
-        await page.waitForFunction(() => (window as any).game?.scene.getScene('lobby')?.sys.isActive());
-        await page.waitForTimeout(1000);
-        return errors;
-    }
+test.describe('the bank', () => {
+    const scene = (page: Page) => page.evaluate(() => (window as any).game.scene.getScene('bank').debugState);
+    const lookAt = async (page: Page, x: number, y: number) => {
+        await page.evaluate(([x, y]) => (window as any).game.scene.getScene('bank').lookAt(x, y), [x, y]);
+        await page.waitForTimeout(400);
+    };
+    type WallState = { run: string; ty: number; height: number };
+    const heights = (walls: WallState[], ty: number) => [...new Set(walls.filter(w => w.run === 'eastWest' && w.ty === ty && w.height !== undefined).map(w => w.height))];
+    const TILE = 16, BACK_WALL = 13, FRONT = 28;
 
-    test('renders the lobby and the street, cutting walls the camera looks past and keeping lamp light behind walls', async ({ page }) => {
-        const errors = await bootLobby(page);
-        const scene = () => page.evaluate(() => (window as any).game.scene.getScene('lobby').debugState);
-        const lookAt = async (x: number, y: number) => {
-            await page.evaluate(([x, y]) => (window as any).game.scene.getScene('lobby').lookAt(x, y), [x, y]);
-            await page.waitForTimeout(400);
-        };
-        type WallState = { run: string; ty: number; height: number };
-        const heights = (walls: WallState[], ty: number) => [...new Set(walls.filter(w => w.run === 'eastWest' && w.ty === ty).map(w => w.height))];
-        const BACK_WALL = 4, FACADE = 14;
-
-        await lookAt(176, 136);
-        await page.locator('canvas').screenshot({ path: 'screenshots/lobby.png' });
-        let state = await scene();
-        // Looking at the lobby: the back wall stands behind it, the shop front in front of it is cut down.
+    test('cuts the walls the camera looks past and keeps lamp light behind walls', async ({ page }) => {
+        const errors = await boot(page, 'bank');
+        await lookAt(page, 30 * TILE, 22 * TILE);
+        await page.locator('canvas').screenshot({ path: 'screenshots/bank-lobby.png' });
+        let state = await scene(page);
+        // Looking at the lobby: the back wall stands behind it, the street front in front of it is cut down.
         expect(heights(state.walls, BACK_WALL)).toEqual([24]);
-        expect(heights(state.walls, FACADE)).toEqual([8]);
+        expect(heights(state.walls, FRONT)).toEqual([8]);
 
-        await lookAt(176, 48);
-        await page.locator('canvas').screenshot({ path: 'screenshots/lobby-corridor.png' });
-        state = await scene();
+        await lookAt(page, 30 * TILE, 12 * TILE);
+        await page.locator('canvas').screenshot({ path: 'screenshots/bank-corridor.png' });
+        state = await scene(page);
         // Looking at the corridor behind it, the back wall is cut down too.
         expect(heights(state.walls, BACK_WALL)).toEqual([8]);
 
-        await lookAt(176, 262);
-        await page.locator('canvas').screenshot({ path: 'screenshots/lobby-street.png' });
-        state = await scene();
-        expect(heights(state.walls, FACADE)).toEqual([24]);
+        await lookAt(page, 30 * TILE, 31 * TILE);
+        await page.locator('canvas').screenshot({ path: 'screenshots/bank-street.png' });
+        state = await scene(page);
+        expect(heights(state.walls, FRONT)).toEqual([24]);
+
+        await lookAt(page, 27 * TILE, 5 * TILE);
+        await page.locator('canvas').screenshot({ path: 'screenshots/bank-vault.png' });
         // Lamp light is blocked by walls and drowned by day outdoors: the corridor has its own, the street none.
         expect(state.lamps).toBeGreaterThan(0);
-        expect(state.lit[2]).toContain('#');
-        expect(state.lit[FACADE]).not.toContain('#');
+        expect(state.lit[11]).toContain('#');
+        expect(state.lit[FRONT]).not.toContain('#');
         expect(errors).toEqual([]);
     });
 
-    test('relights people as they move, and walks the guard on his patrol', async ({ page }) => {
-        const errors = await bootLobby(page);
+    test('relights people as they move, and walks the guards and a passer-by on their patrols', async ({ page }) => {
+        const errors = await boot(page, 'bank');
         type Person = { look: string; x: number; y: number; facing: string; light: number };
-        const people = (): Promise<Person[]> => page.evaluate(() => (window as any).game.scene.getScene('lobby').debugState.people);
+        const people = (): Promise<Person[]> => page.evaluate(() => (window as any).game.scene.getScene('bank').debugState.people);
         const index = (await people()).findIndex(p => p.look === 'customerCasual');
         const moveTo = async (x: number, y: number) => {
-            await page.evaluate(([i, x, y]) => (window as any).game.scene.getScene('lobby').movePerson(i, x, y), [index, x, y]);
+            await page.evaluate(([i, x, y]) => (window as any).game.scene.getScene('bank').movePerson(i, x, y), [index, x, y]);
             return (await people())[index]!;
         };
         // Under a lobby lamp, then in the corridor behind the back wall, lit only by its own strip lights.
-        const underLamp = await moveTo(152, 136);
-        const inCorridor = await moveTo(160, 56);
+        const underLamp = await moveTo(27.5 * TILE, 19 * TILE);
+        const inCorridor = await moveTo(30 * TILE, 11.5 * TILE);
         expect(inCorridor.light).not.toBeCloseTo(underLamp.light, 1);
-        expect((await moveTo(152, 136)).light).toBeCloseTo(underLamp.light, 5);
+        expect((await moveTo(27.5 * TILE, 19 * TILE)).light).toBeCloseTo(underLamp.light, 5);
 
-        const guard = async () => (await people()).find(p => p.look === 'guard')!;
-        const start = await guard();
+        const walkers = async () => (await people()).filter(p => p.look === 'guard' || p.look === 'passerby');
+        const start = await walkers();
         await page.waitForTimeout(3000);
-        const later = await guard();
-        expect(later.x).toBe(start.x);
-        expect(later.y).not.toBe(start.y);
+        const later = await walkers();
+        later.forEach((p, i) => expect(p.x !== start[i]!.x || p.y !== start[i]!.y, p.look).toBe(true));
+        expect(errors).toEqual([]);
+    });
+
+    test('pans and zooms in crisp steps, and shows the whole plot on the tactical map (§20.1)', async ({ page }) => {
+        const errors = await boot(page, 'bank');
+        let state = await scene(page);
+        // A 540px-tall screen: 11 to 34 tiles high is zoom 3 (11.25 tiles), 2 (16.9) or 1 (33.75); it opens on 2.
+        expect(state.zoomLevels).toEqual([1, 2, 3]);
+        expect(state.zoom).toBe(2);
+        await page.keyboard.press('+');
+        expect((await scene(page)).zoom).toBe(3);
+        await page.keyboard.press('-');
+        await page.keyboard.press('-');
+        expect((await scene(page)).zoom).toBe(1);
+        const box = (await page.locator('canvas').boundingBox())!;
+        await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+        await page.mouse.wheel(0, -120);
+        await expect.poll(async () => (await scene(page)).zoom).toBe(2);
+
+        // Dragging pans by the drag over the zoom.
+        state = await scene(page);
+        await page.mouse.down();
+        await page.mouse.move(box.x + box.width / 2 - 100, box.y + box.height / 2, { steps: 4 });
+        await page.mouse.up();
+        expect((await scene(page)).midX).toBeCloseTo(state.midX + 50, -1);
+
+        await page.getByRole('button', { name: 'Tactical map' }).click();
+        await page.waitForTimeout(400);
+        state = await scene(page);
+        expect(state.map).toBe(true);
+        expect(state.zoom).toBe(1);
+        expect(heights(state.walls, BACK_WALL)).toEqual([8]);
+        await page.locator('canvas').screenshot({ path: 'screenshots/bank-map.png' });
+        await page.getByRole('button', { name: 'Tactical map' }).click();
+        state = await scene(page);
+        expect(state.map).toBe(false);
+        expect(state.zoom).toBe(2);
         expect(errors).toEqual([]);
     });
 });

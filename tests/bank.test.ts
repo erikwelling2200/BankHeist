@@ -1,27 +1,28 @@
 import { describe, expect, it } from 'vitest';
-import { buildExposure, buildLightMaps, facade, type Caster } from '../src/art/bank/lightmap';
+import { buildExposure, buildLightMaps, streetFront, type Caster } from '../src/art/bank/lightmap';
 import { TILE } from '../src/level/level';
 import { propBox } from '../src/level/catalog';
-import { isOffMap, isOutdoors, LOBBY_PEOPLE, LOBBY_PLAN, LOBBY_PROPS, parseLobby } from '../src/level/lobby';
+import { BANK_PEOPLE, BANK_PLAN, BANK_PROPS, BANK_ROOMS } from '../src/level/bank';
+import { isOffMap, parsePlan } from '../src/level/plan';
 import { boxesOverlap, CUT_HEIGHT, PERSON_SIZE, place, WALL_HEIGHT, type Box } from '../src/level/space';
 import { wallFootprint, wallInsets, WALL_THICKNESS, type Wall } from '../src/level/walls';
 
-const level = parseLobby(LOBBY_PLAN);
+const level = parsePlan(BANK_PLAN);
 const { tiles, walls } = level;
-const front = facade(level);
+const front = streetFront(level);
 const glow = (maps: ReturnType<typeof buildLightMaps>, x: number, y: number) => maps.glow[(y * maps.width + x) * 4]!;
 const shade = (maps: ReturnType<typeof buildLightMaps>, x: number, y: number) => maps.shade[(y * maps.width + x) * 4]!;
 
-describe('lobby plan', () => {
+describe('bank plan', () => {
     it('rejects ragged rows, unknown floors and walls, and walls where a corner belongs', () => {
-        expect(() => parseLobby([' - ', '|.', ' - '])).toThrow();
-        expect(() => parseLobby(['   ', ' ? ', '   '])).toThrow();
-        expect(() => parseLobby([' ? ', ' . ', '   '])).toThrow();
-        expect(() => parseLobby(['-  ', ' . ', '   '])).toThrow();
+        expect(() => parsePlan([' - ', '|.', ' - '])).toThrow();
+        expect(() => parsePlan(['   ', ' ? ', '   '])).toThrow();
+        expect(() => parsePlan([' ? ', ' . ', '   '])).toThrow();
+        expect(() => parsePlan(['-  ', ' . ', '   '])).toThrow();
     });
 
     it('reads floors from the odd cells and walls from the edges between them', () => {
-        const plan = parseLobby(['+-+', '|.d', '+ +']);
+        const plan = parsePlan(['+-+', '|.d', '+ +']);
         expect(plan.tiles).toEqual([['.']]);
         expect(plan.walls).toEqual([
             { kind: 'plaster', run: 'eastWest', tx: 0, ty: 0 },
@@ -30,10 +31,24 @@ describe('lobby plan', () => {
         ]);
     });
 
-    it('puts the street along the bottom, in front of the shop front', () => {
-        expect(front.walls.length).toBe(tiles[0]!.length);
+    it('puts the street along the bottom, in front of the fronts, and the alley along the top (§17.1)', () => {
+        // Every segment of the street front with a building behind it: all but the two in front of tiles off the map.
+        expect(front.walls.length).toBe(tiles[0]!.filter((_, x) => !isOffMap(tiles[front.line / TILE - 1]![x]!)).length);
         expect(tiles[front.line / TILE]!.every(t => t === 's')).toBe(true);
         expect(tiles.at(-1)!.every(t => t === 'r')).toBe(true);
+        expect(tiles[1]!.every(t => t === 'a')).toBe(true);
+    });
+
+    it('names every room, each a rectangle of the floor its zone is drawn with, none overlapping', () => {
+        const zoneFloor: Record<string, string[]> = { public: ['.', '=', 't'], staff: [','], secure: ['q', 'v', ','], neighbour: ['t', 'f', 'u'], outdoors: ['a', 's', 'c', 'r', 'l'] };
+        const owner = new Map<string, string>();
+        for (const room of BANK_ROOMS) for (let y = room.y; y < room.y + room.h; y++) for (let x = room.x; x < room.x + room.w; x++) {
+            expect(owner.get(`${x},${y}`), `${room.name} at ${x},${y}`).toBeUndefined();
+            owner.set(`${x},${y}`, room.name);
+            expect(zoneFloor[room.zone], `${room.name} at ${x},${y}`).toContain(tiles[y]![x]!);
+        }
+        // Every tile on the map is a room or off the map.
+        tiles.forEach((row, y) => row.forEach((t, x) => expect(owner.has(`${x},${y}`) || isOffMap(t), `${x},${y}`).toBe(true)));
     });
 });
 
@@ -64,10 +79,29 @@ describe('walls between tiles', () => {
     });
 });
 
-describe('lobby layout', () => {
+describe('bank layout', () => {
+    it('fits every prop in its tiles between the walls', () => {
+        const misfits = BANK_PROPS.flatMap(p => {
+            try {
+                propBox(p, walls);
+                return [];
+            } catch (e) {
+                return [`${p.kind} at ${p.tx},${p.ty}: ${(e as Error).message}`];
+            }
+        });
+        expect(misfits).toEqual([]);
+    });
+
     const things: { name: string; box: Box }[] = [
-        ...LOBBY_PROPS.map(p => ({ name: `${p.kind} at ${p.tx},${p.ty}`, box: propBox(p, walls) })),
-        ...LOBBY_PEOPLE.map(p => ({ name: `${p.look} at ${p.tx},${p.ty}`, box: place({ tx: p.tx, ty: p.ty }, PERSON_SIZE) }))
+        // Props that don't fit at all are reported by the test above; the rest are checked against each other here.
+        ...BANK_PROPS.flatMap(p => {
+            try {
+                return [{ name: `${p.kind} at ${p.tx},${p.ty}`, box: propBox(p, walls) }];
+            } catch {
+                return [];
+            }
+        }),
+        ...BANK_PEOPLE.map(p => ({ name: `${p.look} at ${p.tx},${p.ty}`, box: place({ tx: p.tx, ty: p.ty }, PERSON_SIZE) }))
     ];
     const inWall = (box: Box) => walls.some(w => {
         const f = wallFootprint(w);
@@ -75,22 +109,23 @@ describe('lobby layout', () => {
     });
 
     it('stands every footprint on the map and clear of every wall', () => {
-        for (const { name, box } of things) {
-            for (let y = box.y; y < box.y + box.d; y++) for (let x = box.x; x < box.x + box.w; x++) {
-                expect(isOffMap(tiles[Math.floor(y / TILE)]![Math.floor(x / TILE)]!), name).toBe(false);
-            }
-            expect(inWall(box), name).toBe(false);
-        }
+        const wrong = things.filter(({ box }) => {
+            for (let y = box.y; y < box.y + box.d; y++) for (let x = box.x; x < box.x + box.w; x++) if (isOffMap(tiles[Math.floor(y / TILE)]![Math.floor(x / TILE)]!)) return true;
+            return inWall(box);
+        }).map(t => t.name);
+        expect(wrong).toEqual([]);
     });
 
     it('keeps every object out of every other object in 3D', () => {
+        const clashes: string[] = [];
         for (let i = 0; i < things.length; i++) for (let j = i + 1; j < things.length; j++) {
-            expect(boxesOverlap(things[i]!.box, things[j]!.box), `${things[i]!.name} and ${things[j]!.name}`).toBe(false);
+            if (boxesOverlap(things[i]!.box, things[j]!.box)) clashes.push(`${things[i]!.name} and ${things[j]!.name}`);
         }
+        expect(clashes).toEqual([]);
     });
 
     it('hangs wall dressing on the face of a wall, below the cut-away top', () => {
-        for (const { name, box } of things.filter(t => t.box.z > 0 && t.box.d <= 1)) {
+        for (const { name, box } of things.filter(t => t.box.z > 0 && t.box.d <= 2 && !t.name.startsWith('camera'))) {
             const wall = walls.find(w => w.run === 'eastWest' && w.tx === Math.floor(box.x / TILE) && w.ty === Math.floor(box.y / TILE));
             expect(wall, name).toBeDefined();
             const f = wallFootprint(wall!);
@@ -100,7 +135,7 @@ describe('lobby layout', () => {
     });
 
     it('walks every patrol through tiles clear of furniture and walls', () => {
-        for (const p of LOBBY_PEOPLE.filter(p => p.patrol)) {
+        for (const p of BANK_PEOPLE.filter(p => p.patrol)) {
             const steps = Math.max(Math.abs(p.patrol!.tx - p.tx), Math.abs(p.patrol!.ty - p.ty));
             for (let s = 0; s <= steps; s++) {
                 const tx = Math.round(p.tx + ((p.patrol!.tx - p.tx) * s) / steps), ty = Math.round(p.ty + ((p.patrol!.ty - p.ty) * s) / steps);
@@ -148,20 +183,18 @@ describe('light maps', () => {
         expect(shade(maps, x, base - 12)).toBeLessThan(shade(plain, x, base - 12));
         expect(shade(maps, 100 + 6, base - 12)).toBe(shade(plain, 100 + 6, base - 12));
         const indoor: Caster = { ...post, top: facadeY - 60, base: facadeY - 20 };
-        expect(buildLightMaps(level, [], [indoor]).shade).toEqual(plain.shade);
+        const indoors = buildLightMaps(level, [], [indoor]).shade;
+        expect(indoors.findIndex((v, i) => v !== plain.shade[i])).toBe(-1);
     });
 
-    it('keeps the street at full exposure and shades the inside, up to the top of the shop front as drawn', () => {
-        const width = tiles[0]!.length * TILE;
-        const exposureAt = (map: Uint8ClampedArray, x: number, y: number) => map[(y * width + x) * 4 + 2]!;
-        const full = buildExposure(level, facadeY - WALL_HEIGHT), cut = buildExposure(level, facadeY - CUT_HEIGHT);
-        const deep = (8 * TILE);
-        expect(isOutdoors(tiles[deep / TILE]![2]!)).toBe(false);
-        expect(exposureAt(full, 40, facadeY + TILE * 2)).toBe(255);
-        expect(exposureAt(full, 40, deep)).toBeLessThan(128);
-        // Floor just inside the glass is outdoors on screen while the full front covers it, indoors once the front is cut.
-        expect(exposureAt(full, 40, facadeY - 12)).toBe(255);
-        expect(exposureAt(cut, 40, facadeY - 12)).toBeLessThan(255);
-        expect(exposureAt(cut, 40, facadeY - 12)).toBeGreaterThan(exposureAt(cut, 40, deep));
+    it("exposes the street at full daylight and the inside at the building's shade, lifting towards the street glass", () => {
+        const { width, rgb } = buildExposure(level);
+        const at = (x: number, y: number) => rgb[(y * width + x) * 3 + 2]!;
+        const lobbyX = 30 * TILE + 4, deep = 17 * TILE;
+        expect(at(lobbyX, facadeY + 2 * TILE)).toBe(2);
+        expect(at(lobbyX, 2 * TILE)).toBe(2);
+        expect(at(lobbyX, deep)).toBeLessThan(1);
+        expect(at(lobbyX, facadeY - 8)).toBeGreaterThan(at(lobbyX, deep));
+        expect(at(lobbyX, facadeY - 8)).toBeLessThan(1);
     });
 });

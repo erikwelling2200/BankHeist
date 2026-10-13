@@ -1,5 +1,5 @@
 import { TILE } from '../../level/level';
-import { isOffMap, isOutdoors, type Lobby } from '../../level/lobby';
+import { isOffMap, isOutdoors, type Level } from '../../level/plan';
 import { wallFootprint, type Wall, type WallKind } from '../../level/walls';
 import { bayer4 } from '../random';
 
@@ -14,7 +14,7 @@ export interface LightMaps {
     height: number;
     /** Multiply layer: 255 leaves the floor as is, lower darkens it (ambient occlusion and contact shadows). */
     shade: Uint8ClampedArray;
-    /** Additive layer: warm sunlight falling through the façade glass. */
+    /** Additive layer: warm sunlight falling through glass onto the floor indoors. */
     glow: Uint8ClampedArray;
 }
 
@@ -42,22 +42,31 @@ function band(value: number, bands: number, x: number, y: number): number {
     return Math.min(bands, lower + (edge > bayer4(x, y) ? 1 : 0)) / bands;
 }
 
-/** Glass columns in a façade segment that let light through; frames and the window's mullion block it. */
+/** Glass columns of a segment that let light through; frames and mullions block it. */
 function glassAt(kind: WallKind, px: number): boolean {
-    if (kind === 'window') return px >= 1 && px <= 14 && px !== 8;
+    if (kind === 'window') return px >= 0 && px <= 14;
     if (kind === 'doorGlass') return px >= 1 && px <= 14;
     return false;
 }
 
-/** The shop front: the east-west segments with the street on their south side, and the line they stand on. */
-export function facade(level: Lobby): { walls: Wall[]; line: number } {
-    const walls = level.walls.filter(w => w.run === 'eastWest' && isOutdoors(level.tiles[w.ty]![w.tx]!) && !isOutdoors(level.tiles[w.ty - 1]![w.tx]!));
-    if (!walls.length) throw new Error('The level has no shop front');
-    return { walls, line: walls[0]!.ty * TILE };
+/**
+ * The fronts on the street: the east-west segments with the street on their south side and a building (the bank or a
+ * neighbour) on their north, and the line they stand on.
+ */
+export function streetFront(level: Level): { walls: Wall[]; line: number } {
+    const walls = level.walls.filter(w => {
+        if (w.run !== 'eastWest') return false;
+        const south = level.tiles[w.ty]?.[w.tx], north = level.tiles[w.ty - 1]?.[w.tx];
+        return south !== undefined && north !== undefined && isOutdoors(south) && !isOutdoors(north) && !isOffMap(north);
+    });
+    if (!walls.length) throw new Error('The level has no street front');
+    const line = walls[0]!.ty * TILE;
+    if (walls.some(w => w.ty * TILE !== line)) throw new Error('The street front has to run along one line');
+    return { walls, line };
 }
 
 /** Pixels taken by walls, and by tiles off the map. */
-function solidMask(level: Lobby, width: number, height: number): Uint8Array {
+function solidMask(level: Level, width: number, height: number): Uint8Array {
     const mask = new Uint8Array(width * height);
     level.tiles.forEach((row, ty) => row.forEach((t, tx) => {
         if (isOffMap(t)) for (let y = 0; y < TILE; y++) mask.fill(1, (ty * TILE + y) * width + tx * TILE, (ty * TILE + y) * width + tx * TILE + TILE);
@@ -69,7 +78,7 @@ function solidMask(level: Lobby, width: number, height: number): Uint8Array {
     return mask;
 }
 
-export function buildLightMaps(level: Lobby, occluders: Occluder[], casters: Caster[]): LightMaps {
+export function buildLightMaps(level: Level, occluders: Occluder[], casters: Caster[]): LightMaps {
     const tiles = level.tiles, rows = tiles.length, cols = tiles[0]!.length;
     const width = cols * TILE, height = rows * TILE;
     const shade = new Uint8ClampedArray(width * height * 4);
@@ -103,13 +112,32 @@ export function buildLightMaps(level: Lobby, occluders: Occluder[], casters: Cas
         }
     }
 
-    const front = facade(level);
-    const facadeY = front.line;
-    const glassKind = (x: number) => front.walls.find(w => w.tx === Math.floor(x / TILE))?.kind;
     const outdoors = (x: number, y: number) => {
         const t = tiles[Math.floor(y / TILE)]?.[Math.floor(x / TILE)];
         return t !== undefined && isOutdoors(t);
     };
+    // Glass the sun can come through (1) and its frames (2); every other wall pixel is in `solid`.
+    const glass = new Uint8Array(width * height);
+    for (const wall of level.walls) {
+        if (wall.kind !== 'window' && wall.kind !== 'doorGlass') continue;
+        const f = wallFootprint(wall);
+        for (let y = Math.max(0, f.y); y < Math.min(height, f.y + f.d); y++) for (let x = Math.max(0, f.x); x < Math.min(width, f.x + f.w); x++) {
+            glass[y * width + x] = wall.run === 'eastWest' && glassAt(wall.kind, x - f.x) ? 1 : 2;
+        }
+    }
+    // How far each floor pixel indoors is from the glass the sun reaches it through (0: no sun). Traced back from every
+    // pane column of glass with the street south of it, away from the sun, until a wall or furniture-free floor runs out.
+    const shaft = new Float32Array(width * height);
+    for (let y = 0; y < height; y++) for (let x = 0; x < width; x++) {
+        if (glass[y * width + x] !== 1 || glass[(y - 1) * width + x] === 1 || !outdoors(x, y + 3)) continue;
+        for (let t = 1; t <= SHAFT_LENGTH; t++) {
+            const px = Math.round(x - t * SUN_SLANT), py = y - t;
+            if (px < 0 || py < 0) break;
+            const i = py * width + px;
+            if (solid[i] === 1 || glass[i] !== 0) break;
+            if (!shaft[i] || t < shaft[i]!) shaft[i] = t;
+        }
+    }
     const sunShadow = castSunShadows(casters, width, height, (x, y) => outdoors(x, y) && !structureAt(x, y));
     for (let y = 0; y < height; y++) for (let x = 0; x < width; x++) {
         const i = y * width + x;
@@ -119,11 +147,9 @@ export function buildLightMaps(level: Lobby, occluders: Occluder[], casters: Cas
         shade.set([s, s, s, 255], i * 4);
 
         let sun = 0;
-        if (y < facadeY && !structureAt(x, y) && !outdoors(x, y)) {
-            const dist = facadeY - y;
-            const sx = Math.round(x + dist * SUN_SLANT);
-            const kind = glassKind(sx);
-            if (dist < SHAFT_LENGTH && kind && glassAt(kind, sx - Math.floor(sx / TILE) * TILE) && !sunBlocked(x, y, dist, blockHeight, width)) {
+        const dist = structureAt(x, y) || outdoors(x, y) ? 0 : shaft[i]!;
+        if (dist > 0) {
+            if (!sunBlocked(x, y, dist, blockHeight, width)) {
                 const t = dist / SHAFT_LENGTH;
                 // The far end of the shaft is the top of the glass, where the blinds stripe it.
                 const blinds = t > 0.72 && Math.floor(dist / 2) % 2 === 0;
@@ -138,26 +164,26 @@ export function buildLightMaps(level: Lobby, occluders: Occluder[], casters: Cas
 }
 
 /**
- * Exposure layer, applied as a 2x multiply over the whole frame (see LobbyScene): 255 doubles a pixel, which is full
- * daylight on the half-exposed street; lower values are the building's own shade indoors, lifting towards the street
- * glass. Rendering at half exposure first leaves lamps headroom before the framebuffer clamps. Everything on screen
- * above `facadeTop`, the top of the shop front as it is drawn, is under the roof; the façade itself faces the street.
+ * Exposure: how bright the eye sees each floor point, as an RGB factor. Everything is lit at half exposure (ambient is
+ * half the sun on the street), so outdoors is doubled; indoors is the building's shade, lifting towards the street
+ * glass and a touch cool against the warm sun outside. Baked into every texture (lamps.ts) at the floor point it stands
+ * on, so a wall's face takes the exposure of the side it faces, however tall it is drawn.
  */
-export function buildExposure(level: Lobby, facadeTop: number): Uint8ClampedArray {
+export function buildExposure(level: Level): { width: number; height: number; rgb: Float32Array } {
     const width = level.tiles[0]!.length * TILE, height = level.tiles.length * TILE;
-    const facadeY = facade(level).line;
-    const exposure = new Uint8ClampedArray(width * height * 4);
+    const front = streetFront(level).line;
+    const rgb = new Float32Array(width * height * 3);
     for (let y = 0; y < height; y++) for (let x = 0; x < width; x++) {
-        let r = 1;
-        if (y < facadeTop) {
-            const near = Math.max(0, 1 - (facadeY - y) / WINDOW_REACH);
-            r = ROOF_DEEP + (ROOF_WINDOW - ROOF_DEEP) * band(near, 4, x, y);
+        const t = level.tiles[Math.floor(y / TILE)]![Math.floor(x / TILE)]!;
+        let factor = [2, 2, 2];
+        if (!isOutdoors(t)) {
+            const near = y < front ? Math.max(0, 1 - (front - y) / WINDOW_REACH) : 0;
+            const r = 2 * (ROOF_DEEP + (ROOF_WINDOW - ROOF_DEEP) * band(near, 4, x, y));
+            factor = [r * 0.9, r * 0.95, r];
         }
-        // Indoors stays a touch cool against the warm sun outside.
-        const cool = r < 1 ? [0.9, 0.95, 1] : [1, 1, 1];
-        exposure.set([255 * r * cool[0]!, 255 * r * cool[1]!, 255 * r * cool[2]!, 255], (y * width + x) * 4);
+        rgb.set(factor, (y * width + x) * 3);
     }
-    return exposure;
+    return { width, height, rgb };
 }
 
 /** Marches from a floor pixel towards the sun; anything tall enough on the way casts it into shadow. */
