@@ -226,9 +226,10 @@ Campaign (about 8–15 days, 5–10 h)
 1. **Crew phase.** The player moves crew in any order. Each crew member has **2 actions**. Actions can be
    interleaved between characters (Jun acts, then Mara, then Jun again).
 2. **World phase.** NPCs resolve in a fixed order: **civilians → staff → guards → police → devices** (drills,
-   generators, timers). Civilians, staff and guards each move as a group, all at the same time, which keeps quiet
-   turns fast. **Police and SWAT act one unit at a time**, so a firefight stays readable: you see who moved where and
-   who shot whom.
+   generators, timers). **Passive NPCs** (civilians, staff, and guards who aren't fighting) move as a group,
+   all at the same time, which keeps quiet turns fast. **NPCs in combat** (anyone Hostile: police, SWAT, guards who
+   are fighting, an armed civilian who has drawn) **act one at a time**, so a firefight stays readable: you see who
+   moved where and who shot whom.
 3. At the end of the world phase, every NPC **commits its next intent** (path, facing, action), and the next crew
    phase begins.
 
@@ -1980,12 +1981,13 @@ Minimal, Off), reduced gore.
 ### 19.10 Balance targets
 
 The campaign must make **preparation versus time** a real decision: a crew that only takes safe, low-stakes jobs
-should **not** be ready for The Big One before the clock runs out. Starting numbers to check against in playtesting:
+should **not** be ready for The Big One before the clock runs out, and neither should one that only takes
+medium-stakes jobs. Getting ready should take **at least two or three successful high-stakes jobs**. Starting numbers to check against in playtesting:
 
-**What "ready" costs:** about **$900k** on top of the starting kit: gear for a crew of 4–5 (about $450k: heavy and
-medium armour, an LMG, a DMR, ARs, charges, a hacking kit, a drill), extra recruits (about $100k), one front so the
-money can be laundered in time ($150k), plus finale planning assets and replacing gear lost along the way (about
-$200k). Readiness also needs **4–5 prep missions**, which pay nothing.
+**What "ready" costs:** about **$1.2M** on top of the starting kit: gear for a crew of 4–5 (about $600k: heavy and
+medium armour for everyone going in, an LMG, a DMR, ARs, slugs, plenty of charges, a hacking kit, a drill), extra
+recruits (about $100k), one or two fronts so the money can be laundered in time ($150–300k), plus finale planning
+assets and replacing gear lost along the way (about $250k). Readiness also needs **4–5 prep missions**, which pay nothing.
 
 **How much time there is:** the Raid lands on about day 19 (§19.2), and the finale is realistically attempted around
 day 15–16, before the last complications pile up. Minus 4–5 prep days and a lay-low or two, that leaves about **10
@@ -1995,13 +1997,14 @@ contract days**.
 
 | Stakes | Net per job | Failure risk | Expected per day | Over 10 days | Ready? |
 | --- | --- | --- | --- | --- | --- |
-| Low | ~$45k | ~10% | ~$40k | ~$400k | **No**: under half the target. |
-| Medium | ~$115k | ~20% | ~$90k | ~$900k | **Just**, around day 15–16, with most complications drawn. |
-| High | ~$250k | ~35%, plus lost gear and crew | ~$150k | ~$1.5M | **Early** (day 11–13), if it doesn't go wrong. |
+| Low | ~$45k | ~10% | ~$40k | ~$400k | **No**: a third of the target. |
+| Medium | ~$115k | ~20% | ~$90k | ~$900k | **No**: about three quarters, even with no failures ($1.15M). |
+| High | ~$250k | ~35%, plus lost gear and crew | ~$150k | ~$1.5M | **Yes, early** (day 11–13), if it doesn't go wrong. |
 
-So low stakes only buys time, not readiness; medium stakes is the steady path; high stakes is the fast, swingy one.
-Mixing them is the intended play. If playtests show all-low crews reaching the finale prepared, lower low-stakes
-payouts or raise finale costs before touching the clock.
+The intended path is **mostly medium jobs plus two or three successful high-stakes jobs** (for example 7 medium and 2
+high successes: about $1.3M). Low stakes only buy time between bigger jobs; high stakes are the only way to close the
+gap, and they risk the gear and crew the finale needs. If playtests show low- or medium-only crews reaching the finale
+prepared, lower those payouts or raise finale costs before touching the clock.
 
 ---
 
@@ -2061,13 +2064,13 @@ Tooltips open on long-press, not hover [R16 in touch-ux notes].
 
 ### 20.5 The world phase on screen
 
-- Civilians, staff and guards move together, each group in one simultaneous motion. Police and SWAT then act **one
-  unit at a time**, quickly, with the camera following the action.
+- Passive NPCs move together, each group in one simultaneous motion. NPCs in combat (police, SWAT, fighting guards,
+  armed civilians who have drawn) then act **one at a time**, quickly, with the camera following the action.
 - The camera **visits only important events:** new suspicion on crew, a carrier starting or advancing, an arrival, a
   shot at the crew, an escape, a Twitchy NPC's intent. Everything else goes to the event log and edge-of-screen
   arrows.
-- **Budget:** 2 seconds or less when quiet. Loud world phases take longer because police act one by one; keep each
-  unit's turn under about a second. Speed setting 1×, 2× or instant; tap to
+- **Budget:** 2 seconds or less when quiet. Loud world phases take longer because NPCs in combat act one by one;
+  keep each one's turn under about a second. Speed setting 1×, 2× or instant; tap to
   skip [R43].
 
 ### 20.6 Save and resume
