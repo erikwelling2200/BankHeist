@@ -140,7 +140,8 @@ the job instead:
   (multiply, floor only), sun shafts through the glass with the far end striped by the blinds (additive, banded,
   dithered only where bands meet), furniture cutting its shadow out of the shafts, and sheared sun shadows for
   everything fixed outdoors. People move, so they cast none of these, only their drop shadow; moving one relights
-  just its own sprite.
+  just its own sprite, with the lamps that reach where it now stands (`LobbyScene.movePerson`). The guard patrols the
+  lobby to show it: he brightens in the lamp pools and dims between them.
 - **Emissive bits** (screens, lamp shades, LEDs, the exit sign) are unlit sprites, with a second additive pass over
   the exposure layer so they still glow indoors.
 - **Atmosphere:** slow cloud shadows drift over the street, dust motes hang in the shafts, a light bloom and a soft

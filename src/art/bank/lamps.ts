@@ -85,11 +85,12 @@ const channels = (c: number) => [((c >> 16) & 0xff) / 255, ((c >> 8) & 0xff) / 2
 
 /**
  * Bakes the lighting of a bitmap drawn with its top-left corner at screen (left, top), as Light2D would light it, but
- * only by the lamps `reaches` lets through for each of its pixels. Returns the lit colours (RGBA, alpha kept).
+ * only by the lamps `reaches` lets through for each of its pixels. Returns the lit colours (RGBA, alpha kept). Pass the
+ * bitmap's `normals` when relighting it often, as something moving is.
  */
-export function bakeLighting(bitmap: PixelBitmap, left: number, top: number, ambient: number, lamps: readonly Lamp[], reaches: (lamp: Lamp, x: number, y: number) => boolean): Uint8ClampedArray {
+export function bakeLighting(bitmap: PixelBitmap, left: number, top: number, ambient: number, lamps: readonly Lamp[], reaches: (lamp: Lamp, x: number, y: number) => boolean, normals = bitmap.normalMap()): Uint8ClampedArray {
     const out = new Uint8ClampedArray(bitmap.colors);
-    const normals = bitmap.normalMap(), base = channels(ambient);
+    const base = channels(ambient);
     const near = lamps.filter(l => l.x + l.radius > left && l.x - l.radius < left + bitmap.width && l.y + l.radius > top && l.y - l.radius < top + bitmap.height);
     const tints = near.map(l => channels(l.color).map(c => c * l.intensity));
     for (let y = 0; y < bitmap.height; y++) for (let x = 0; x < bitmap.width; x++) {

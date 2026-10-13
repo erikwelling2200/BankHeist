@@ -169,15 +169,18 @@ export const LOBBY_PROPS: LobbyProp[] = [
 
 export type Facing = 'front' | 'back';
 
-/** People stand in the middle of their tile (`PERSON_SIZE`) and are named after the archetype they are drawn as. */
-export interface LobbyPerson { look: string; tx: number; ty: number; facing: Facing }
+/**
+ * People stand in the middle of their tile (`PERSON_SIZE`) and are named after the archetype they are drawn as. A
+ * person with a `patrol` walks in a straight line to that tile and back, pausing at each end.
+ */
+export interface LobbyPerson { look: string; tx: number; ty: number; facing: Facing; patrol?: { tx: number; ty: number } }
 
 export const LOBBY_PEOPLE: LobbyPerson[] = [
     { look: 'tellerB', tx: 8, ty: 3, facing: 'back' },
     { look: 'teller', tx: 3, ty: 5, facing: 'front' },
     { look: 'tellerB', tx: 7, ty: 5, facing: 'front' },
     { look: 'headTeller', tx: 15, ty: 5, facing: 'front' },
-    { look: 'guard', tx: 13, ty: 12, facing: 'front' },
+    { look: 'guard', tx: 13, ty: 12, facing: 'front', patrol: { tx: 13, ty: 8 } },
     { look: 'customerSuit', tx: 3, ty: 7, facing: 'back' },
     { look: 'customerCoat', tx: 7, ty: 7, facing: 'back' },
     { look: 'customerDress', tx: 15, ty: 7, facing: 'back' },

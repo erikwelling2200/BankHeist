@@ -10,8 +10,8 @@ import { PixelBitmap, toCanvas } from '../art/PixelBitmap';
 import { bayer4, mulberry32, valueNoise } from '../art/random';
 import { propBox, propSize } from '../level/catalog';
 import { TILE } from '../level/level';
-import { isOffMap, LOBBY_PEOPLE, LOBBY_PLAN, LOBBY_PROPS, parseLobby, type Lobby, type LobbyProp } from '../level/lobby';
-import { baseLine, PERSON_SIZE, place, WALL_STEPS, type Box } from '../level/space';
+import { isOffMap, LOBBY_PEOPLE, LOBBY_PLAN, LOBBY_PROPS, parseLobby, type Facing, type Lobby, type LobbyPerson, type LobbyProp } from '../level/lobby';
+import { baseLine, PERSON_SIZE, px, WALL_STEPS, type Box } from '../level/space';
 import { wallFootprint, type Footprint, type Wall } from '../level/walls';
 
 const KEY = { floor: 'lobby-floor', shade: 'lobby-shade', glow: 'lobby-glow', exposure: 'lobby-exposure', clouds: 'lobby-clouds', mote: 'lobby-mote', shadow: 'person-shadow' } as const;
@@ -36,6 +36,29 @@ const STEP_MS = 40;
 
 /** Dressing that matters for play stays in view on a cut wall, as a marker of where it is. */
 const ALWAYS_SHOWN: LobbyProp['kind'][] = ['camera', 'keycardLed'];
+
+/** People walk at about 1.4m/s and wait this long at each end of a patrol. */
+const WALK_SPEED = px(1.4);
+const PATROL_WAIT_MS = 1500;
+
+/**
+ * A person on screen: their drawing (and its normals) for each facing, the texture their lit sprite is written into,
+ * the image and drop shadow that follow them, where they stand (the middle of their footprint, in map pixels) and,
+ * when they patrol, how far along they are.
+ */
+interface PersonSprite {
+    person: LobbyPerson;
+    views: Record<Facing, { bitmap: PixelBitmap; normals: Uint8ClampedArray }>;
+    texture: Phaser.Textures.CanvasTexture;
+    image: Phaser.GameObjects.Image;
+    shadow: Phaser.GameObjects.Image;
+    x: number;
+    y: number;
+    facing: Facing;
+    /** Mean brightness of the lit sprite (0-255), so tests can see the light change. */
+    light: number;
+    patrol?: { from: [number, number]; to: [number, number]; t: number; out: boolean; wait: number };
+}
 
 /** A prop placed in the lobby, with its art for the way it faces. */
 interface PlacedProp { p: LobbyProp; box: Box; art: PropArt; left: number; top: number }
@@ -65,6 +88,7 @@ export class LobbyScene extends Phaser.Scene {
     private lamps: Lamp[] = [];
     private reach!: LampReach;
     private litTiles: boolean[][] = [];
+    private people: PersonSprite[] = [];
     private readonly casters: Caster[] = [];
     private walls: WallSprite[] = [];
     private exposures: Phaser.GameObjects.Image[] = [];
@@ -82,6 +106,7 @@ export class LobbyScene extends Phaser.Scene {
         this.level = parseLobby(LOBBY_PLAN);
         this.walls = [];
         this.exposures = [];
+        this.people = [];
         this.mapWidth = this.level.tiles[0]!.length * TILE;
         this.mapHeight = this.level.tiles.length * TILE;
 
@@ -116,6 +141,7 @@ export class LobbyScene extends Phaser.Scene {
             cam.scrollX += dx * PAN_SPEED * dt;
             cam.scrollY += dy * PAN_SPEED * dt;
         }
+        for (const p of this.people) if (p.patrol) this.walk(p, deltaMs);
         this.updateWalls(deltaMs);
     }
 
@@ -126,6 +152,7 @@ export class LobbyScene extends Phaser.Scene {
             ready: true, width: this.mapWidth, height: this.mapHeight, scrollX: cam.scrollX, scrollY: cam.scrollY, lamps: this.lamps.length,
             /** Which tiles lamp light reaches, for the rules: rows of '#' (lit) and '.'. */
             lit: this.litTiles.map(row => row.map(lit => (lit ? '#' : '.')).join('')),
+            people: this.people.map(p => ({ look: p.person.look, x: p.x, y: p.y, facing: p.facing, light: p.light })),
             walls: this.walls.map(w => ({ kind: w.wall.kind, run: w.wall.run, tx: w.wall.tx, ty: w.wall.ty, height: WALL_STEPS[w.step]! }))
         };
     }
@@ -133,6 +160,49 @@ export class LobbyScene extends Phaser.Scene {
     /** Moves the camera so the given map pixel is centred; for tests and screenshots. */
     lookAt(x: number, y: number): void {
         this.cameras.main.centerOn(x, y);
+    }
+
+    /**
+     * Stands person `index` with the middle of their footprint at map point (x, y), facing `facing`, and relights them:
+     * only their own sprite, by the lamps that reach where they now stand. People cast nothing into the baked maps, so
+     * nothing else changes.
+     */
+    movePerson(index: number, x: number, y: number, facing?: Facing): void {
+        const p = this.people[index];
+        if (!p) throw new Error(`No person ${index} in the lobby`);
+        p.x = x;
+        p.y = y;
+        if (facing) p.facing = facing;
+        const box: Box = { x: Math.round(x - PERSON_SIZE.w / 2), y: Math.round(y - PERSON_SIZE.d / 2), z: 0, ...PERSON_SIZE, facing: 'south' };
+        const { bitmap, normals } = p.views[p.facing];
+        const left = Math.round(box.x + box.w / 2 - bitmap.width / 2), top = baseLine(box) - PERSON_HEIGHT;
+        const lit = bakeLighting(bitmap, left, top, AMBIENT, this.lamps, this.reachingAny(footprintPoints(box)), normals);
+        p.texture.context.putImageData(new ImageData(new Uint8ClampedArray(lit), bitmap.width, bitmap.height), 0, 0);
+        p.texture.refresh();
+        p.image.setPosition(left, top).setDepth(DEPTH.standing + baseLine(box));
+        p.shadow.setPosition(box.x + box.w / 2, box.y + box.d / 2);
+        p.light = meanBrightness(lit);
+    }
+
+    /** Walks a patrolling person along their line, waiting at each end; they are moved (and relit) only when they cross a pixel or turn. */
+    private walk(p: PersonSprite, deltaMs: number): void {
+        const patrol = p.patrol!;
+        if (patrol.wait > 0) {
+            patrol.wait -= deltaMs;
+            return;
+        }
+        const [fx, fy] = patrol.from, [tx, ty] = patrol.to;
+        const length = Math.hypot(tx - fx, ty - fy);
+        patrol.t += ((patrol.out ? 1 : -1) * WALK_SPEED * Math.min(deltaMs, 50)) / 1000 / length;
+        const heading = patrol.out ? ty - fy : fy - ty;
+        if (patrol.t >= 1 || patrol.t <= 0) {
+            patrol.t = Math.min(1, Math.max(0, patrol.t));
+            patrol.out = !patrol.out;
+            patrol.wait = PATROL_WAIT_MS;
+        }
+        const x = Math.round(fx + (tx - fx) * patrol.t), y = Math.round(fy + (ty - fy) * patrol.t);
+        const facing: Facing = heading > 0 ? 'front' : heading < 0 ? 'back' : p.facing;
+        if (x !== p.x || y !== p.y || facing !== p.facing) this.movePerson(this.people.indexOf(p), x, y, facing);
     }
 
     /** Picks each wall's height from where the camera looks and moves changing walls a step towards it every `STEP_MS`. */
@@ -277,19 +347,30 @@ export class LobbyScene extends Phaser.Scene {
 
     /**
      * People stand in the middle of their tile: the sprite's soles on the front edge of their box, centred across it.
-     * They will move, so they cast nothing into the baked maps (no sun shadow, no gap in a shaft), only their drop
-     * shadow; moving one means relighting its own sprite with the lamps that reach where it now stands.
+     * They move, so they cast nothing into the baked maps (no sun shadow, no gap in a shaft), only their drop shadow, and
+     * each has a texture of their own that `movePerson` relights wherever they stand.
      */
     private buildPeople(): void {
         if (!this.textures.exists(KEY.shadow)) personShadow().addTo(this.textures, KEY.shadow);
         LOBBY_PEOPLE.forEach((p, i) => {
             const spec = LOOKS[p.look];
             if (!spec) throw new Error(`No look named '${p.look}'`);
-            const bitmap = person(spec, p.facing);
-            const box = place({ tx: p.tx, ty: p.ty }, PERSON_SIZE);
-            const left = box.x + box.w / 2 - bitmap.width / 2, top = baseLine(box) - PERSON_HEIGHT;
-            this.add.image(box.x + box.w / 2, box.y + box.d / 2, KEY.shadow).setDepth(DEPTH.shadows).setAlpha(0.55);
-            this.addBaked(`person-${i}`, bitmap, left, top, this.reachingAny(footprintPoints(box))).setDepth(DEPTH.standing + baseLine(box));
+            const view = (facing: Facing) => {
+                const bitmap = person(spec, facing);
+                return { bitmap, normals: bitmap.normalMap() };
+            };
+            const views = { front: view('front'), back: view('back') };
+            const key = `person-${i}`, { width, height } = views.front.bitmap;
+            const texture = this.textures.exists(key) ? (this.textures.get(key) as Phaser.Textures.CanvasTexture) : this.textures.createCanvas(key, width, height);
+            if (!texture) throw new Error(`Failed to create texture '${key}'`);
+            const x = (p.tx + 0.5) * TILE, y = (p.ty + 0.5) * TILE;
+            this.people.push({
+                person: p, views, texture, x, y, facing: p.facing, light: 0,
+                image: this.add.image(0, 0, key).setOrigin(0, 0),
+                shadow: this.add.image(0, 0, KEY.shadow).setDepth(DEPTH.shadows).setAlpha(0.55),
+                patrol: p.patrol && { from: [x, y], to: [(p.patrol.tx + 0.5) * TILE, (p.patrol.ty + 0.5) * TILE], t: 0, out: true, wait: PATROL_WAIT_MS }
+            });
+            this.movePerson(i, x, y);
         });
     }
 
@@ -402,6 +483,13 @@ function footprintPoints(box: Box): [number, number][] {
 function wallSides(wall: Wall, f: Footprint): [number, number][] {
     if (wall.run === 'eastWest') return [2, 8, 14].map(u => [f.x + u, f.y + f.d + 0.5]);
     return [[f.x - 0.5, f.y + 8], [f.x + f.w + 0.5, f.y + 8]];
+}
+
+/** Mean brightness (0-255) of the opaque pixels of RGBA colours. */
+function meanBrightness(rgba: Uint8ClampedArray): number {
+    let total = 0, count = 0;
+    for (let i = 0; i < rgba.length; i += 4) if (rgba[i + 3]! > 0) { total += (rgba[i]! + rgba[i + 1]! + rgba[i + 2]!) / 3; count++; }
+    return count ? total / count : 0;
 }
 
 function hasPixels(bitmap: PixelBitmap): boolean {

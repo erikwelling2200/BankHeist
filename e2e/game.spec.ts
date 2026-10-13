@@ -116,6 +116,30 @@ test.describe('lobby visual preview', () => {
         expect(state.lit[FACADE]).not.toContain('#');
         expect(errors).toEqual([]);
     });
+
+    test('relights people as they move, and walks the guard on his patrol', async ({ page }) => {
+        const errors = await bootLobby(page);
+        type Person = { look: string; x: number; y: number; facing: string; light: number };
+        const people = (): Promise<Person[]> => page.evaluate(() => (window as any).game.scene.getScene('lobby').debugState.people);
+        const index = (await people()).findIndex(p => p.look === 'customerCasual');
+        const moveTo = async (x: number, y: number) => {
+            await page.evaluate(([i, x, y]) => (window as any).game.scene.getScene('lobby').movePerson(i, x, y), [index, x, y]);
+            return (await people())[index]!;
+        };
+        // Under a lobby lamp, then in the corridor behind the back wall, lit only by its own strip lights.
+        const underLamp = await moveTo(152, 136);
+        const inCorridor = await moveTo(160, 56);
+        expect(inCorridor.light).not.toBeCloseTo(underLamp.light, 1);
+        expect((await moveTo(152, 136)).light).toBeCloseTo(underLamp.light, 5);
+
+        const guard = async () => (await people()).find(p => p.look === 'guard')!;
+        const start = await guard();
+        await page.waitForTimeout(3000);
+        const later = await guard();
+        expect(later.x).toBe(start.x);
+        expect(later.y).not.toBe(start.y);
+        expect(errors).toEqual([]);
+    });
 });
 
 test('renders every prop in its four facings', async ({ page }) => {

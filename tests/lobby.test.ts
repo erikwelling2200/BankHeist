@@ -99,6 +99,18 @@ describe('lobby layout', () => {
         }
     });
 
+    it('walks every patrol through tiles clear of furniture and walls', () => {
+        for (const p of LOBBY_PEOPLE.filter(p => p.patrol)) {
+            const steps = Math.max(Math.abs(p.patrol!.tx - p.tx), Math.abs(p.patrol!.ty - p.ty));
+            for (let s = 0; s <= steps; s++) {
+                const tx = Math.round(p.tx + ((p.patrol!.tx - p.tx) * s) / steps), ty = Math.round(p.ty + ((p.patrol!.ty - p.ty) * s) / steps);
+                const box = place({ tx, ty }, PERSON_SIZE), name = `${p.look} walking through ${tx},${ty}`;
+                expect(inWall(box), name).toBe(false);
+                for (const t of things.filter(t => !t.name.startsWith(`${p.look} `))) expect(boxesOverlap(box, t.box), `${name} and ${t.name}`).toBe(false);
+            }
+        }
+    });
+
     it('stands people in the middle of their tile', () => {
         const box = place({ tx: 3, ty: 7 }, PERSON_SIZE);
         expect(box.y + box.d / 2).toBe(7 * TILE + TILE / 2);
