@@ -128,7 +128,8 @@ LMG, parks at the curb right of the entrance. The favour budget covers a stash d
 restroom and a cut phone line. The tooltip warns that dispatch will notice the dead line after 15 phases and send a
 car to check. That is the crew's clock.
 
-**Stealth (turns 1–13).** Mara walks in *Clean*; Jun, with a pistol under his jacket, walks in *Concealed*. The
+**Stealth (turns 1–13).** Mara and Jun get out of the van round the corner, out of sight of the bank, and walk in:
+Mara *Clean*, Jun *Concealed* with a pistol under his jacket. The
 floor overlay is green almost everywhere in the lobby for Mara. For Jun, the tiles near the guard are amber: "Guard:
 frisk range (Concealed)". Jun keeps three tiles from the guard. Mara queues at a window. The timeline strip, filled
 in as they watch, shows "Manager → lunch, turn 8" and "Cash cart to vault, turn 12". On turn 8 the manager leaves
@@ -225,7 +226,9 @@ Campaign (about 8–15 days, 5–10 h)
 1. **Crew phase.** The player moves crew in any order. Each crew member has **2 actions**. Actions can be
    interleaved between characters (Jun acts, then Mara, then Jun again).
 2. **World phase.** NPCs resolve in a fixed order: **civilians → staff → guards → police → devices** (drills,
-   generators, timers). Each group moves at the same time.
+   generators, timers). Civilians, staff and guards each move as a group, all at the same time, which keeps quiet
+   turns fast. **Police and SWAT act one unit at a time**, so a firefight stays readable: you see who moved where and
+   who shot whom.
 3. At the end of the world phase, every NPC **commits its next intent** (path, facing, action), and the next crew
    phase begins.
 
@@ -1702,7 +1705,6 @@ set to Full, Minimal or Off [R16 in immersive-sims notes]:
 - Every guaranteed approach reaches the vault.
 - A **Clean-profile stealth route** exists from the lobby to the CCTV room or the alarm closet.
 - At least 2 loops between Public and Secure space.
-- No deploy or start tile is in view of a guard or camera.
 - No more than **3 guards** can see the same tile [R37].
 - Every camera covers a tile someone has to cross (no pointless cameras).
 - Every silent-alarm station can be reached from the lobby; civilian exits are within a set distance band of crowd
@@ -1729,10 +1731,9 @@ is ever wrong [R11 in procedural-banks notes].
 One screen (not a chain of prep missions [R47]) showing the plot at whatever knowledge layer the crew has. The player:
 
 1. picks the **crew** (up to the contract's size) and their **loadouts**;
-2. picks each crew member's **start**:
-   - **Inside** (walks in as a customer; Clean or Concealed only; an HQ metal detector flags Concealed items);
-   - **Van** (any loadout; starts in the van);
-   - **Nest** (any crew member with a long gun; needs the rental);
+2. picks each crew member's **start**: in the **van** (any loadout) or in the **sniper nest** (a crew member with a
+   long gun; needs the rental). Anyone who should be inside as a customer simply gets out of the van and walks in
+   during play, ideally where nobody sees them get out (§14.4);
 3. places the **van**, and optionally a backup car and ram truck, on candidate spots;
 4. buys **assets** with **cash**, under a **favour cap of 8 points** ("you can only call in so many favours before
    someone notices").
@@ -1800,25 +1801,30 @@ Day 1 ──► [contract | prep mission | case | recruit | lay low] ──► �
 
 ### 19.2 The Squeeze (the campaign clock)
 
-The Squeeze is a points track. Every **threshold** (every 5 points) adds a **complication** to the finale or the
-city. The next complication and its threshold are always shown on the city map, so the player can see exactly what
-waiting will cost.
+The Squeeze is a points track. Each **threshold** adds a **complication** to the finale or the city. The thresholds
+get **closer together** as the campaign goes on, so complications come faster and faster.
+
+**The whole timeline is always on the city map:** every complication, in order, with its threshold and the day it
+will land if nothing else adds Squeeze. When something does (a failed job, a crew member talking), the projected
+days move forward on the spot.
 
 **Squeeze gained:**
 
 | Source | Points |
 | --- | --- |
-| Each day that passes, days 1–5 | +1 |
-| Each day that passes, days 6–10 | +2 |
-| Each day that passes, days 11–15 | +3 |
-| Each day that passes, day 16 on | +4 |
+| Each day that passes | +2 |
 | Each crew member who gained Notoriety | +1 |
 | A failed job | +2 |
 | An arrested crew member talks | +4 |
 | "Leak a false tip" side job (once per campaign) | −5 |
 
-Because daily gain accelerates, complications come faster and faster: with clean play, about days 5, 8, 10, 12, 14,
-15 and 17, with the Raid around day 18. Messy jobs bring every step forward.
+**Thresholds:** 8, 15, 21, 26, 30, 33 and 36 points, then **the Raid at 38**. The gaps shrink from 8 to 3. With only
+the daily +2, complications land on about days 4, 8, 11, 13, 15, 17 and 18, and the Raid on day 19.
+
+The daily gain stays constant and the gaps shrink, rather than the other way round, so that every other source keeps
+its weight. Late in the campaign a gap is only 3 points, so a failed job (+2) or a talking prisoner (+4) can bring the
+next complication a whole day or two closer. Mistakes hurt more the later they happen, and the "false tip" (−5) is
+worth more late, too.
 
 **Complications** are drawn from a pool when the campaign starts, so their order is fixed and visible:
 
@@ -1833,7 +1839,7 @@ Because daily gain accelerates, complications come faster and faster: with clean
 - A snitch burns one prep advantage, chosen at random from those not yet used.
 - The armed response team doubles.
 
-**The final threshold (40 points) is "The Raid."** The task force raids the safehouse: a forced escape mission. A
+**The final threshold (38 points) is "The Raid."** The task force raids the safehouse: a forced escape mission. A
 crew that survives must attempt the finale **the next day**, with every complication drawn so far. The clock is
 therefore a hard deadline as well as a growing cost.
 
@@ -1858,12 +1864,16 @@ nothing, or without crew members.
 
 ### 19.4 Money and gear
 
-- **Loot comes out as dirty money.** The safehouse launders a fixed amount per day (raised by buying fronts: a
-  laundromat, a car wash). A **fence** launders instantly for a 50% cut.
+- **Loot comes out as dirty money.** The safehouse launders **$60k per day**. Each front bought (a laundromat, a car
+  wash; $150k each) adds $60k per day. A **fence** launders instantly for a 50% cut.
 - **The crew take a share** of each job (8–20% each, set at recruitment). A bigger crew means smaller shares.
 - **The black market** sells everything in §12: weapons, armour, gadgets, charges, drills, vehicles. Its higher
   tiers (thermal lance, heavy armour, DMR, LMG) open as the crew makes **contacts**, from high-stakes jobs and some
   prep missions. Gear is kept between jobs unless it is lost.
+- **Black-market prices** (starting values): pistol $2k, machine pistol $5k, SMG $8k, shotgun $10k, AR $15k,
+  DMR $25k, LMG $40k; light vest $5k, medium armour $15k, heavy armour $40k; hacking kit $10k, lockpick set $2k,
+  drill $20k, breach charge $3k, shaped charge $6k, thermite $8k, flashbang $1k, ammo bag $2k, medkit $1k. Recruits
+  cost a $10–30k signing fee on top of their share.
 - **Better gear changes options, not HP:** slugs that answer shields, a suppressed SMG for quiet loud phases, heavy
   armour for the drill defence, a jammer, extra charges.
 
@@ -1872,6 +1882,13 @@ nothing, or without crew members.
 **Prep missions** are 1-day jobs on smaller sites built with the same systems and parcels (§17): an office, a yard,
 a street ambush, a records room. Each grants one **finale advantage** that counters a specific Defence on the
 dossier. A failed prep mission adds Squeeze and may be lost for good.
+
+**Every prep mission is a playable level**, never a dice roll. It is shorter than a heist (about 10–20 minutes) and
+built around one objective instead of a loot target: steal an item, plant something, photograph or copy documents,
+follow and corner a person, or ambush a vehicle. Succeeding means completing the objective and getting out. The same
+rules apply: heat if it goes loud, Notoriety for unmasked crew who are seen, injuries and arrests. Some objectives
+fail if the alarm is raised (a blackmail target who gets spooked, documents moved once the alarm sounds), so stealth
+matters more here. Prep missions **don't pay**; the day without income is their cost.
 
 | Prep mission | Site | Finale advantage |
 | --- | --- | --- |
@@ -1960,19 +1977,48 @@ There is no turn rewind on any difficulty (§6.6).
 **Toggles:** permadeath versus arrest-only, armed-civilian frequency, world-phase speed, guidance level (Full,
 Minimal, Off), reduced gore.
 
+### 19.10 Balance targets
+
+The campaign must make **preparation versus time** a real decision: a crew that only takes safe, low-stakes jobs
+should **not** be ready for The Big One before the clock runs out. Starting numbers to check against in playtesting:
+
+**What "ready" costs:** about **$900k** on top of the starting kit: gear for a crew of 4–5 (about $450k: heavy and
+medium armour, an LMG, a DMR, ARs, charges, a hacking kit, a drill), extra recruits (about $100k), one front so the
+money can be laundered in time ($150k), plus finale planning assets and replacing gear lost along the way (about
+$200k). Readiness also needs **4–5 prep missions**, which pay nothing.
+
+**How much time there is:** the Raid lands on about day 19 (§19.2), and the finale is realistically attempted around
+day 15–16, before the last complications pile up. Minus 4–5 prep days and a lay-low or two, that leaves about **10
+contract days**.
+
+**Expected net income per contract day** (after crew shares, allowing for failed jobs):
+
+| Stakes | Net per job | Failure risk | Expected per day | Over 10 days | Ready? |
+| --- | --- | --- | --- | --- | --- |
+| Low | ~$45k | ~10% | ~$40k | ~$400k | **No**: under half the target. |
+| Medium | ~$115k | ~20% | ~$90k | ~$900k | **Just**, around day 15–16, with most complications drawn. |
+| High | ~$250k | ~35%, plus lost gear and crew | ~$150k | ~$1.5M | **Early** (day 11–13), if it doesn't go wrong. |
+
+So low stakes only buys time, not readiness; medium stakes is the steady path; high stakes is the fast, swingy one.
+Mixing them is the intended play. If playtests show all-low crews reaching the finale prepared, lower low-stakes
+payouts or raise finale costs before touching the clock.
+
 ---
 
 ## 20. Presentation and controls
 
-The view is 320×180 with 16px tiles, so the view is about 20×11 tiles and grows wider on wide screens. A 16px tile is
-about 6mm on a phone, below touch minimums, so **precise input never depends on tapping a tile at 1× zoom** [R41].
+Art is drawn on a 16px tile grid. The player **pans and zooms freely**, from a close view of about 11 tiles high to a
+wide view of about 34 tiles high, with width following the screen's aspect ratio. Zoom moves in steps that keep the
+pixel art crisp (each screen pixel shows a whole number of art pixels). At the wider zoom levels a tile is too small
+to tap reliably on a phone, so **precise input never depends on tapping a small tile** [R41].
 
 ### 20.1 Camera
 
-- **Overview:** the native view, for reading the situation. Pinch or drag to pan; one tap zooms out to a tactical
-  map of the whole plot.
-- **Act:** about 1.6–2× zoom, so a tile is roughly 10mm. The camera enters it automatically when a crew member is
-  selected.
+- **Pan and zoom:** drag to pan; pinch (or the mouse wheel) to zoom between about 11 and 34 tiles high, in crisp
+  steps. A one-tap button jumps to a **tactical map** of the whole plot.
+- **Act view:** selecting a crew member zooms in to the close level if the player is further out, so a tile is
+  roughly 10mm and taps are reliable. The player can zoom back out at any time; taps at wide zoom snap to the nearest
+  valid tile and show it enlarged before Confirm.
 - The camera **never moves on its own during the crew phase**, except to centre the newly selected crew member.
 
 ### 20.2 Input flow
@@ -2015,11 +2061,13 @@ Tooltips open on long-press, not hover [R16 in touch-ux notes].
 
 ### 20.5 The world phase on screen
 
-- Groups move together (civilians, staff, guards, police, in that order), each in one simultaneous motion.
+- Civilians, staff and guards move together, each group in one simultaneous motion. Police and SWAT then act **one
+  unit at a time**, quickly, with the camera following the action.
 - The camera **visits only important events:** new suspicion on crew, a carrier starting or advancing, an arrival, a
   shot at the crew, an escape, a Twitchy NPC's intent. Everything else goes to the event log and edge-of-screen
   arrows.
-- **Budget:** 2 seconds or less when quiet, 5 seconds or less when loud. Speed setting 1×, 2× or instant; tap to
+- **Budget:** 2 seconds or less when quiet. Loud world phases take longer because police act one by one; keep each
+  unit's turn under about a second. Speed setting 1×, 2× or instant; tap to
   skip [R43].
 
 ### 20.6 Save and resume
