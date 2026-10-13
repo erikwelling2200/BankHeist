@@ -281,9 +281,11 @@ export class LobbyScene extends Phaser.Scene {
     /** Indoors: warm ceiling pools with darker floor between them, and sun patches where the shafts land. */
     private buildDaylight(): void {
         const facadeY = facade(this.level).line;
-        for (const x of [2.5, 6.5, 10, 13.5, 19.5]) this.lights.addLight(x * TILE - 20, facadeY - 2 * TILE, 52, 0xffd9a0, 0.8, 30);
-        const lobby = [[3.5, 8.5], [9.5, 8], [15.5, 8.5], [6.5, 11.5], [13.5, 11.5]] as const;
-        for (const [x, y] of lobby) this.lights.addLight(x * TILE, y * TILE, 80, 0xffd8b0, 1.5, 48);
+        // Sun patches just inside the glass. Lights shine through walls, so they stand far enough in to stay off the pavement.
+        for (const x of [2.5, 6.5, 10, 13.5, 19.5]) this.lights.addLight(x * TILE - 20, facadeY - 3 * TILE - 4, 48, 0xffd9a0, 0.8, 30);
+        // Ceiling lamps; the row nearest the glass is smaller, so its pools end at the shop front instead of lighting the pavement.
+        const lobby = [[3.5, 8.5, 80], [9.5, 8, 80], [15.5, 8.5, 80], [6.5, 10.75, 56], [13.5, 10.75, 56]] as const;
+        for (const [x, y, radius] of lobby) this.lights.addLight(x * TILE, y * TILE, radius, 0xffd8b0, 1.5, 48);
         // The teller line is lit brighter than the lobby, and these reach up the back wall to its dressing.
         for (const x of [4, 10, 16]) this.lights.addLight(x * TILE, 4.2 * TILE, 84, 0xffdcb8, 1.8, 50);
         // Cool strip lights along the staff corridor.

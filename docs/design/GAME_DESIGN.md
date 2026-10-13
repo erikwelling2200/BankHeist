@@ -256,7 +256,7 @@ and is not previewed (§13.6).
 
 | Action | Cost | Notes |
 | --- | --- | --- |
-| Move | 1 | Up to 5 tiles (4 in heavy armour). Diagonals cost 1.5. Can't cut wall corners. |
+| Move | 1 | Up to 5 tiles (4 in heavy armour). Diagonals cost 1.5. Can't cross a wall segment (§14.1) or cut a corner where one ends. |
 | Dash | 2 | Up to 10 tiles. Quiet noise radius 2. Not allowed in heavy armour or carrying Heavy loot. |
 | Attack | 1 | Most weapons. LMG and Suppress cost 2. A weapon's moving penalty applies if the character moved this turn. |
 | Command ("Get down!") | 1 | Doesn't end the turn. See §10. |
@@ -332,7 +332,7 @@ What the kits unlock:
 | --- | --- |
 | **Hacking kit** | Loop a camera feed for 4 phases (at a junction box or the console). Disable the alarm panel or a vault sensor (4 actions). Pull the code or time-lock schedule from the manager's PC (2 actions). Ring any desk phone remotely. |
 | **Lockpick set** | Open mechanical locks and deposit boxes (2 actions). |
-| **Glass cutter** | Cut a quiet 1-tile hole in a window (2 actions). |
+| **Glass cutter** | Cut a quiet hole through one window segment (2 actions). |
 | **Drill** | Drill a vault door, safe or deposit-box wall (§15.3). |
 
 **Traits** belong to the person. A recruit comes with **one** trait; the player picks another from three offered
@@ -560,8 +560,8 @@ Rules:
 Every action that makes noise previews its ring before it is confirmed. Every NPC inside gets an ear icon, labelled
 with the state it will move to.
 
-**How sound spreads.** Sound spreads outward through open tiles, like water. Each **closed door** or **Soft wall** it
-passes through costs 3 tiles of reach. **Reinforced and Vault walls stop it.** Open doors, broken walls and holes
+**How sound spreads.** Sound spreads from tile to tile, like water. Each **closed door** or **Soft wall** segment it
+crosses costs 3 tiles of reach. **Reinforced and Vault walls stop it.** Open doors, broken walls and holes
 cost nothing. The ring is drawn as exactly the tiles it reaches.
 
 **Two kinds of noise:**
@@ -904,12 +904,13 @@ bullet lands within its arc, and the cover roll. Everything else is fixed and pr
 
 ### 11.4 Cover
 
-- **Half cover** (desk, counter, planter, sofa, low wall, a cash cart): protects a target in an **adjacent tile**
-  against bullets arriving within the **90° arc** facing the cover. Each bullet that would hit is **blocked 50% of
+- **Half cover** (desk, counter, planter, sofa, low wall, a cash cart): protects a target in an **adjacent tile**, or
+  for a low wall, in a tile it runs along, against bullets arriving within the **90° arc** facing the cover. Each bullet that would hit is **blocked 50% of
   the time**. Blocked bullets damage the cover (desk 6 HP, planter 4, counter 10; marble counters can't be
   destroyed).
-- **Full cover** (walls, pillars, vehicles, ATMs, vault door): blocks line of sight. Standing next to a corner
-  doesn't expose anyone: a character behind full cover can't be seen or shot from beyond it.
+- **Full cover** (walls, pillars, vehicles, ATMs, vault door): blocks line of sight. A wall segment on one of a
+  character's tile edges covers them from that side. Standing next to a corner doesn't expose anyone: a character
+  behind full cover can't be seen or shot from beyond it.
 - **Leaning out.** A character next to a full-cover corner can attack (or set a Watch wedge) by **leaning out**. The
   shot is traced from the open tile beside the corner. Leaning puts them in the **Leaning** state until the start of
   their side's next phase: they are visible and can be shot from anything that can see that open tile, with half
@@ -1074,15 +1075,15 @@ For tuning only (never shown to the player): expected hits against a standing ta
 | Flashbang ×2 | Radius 2, thrown up to 6 tiles: everyone Surprised for one phase, civilians Commanded. Fused: goes off at the start of the next world phase. | 14 | Concealed |
 | Smoke ×2 | Radius 2: blocks sight for 3 phases. | 4 | Concealed |
 | Noisemaker ×3 | Quiet sound (radius 3) at the landing tile: a lure. | 3 | Clean |
-| Breach charge ×2 | Glass, Soft walls and doors: opens a 1-tile gap, 4 damage to the 3 tiles on the far side. | 14 | Concealed |
-| Shaped charge ×1 | Reinforced walls: 1-tile gap, 6 damage on the far side, debris gives half cover. | 18 | Concealed |
+| Breach charge ×2 | Glass, Soft walls and doors: opens a gap of one wall segment, 4 damage to the 3 tiles on the far side. | 14 | Concealed |
+| Shaped charge ×1 | Reinforced walls: a gap of one wall segment, 6 damage on the far side, debris gives half cover. | 18 | Concealed |
 | Thermite ×1 | Vault door or floor: burns 3 phases (5 on Class III), can't be stopped, fire on the tile, scorches loot within 1 tile of the door. Counts as drilling for sensors and heat. | 6 per phase | Armed |
 | Drill | Vault door, safe or deposit-box wall: see §15.3. | 6 per phase | Armed |
 | Tripwire charge ×2 | Placed on a door or tile; detonates when a non-crew NPC crosses it: 6 damage in radius 1. Police spot it within 3 tiles from Heat 3 and disarm it in 1 action. | 14 | Concealed |
 | Jammer | Placed; radius 8, blocks radios and phones. Dispatch notices "lost contact" after 10 phases (§9.1). | 0 | Concealed |
 | Hacking kit | Camera loops, alarm panel and sensors, the manager's PC, remote phone calls (§7.2). | 1 | Clean |
 | Lockpick set | Mechanical locks: 2 actions (Steady Hands 1). | 1 | Clean |
-| Glass cutter | A quiet 1-tile hole in a window: 2 actions. | 1 | Clean |
+| Glass cutter | A quiet hole through one window segment: 2 actions. | 1 | Clean |
 | Medkit ×2 | Revive or heal 4 HP: 1 action. | 0 | Clean |
 | Duffel | Holds one long gun and one armour piece. | 0 | Concealed |
 | Ammo bag | Drop on a tile; adjacent crew refill their spare magazines (1 action each), 4 uses (§11.11). | 0 | Concealed |
@@ -1305,13 +1306,18 @@ in view of a window, and counter-snipe a known nest.
 
 ### 14.1 The property vocabulary (canonical)
 
-Every tile and object is described by a **closed set of properties**. Every tool is defined only by how it changes
-them. A new idea that can't be expressed in these properties is either cut or adds **one general property**, never
-a one-off script [R29].
+Every tile, wall segment and object is described by a **closed set of properties**. Every tool is defined only by how
+it changes them. A new idea that can't be expressed in these properties is either cut or adds **one general property**,
+never a one-off script [R29].
+
+**Walls stand between tiles.** A wall segment runs along one tile edge at its material's real thickness, so a plaster
+partition is drawn thin and every tile stays floor. Doors, windows, the shop front's glass and the vault door are
+segments too. Movement, sight, bullets, sound and vehicles are stopped (or not, by material) when they cross the
+edge; something is against a wall when the wall is on one of its tile's edges. Gaps and holes open whole segments.
 
 | Thing | Properties |
 | --- | --- |
-| Tile or object | Zone · Raised · Material (Glass, Teller glass, Soft, Reinforced, Vault, Boundary) · BlocksSight · BlocksMove · Cover (none, half, full) · HP (or indestructible) · Powered · Lit · Lock (none, mechanical, keycard, maglock, vault) · Open/Closed · Drivable · Flippable · NoiseDamping · Flammable · Evidence |
+| Tile, wall segment or object | Zone · Raised · Material (Glass, Teller glass, Soft, Reinforced, Vault, Boundary) · BlocksSight · BlocksMove · Cover (none, half, full) · HP (or indestructible) · Powered · Lit · Lock (none, mechanical, keycard, maglock, vault) · Open/Closed · Drivable · Flippable · NoiseDamping · Flammable · Evidence |
 | NPC | Role · Observer class · Schedule · State · Suspicion (per crew) · Knowledge (who is Exposed to them, what they saw) · Intent · Command pips · Traits (armed, hero, key holder, bribable) |
 | Crew | Traits · HP · Actions · Profile · Loadout · Carry · Exposed-to list · Notoriety |
 
@@ -1320,13 +1326,13 @@ a one-off script [R29].
 | Tool | Glass | Soft (drywall, wood) | Reinforced (brick, concrete) | Vault | Boundary |
 | --- | --- | --- | --- | --- | --- |
 | Bullets | Pass, pane breaks | Pierce ≥ 1 passes (−1 damage) | Stop | Stop | Stop |
-| Glass cutter (quiet) | 1-tile hole | — | — | — | — |
+| Glass cutter (quiet) | Hole, 1 segment | — | — | — | — |
 | Shotgun breach | Door or window | Doors and locks | — | — | — |
-| Breach charge | Gap | 1-tile gap | — | — | — |
-| Shaped charge | Gap | Gap | 1-tile gap | — | — |
+| Breach charge | Gap | Gap, 1 segment | — | — | — |
+| Shaped charge | Gap | Gap | Gap, 1 segment | — | — |
 | Thermite | — | — | — | Door or floor, 3 phases | — |
 | Drill | — | — | — | Door, by vault class | — |
-| Vehicle ram | 3-wide gap | 3-wide gap (doors and rolling shutters) | — | — | — |
+| Vehicle ram | Gap, 3 segments | Gap, 3 segments (doors and rolling shutters) | — | — | — |
 | Reinforce (crew) | — | Becomes Reinforced | — | — | — |
 
 - **Explosions** deal damage on the far side of the wall, leave debris (half cover) and **destroy loot** within 1
@@ -1367,15 +1373,15 @@ path (a Wheelman 16) with everyone aboard:
   the vehicle can end up facing that way, driving the turn as a real curve. A car pointing up and turned 90°
   clockwise ends up somewhere up and to the right, facing right. Turned 180°, it ends up beside its starting point
   facing down. The curve's length counts against the 8 tiles, and turns can be made going forward or in reverse.
-- **Clear path:** every tile the vehicle sweeps along the way must be clear: Drivable, and free of walls, cover
-  objects, vehicles and wrecks. There is no separate clearance rule; a turn fits where its curve fits.
+- **Clear path:** every tile the vehicle sweeps along the way must be clear: Drivable, free of cover objects, vehicles
+  and wrecks, and with no wall segment across it. There is no separate clearance rule; a turn fits where its curve fits.
 - **People in the way** are hit (6 damage) unless they move. The preview shows the swept path, the end footprint and
   anyone in it before you confirm.
 
 **Ram** (1 action): straight forward only, and the vehicle needs at least 2 clear tiles of run-up in front of it. It
 drives into the first thing ahead:
 
-- a **Glass or Soft** frontage, door or rolling shutter opens a gap as wide as the vehicle plus one, deals 6 damage
+- a **Glass or Soft** frontage, door or rolling shutter opens a gap as wide as the vehicle plus one segment, deals 6 damage
   across the impact area (civilians included) and makes a loud noise (radius 16). The vehicle ends up in the breach
   as full cover;
 - a **police car, wreck or roadblock** is shoved aside, out of the way;
@@ -1640,7 +1646,8 @@ be shared.
 | **Reserve depot** (finale) | Hand-authored | On-site response team | III, seismic, biometric | Unique | 3 |
 
 The whole plot, including street and neighbours, is about **60×40 tiles**. Keep the lobby within about 16 tiles
-corner to corner, so most firefights fit on one screen. Corridors are 2 tiles wide where crews must pass each other.
+corner to corner, so most firefights fit on one screen. Corridors are 2 tiles wide where crews must pass each other;
+walls take no tiles of their own.
 Every map is one level; height is a tile property and roofs and sewers are off-map routes (§14.7).
 
 ### 17.4 Rooms and their jobs

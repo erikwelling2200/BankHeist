@@ -127,7 +127,8 @@ lobby. The preview splits the job instead:
   the shop front, so there is one layer per height of the front, swapped as it drops or stands; the cloud shadows'
   top edge follows it the same way. Rendering at half first leaves the lamps
   headroom; with a plain multiply the interior clipped to white before it was darkened, and every lamp pool vanished.
-- **Lamps are Light2D** (about 26 of the 32 allowed): warm pools over the lobby, brighter ones over the teller line,
+- **Lamps are Light2D** (about 26 of the 32 allowed; they shine through walls, so those near the glass are kept small
+  enough that their pools end at the shop front): warm pools over the lobby, brighter ones over the teller line,
   cool strip lights in the corridor,
   banker's lamps on the counter, cyan from the teller monitors and the ATM, green from the exit sign. The interior is
   meant to read as a believably lit bank, with the grit coming from the shade between pools and the dark corners,
@@ -146,7 +147,5 @@ lobby. The preview splits the job instead:
 - A full-height wall in the upper half of the screen still hides about 1.6 tiles behind it. In play, people and threats
   there should show as a silhouette through the wall, and the safe-floor overlay and hovering a tile should drop the
   walls in their way.
-- The rules in `GAME_DESIGN.md` still speak of walls as tiles (a breach opens "a 1-tile gap"); with walls on edges
-  that becomes one wall segment, and sound, vision and cover cross edges rather than tiles.
 - Daytime only for now. Closing time (warmer, lower sun) and a power cut (§8.13: emergency lights only) would reuse
   the same layers with different values.
