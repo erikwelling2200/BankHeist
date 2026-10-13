@@ -95,7 +95,8 @@ export class LobbyScene extends Phaser.Scene {
 
         this.buildFloor(props.filter(({ box }) => box.h === 0));
         this.buildWalls();
-        const occluders = [...this.buildProps(props.filter(({ box }) => box.h > 0)), ...this.buildPeople()];
+        const occluders = this.buildProps(props.filter(({ box }) => box.h > 0));
+        this.buildPeople();
         this.buildLightMaps(occluders);
         this.casters.length = 0;
         this.buildAtmosphere();
@@ -274,19 +275,21 @@ export class LobbyScene extends Phaser.Scene {
         wall.dressing.push({ top: box.z + box.h, images });
     }
 
-    /** People stand in the middle of their tile: the sprite's soles on the front edge of their box, centred across it. */
-    private buildPeople(): Occluder[] {
+    /**
+     * People stand in the middle of their tile: the sprite's soles on the front edge of their box, centred across it.
+     * They will move, so they cast nothing into the baked maps (no sun shadow, no gap in a shaft), only their drop
+     * shadow; moving one means relighting its own sprite with the lamps that reach where it now stands.
+     */
+    private buildPeople(): void {
         if (!this.textures.exists(KEY.shadow)) personShadow().addTo(this.textures, KEY.shadow);
-        return LOBBY_PEOPLE.map((p, i) => {
+        LOBBY_PEOPLE.forEach((p, i) => {
             const spec = LOOKS[p.look];
             if (!spec) throw new Error(`No look named '${p.look}'`);
             const bitmap = person(spec, p.facing);
             const box = place({ tx: p.tx, ty: p.ty }, PERSON_SIZE);
             const left = box.x + box.w / 2 - bitmap.width / 2, top = baseLine(box) - PERSON_HEIGHT;
-            this.casters.push(caster(bitmap, left, top, baseLine(box)));
             this.add.image(box.x + box.w / 2, box.y + box.d / 2, KEY.shadow).setDepth(DEPTH.shadows).setAlpha(0.55);
             this.addBaked(`person-${i}`, bitmap, left, top, this.reachingAny(footprintPoints(box))).setDepth(DEPTH.standing + baseLine(box));
-            return floorOccluder(box);
         });
     }
 

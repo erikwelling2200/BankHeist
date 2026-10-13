@@ -138,8 +138,9 @@ the job instead:
   load; a lamp that changes (a power cut, a lamp shot out) only needs its own reach and what it lights rebaked.
 - **Baked light maps** (`src/art/bank/lightmap.ts`): ambient occlusion along the foot of walls and under furniture
   (multiply, floor only), sun shafts through the glass with the far end striped by the blinds (additive, banded,
-  dithered only where bands meet), people and furniture cutting their shadow out of the shafts, and sheared sun
-  shadows for everything outdoors.
+  dithered only where bands meet), furniture cutting its shadow out of the shafts, and sheared sun shadows for
+  everything fixed outdoors. People move, so they cast none of these, only their drop shadow; moving one relights
+  just its own sprite.
 - **Emissive bits** (screens, lamp shades, LEDs, the exit sign) are unlit sprites, with a second additive pass over
   the exposure layer so they still glow indoors.
 - **Atmosphere:** slow cloud shadows drift over the street, dust motes hang in the shafts, a light bloom and a soft
