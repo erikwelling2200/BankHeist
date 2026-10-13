@@ -66,9 +66,27 @@ These still rest on design judgement and should be checked in phone playtests, s
 - **Overlay budget.** The active preview is shown at full strength; everything else comes from the overlay drawer.
 - **Interaction details:** the loupe, long-press conventions, and the layout of the timeline, threat ledger and recap
   card.
-- **Pixel fonts.** Pixelify Sans was dropped because its 2 and 5 read as S and 8, which is unacceptable for
-  countdowns. The mockups use Jersey 10.
+- **Type.** Pixelify Sans was dropped because its 2 and 5 read as S and 8, which is unacceptable for countdowns.
+  The revision below replaced the interim pixel font with condensed sans type.
 - **Pacing and planning:** playback speed and planning-screen conventions.
+
+## Revision: UI at twice the art resolution
+
+The first mockups drew world-space UI on the 16px art grid. That made glyphs 5–7 pixels wide, too few to tell a
+radio from a phone, and pushed the style toward chunky white-on-red stickers that read as cartoonish against the
+gritty tone (§1). The mockups now use:
+
+- **A UI layer at twice the art resolution.** World-space UI is drawn at 640×360 over the 320×180 art, so one UI
+  pixel is half an art pixel. Glyphs sit on an 11–13px grid. Frames are composed in four layers, as the game would
+  draw them: floor art, floor UI (tints, paths, rings, cones), actors, actor UI (plates, pips, markers). In Phaser
+  this means a UI camera or render texture at 2× the art, or UI sprites at 0.5 scale on a 2× canvas.
+- **A restrained style.** Hairline strokes with a 1px ink drop shadow instead of fat outlines. Muted signal colours
+  (sage, sodium amber, brick red, steel blue). Faint scanline fills where the edge carries the meaning. Dark plates
+  with a thin border in the signal colour instead of filled badges.
+- **The HUD to match.** Icons are on a 24px grid shown 1:1 (they were 12px shown at 2×). Portraits are 48px (they
+  were 24px), with a hard side light and four distinct masks: balaclava, hockey mask, skull bandana and respirator.
+  Panels are square-cornered with hairline borders. Type is Oswald for labels and numbers and Share Tech Mono for
+  small data.
 
 ## A conflict in the design document
 
