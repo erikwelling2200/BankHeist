@@ -22,6 +22,11 @@ export interface PropArt {
     flat?: boolean;
     /** Hung on the face of the wall in its tile (from the face's top edge), or sat on that wall's cap. */
     mount?: 'face' | 'cap';
+    /**
+     * Ground depth of the object's footprint, in pixels. Furniture that gives it is pushed back against any wall it
+     * borders, so a cabinet stands flush to the wall behind it instead of at the front edge of its tile.
+     */
+    depth?: number;
 }
 
 const glowOf = (b: PixelBitmap) => new PixelBitmap(b.width, b.height);
@@ -113,15 +118,16 @@ function counter(p: Extract<LobbyProp, { kind: 'counter' }>): PropArt {
 }
 
 function backCounter(p: Extract<LobbyProp, { kind: 'backCounter' }>): PropArt {
-    const w = p.width * TILE, h = 22;
+    // A credenza about 0.9m tall and 0.6m deep: a 6px top over a 10px drawer front.
+    const top = 6, front = 10, w = p.width * TILE, h = top + front;
     const b = new PixelBitmap(w, h);
     const rand = mulberry32(p.tx * 31 + 7);
-    for (let x = 0; x < w; x++) for (let y = 0; y < 6; y++) b.set(x, y, y === 0 ? PAL.walnut[5] : y === 5 ? PAL.walnut[2] : PAL.walnut[4], 0.9);
-    for (let y = 6; y < h; y++) for (let x = 0; x < w; x++) {
-        const drawer = x % TILE === 0 || y === 6 || y === 13;
+    for (let x = 0; x < w; x++) for (let y = 0; y < top; y++) b.set(x, y, y === top - 1 ? PAL.walnut[5] : y === 0 ? PAL.walnut[2] : PAL.walnut[4], 0.9);
+    for (let y = top; y < h; y++) for (let x = 0; x < w; x++) {
+        const drawer = x % (TILE / 2) === 0 || y === top || y === h - 1;
         b.set(x, y, drawer ? PAL.walnut[1] : PAL.walnut[3], drawer ? 0.55 : 0.65);
     }
-    for (let x = 6; x < w; x += TILE) { b.rect(x, 9, 4, 1, PAL.brass[4], 0.75); b.rect(x, 16, 4, 1, PAL.brass[4], 0.75); }
+    for (let x = 3; x < w; x += TILE / 2) b.rect(x, top + 3, 2, 1, PAL.brass[4], 0.75);
     // Clutter on top: paper stacks, a cash tray, a phone.
     for (let i = 0; i < p.width; i++) {
         const x = i * TILE + 2 + Math.floor(rand() * 6);
@@ -130,46 +136,52 @@ function backCounter(p: Extract<LobbyProp, { kind: 'backCounter' }>): PropArt {
         else if (pick < 0.7) { b.rect(x, 1, 7, 3, PAL.steel[2], 0.95); b.rect(x + 1, 2, 5, 1, PAL.cloth.olive[2]!, 0.96); }
         else { b.rect(x, 2, 4, 2, PAL.ink, 0.95); b.set(x + 1, 1, PAL.cloth.black[3]!, 0.97); }
     }
-    return { lit: b, shadow: { x: 0, y: h - 2, w, h: 4 } };
+    return { lit: b, depth: top, shadow: { x: 0, y: h - 2, w, h: 4 } };
 }
 
 function filingCabinet(): PropArt {
-    const b = new PixelBitmap(TILE, 26);
-    for (let y = 0; y < 26; y++) for (let x = 2; x < 14; x++) {
+    // About 1.3m tall and 0.6m deep: a 6px top over a three-drawer 13px front.
+    const top = 6, front = 13, h = top + front;
+    const b = new PixelBitmap(TILE, h);
+    for (let y = 0; y < h; y++) for (let x = 2; x < 14; x++) {
         let c = step(PAL.steel, x < 4 ? 4 : x > 11 ? 2 : 3);
-        if (y < 3) c = y === 0 ? PAL.steel[5] : PAL.steel[4];
-        if (y === 10 || y === 18) c = PAL.steel[1];
-        b.set(x, y, c, y < 3 ? 1 : 0.7);
+        if (y < top) c = y === top - 1 ? PAL.steel[5] : PAL.steel[4];
+        if (y === top + 4 || y === top + 8) c = PAL.steel[1];
+        b.set(x, y, c, y < top ? 1 : 0.7);
     }
-    for (const y of [6, 14, 22]) b.rect(6, y, 4, 1, PAL.steel[5], 0.8);
-    for (const y of [4, 12, 20]) b.rect(7, y, 2, 1, PAL.paper[3], 0.75);
-    return { lit: b, shadow: { x: 2, y: 24, w: 12, h: 3 } };
+    for (const y of [top + 2, top + 6, top + 10]) { b.rect(6, y, 4, 1, PAL.steel[5], 0.8); b.rect(7, y - 1, 2, 1, PAL.paper[3], 0.75); }
+    b.rect(4, 1, 5, 3, PAL.paper[2], 1);
+    return { lit: b, depth: top, shadow: { x: 2, y: h - 3, w: 12, h: 3 } };
 }
 
 function printer(): PropArt {
-    const b = new PixelBitmap(TILE, 26);
-    b.rect(2, 12, 12, 14, PAL.walnut[3], 0.6);
-    b.rect(2, 12, 12, 1, PAL.walnut[5], 0.8);
-    b.rect(3, 4, 10, 8, PAL.paper[1], 0.9);
-    b.rect(3, 4, 10, 2, PAL.paper[2], 1);
-    b.rect(5, 2, 6, 2, PAL.paper[3], 1);
-    b.rect(4, 8, 8, 1, PAL.ink, 0.8);
-    b.set(11, 6, PAL.emissive.ledGreen, 1);
-    return { lit: b, shadow: { x: 2, y: 24, w: 12, h: 3 } };
+    // A copier on a low stand: 0.7m stand, the machine on top, 0.6m deep.
+    const top = 6, h = 18;
+    const b = new PixelBitmap(TILE, h);
+    b.rect(2, 9, 12, 9, PAL.walnut[3], 0.6);
+    b.rect(2, 9, 12, 1, PAL.walnut[5], 0.8);
+    b.rect(3, 2, 10, 7, PAL.paper[1], 0.9);
+    b.rect(3, 2, 10, 3, PAL.paper[2], 1);
+    b.rect(5, 0, 6, 2, PAL.paper[3], 1);
+    b.rect(4, 6, 8, 1, PAL.ink, 0.8);
+    b.set(11, 4, PAL.emissive.ledGreen, 1);
+    return { lit: b, depth: top, shadow: { x: 2, y: h - 3, w: 12, h: 3 } };
 }
 
 function waterCooler(): PropArt {
-    const b = new PixelBitmap(TILE, 28);
-    b.rect(4, 12, 8, 16, PAL.paper[2], 0.7);
-    b.rect(4, 12, 8, 1, PAL.paper[3], 0.9);
-    b.rect(11, 12, 1, 16, PAL.paper[1], 0.65);
-    b.rect(6, 17, 1, 2, PAL.cloth.denim[3]!, 0.8);
-    b.rect(9, 17, 1, 2, PAL.cloth.burgundy[3]!, 0.8);
-    b.rect(5, 1, 6, 11, PAL.glass[3], 0.95);
-    b.rect(5, 1, 2, 11, PAL.glass[4], 1);
-    b.rect(6, 0, 4, 1, PAL.glass[2], 0.95);
-    b.rect(5, 4, 6, 1, PAL.glass[2], 0.9);
-    return { lit: b, shadow: { x: 3, y: 26, w: 10, h: 3 } };
+    // About 1.3m to the top of the bottle and 0.4m deep.
+    const h = 18;
+    const b = new PixelBitmap(TILE, h);
+    b.rect(5, 7, 7, 11, PAL.paper[2], 0.7);
+    b.rect(5, 7, 7, 1, PAL.paper[3], 0.9);
+    b.rect(11, 7, 1, 11, PAL.paper[1], 0.65);
+    b.set(7, 10, PAL.cloth.denim[3]!, 0.8);
+    b.set(9, 10, PAL.cloth.burgundy[3]!, 0.8);
+    b.rect(6, 1, 5, 6, PAL.glass[3], 0.95);
+    b.rect(6, 1, 2, 6, PAL.glass[4], 1);
+    b.rect(7, 0, 3, 1, PAL.glass[2], 0.95);
+    b.rect(6, 3, 5, 1, PAL.glass[2], 0.9);
+    return { lit: b, depth: 4, shadow: { x: 4, y: h - 3, w: 9, h: 3 } };
 }
 
 function crest(): PropArt {
@@ -368,16 +380,19 @@ function plant(seed: number): PropArt {
 }
 
 function brochureRack(): PropArt {
-    const b = new PixelBitmap(TILE, 24);
-    b.rect(3, 0, 10, 24, PAL.walnut[2], 0.6);
-    b.rect(3, 0, 10, 1, PAL.walnut[4], 0.8);
+    // About 1.5m tall and 0.3m deep, its shelves of leaflets facing the room.
+    const top = 3, h = 18;
+    const b = new PixelBitmap(TILE, h);
+    b.rect(3, 0, 10, h, PAL.walnut[2], 0.6);
+    b.rect(3, 0, 10, top, PAL.walnut[4], 0.8);
     const colors = [PAL.cloth.denim[3]!, PAL.paper[3], PAL.cloth.burgundy[3]!, PAL.cloth.teal[3]!, PAL.cloth.mustard[3]!, PAL.paper[2]];
     for (let row = 0; row < 3; row++) for (let col = 0; col < 2; col++) {
-        b.rect(4 + col * 5, 2 + row * 7, 3, 5, colors[row * 2 + col]!, 0.75);
-        b.hline(4 + col * 5, 2 + row * 7, 3, mix(colors[row * 2 + col]!, 0xffffff, 0.3), 0.77);
-        b.hline(4 + col * 5, 6 + row * 7, 4, PAL.walnut[1], 0.7);
+        const y = top + 1 + row * 5;
+        b.rect(4 + col * 5, y, 3, 3, colors[row * 2 + col]!, 0.75);
+        b.hline(4 + col * 5, y, 3, mix(colors[row * 2 + col]!, 0xffffff, 0.3), 0.77);
+        b.hline(4 + col * 5, y + 3, 4, PAL.walnut[1], 0.7);
     }
-    return { lit: b, shadow: { x: 3, y: 22, w: 10, h: 3 } };
+    return { lit: b, depth: top, shadow: { x: 3, y: h - 3, w: 10, h: 3 } };
 }
 
 function bin(): PropArt {

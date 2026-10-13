@@ -13,7 +13,8 @@ is agreed.
    south of the wall is open, under a cap the depth of the tile, both lifted so they overlap the floor (and anyone)
    up to 1.5 tiles behind the wall. Half-height objects such as the counter have a 15px front, so full walls and half
    cover read apart at a glance. The shop front is a thin wall of stone and see-through glass. People are 16x24 and
-   **stand in the middle of their tile**; depth follows each object's base line.
+   **stand in the middle of their tile**; depth follows each object's base line. Furniture is drawn to scale against
+   the 24px wall (1px is about 10cm) and stands flush against the wall it backs onto, not at the front of its tile.
 2. **Muted, hue-shifted ramps** (`src/art/palette.ts`). Darks drift cool, lights warm, the lightest steps desaturate.
    No pure black: the darkest colour is a cool ink. One ramp per material, so greens stay green.
 3. **Zones are drawn into the floor** (§8.1): cream marble and a red runner for Public, linoleum for Staff; concrete and

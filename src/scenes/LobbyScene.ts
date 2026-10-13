@@ -133,8 +133,7 @@ export class LobbyScene extends Phaser.Scene {
         LOBBY_PROPS.forEach((p, i) => {
             const art = propArt(p);
             const key = `lobby-prop-${i}`;
-            const left = p.tx * TILE + (art.offsetX ?? 0);
-            const bottom = (p.ty + 1) * TILE;
+            const { left, bottom } = this.placeProp(p.tx, p.ty, art);
             // Wall-mounted art hangs from the top of its wall's face or sits on its cap, just in front of the wall.
             const top = art.mount === 'face' ? bottom - WALL_HEIGHT : art.mount === 'cap' ? bottom - BLOCK_HEIGHT : bottom - art.lit.height;
             const depth = art.flat ? DEPTH.flat : DEPTH.standing + bottom + (art.mount ? 0.25 : 0);
@@ -149,6 +148,24 @@ export class LobbyScene extends Phaser.Scene {
             if (art.shadow) occluders.push(propOccluder(art, left, top));
         });
         return occluders;
+    }
+
+    /**
+     * Where a prop's bitmap goes: its bottom-left corner sits on the bottom-left of its tile, except that furniture with
+     * a footprint depth is pushed back flush against a wall to its north, and sideways against a wall to its west or east.
+     */
+    private placeProp(tx: number, ty: number, art: PropArt): { left: number; bottom: number } {
+        let left = tx * TILE + (art.offsetX ?? 0);
+        let bottom = (ty + 1) * TILE;
+        if (art.depth === undefined) return { left, bottom };
+        const wallAt = (x: number, y: number) => { const t = this.tiles[y]?.[x]; return t !== undefined && isStructure(t); };
+        if (wallAt(tx, ty - 1)) bottom = ty * TILE + art.depth;
+        if (art.lit.width === TILE) {
+            const columns = [...Array(TILE).keys()].filter(x => [...Array(art.lit.height).keys()].some(y => art.lit.opaque(x, y)));
+            if (wallAt(tx - 1, ty)) left = tx * TILE - columns[0]!;
+            else if (wallAt(tx + 1, ty)) left = tx * TILE + TILE - 1 - columns.at(-1)!;
+        }
+        return { left, bottom };
     }
 
     private buildPeople(): Occluder[] {
