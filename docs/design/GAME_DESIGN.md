@@ -112,7 +112,7 @@ design sharpens it. Each change below is deliberate and can be reversed by the d
 | Release a commanded NPC to reduce heat. | Kept: −3 heat ticks, **at most once per turn and three times per heist**, and only at an exit the police control. The released hostage tells the police where they saw the crew. | Released hostages leave the map, so this is never infinite. But a busy bank holds 15–25 people, and at −3 ticks each that is 45–75 ticks: enough to hold heat at level 1 for the whole loud phase and remove the pressure. The cap keeps releases a tactical choice rather than a way to switch heat off [R25]. |
 | Small chance an NPC is armed. | Armed civilians are **decided when the bank is generated** and look like everyone else. A **frisk** finds them, and they need one **telegraphed turn** to draw before they shoot. | They exist to make crowd control matter: any uncontrolled civilian might be the one who draws, and shooting him escalates the situation. The draw turn keeps it fair without giving him away beforehand (director's decision) [R28]. |
 | (not in brief) | Added: **masks**, **disguises** (staff and guard uniforms, confirmed by the director), **Notoriety** per crew member, **radio check-ins**, **wounds and blood trails**, and a **takeover (GO) turn**. | Each one ties an existing system (conspicuousness, the alarm, heat) to the campaign or the core fantasy. |
-| Campaign (director's answer) | A known final target, attempted whenever the player chooses. Money buys gear, prep missions give finale advantages, and **the Squeeze** adds accelerating complications as days pass (§19). | The tension between preparation and taking too long is the campaign's core decision. |
+| Campaign (director's answer) | A known final target, attempted whenever the player chooses. Money buys gear, side objectives, casing and contacts give finale advantages, and **the Squeeze** adds accelerating complications as days pass (§19). | The tension between preparation and taking too long is the campaign's core decision. |
 
 ---
 
@@ -203,7 +203,7 @@ These words mean exactly one thing everywhere: UI, tutorial, code and this docum
 
 ```
 Campaign (about 8–15 days, 5–10 h)
- └─ City map, one action per day: contract, prep mission, case, lay low; recruit and shop for free
+ └─ City map, one action per day: contract, case, lay low; recruit and shop for free
      · The Big One can be launched on any day: the final, single attempt
      └─ Heist (20–40 min)
          ├─ Planning screen: starts, loadouts, positional assets, getaway spot
@@ -658,7 +658,7 @@ profile rules still apply to anything visible on top. A disguised crew member's 
 | --- | --- | --- | --- |
 | **Staff** | Break room at shift change, the Staff uniforms asset, an insider | The Staff zone counts as Public. | The manager and the security chief (in Core view): trespass. |
 | **Guard** | Taken from a knocked-out or tied guard: 2 actions, adjacent, out of everyone's sight | The Staff zone counts as Public. In the Secure zone, staff give +1 instead of `!`, and cameras ignore them. A holstered pistol counts as Clean. | Any guard within 2 tiles in Core view ("You're not Dave."): `!`. The security chief at any range in Core view. |
-| **Courier** | The *Hijack an armoured truck* prep mission (finale only) | Enter the loading bay during the transfer as couriers. | As guard. |
+| **Courier** | The *courier van* side objective (finale only, §19.5) | Enter the loading bay during the transfer as couriers. | As guard. |
 
 - **Changing** into a uniform takes 2 actions and must happen out of every NPC's sight. The stripped guard left
   behind is major evidence (§8.10).
@@ -1487,7 +1487,7 @@ dark, so no codes either.
 - **Drill choices** (planning assets): **Silent** (noise 3, +50% time), **Beast** (never jams, +50% time).
 - Drilling or burning a Class II+ vault adds +1 heat tick per phase once the Alarm is up.
 - **Deposit boxes:** lockpick each box (2 actions, Steady Hands 1; Light loot) or drill the whole wall (4 phases). One random box per
-  campaign bank holds **intel**, such as documents a prep mission needs (§19.5).
+  campaign bank holds **intel**, such as the depot's blueprints for the finale (§19.5).
 
 ### 15.4 The getaway
 
@@ -1766,12 +1766,12 @@ more than about 60% of winning plans [R47].
 ## 19. The campaign: the road to The Big One
 
 The campaign is a race. The player knows the final target from day one and can attack it **whenever they choose**.
-Every other job is preparation: money for better gear, and prep missions that give **tangible advantages** in the
-finale. Waiting costs more and more: a campaign clock, **the Squeeze**, adds complications to the finale, each step
+Every other job is preparation: money for better gear, and **tangible advantages** in the finale from side
+objectives, casing and contacts (§19.5). Waiting costs more and more: a campaign clock, **the Squeeze**, adds complications to the finale, each step
 arriving sooner than the last. The game is the balance between being ready and being too late [R48].
 
 ```
-Day 1 ──► [contract | prep mission | case | recruit | lay low] ──► … ──► THE BIG ONE (any day you choose)
+Day 1 ──► [contract | case | recruit | lay low] ──► … ──► THE BIG ONE (any day you choose)
             money → gear     advantages     intel                         win or lose: the campaign ends
                     ▲                                                     unprepared crews don't come back
                     └── every day and every messy job tightens the Squeeze → complications on the finale
@@ -1786,10 +1786,11 @@ Day 1 ──► [contract | prep mission | case | recruit | lay low] ──► �
 - **The finale can be launched from the city map on any day.** It is a single attempt. Win or lose, the campaign
   ends.
 - The finale is a **hand-authored site** with population and schedule variation (§17.3, Reserve depot). Each Defence
-  is a real, tuned obstacle. **An unprepared crew should not get out alive**: a crew with starter gear and no prep
+  is a real, tuned obstacle. **An unprepared crew should not get out alive**: a crew with starter gear and no finale
   advantages faces a Class III vault with seismic and motion sensors, an on-site armed response team, police in 3
   turns and a helicopter from Heat 3.
-- The dossier shows, next to each Defence, which prep mission or gear counters it. "Ready" is something the player
+- The dossier shows, next to each Defence, which side objective, casing find, purchase or gear
+  counters it. "Ready" is something the player
   can read, not a guess.
 
 **Endings:**
@@ -1837,7 +1838,7 @@ worth more late, too.
 - The task force tails the crew: Notoriety +2 for the crew member with the most.
 - The fence gets nervous: fence cut +15%.
 - A city checkpoint closes one finale getaway route.
-- A snitch burns one prep advantage, chosen at random from those not yet used.
+- A snitch burns one finale advantage, chosen at random from those not yet used.
 - The armed response team doubles.
 
 **The final threshold (38 points) is "The Raid."** The task force raids the safehouse: a forced escape mission. A
@@ -1853,14 +1854,14 @@ nothing, or without crew members.
 | --- | --- | --- | --- | --- |
 | **Low** | Small branch, ATM service run | 2–3 | $40–90k | Police ETA 8, 1 guard, Class M vault |
 | **Medium** | City branch | 3–4 | $120–250k | ETA 6, operator, Class I–II, dye packs |
-| **High** | Regional HQ, armoured-car interception | 4–5 | $300–600k | ETA 4, security chief, Class II–III, response time scaled up |
+| **High** | Regional HQ | 4–5 | $300–600k | ETA 4, security chief, Class II–III, response time scaled up |
 
 - **Failure loses the gear brought in**, and any crew left behind (§19.6). A failed high-stakes job can cost the
   best rifles, the heavy armour and two crew members in one afternoon.
 - **Chain escalation:** after a heist on one branch, the chain's other branches add a security step.
 - Contracts refresh as days pass. Some expire, which forces choices between them.
 - **Other day actions:** **case a bank** (1 day: one Clean crew member's no-combat visit fills in casing knowledge
-  for that contract), **lay low** (1 day: injured crew heal and Notoriety decays). **Recruiting** and **shopping** take
+  for that contract, or of the depot; §19.5), **lay low** (1 day: injured crew heal and Notoriety decays). **Recruiting** and **shopping** take
   no time.
 
 ### 19.4 Money and gear
@@ -1869,8 +1870,8 @@ nothing, or without crew members.
   wash; $150k each) adds $60k per day. A **fence** launders instantly for a 50% cut.
 - **The crew take a share** of each job (8–20% each, set at recruitment). A bigger crew means smaller shares.
 - **The black market** sells everything in §12: weapons, armour, gadgets, charges, drills, vehicles. Its higher
-  tiers (thermal lance, heavy armour, DMR, LMG) open as the crew makes **contacts**, from high-stakes jobs and some
-  prep missions. Gear is kept between jobs unless it is lost.
+  tiers (heavy armour, DMR, LMG) open with the crew's first **contact**: one per successful high-stakes job, plus the
+  odd one from a motive or a style (§19.6, §19.8). Each contact also unlocks one finale purchase (§19.5). Gear is kept between jobs unless it is lost.
 - **Black-market prices** (starting values): pistol $2k, machine pistol $5k, SMG $8k, shotgun $10k, AR $15k,
   DMR $25k, LMG $40k; light vest $5k, medium armour $15k, heavy armour $40k; hacking kit $10k, lockpick set $2k,
   drill $20k, breach charge $3k, shaped charge $6k, thermite $8k, flashbang $1k, ammo bag $2k, medkit $1k. Recruits
@@ -1878,36 +1879,51 @@ nothing, or without crew members.
 - **Better gear changes options, not HP:** slugs that answer shields, a suppressed SMG for quiet loud phases, heavy
   armour for the drill defence, a jammer, extra charges.
 
-### 19.5 Prep missions
+### 19.5 Finale advantages
 
-**Prep missions** are 1-day jobs on smaller sites built with the same systems and parcels (§17): an office, a yard,
-a street ambush, a records room. Each grants one **finale advantage** that counters a specific Defence on the
-dossier. A failed prep mission adds Squeeze and may be lost for good.
+A **finale advantage** counters one specific Defence on the dossier. There are **no dedicated prep levels**: every
+advantage comes from something the game already has, so the finale needs no extra environments. There are three
+sources.
 
-**Every prep mission is a playable level**, never a dice roll. It is shorter than a heist (about 10–20 minutes) and
-built around one objective instead of a loot target: steal an item, plant something, photograph or copy documents,
-follow and corner a person, or ambush a vehicle. Succeeding means completing the objective and getting out. The same
-rules apply: heat if it goes loud, Notoriety for unmasked crew who are seen, injuries and arrests. Some objectives
-fail if the alarm is raised (a blackmail target who gets spooked, documents moved once the alarm sounds), so stealth
-matters more here. Prep missions **don't pay**; the day without income is their cost.
+**1. Side objectives in bank contracts.** Some contracts on the city map are marked **"also holds …"**. The side
+objective sits somewhere in that bank, placed by the generator like any other key-graph objective (§17). It costs no
+extra day, only **time and risk inside the heist**: a detour into the manager's office, a deposit box to find, a
+delivery to wait for. It counts once the crew member carrying it gets out, even if the job itself fails. Some fail
+if the Alarm fires first (the documents are moved, the manager locks the safe), so stealth matters more on these
+jobs. A missed side objective can come back once, on a later contract.
 
-| Prep mission | Site | Finale advantage |
+| Side objective | Where it is in the bank | Finale advantage |
 | --- | --- | --- |
-| **Steal the blueprints** | Architect's office, after hours | Full layout and wall materials known from the start. |
-| **Case the depot** | The depot's public visitor hall; one Clean crew member, no combat | Guard rota, camera feeds and the transfer schedule known. |
-| **Turn an insider** | Follow and blackmail a depot employee (social mission in a bar or home) | One employee unlocks a staff door and won't raise the alarm. |
-| **Steal a thermal lance** | Construction company yard | Vault door opens in 4 phases, without triggering the seismic sensor. |
-| **Hijack an armoured truck** | Street ambush on the transfer route | Drive into the loading bay as the transfer, with 2 guard uniforms. |
-| **Raid the dispatch office** | Police substation records room | Finale police ETA +3, and the first assault delayed by 2 turns. |
-| **Map the sewers** | Utility depot | A sewer approach and an escape exit at the depot. |
-| **Take the high ground** | Office tower opposite the depot | A raised sniper position over the depot yard. |
-| **Plant the charges** | Night break-in next door | Shaped charges pre-placed on the depot's outer wall. |
-| **Discredit the security chief** | Documents from a deposit box at a specific bank (a regular heist with a side objective) | The security chief is absent on the day. |
-| **Get half the code** | The manager's home safe | One half of the dual-control code. |
-| **Stash a second getaway** | Garage job | A backup getaway car, and one finale roadblock doesn't happen. |
+| **The blueprints** | A deposit box: the depot's architect banks here. | Full layout and wall materials known from the start. |
+| **Blackmail material** | The manager's office files, on a depot employee who banks here. Moved if the Alarm fires. | One depot employee unlocks a staff door and won't raise the alarm. |
+| **Half the code** | The manager's office safe at a specific branch: the manager's keycard, or cracked. Locked if the Alarm fires. | One half of the depot's dual-control code. |
+| **The security chief's dirt** | A deposit box. | The security chief is absent on the day. |
+| **The courier van** | The bank's armoured-car event (§16.3): take down the couriers and leave in their armoured car. | Drive into the loading bay as the transfer, with 2 courier uniforms. |
 
-Not every prep mission is offered in every campaign. 6–8 are drawn, enough for several valid finale plans but not
-all of them.
+Side objectives come with the contracts, so they are not all on offer at once and some expire with their contract.
+
+**2. Casing the depot.** The **case** day action (§19.3) works on the finale target too: one Clean crew member, no
+combat, in the depot's public visitor hall and forecourt, on the same hand-authored map the finale uses. Each visit
+takes 1 day and shows only part of what can be seen from the public areas, so seeing all of it takes two visits.
+
+| What the visitor sees | Finale advantage |
+| --- | --- |
+| Guard posts and the rota board | Guard rota known from the start. |
+| The camera layout | Camera positions and coverage known. |
+| The transfer van arriving | The transfer schedule known. |
+| The maintenance hatch in the yard | A sewer approach and an escape exit at the depot. |
+
+**3. Purchases through contacts.** Each successful high-stakes job earns a **contact** (§19.4). Each contact unlocks
+**one** of these purchases, chosen by the player, so the number of purchased advantages mostly follows the number of
+high-stakes successes.
+
+| Purchase | Price | Finale advantage |
+| --- | --- | --- |
+| **Thermal lance** | $80k | Vault door opens in 4 phases, without triggering the seismic sensor. |
+| **A bent dispatcher** | $100k | Finale police ETA +3, and the first assault delayed by 2 turns. |
+| **Rooftop rental** | $40k | A raised sniper position over the depot yard. |
+| **Charges planted the night before** | $60k | Shaped charges pre-placed on the depot's outer wall. |
+| **A second getaway car** | $50k | A backup getaway car, and one finale roadblock doesn't happen. |
 
 ### 19.6 Crew: hiring, injury, arrest, death
 
@@ -1942,8 +1958,8 @@ whoever did every job.
 
 ### 19.8 Styles
 
-The debrief lists every **style** the crew earned. Each pays a one-time bonus (a payout percentage, or a contact for
-the black market) per contract tier, so every way of playing is rewarded on its own terms [R46]:
+The debrief lists every **style** the crew earned. Each pays a one-time bonus (a payout percentage, or, on high-stakes
+jobs, a contact for the black market) per contract tier, so every way of playing is rewarded on its own terms [R46]:
 
 | Style | Condition |
 | --- | --- |
@@ -1984,26 +2000,29 @@ The campaign must make **preparation versus time** a real decision: a crew that 
 should **not** be ready for The Big One before the clock runs out, and neither should one that only takes
 medium-stakes jobs. Getting ready should take **at least two or three successful high-stakes jobs**. Starting numbers to check against in playtesting:
 
-**What "ready" costs:** about **$1.2M** on top of the starting kit: gear for a crew of 4–5 (about $600k: heavy and
+**What "ready" costs:** about **$1.6M** on top of the starting kit: gear for a crew of 4–5 (about $600k: heavy and
 medium armour for everyone going in, an LMG, a DMR, ARs, slugs, plenty of charges, a hacking kit, a drill), extra
-recruits (about $100k), one or two fronts so the money can be laundered in time ($150–300k), plus finale planning
-assets and replacing gear lost along the way (about $250k). Readiness also needs **4–5 prep missions**, which pay nothing.
+recruits (about $100k), one or two fronts so the money can be laundered in time ($150–300k), **two or three
+purchased finale advantages** (about $200k, §19.5), plus finale planning assets and replacing gear lost along the way
+(about $400k). Side objectives and casing the depot add advantages for no money, at the cost of risk inside heists
+and one or two casing days.
 
 **How much time there is:** the Raid lands on about day 19 (§19.2), and the finale is realistically attempted around
-day 15–16, before the last complications pile up. Minus 4–5 prep days and a lay-low or two, that leaves about **10
-contract days**.
+day 15–16, before the last complications pile up. Minus one or two days casing the depot and a lay-low, that leaves
+about **13 contract days**.
 
 **Expected net income per contract day** (after crew shares, allowing for failed jobs):
 
-| Stakes | Net per job | Failure risk | Expected per day | Over 10 days | Ready? |
+| Stakes | Net per job | Failure risk | Expected per day | Over 13 days | Ready? |
 | --- | --- | --- | --- | --- | --- |
-| Low | ~$45k | ~10% | ~$40k | ~$400k | **No**: a third of the target. |
-| Medium | ~$115k | ~20% | ~$90k | ~$900k | **No**: about three quarters, even with no failures ($1.15M). |
-| High | ~$250k | ~35%, plus lost gear and crew | ~$150k | ~$1.5M | **Yes, early** (day 11–13), if it doesn't go wrong. |
+| Low | ~$45k | ~10% | ~$40k | ~$520k | **No**: a third of the target. |
+| Medium | ~$115k | ~20% | ~$90k | ~$1.2M | **No**: three quarters, and still short with no failures ($1.5M). Hardly any contacts either, so few purchased advantages. |
+| High | ~$250k | ~35%, plus lost gear and crew | ~$150k | ~$1.95M | **Yes, early** (around day 12), if it doesn't go wrong. |
 
-The intended path is **mostly medium jobs plus two or three successful high-stakes jobs** (for example 7 medium and 2
-high successes: about $1.3M). Low stakes only buy time between bigger jobs; high stakes are the only way to close the
-gap, and they risk the gear and crew the finale needs. If playtests show low- or medium-only crews reaching the finale
+The intended path is **mostly medium jobs plus two or three successful high-stakes jobs**. For example 10 medium jobs
+(about $0.9M after a failure or two) and 3 high-stakes attempts with 2–3 successes ($0.5–0.75M): $1.4–1.65M and 2–3
+contacts, just about ready. Low stakes only buy time between bigger jobs; high stakes are the only way to close the
+gap and the main source of contacts, and they risk the gear and crew the finale needs. If playtests show low- or medium-only crews reaching the finale
 prepared, lower those payouts or raise finale costs before touching the clock.
 
 ---
@@ -2160,11 +2179,11 @@ next starts.
 | **M3 Loud** | Cones, random spread within the arc, cover, armour and pierce, penetration, the shot preview, Watch, Suppress, downed and arrested, police staging, rhythm, heat, negotiation, release and trade, getaway and escape, the outcome screen. | Loud is a tactical game, not a losing state. |
 | **M4 Sandbox v1** | Breach and shaped charges, barricade, reinforce, blinds, tripwire, the ram truck, the sniper nest, power and generator, the planning screen with assets and starts. | Plans made on the planning screen pay off in play. |
 | **M5 Procedural banks** | Plots, archetypes, parcels, key graph, population and schedule, opportunities, validation, knowledge layers, seeds. | Generated banks are plannable and varied. |
-| **M6 Campaign** | City map and day actions, contracts by stakes, money and laundering, the black market, crew, Notoriety, styles, chain escalation, **the Squeeze and its complications**, prep missions on small sites. | The preparation-versus-time decision is tense every day. |
-| **M7 The Big One** | The hand-authored depot with its Defences, the dossier, prep advantages wired into the finale, endings, the Raid mission, carry-over and unlocks. | An unprepared crew dies there; a prepared crew has several plans that work. |
+| **M6 Campaign** | City map and day actions, contracts by stakes, money and laundering, the black market, crew, Notoriety, styles, chain escalation, **the Squeeze and its complications**, side objectives in contracts, casing the depot, contact purchases. | The preparation-versus-time decision is tense every day. |
+| **M7 The Big One** | The hand-authored depot with its Defences, the dossier, finale advantages wired in, endings, the Raid mission, carry-over and unlocks. | An unprepared crew dies there; a prepared crew has several plans that work. |
 
 **Deliberately v2 or later:** fire alarm and firefighters, crew pairs, a nemesis SWAT commander, real
-multiple floors (basements, a vault under the lobby, upper storeys), armoured-truck and casino contracts, a daily or shared-seed challenge (only if it is a
+multiple floors (basements, a vault under the lobby, upper storeys), dedicated prep missions on their own small sites, armoured-truck and casino contracts, a daily or shared-seed challenge (only if it is a
 challenge, never a login reward), and any multiplayer.
 
 **Cut first if needed:** the security chief's face memory, dye packs, the hero trait, crew personal motives.
@@ -2177,8 +2196,8 @@ challenge, never a login reward), and any multiplayer.
 
 1. **Heat before the Alarm:** none. The bank's schedule and the closing sweep are the pressure before it (§2, §13).
 2. **Losing crew:** arrest-first by default; permadeath is an option (§19.6, §19.9).
-3. **Campaign:** a known final target the player can attack at any time. Money buys gear, prep missions give finale
-   advantages, and the accelerating Squeeze punishes waiting; higher stakes earn faster but risk more (§19).
+3. **Campaign:** a known final target the player can attack at any time. Money buys gear; side objectives, casing and
+   contacts give finale advantages, and the accelerating Squeeze punishes waiting; higher stakes earn faster but risk more (§19).
 4. **Disguises:** in. Staff, guard and courier uniforms (§8.14).
 5. **Tone:** gritty, Hotline Miami-style violence. Visible wounds, blood trails, and the arc from a confident,
    professional crew to a desperate scramble back to the van (§1, §11.12).
