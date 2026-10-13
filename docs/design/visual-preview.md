@@ -19,10 +19,10 @@ is agreed.
    and height, an elevation if it hangs, and an alignment within its tiles (centred, against an edge or corner, or on
    the line between two tiles via a two-tile span). Wall dressing stands on the floor tile in front of its wall,
    aligned north, at its height. The scene places, orders, shades and lets each box block the sun from those numbers;
-   a test checks that no two boxes intersect and nothing stands inside a wall. **Every prop has four facings**: it
-   is a small 3D model of boxes with a texture per face, and one renderer (`src/art/bank/model.ts`) turns it to face
-   south, east, north or west, drawing the top of each part and the face that points at the camera, nearest wins.
-   `/?scene=props` shows them all. ([sheet](../pixel-art/examples/props-four-facings.png): south, east, north, west.)
+   a test checks that no two boxes intersect and nothing stands inside a wall. **Every prop has four facings**, each
+   drawn by hand as pixel art on a `View` that knows the projection, from one set of measurements per object so the
+   views agree (the van in `src/art/bank/van.ts` is the first; simpler furniture is still rendered from box models
+   until it is redrawn). `/?scene=props` shows them all. ([sheet](../pixel-art/examples/props-four-facings.png): south, east, north, west.)
 3. **Muted, hue-shifted ramps** (`src/art/palette.ts`). Darks drift cool, lights warm, the lightest steps desaturate.
    No pure black: the darkest colour is a cool ink. One ramp per material, so greens stay green.
 4. **Zones are drawn into the floor** (§8.1): cream marble and a red runner for Public, linoleum for Staff; concrete and

@@ -1,14 +1,25 @@
 import type Phaser from 'phaser';
 import { buildNormalMap } from '../logic/normalMap';
 
-/** A colour + height bitmap that is turned into a Phaser texture with a linked normal map. Unpainted pixels stay transparent. */
+/**
+ * A colour + height bitmap that is turned into a Phaser texture with a linked normal map. Unpainted pixels stay
+ * transparent. The normal map comes from the heights, except where a pixel was given its own normal (`setNormal`),
+ * as rendered 3D props do.
+ */
 export class PixelBitmap {
     readonly colors: Uint8ClampedArray;
     readonly heights: Float32Array;
+    /** Explicit screen-space normals, three per pixel (x right, y down, z towards the viewer); NaN where unset. */
+    readonly normals: Float32Array;
 
     constructor(readonly width: number, readonly height: number) {
         this.colors = new Uint8ClampedArray(width * height * 4);
         this.heights = new Float32Array(width * height);
+        this.normals = new Float32Array(width * height * 3).fill(NaN);
+    }
+
+    setNormal(x: number, y: number, nx: number, ny: number, nz: number): void {
+        this.normals.set([nx, ny, nz], (y * this.width + x) * 3);
     }
 
     inBounds(x: number, y: number): boolean {
@@ -44,6 +55,7 @@ export class PixelBitmap {
         const i = y * this.width + x;
         this.colors.fill(0, i * 4, i * 4 + 4);
         this.heights[i] = 0;
+        this.normals.fill(NaN, i * 3, i * 3 + 3);
     }
 
     rect(x: number, y: number, w: number, h: number, color: number, height: number): void {
@@ -76,11 +88,24 @@ export class PixelBitmap {
 
     addTo(textures: Phaser.Textures.TextureManager, key: string): Phaser.Textures.Texture {
         const color = toCanvas(this.colors, this.width, this.height);
-        const normal = toCanvas(buildNormalMap(this.heights, this.width, this.height), this.width, this.height);
+        const normal = toCanvas(this.normalMap(), this.width, this.height);
         const texture = textures.addCanvas(key, color);
         if (!texture) throw new Error(`Failed to create texture '${key}'`);
         texture.setDataSource(normal);
         return texture;
+    }
+
+    /** RGBA normal map: from the heights, overridden by explicit normals (encoded the same way, +Y up for WebGL). */
+    normalMap(): Uint8ClampedArray {
+        const map = buildNormalMap(this.heights, this.width, this.height);
+        for (let i = 0; i < this.width * this.height; i++) {
+            const nx = this.normals[i * 3]!;
+            if (Number.isNaN(nx)) continue;
+            map[i * 4] = Math.round((nx * 0.5 + 0.5) * 255);
+            map[i * 4 + 1] = Math.round((-this.normals[i * 3 + 1]! * 0.5 + 0.5) * 255);
+            map[i * 4 + 2] = Math.round((this.normals[i * 3 + 2]! * 0.5 + 0.5) * 255);
+        }
+        return map;
     }
 }
 

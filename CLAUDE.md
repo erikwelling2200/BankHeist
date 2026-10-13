@@ -36,11 +36,13 @@ Top-down 2D pixel-art stealth game. Phaser 4 + TypeScript + Vite, shipped as an 
   can replace it by loading PNGs plus `-n.png` normal maps in a preload scene and keeping the `TEX` keys.
 - Every object is a box at a real scale (`src/level/space.ts`: 1px ≈ 8cm, people 1.75m, walls cut at 1.9m). Before
   drawing a new item, give it a `CATALOG` entry in `src/level/catalog.ts`: real width, depth and height, elevation if
-  mounted, where it stands (centred, against which edge, between two tiles) and which way it faces. Props are 3D
-  models of boxes in their own frame (`src/art/bank/props.ts`, rendered by `model.ts`), so every prop exists in all
-  four facings; give each face of each part its texture, not just the front. Check new props on `/?scene=props`, which
-  shows every prop facing south, east, north and west. The scene places and orders each prop from its box; tests
-  reject boxes that intersect each other or a wall.
+  mounted, where it stands (centred, against which edge, between two tiles) and which way it faces. Every prop needs
+  all four facings, each **drawn by hand as pixel art** on a `View` (`src/art/bank/view.ts`), which knows the
+  projection so each view fits the object's box; take every view's geometry from one set of measurements, as
+  `src/art/bank/van.ts` does, so the four agree. (Simple furniture is still rendered from box models by `model.ts`
+  until it is redrawn; don't extend that renderer into curved shapes: it leads to a voxel look.) Check props on
+  `/?scene=props`, which shows each facing south, east, north and west. The scene places and orders each prop from its
+  box; tests reject boxes that intersect each other or a wall.
 - Before generating or restyling art, read `docs/pixel-art/PROMPTING.md` (rules) and `docs/pixel-art/README.md`
   (findings, example scripts in `scripts/pixel-art/`).
 - Camera post-processing (bloom, vignette) lives in `VaultScene.create`. Phaser's vignette goes near black at its

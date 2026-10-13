@@ -68,7 +68,8 @@ export type LobbyProp = Placed & (
     | { kind: 'writingDesk' | 'sofa' | 'coffeeTable' | 'plant' | 'waterCooler' | 'bin' | 'brochureRack' | 'mat' }
     | { kind: 'clock' | 'crest' | 'painting' | 'noticeBoard' | 'exitSign' | 'keycardLed' | 'atmScreen' | 'camera' }
     | { kind: 'filingCabinet' | 'printer' }
-    | { kind: 'streetLamp' | 'hydrant' | 'newsBox' | 'streetBin' | 'manhole' | 'bollard' | 'van' }
+    | { kind: 'streetLamp' | 'hydrant' | 'newsBox' | 'streetBin' | 'manhole' | 'bollard' }
+    | { kind: 'van' }
 );
 
 export const LOBBY_PROPS: LobbyProp[] = [

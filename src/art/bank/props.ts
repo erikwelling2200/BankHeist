@@ -1,9 +1,10 @@
 import { TILE } from '../../level/level';
 import type { LobbyProp } from '../../level/lobby';
-import { px, type Facing, type Size } from '../../level/space';
+import type { Facing, Size } from '../../level/space';
 import { PAL, mix, step } from '../palette';
 import { mulberry32 } from '../random';
 import { renderModel, type Model, type Part, type PropArt, type Tex } from './model';
+import { vanArt } from './van';
 
 export type { PropArt } from './model';
 
@@ -413,46 +414,8 @@ function manhole(s: Size): Model {
     return { parts: [box(0, 0, 0, s.w, s.d, 0, { top, bump: { top: 0.4, face: 0.4 } })] };
 }
 
-/**
- * The crew's panel van. Its front is its nose, so its length runs along y: the cargo box at the back is the full
- * 2.3m, then the cab (1.9m) with its windscreen, then the bonnet (1.1m). Wheels sit flush in its sides.
- */
-function van(s: Size): Model {
-    const body = PAL.concrete;
-    const bonnetZ = px(1.1), cabZ = px(1.9), bonnetD = 11, cabD = 7, cargoD = s.d - bonnetD - cabD;
-    const band = (z: number, h: number) => (h - z < 2 ? body[3]! : z <= 4 ? PAL.steel[1] : z < 8 ? body[1]! : body[2]!);
-    // A side seen from outside: `fromBack` turns u into the distance from the van's back.
-    const cargoSide = (fromBack: (u: number) => number): Tex => (u, v) => {
-        const b = fromBack(u), z = s.h - v;
-        if (b === 1) return body[1]!;
-        if (z === 19 && b >= 6 && b < 24) return mix(body[2]!, PAL.cloth.navy[3]!, 0.6);
-        if (z === 16 && b >= 6 && b < 18) return mix(body[2]!, PAL.cloth.navy[3]!, 0.4);
-        if (z === 13 && b === 27) return PAL.steel[1];
-        return band(z, s.h);
-    };
-    const cabSide: Tex = (_u, v) => (v >= 2 && v < 8 ? (v === 2 ? PAL.glass[3] : PAL.glass[1]) : band(cabZ - v, cabZ));
-    const parts: Part[] = [
-        box(0, 0, 0, s.w, cargoD, s.h, {
-            top: (u, v) => (u === 0 || u === s.w - 1 ? body[3]! : v % 6 === 4 ? body[3]! : body[5]!),
-            back: (u, v) => (u === Math.floor(s.w / 2) ? body[1]! : (u === 1 || u === s.w - 2) && v === 18 ? PAL.carpet[3] : band(s.h - v, s.h)),
-            left: cargoSide(u => u),
-            right: cargoSide(u => cargoD - 1 - u),
-            front: body[3]!
-        }),
-        box(0, cargoD, 0, s.w, cabD, cabZ, { top: (_u, v) => (v >= cabD - 3 ? PAL.glass[2] : body[4]!), left: cabSide, right: cabSide, front: PAL.glass[2] }),
-        box(0, cargoD + cabD, 0, s.w, bonnetD, bonnetZ, {
-            top: body[4]!,
-            front: (u, v) => ((u === 1 || u === s.w - 2) && v === 4 ? PAL.paper[3] : v >= 5 && v < 9 && u > 3 && u < s.w - 4 ? PAL.steel[1] : band(bonnetZ - v, bonnetZ)),
-            sides: (_u, v) => band(bonnetZ - v, bonnetZ)
-        })
-    ];
-    // Wheels: 0.7m across, set into both sides under the cargo box and behind the bonnet.
-    const wheel: Tex = (u, v) => (!inEllipse(u, v, 4.5, 4.5, 4.5, 4.5) ? null : inEllipse(u, v, 4.5, 4.5, 2.2, 2.2) ? (u === 4 && v === 4 ? PAL.steel[1] : PAL.steel[3]) : PAL.ink);
-    for (const y of [6, cargoD + cabD - 2]) for (const x of [0, s.w - 1]) parts.push(box(x, y, 0, 1, 9, 9, { left: wheel, right: wheel, front: none, back: none, top: none }));
-    return { parts };
-}
-
-function model(p: LobbyProp, s: Size): Model {
+/** Props built as box models; the van is drawn by hand (van.ts). */
+function model(p: Exclude<LobbyProp, { kind: 'van' }>, s: Size): Model {
     switch (p.kind) {
         case 'counter': return counter(p, s);
         case 'backCounter': return backCounter(p, s);
@@ -481,11 +444,11 @@ function model(p: LobbyProp, s: Size): Model {
         case 'streetBin': return streetBin(s);
         case 'bollard': return bollard(s);
         case 'manhole': return manhole(s);
-        case 'van': return van(s);
     }
 }
 
 /** Draws a prop of catalog size `s` (in its own frame) turned to `facing`. */
 export function propArt(p: LobbyProp, s: Size, facing: Facing): PropArt {
+    if (p.kind === 'van') return vanArt(s, facing);
     return renderModel(model(p, s), s, facing);
 }
