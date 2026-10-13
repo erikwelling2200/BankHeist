@@ -31,8 +31,8 @@ export const CATALOG: Record<LobbyProp['kind'], ItemSpec> = {
     keycardLed: { size: fixed(0.08, 0.08, 0.08), alignX: 'east', alignY: 'north', elevation: px(1.0) },
     // The ATM's screen, on the street side of the shop front.
     atmScreen: { size: fixed(0.6, 0.08, 0.3), alignY: 'north', elevation: px(1.1) },
-    // A box camera on a wall bracket, looking out of the wall it hangs on.
-    camera: { size: fixed(0.6, 0.3, 0.3), elevation: px(1.8) },
+    // A box camera on a wall bracket, its housing longer than it is wide, looking out of the wall it hangs on.
+    camera: { size: fixed(0.3, 0.6, 0.3), elevation: px(1.8) },
     // A run of stanchions across its width, from the middle of its first tile to the middle of its last: posts 0.95m
     // tall. Facing east or west the run goes north-south.
     queueRail: { size: p => ({ w: ('length' in p ? p.length - 1 : 0) * TILE + px(0.3), d: px(0.3), h: px(0.95) }), span: p => ['length' in p ? p.length : 1, 1] },

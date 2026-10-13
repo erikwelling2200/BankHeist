@@ -1,7 +1,6 @@
 import { px, TOP_DEPTH, type Facing, type Size } from '../../level/space';
 import { mix, PAL } from '../palette';
-import type { PropArt } from './model';
-import { NORMAL, View } from './view';
+import { NORMAL, View, type PropArt } from './view';
 
 /*
  * The crew's panel van, drawn by hand from four sides. All four views take their geometry from one set of
@@ -96,7 +95,7 @@ function sidePanel(z: number, zTop: number): number {
  * left side when it faces west, nose to the left.
  */
 function side(shape: Shape, right: boolean, k: number): View {
-    const v = new View(shape.length, shape.width, shape.height, 0, k);
+    const v = new View(shape.length, shape.width, shape.height, { depthScale: k });
     const X = (y: number) => (right ? y : shape.length - 1 - y);
     const toNose = right ? NORMAL.right : NORMAL.left;
     // The upper surfaces, seen across the van's width.
@@ -156,7 +155,7 @@ function side(shape: Shape, right: boolean, k: number): View {
 
 /** Looking at the nose: roof, windscreen and bonnet from above, then the front with its grille and lamps. */
 function front(shape: Shape, k: number): View {
-    const v = new View(shape.width, shape.length, shape.height, 2, k);
+    const v = new View(shape.width, shape.length, shape.height, { margin: 2, depthScale: k });
     const W = shape.width, mid = Math.floor(W / 2);
     for (let y = 0; y < shape.length; y++) {
         const z = shape.top(y), region = shape.region(y);
@@ -200,7 +199,7 @@ function front(shape: Shape, k: number): View {
 
 /** Looking at the back: a sliver of bonnet beyond the roof, the long roof, then the rear doors. */
 function rear(shape: Shape, k: number): View {
-    const v = new View(shape.width, shape.length, shape.height, 2, k);
+    const v = new View(shape.width, shape.length, shape.height, { margin: 2, depthScale: k });
     const W = shape.width, mid = Math.floor(W / 2), L = shape.length;
     // Far to near: world row 0 is the nose. The windscreen faces away from the camera, so only bonnet and roof show.
     for (let row = 0; row < L; row++) {

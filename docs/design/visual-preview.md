@@ -21,8 +21,10 @@ is agreed.
    aligned north, at its height. The scene places, orders, shades and lets each box block the sun from those numbers;
    a test checks that no two boxes intersect and nothing stands inside a wall. **Every prop has four facings**, each
    drawn by hand as pixel art on a `View` that knows the projection, from one set of measurements per object so the
-   views agree (the van in `src/art/bank/van.ts` is the first; simpler furniture is still rendered from box models
-   until it is redrawn). `/?scene=props` shows them all. ([sheet](../pixel-art/examples/props-four-facings.png): south, east, north, west.)
+   views agree (`van.ts`, `furniture.ts`, `dressing.ts` and `street.ts` in `src/art/bank/`). Boxy furniture is built
+   from parts whose faces are each painted for the view; round things (bins, the hydrant, posts, the planter) are drawn
+   as curves with curved normals, and organic ones freehand: the rubber plant's oval leaves spiral round its stem, so
+   each facing shows another side of the same plant. `/?scene=props` shows them all. ([sheet](../pixel-art/examples/props-four-facings.png): south, east, north, west.)
    Floor tiles are square and heights are drawn at full scale, but the **tops of things are drawn at 2/3 of their
    depth** (`TOP_DEPTH`), the usual cheat for a camera a little lower than 45°: a van nose-on is then 62px tall
    rather than 95px against 54px side-on, so it reads as lying down
@@ -88,8 +90,9 @@ rrrrrrrrrrrrrrrrrrrrrr
 
 ## Sprites
 
-Everything is generated in code (`src/art/bank/`): `tiles.ts` (tileset), `props.ts` (furniture and dressing, each
-with an unlit glow layer and the lights it gives off), `people.ts` (one parametric `person()` for the whole cast).
+Everything is generated in code (`src/art/bank/`): `tiles.ts` (tileset), `furniture.ts`, `dressing.ts`, `street.ts` and
+`van.ts` (props, each with an unlit glow layer and the lights it gives off, dispatched by `props.ts`), `people.ts` (one
+parametric `person()` for the whole cast).
 
 | Area | Done | Still to make |
 | --- | --- | --- |

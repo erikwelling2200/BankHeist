@@ -41,8 +41,10 @@ Top-down 2D pixel-art stealth game. Phaser 4 + TypeScript + Vite, shipped as an 
   mounted, where it stands (centred, against which edge, between two tiles) and which way it faces. Every prop needs
   all four facings, each **drawn by hand as pixel art** on a `View` (`src/art/bank/view.ts`), which knows the
   projection so each view fits the object's box; take every view's geometry from one set of measurements, as
-  `src/art/bank/van.ts` does, so the four agree. (Simple furniture is still rendered from box models by `model.ts`
-  until it is redrawn; don't extend that renderer into curved shapes: it leads to a voxel look.) Check props on
+  `src/art/bank/van.ts` does, so the four agree. `View` has tools for the common shapes: `Turn` maps the prop's own
+  frame to a facing and draws its boxy parts with every visible face painted by hand; `cylinder` draws round bodies with
+  curved normals; `project`/`dot` place freehand shapes (leaves, a rope). Draw anything curved as a curve, never as a
+  stack of boxes: that gives a voxel look. Check props on
   `/?scene=props`, which shows each facing south, east, north and west. The scene places and orders each prop from its
   box; tests reject boxes that intersect each other or a wall.
 - Before generating or restyling art, read `docs/pixel-art/PROMPTING.md` (rules) and `docs/pixel-art/README.md`
