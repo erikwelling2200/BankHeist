@@ -121,7 +121,9 @@ export function backCounter(p: Extract<LobbyProp, { kind: 'backCounter' }>, s: S
     }]];
     const rand = mulberry32(p.tx * 31 + 7);
     for (let i = 0; i < s.w / TILE; i++) {
-        const x = i * TILE + 2 + Math.floor(rand() * 5), pick = rand();
+        // Papers, a cash tray or a phone, kept on the top however short the credenza is.
+        const start = i * TILE + 2 + Math.floor(rand() * 5), pick = rand();
+        const x = Math.min(start, s.w - (pick < 0.4 ? 5 : pick < 0.7 ? 7 : 4) - 1);
         if (pick < 0.4) parts.push([part(x, 1, s.h, 5, 3, 1), { top: rows(v => (v === 0 ? PAL.paper[2] : PAL.paper[3])), sides: (u: number) => (u % 2 ? PAL.paper[1] : PAL.paper[2]) }]);
         else if (pick < 0.7) parts.push([part(x, 1, s.h, 7, 3, 1), { top: (u, v) => (u % 2 === 0 ? S[1] : v === 1 ? PAL.cloth.olive[3]! : S[3]), sides: S[2] }]);
         else {

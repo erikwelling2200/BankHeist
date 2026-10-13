@@ -1,17 +1,19 @@
 import Phaser from 'phaser';
-import { buildLightMaps, type Caster, type Occluder } from '../art/bank/lightmap';
+import { buildExposure, buildLightMaps, facade, type Caster, type Occluder } from '../art/bank/lightmap';
 import { LOOKS, person, PERSON_HEIGHT } from '../art/bank/people';
 import { propArt } from '../art/bank/props';
 import { BANK_TILE_INDEX, bankTileset, type BankTileName } from '../art/bank/tiles';
-import { bankWalls, BLOCK_HEIGHT, WALL_BLOCK_NAMES, type WallBlockName } from '../art/bank/walls';
+import { wallArt, wallLook } from '../art/bank/walls';
+import { PAL } from '../art/palette';
 import { PixelBitmap, toCanvas } from '../art/PixelBitmap';
 import { bayer4, mulberry32, valueNoise } from '../art/random';
 import { propBox, propSize } from '../level/catalog';
 import { TILE } from '../level/level';
-import { isStructure, LOBBY_PEOPLE, LOBBY_PROPS, LOBBY_TILES, parseLobby, type LobbyTile } from '../level/lobby';
-import { baseLine, PERSON_SIZE, place, THIN_WALL, topRows, WALL_HEIGHT, type Box } from '../level/space';
+import { isOffMap, LOBBY_PEOPLE, LOBBY_PLAN, LOBBY_PROPS, parseLobby, type Lobby, type LobbyProp } from '../level/lobby';
+import { baseLine, PERSON_SIZE, place, WALL_STEPS, type Box } from '../level/space';
+import { wallFootprint, type Wall } from '../level/walls';
 
-const KEY = { tiles: 'bank-tiles', walls: 'bank-walls', shade: 'lobby-shade', glow: 'lobby-glow', exposure: 'lobby-exposure', clouds: 'lobby-clouds', mote: 'lobby-mote', shadow: 'person-shadow' } as const;
+const KEY = { tiles: 'bank-tiles', shade: 'lobby-shade', glow: 'lobby-glow', exposure: 'lobby-exposure', clouds: 'lobby-clouds', mote: 'lobby-mote', shadow: 'person-shadow' } as const;
 
 /**
  * Mid-morning. The scene renders at half exposure: ambient is half the sun on the street, so the street needs no
@@ -23,13 +25,43 @@ const DEPTH = { floor: 0, flat: 1, shade: 2, sunFloor: 3, shadows: 4, standing: 
 const PAN_SPEED = 120;
 
 /**
+ * Walls the camera looks past are cut down. A wall stands full height while its base line is at least `STAND_ABOVE`
+ * pixels above the middle of the screen, and is cut once it is less than `CUT_ABOVE` above it; in between it keeps its
+ * height, so nudging the camera doesn't make walls flicker. A changing wall moves one step of `WALL_STEPS` every `STEP_MS`.
+ */
+const STAND_ABOVE = 16;
+const CUT_ABOVE = 4;
+const STEP_MS = 40;
+
+/** Dressing that matters for play stays in view on a cut wall, as a marker of where it is. */
+const ALWAYS_SHOWN: LobbyProp['kind'][] = ['camera', 'keycardLed'];
+
+/** A wall segment on screen: the step it is drawn at, the step it is heading for, and what hangs on it. */
+interface WallSprite {
+    wall: Wall;
+    image: Phaser.GameObjects.Image;
+    keys: string[];
+    base: number;
+    step: number;
+    target: number;
+    /** Outer walls with nothing behind them always stand. */
+    standing: boolean;
+    facade: boolean;
+    dressing: { top: number; images: Phaser.GameObjects.Image[] }[];
+}
+
+/**
  * Visual preview of the bank lobby: no rules, just the look. Drag or use the arrow keys to look around.
- * Depth follows each object's base line, so walls, furniture and people overlap correctly in the ¾ view: a wall hides
- * the floor and anyone up to 1.5 tiles behind it.
+ * Depth follows each object's base line, so walls, furniture and people overlap correctly in the ¾ view. Walls stand on
+ * the edges between tiles; those north of the middle of the screen stand full height as the backdrop, the rest are cut
+ * down so nothing the camera is looking at hides behind them.
  */
 export class LobbyScene extends Phaser.Scene {
-    private tiles!: LobbyTile[][];
+    private level!: Lobby;
     private readonly casters: Caster[] = [];
+    private walls: WallSprite[] = [];
+    private exposures: Phaser.GameObjects.Image[] = [];
+    private wallClock = 0;
     private cursors?: Phaser.Types.Input.Keyboard.CursorKeys;
     private clouds!: Phaser.GameObjects.TileSprite;
     private mapWidth = 0;
@@ -40,41 +72,47 @@ export class LobbyScene extends Phaser.Scene {
     }
 
     create(): void {
-        this.tiles = parseLobby(LOBBY_TILES);
-        this.mapWidth = this.tiles[0]!.length * TILE;
-        this.mapHeight = this.tiles.length * TILE;
+        this.level = parseLobby(LOBBY_PLAN);
+        this.walls = [];
+        this.exposures = [];
+        this.mapWidth = this.level.tiles[0]!.length * TILE;
+        this.mapHeight = this.level.tiles.length * TILE;
         if (!this.textures.exists(KEY.tiles)) bankTileset().addTo(this.textures, KEY.tiles);
-        if (!this.textures.exists(KEY.walls)) {
-            const walls = bankWalls().addTo(this.textures, KEY.walls);
-            WALL_BLOCK_NAMES.forEach((name, i) => walls.add(name, 0, i * TILE, 0, TILE, BLOCK_HEIGHT));
-        }
 
         this.lights.enable().setAmbientColor(AMBIENT);
-        this.buildFloorAndWalls();
+        this.buildFloor();
+        this.buildWalls();
         const occluders = [...this.buildProps(), ...this.buildPeople()];
         this.buildLightMaps(occluders);
         this.casters.length = 0;
         this.buildDaylight();
         this.buildAtmosphere();
         this.setupCamera();
+        this.updateWalls(0);
+        for (const w of this.walls) this.setWallStep(w, w.target);
     }
 
     override update(_time: number, deltaMs: number): void {
         const dt = Math.min(deltaMs, 50) / 1000;
         this.clouds.tilePositionX -= dt * 4;
         this.clouds.tilePositionY -= dt * 1.5;
-        if (!this.cursors) return;
-        const cam = this.cameras.main;
-        const dx = (this.cursors.right.isDown ? 1 : 0) - (this.cursors.left.isDown ? 1 : 0);
-        const dy = (this.cursors.down.isDown ? 1 : 0) - (this.cursors.up.isDown ? 1 : 0);
-        cam.scrollX += dx * PAN_SPEED * dt;
-        cam.scrollY += dy * PAN_SPEED * dt;
+        if (this.cursors) {
+            const cam = this.cameras.main;
+            const dx = (this.cursors.right.isDown ? 1 : 0) - (this.cursors.left.isDown ? 1 : 0);
+            const dy = (this.cursors.down.isDown ? 1 : 0) - (this.cursors.up.isDown ? 1 : 0);
+            cam.scrollX += dx * PAN_SPEED * dt;
+            cam.scrollY += dy * PAN_SPEED * dt;
+        }
+        this.updateWalls(deltaMs);
     }
 
     /** Exposed so automated tests can frame shots without reaching into private fields. */
     get debugState() {
         const cam = this.cameras.main;
-        return { ready: true, width: this.mapWidth, height: this.mapHeight, scrollX: cam.scrollX, scrollY: cam.scrollY, lights: this.lights.getLightCount() };
+        return {
+            ready: true, width: this.mapWidth, height: this.mapHeight, scrollX: cam.scrollX, scrollY: cam.scrollY, lights: this.lights.getLightCount(),
+            walls: this.walls.map(w => ({ kind: w.wall.kind, run: w.wall.run, tx: w.wall.tx, ty: w.wall.ty, height: WALL_STEPS[w.step]! }))
+        };
     }
 
     /** Moves the camera so the given map pixel is centred; for tests and screenshots. */
@@ -82,15 +120,47 @@ export class LobbyScene extends Phaser.Scene {
         this.cameras.main.centerOn(x, y);
     }
 
-    /** The floor under every tile. Under the shop front it is the lobby's marble, seen through the glass. */
+    /** Picks each wall's height from where the camera looks and moves changing walls a step towards it every `STEP_MS`. */
+    private updateWalls(deltaMs: number): void {
+        const middle = this.cameras.main.midPoint.y, top = WALL_STEPS.length - 1;
+        for (const w of this.walls) {
+            if (w.standing || w.base < middle - STAND_ABOVE) w.target = top;
+            else if (w.base > middle - CUT_ABOVE) w.target = 0;
+        }
+        this.wallClock += deltaMs;
+        while (this.wallClock >= STEP_MS) {
+            this.wallClock -= STEP_MS;
+            let moving = false;
+            for (const w of this.walls) if (w.step !== w.target) {
+                this.setWallStep(w, w.step + Math.sign(w.target - w.step));
+                moving = true;
+            }
+            if (!moving) this.wallClock = 0;
+        }
+    }
+
+    private setWallStep(w: WallSprite, step: number): void {
+        w.step = step;
+        const height = WALL_STEPS[step]!;
+        w.image.setTexture(w.keys[step]!);
+        for (const d of w.dressing) for (const image of d.images) image.setVisible(d.top <= height);
+        if (w.facade) {
+            this.exposures.forEach((image, i) => image.setVisible(i === step));
+            // Cloud shadows fall on the street and the shop front, not on the floor seen over a cut-down front.
+            const top = wallFootprint(w.wall).y - height;
+            this.clouds.setPosition(0, top).setSize(this.mapWidth, this.mapHeight - top);
+        }
+    }
+
+    /** The floor of every tile; walls stand on top of it along the edges. */
     private tileName(x: number, y: number): BankTileName {
-        const t = this.tiles[y]![x]!;
+        const tiles = this.level.tiles, t = tiles[y]![x]!;
         const variant = (n: number) => (Math.imul(x * 73856093 ^ y * 19349663, 0x9e3779b1) >>> 0) % n;
         switch (t) {
-            case '#': case 'd': case 'k': case 'w': return 'wallBase';
+            case 'x': return 'offMap';
             case ',': return (['linoleum0', 'linoleum1'] as const)[variant(2)]!;
-            case '.': case 'p': case 'g': case 'D': case 'A': return (['marble0', 'marble1', 'marble2'] as const)[variant(3)]!;
-            case '=': return this.tiles[y]![x - 1] === '=' ? 'runnerRight' : 'runnerLeft';
+            case '.': return (['marble0', 'marble1', 'marble2'] as const)[variant(3)]!;
+            case '=': return tiles[y]![x - 1] === '=' ? 'runnerRight' : 'runnerLeft';
             case 's': return (['sidewalkTL', 'sidewalkTR', 'sidewalkBL', 'sidewalkBR'] as const)[(x % 2) + (y % 2) * 2]!;
             case 'c': return 'curb';
             case 'r': return variant(5) === 0 ? 'road1' : 'road0';
@@ -98,34 +168,38 @@ export class LobbyScene extends Phaser.Scene {
         }
     }
 
-    /** The wall block standing on a tile: a face where the tile south of it is open, otherwise just the cap. */
-    private wallBlock(x: number, y: number): WallBlockName | undefined {
-        const t = this.tiles[y]![x]!;
-        const south = this.tiles[y + 1]?.[x];
-        switch (t) {
-            case '#': return south !== undefined && !isStructure(south) ? 'face' : 'cap';
-            case 'd': return 'doorWood';
-            case 'k': return 'doorKeycard';
-            case 'w': return 'sideDoor';
-            case 'p': return 'pier';
-            case 'g': return 'window';
-            case 'D': return this.tiles[y]![x - 1] === 'D' ? 'doorGlassRight' : 'doorGlassLeft';
-            case 'A': return 'atm';
-            default: return undefined;
-        }
-    }
-
-    private buildFloorAndWalls(): void {
-        const data = this.tiles.map((row, y) => row.map((_, x) => BANK_TILE_INDEX[this.tileName(x, y)]));
+    private buildFloor(): void {
+        const data = this.level.tiles.map((row, y) => row.map((_, x) => BANK_TILE_INDEX[this.tileName(x, y)]));
         const map = this.make.tilemap({ data, tileWidth: TILE, tileHeight: TILE });
         const tileset = map.addTilesetImage(KEY.tiles, KEY.tiles, TILE, TILE, 0, 0)!;
         (map.createLayer(0, tileset, 0, 0) as Phaser.Tilemaps.TilemapLayer).setLighting(true).setDepth(DEPTH.floor);
-        this.tiles.forEach((row, y) => row.forEach((_, x) => {
-            const block = this.wallBlock(x, y);
-            if (!block) return;
-            const base = (y + 1) * TILE;
-            this.add.image(x * TILE, base - BLOCK_HEIGHT, KEY.walls, block).setOrigin(0, 0).setLighting(true).setDepth(DEPTH.standing + base);
-        }));
+    }
+
+    /**
+     * One image per wall segment, standing on its footprint's south edge and ordered by it, with a texture for each of
+     * its heights (shared between segments that look alike).
+     */
+    private buildWalls(): void {
+        const { tiles, walls } = this.level;
+        const front = facade(this.level).walls;
+        for (const wall of walls) {
+            const look = wallLook(wall, walls);
+            const keys = WALL_STEPS.map(height => {
+                const key = `wall-${wall.run}-${look}-${height}`;
+                if (!this.textures.exists(key)) wallArt(wall, look, height).addTo(this.textures, key);
+                return key;
+            });
+            const f = wallFootprint(wall), base = f.y + f.d;
+            const image = this.add.image(f.x, base, keys[0]!).setOrigin(0, 1).setLighting(true).setDepth(DEPTH.standing + base);
+            const north = wall.run === 'eastWest' ? tiles[wall.ty - 1]?.[wall.tx] : undefined;
+            const isFacade = front.includes(wall);
+            this.walls.push({
+                wall, image, keys, base, step: 0, target: 0, dressing: [],
+                // The shop front moves as one, even where it fronts a neighbour.
+                standing: !isFacade && (north === undefined || isOffMap(north)),
+                facade: isFacade
+            });
+        }
     }
 
     /**
@@ -135,24 +209,33 @@ export class LobbyScene extends Phaser.Scene {
     private buildProps(): Occluder[] {
         const occluders: Occluder[] = [];
         LOBBY_PROPS.forEach((p, i) => {
-            const box = propBox(p);
+            const box = propBox(p, this.level.walls);
+            const images: Phaser.GameObjects.Image[] = [];
             const art = propArt(p, propSize(p), box.facing);
             const key = `lobby-prop-${i}`;
             const left = box.x - art.originX;
             const top = baseLine(box) - box.z - art.lit.height;
             const flat = box.h === 0;
             const depth = flat ? DEPTH.flat : DEPTH.standing + baseLine(box);
-            this.addBitmap(art.lit, key, left, top, depth, true);
+            images.push(this.addBitmap(art.lit, key, left, top, depth, true));
             if (!flat) this.casters.push(caster(art.lit, left, top, baseLine(box)));
             if (hasPixels(art.glow)) {
-                this.addBitmap(art.glow, `${key}-glow`, left, top, depth + 0.5, false);
+                images.push(this.addBitmap(art.glow, `${key}-glow`, left, top, depth + 0.5, false));
                 // The exposure layer dims everything indoors; a second, additive pass puts the glow back over it.
-                this.add.image(left, top, `${key}-glow`).setOrigin(0, 0).setDepth(DEPTH.emissive).setBlendMode(Phaser.BlendModes.ADD).setAlpha(0.7);
+                images.push(this.add.image(left, top, `${key}-glow`).setOrigin(0, 0).setDepth(DEPTH.emissive).setBlendMode(Phaser.BlendModes.ADD).setAlpha(0.7));
             }
             for (const l of art.lights) this.lights.addLight(left + l.x, top + l.y, l.radius, l.color, l.intensity);
             if (!flat && box.z === 0) occluders.push(floorOccluder(box));
+            if (box.z > 0 && !ALWAYS_SHOWN.includes(p.kind)) this.hangOnWall(box, images);
         });
         return occluders;
+    }
+
+    /** Dressing hung on the face of an east-west wall goes out of view while that wall is cut below its top. */
+    private hangOnWall(box: Box, images: Phaser.GameObjects.Image[]): void {
+        const wall = this.walls.find(w => w.wall.run === 'eastWest' && w.base === box.y && w.image.x < box.x + box.w && w.image.x + TILE > box.x);
+        if (!wall) throw new Error(`Nothing to hang the dressing at (${box.x}, ${box.y}) on`);
+        wall.dressing.push({ top: box.z + box.h, images });
     }
 
     /** People stand in the middle of their tile: the sprite's soles on the front edge of their box, centred across it. */
@@ -179,11 +262,16 @@ export class LobbyScene extends Phaser.Scene {
     }
 
     private buildLightMaps(occluders: Occluder[]): void {
-        const maps = buildLightMaps(this.tiles, occluders, this.casters);
+        const maps = buildLightMaps(this.level, occluders, this.casters);
         if (!this.textures.exists(KEY.shade)) this.textures.addCanvas(KEY.shade, toCanvas(maps.shade, maps.width, maps.height));
         if (!this.textures.exists(KEY.glow)) this.textures.addCanvas(KEY.glow, toCanvas(maps.glow, maps.width, maps.height));
-        if (!this.textures.exists(KEY.exposure)) this.textures.addCanvas(KEY.exposure, toCanvas(maps.exposure, maps.width, maps.height));
-        this.add.image(0, 0, KEY.exposure).setOrigin(0, 0).setDepth(DEPTH.exposure).setBlendMode(doubleMultiply(this));
+        // One exposure layer for each height of the shop front, as everything above its top on screen is indoors.
+        const front = wallFootprint(facade(this.level).walls[0]!);
+        this.exposures = WALL_STEPS.map(height => {
+            const key = `${KEY.exposure}-${height}`;
+            if (!this.textures.exists(key)) this.textures.addCanvas(key, toCanvas(buildExposure(this.level, front.y - height), maps.width, maps.height));
+            return this.add.image(0, 0, key).setOrigin(0, 0).setDepth(DEPTH.exposure).setBlendMode(doubleMultiply(this)).setVisible(false);
+        });
         this.add.image(0, 0, KEY.shade).setOrigin(0, 0).setDepth(DEPTH.shade).setBlendMode(Phaser.BlendModes.MULTIPLY);
         this.add.image(0, 0, KEY.glow).setOrigin(0, 0).setDepth(DEPTH.sunFloor).setBlendMode(Phaser.BlendModes.ADD);
         // The same shafts, faint, over everything: the light in the air that also falls on people standing in it.
@@ -192,20 +280,21 @@ export class LobbyScene extends Phaser.Scene {
 
     /** Indoors: warm ceiling pools with darker floor between them, and sun patches where the shafts land. */
     private buildDaylight(): void {
-        const facadeRow = this.tiles.findIndex(row => row.includes('g'));
-        for (const x of [2.5, 6.5, 10, 13.5, 19.5]) this.lights.addLight(x * TILE - 20, (facadeRow - 2) * TILE, 52, 0xffd9a0, 0.8, 30);
-        const lobby = [[3.5, 6.5], [9.5, 6], [15.5, 6.5], [6.5, 9.5], [13.5, 9.5]] as const;
+        const facadeY = facade(this.level).line;
+        for (const x of [2.5, 6.5, 10, 13.5, 19.5]) this.lights.addLight(x * TILE - 20, facadeY - 2 * TILE, 52, 0xffd9a0, 0.8, 30);
+        const lobby = [[3.5, 8.5], [9.5, 8], [15.5, 8.5], [6.5, 11.5], [13.5, 11.5]] as const;
         for (const [x, y] of lobby) this.lights.addLight(x * TILE, y * TILE, 80, 0xffd8b0, 1.5, 48);
         // The teller line is lit brighter than the lobby, and these reach up the back wall to its dressing.
-        for (const x of [4, 10, 16]) this.lights.addLight(x * TILE, 2.2 * TILE, 84, 0xffdcb8, 1.8, 50);
+        for (const x of [4, 10, 16]) this.lights.addLight(x * TILE, 4.2 * TILE, 84, 0xffdcb8, 1.8, 50);
+        // Cool strip lights along the staff corridor.
+        for (const x of [6, 15]) this.lights.addLight(x * TILE, 2.6 * TILE, 70, 0xdde6ff, 1.3, 40);
     }
 
     private buildAtmosphere(): void {
-        const facadeRow = this.tiles.findIndex(row => row.includes('g'));
+        const facadeY = facade(this.level).line;
         if (!this.textures.exists(KEY.clouds)) this.textures.addCanvas(KEY.clouds, cloudCanvas(128));
-        // Slow cloud shadows drifting over the street and the shop front, cut off at the top of the façade.
-        const outsideTop = (facadeRow + 1) * TILE - WALL_HEIGHT - topRows(THIN_WALL);
-        this.clouds = this.add.tileSprite(0, outsideTop, this.mapWidth, this.mapHeight - outsideTop, KEY.clouds)
+        // Slow cloud shadows drifting over the street and the shop front; their top follows the front's height.
+        this.clouds = this.add.tileSprite(0, facadeY, this.mapWidth, this.mapHeight - facadeY, KEY.clouds)
             .setOrigin(0, 0).setDepth(DEPTH.clouds).setBlendMode(Phaser.BlendModes.MULTIPLY);
 
         if (!this.textures.exists(KEY.mote)) {
@@ -216,7 +305,7 @@ export class LobbyScene extends Phaser.Scene {
         // Dust drifting in the sun shafts just inside the glass.
         this.add.particles(0, 0, KEY.mote, {
             x: { min: TILE, max: this.mapWidth - TILE },
-            y: { min: (facadeRow - 4) * TILE, max: facadeRow * TILE - 2 },
+            y: { min: facadeY - 4 * TILE, max: facadeY - 4 },
             lifespan: 5000,
             speedX: { min: -2, max: 2 },
             speedY: { min: -3, max: 1 },
@@ -229,8 +318,13 @@ export class LobbyScene extends Phaser.Scene {
 
     private setupCamera(): void {
         const cam = this.cameras.main;
-        cam.setBounds(0, 0, this.mapWidth, this.mapHeight).setRoundPixels(true);
-        cam.centerOn(this.mapWidth / 2, 7.5 * TILE);
+        // The middle of the screen can reach every tile, so the camera can look at (and past the walls to) any of them.
+        const bounds = () => cam.setBounds(-cam.width / 2, -cam.height / 2, this.mapWidth + cam.width, this.mapHeight + cam.height);
+        bounds();
+        this.scale.on(Phaser.Scale.Events.RESIZE, bounds);
+        this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => this.scale.off(Phaser.Scale.Events.RESIZE, bounds));
+        cam.setBackgroundColor(PAL.void).setRoundPixels(true);
+        cam.centerOn(this.mapWidth / 2, 9.5 * TILE);
         Phaser.Actions.AddEffectBloom(cam, { threshold: 0.62, blurRadius: 2, blurSteps: 4, blendAmount: 0.6 });
         cam.filters.external.addVignette(0.5, 0.5, 1, 0.16);
         this.cursors = this.input.keyboard?.createCursorKeys();

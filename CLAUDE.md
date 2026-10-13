@@ -36,7 +36,7 @@ Top-down 2D pixel-art stealth game. Phaser 4 + TypeScript + Vite, shipped as an 
   can replace it by loading PNGs plus `-n.png` normal maps in a preload scene and keeping the `TEX` keys.
 - Every object is a box at a real scale (`src/level/space.ts`: 1px ≈ 8cm, people 1.75m, walls cut at 1.9m). Floor tiles
   are square and heights full scale, but the tops of things are drawn at `TOP_DEPTH` (2/3) of their depth, so long
-  things pointing at the camera don't look tall; `View` and the wall caps apply it, draw with them. Before
+  things pointing at the camera don't look tall; `View` applies it, draw with it. Before
   drawing a new item, give it a `CATALOG` entry in `src/level/catalog.ts`: real width, depth and height, elevation if
   mounted, where it stands (centred, against which edge, between two tiles) and which way it faces. Every prop needs
   all four facings, each **drawn by hand as pixel art** on a `View` (`src/art/bank/view.ts`), which knows the
@@ -47,6 +47,11 @@ Top-down 2D pixel-art stealth game. Phaser 4 + TypeScript + Vite, shipped as an 
   stack of boxes: that gives a voxel look. Check props on
   `/?scene=props`, which shows each facing south, east, north and west. The scene places and orders each prop from its
   box; tests reject boxes that intersect each other or a wall.
+- Walls stand on the edges between tiles at their real thickness (`src/level/walls.ts`), never on tiles; the level plan
+  is drawn at double resolution (legend in `src/level/lobby.ts`). Their tops follow the floor grid, unforeshortened,
+  and always show the wall in section (dark, hatched). Walls north of the middle of the screen stand full height; the
+  rest are cut down to `CUT_HEIGHT` (`LobbyScene.updateWalls`), so paint wall faces by height above the floor, and
+  anything whose look depends on a wall's height (the exposure layer, dressing hung on it) has to follow it.
 - Before generating or restyling art, read `docs/pixel-art/PROMPTING.md` (rules) and `docs/pixel-art/README.md`
   (findings, example scripts in `scripts/pixel-art/`).
 - Camera post-processing (bloom, vignette) lives in `VaultScene.create`. Phaser's vignette goes near black at its

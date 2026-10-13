@@ -1,6 +1,7 @@
 import { TILE } from './level';
 import type { LobbyProp } from './lobby';
-import { place, px, type AlignX, type AlignY, type Box, type Facing, type Size } from './space';
+import { place, px, spanOf, type AlignX, type AlignY, type Box, type Facing, type Size } from './space';
+import { wallInsets, type Wall } from './walls';
 
 /**
  * Every kind of object's real size and where it stands by default. Sizes are real-world dimensions turned into pixels
@@ -14,14 +15,15 @@ const fixed = (w: number, d: number, h: number) => () => ({ w: px(w), d: px(d), 
 const widthOf = (p: LobbyProp) => ('width' in p ? p.width : 1);
 
 export const CATALOG: Record<LobbyProp['kind'], ItemSpec> = {
-    // Teller counter: the whole row deep, 1.2m tall; the teller glass above it is part of its art, not its box.
-    counter: { size: p => ({ w: widthOf(p) * TILE, d: TILE, h: px(1.2) }), alignX: 'west', alignY: 'north' },
-    // Credenza along the back wall: 0.5m deep, 0.9m tall, as long as its tiles.
-    backCounter: { size: p => ({ w: widthOf(p) * TILE, d: px(0.5), h: px(0.9) }), alignX: 'west', alignY: 'north' },
+    // Teller counter: the whole row deep, 1.2m tall, its tiles' length less a hand's width so it fits between the walls;
+    // the teller glass above it is part of its art, not its box.
+    counter: { size: p => ({ w: widthOf(p) * TILE - px(0.3), d: TILE, h: px(1.2) }), alignX: 'west', alignY: 'north' },
+    // Credenza along the back wall: 0.5m deep, 0.9m tall, a little shorter than its tiles.
+    backCounter: { size: p => ({ w: widthOf(p) * TILE - px(0.3), d: px(0.5), h: px(0.9) }), alignX: 'west', alignY: 'north' },
     filingCabinet: { size: fixed(0.95, 0.5, 1.3), alignY: 'north' },
     printer: { size: fixed(0.95, 0.5, 1.1), alignY: 'north' },
     waterCooler: { size: fixed(0.4, 0.4, 1.3), alignY: 'north' },
-    // Wall dressing: a thin slab on the floor tile in front of its wall, aligned north, raised to where it hangs.
+    // Wall dressing: a thin slab against the face of the wall on its tile's north edge, raised to where it hangs.
     crest: { size: fixed(2.0, 0.08, 0.8), alignY: 'north', span: () => [2, 1], elevation: px(0.9) },
     clock: { size: fixed(0.7, 0.08, 0.7), alignY: 'north', elevation: px(1.1) },
     painting: { size: fixed(1.1, 0.08, 0.7), alignY: 'north', elevation: px(0.95) },
@@ -58,11 +60,14 @@ export const CATALOG: Record<LobbyProp['kind'], ItemSpec> = {
 /** A prop's size in its own frame. */
 export const propSize = (p: LobbyProp): Size => CATALOG[p.kind].size(p);
 
-/** Where a prop stands in the world, from its catalog entry and the level's overrides. */
-export function propBox(p: LobbyProp): Box {
+/**
+ * Where a prop stands in the world, from its catalog entry and the level's overrides. Pushed against a side of its
+ * tiles, it stands against the face of the level's wall there.
+ */
+export function propBox(p: LobbyProp, walls: readonly Wall[]): Box {
     const spec = CATALOG[p.kind];
     const size = spec.size(p);
-    return place({
+    const placement = {
         facing: p.facing ?? spec.facing,
         tx: p.tx,
         ty: p.ty,
@@ -70,5 +75,7 @@ export function propBox(p: LobbyProp): Box {
         alignX: p.alignX ?? spec.alignX,
         alignY: p.alignY ?? spec.alignY,
         elevation: spec.elevation
-    }, size);
+    };
+    const span = spanOf(placement, size);
+    return place(placement, size, wallInsets(walls, span.tx, span.ty, span.w, span.d));
 }

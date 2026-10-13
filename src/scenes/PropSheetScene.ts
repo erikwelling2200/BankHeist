@@ -12,7 +12,7 @@ const GAP = 10;
 function samples(): LobbyProp[] {
     return (Object.keys(CATALOG) as LobbyProp['kind'][]).map((kind): LobbyProp => {
         switch (kind) {
-            case 'counter': return { kind, tx: 0, ty: 0, width: 3, stations: [0, 2], closed: [2], gate: 1 };
+            case 'counter': return { kind, tx: 0, ty: 0, width: 4, stations: [0, 2], closed: [2], gate: 3 };
             case 'backCounter': return { kind, tx: 0, ty: 0, width: 2 };
             case 'queueRail': return { kind, tx: 0, ty: 0, length: 2 };
             default: return { kind, tx: 0, ty: 0 } as LobbyProp;

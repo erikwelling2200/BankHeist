@@ -3,12 +3,12 @@ import { PAL, deepen, mix, step } from '../palette';
 import { PixelBitmap } from '../PixelBitmap';
 import { mulberry32, valueNoise } from '../random';
 
-/** Every floor tile the bank tileset holds, in a few variants so repeats don't show. Walls are blocks, in `walls.ts`. */
+/** Every floor tile the bank tileset holds, in a few variants so repeats don't show. Walls stand on the edges between tiles, in `walls.ts`. */
 export const BANK_TILE_NAMES = [
     'marble0', 'marble1', 'marble2',
     'runnerLeft', 'runnerRight', 'linoleum0', 'linoleum1',
     'sidewalkTL', 'sidewalkTR', 'sidewalkBL', 'sidewalkBR', 'curb', 'road0', 'road1', 'roadDash', 'roadGap',
-    'wallBase'
+    'offMap'
 ] as const;
 
 export type BankTileName = typeof BANK_TILE_NAMES[number];
@@ -111,9 +111,9 @@ const roadLine = (dash: boolean): Painter => (b, ox, rand) => {
     }
 };
 
-/** Under a wall's footprint: only seen in slivers between wall blocks, so it matches the wall caps. */
-const wallBase: Painter = (b, ox) => {
-    for (let y = 0; y < TILE; y++) for (let x = 0; x < TILE; x++) b.set(ox + x, y, PAL.plaster[0], 1);
+/** Off the map (a neighbour's building): dark and hatched like the walls' sections, so it reads as solid, not as floor. */
+const offMap: Painter = (b, ox) => {
+    for (let y = 0; y < TILE; y++) for (let x = 0; x < TILE; x++) b.set(ox + x, y, (x + y) % 4 === 0 ? deepen(PAL.plaster[1], 0.3) : deepen(PAL.plaster[0], 0.3), 1);
 };
 
 const PAINTERS: Record<BankTileName, Painter> = {
@@ -121,7 +121,7 @@ const PAINTERS: Record<BankTileName, Painter> = {
     runnerLeft: runner('left'), runnerRight: runner('right'), linoleum0: linoleum, linoleum1: linoleum,
     sidewalkTL: sidewalk(false, false), sidewalkTR: sidewalk(true, false), sidewalkBL: sidewalk(false, true), sidewalkBR: sidewalk(true, true), curb,
     road0: road(false), road1: road(true), roadDash: roadLine(true), roadGap: roadLine(false),
-    wallBase
+    offMap
 };
 
 export const BANK_TILE_INDEX = Object.fromEntries(BANK_TILE_NAMES.map((n, i) => [n, i])) as Record<BankTileName, number>;

@@ -1,173 +1,213 @@
 import { TILE } from '../../level/level';
+import { WALL_HEIGHT } from '../../level/space';
+import { WALL_THICKNESS, type Wall, type WallKind } from '../../level/walls';
 import { PAL, mix, step } from '../palette';
 import { PixelBitmap } from '../PixelBitmap';
 import { mulberry32 } from '../random';
-import { THIN_WALL, topRows, WALL_HEIGHT } from '../../level/space';
 
-/** A wall block is the wall's cap (one tile deep) over its face; see `space.ts` for the heights. */
-/** The cap is the top of a wall a tile deep, drawn foreshortened like every top. */
-const CAP = topRows(TILE);
-const THIN_CAP = topRows(THIN_WALL);
-export const BLOCK_HEIGHT = CAP + WALL_HEIGHT;
+/*
+ * Wall segments, drawn at whatever height the camera has them at (see `WALL_STEPS`). Everything on a face is placed by
+ * its height above the floor, so cutting a wall lower only takes rows off its top. The top of a wall is always where it
+ * is cut, so it shows the wall in section, darker than any finished surface and hatched like an architect's plan: that
+ * is what tells a full wall from half cover, whatever its height. Walls follow the floor grid and their tops are not
+ * foreshortened.
+ */
 
-export const WALL_BLOCK_NAMES = ['cap', 'sideDoor', 'face', 'doorWood', 'doorKeycard', 'pier', 'window', 'doorGlassLeft', 'doorGlassRight', 'atm'] as const;
-export type WallBlockName = typeof WALL_BLOCK_NAMES[number];
+/** Paints one pixel of a wall's face: column u, height z above the floor (1 is the lowest). */
+type FacePaint = (u: number, z: number, c: number, height: number, alpha?: number) => void;
+/** Paints one pixel of its section: u across the wall's run, v through its thickness from the north. */
+type SectionPaint = (u: number, v: number, c: number) => void;
 
-/** Paints one block; `face(x, y, ...)` writes in face coordinates (0..23 down from the face's top edge). */
-type Painter = (cap: (x: number, y: number, c: number, h: number, a?: number) => void, face: (x: number, y: number, c: number, h: number, a?: number) => void, rand: () => number) => void;
+interface Painter {
+    /** The cut top. For a north-south segment u runs down its length and v across its thickness, west to east. */
+    section: (put: SectionPaint, t: number, length: number, rand: () => number) => void;
+    /** The south face, `TILE` wide; a north-south segment shows only the end of its run, `t` wide, sampled from it. */
+    face: (put: FacePaint, rand: () => number) => void;
+}
 
 const F = WALL_HEIGHT;
 
-/** Interior walls are solid masonry: a dark plaster cap the full depth of the tile. */
-const solidCap: Painter = (cap, _face, rand) => {
-    for (let y = 0; y < CAP; y++) for (let x = 0; x < TILE; x++) cap(x, y, y === CAP - 1 ? PAL.plaster[2] : rand() > 0.9 ? PAL.plaster[1] : PAL.plaster[0], 1);
-};
-
-/** The shop front is a thin wall: a limestone coping along its street edge, the rest of the tile is floor behind it. */
-const thinCap: Painter = (cap) => {
-    const coping = [PAL.limestone[2], PAL.limestone[5], PAL.limestone[4], PAL.limestone[1]];
-    // The coping's rows, lit edge last: as many as the thin wall's foreshortened top takes.
-    const rows = coping.slice(coping.length - THIN_CAP);
-    for (let x = 0; x < TILE; x++) rows.forEach((c, i) => cap(x, CAP - THIN_CAP + i, c, i === THIN_CAP - 1 ? 0.9 : 1));
-};
-
-/** Interior face: plaster above a walnut wainscot with a brass chair rail and a dark skirting board. */
-const interiorFace: Painter = (cap, face, rand) => {
-    solidCap(cap, face, rand);
-    for (let y = 0; y < F; y++) for (let x = 0; x < TILE; x++) {
-        let c: number, h = 0.5;
-        if (y === 0) c = PAL.plaster[2];
-        else if (y < 13) c = step(PAL.plaster, rand() > 0.92 ? 4 : 3);
-        else if (y === 13) { c = PAL.brass[3]; h = 0.7; }
-        else if (y < 21) c = (x % 8 === 0) ? PAL.walnut[1] : (x % 8 === 1 ? PAL.walnut[4] : PAL.walnut[3]);
-        else c = PAL.walnut[0];
-        face(x, y, c, h);
+/** Plaster skins on a brick core, the core hatched diagonally. */
+const plasterSection: Painter['section'] = (put, t, length) => {
+    for (let v = 0; v < t; v++) for (let u = 0; u < length; u++) {
+        const skin = v === 0 || v === t - 1;
+        put(u, v, skin ? (v === t - 1 ? PAL.plaster[3] : PAL.plaster[1]) : (u + v) % 3 === 0 ? PAL.terracotta[1] : PAL.terracotta[0]);
     }
 };
 
-/** Doors are about 2m tall, taller than the cut-away face, so they run from just under the cut line to the floor. */
-const DOOR_TOP = 1;
-
-const doorWood: Painter = (cap, face, rand) => {
-    interiorFace(cap, face, rand);
-    for (let y = DOOR_TOP; y < F; y++) for (let x = 2; x < 14; x++) {
-        const frame = x === 2 || x === 13 || y === DOOR_TOP;
-        const panel = (x === 5 || x === 10) && y > DOOR_TOP + 2 && y < F - 2;
-        face(x, y, frame ? PAL.walnut[1] : panel ? PAL.walnut[2] : PAL.walnut[4], frame ? 0.7 : 0.55);
+/** Concrete stippled with aggregate between two painted skins. */
+const concreteSection: Painter['section'] = (put, t, length, rand) => {
+    for (let v = 0; v < t; v++) for (let u = 0; u < length; u++) {
+        const skin = v === 0 || v === t - 1;
+        put(u, v, skin ? (v === t - 1 ? PAL.concrete[4] : PAL.concrete[2]) : rand() > 0.75 ? PAL.concrete[2] : PAL.concrete[1]);
     }
-    for (let x = 6; x < 10; x++) { face(x, DOOR_TOP + 3, PAL.brass[4], 0.7); face(x, DOOR_TOP + 4, PAL.brass[3], 0.7); }
-    face(11, 15, PAL.brass[5], 0.8);
 };
 
-/** Steel staff door with a wired-glass vision panel; the card reader sits on the frame at (14, 12), its LED a glow sprite. */
-const doorKeycard: Painter = (cap, face, rand) => {
-    interiorFace(cap, face, rand);
-    for (let y = DOOR_TOP; y < F; y++) for (let x = 2; x < 14; x++) {
-        const frame = x === 2 || x === 13 || y === DOOR_TOP;
-        face(x, y, frame ? PAL.steel[1] : step(PAL.steel, x < 7 ? 3 : 2), frame ? 0.7 : 0.55);
+/** A door cut through: the jambs in the wall's section at its ends, the leaf in between. */
+const doorSection = (leaf: number, edge: number): Painter['section'] => (put, t, length, rand) => {
+    plasterSection(put, t, length, rand);
+    for (let u = 2; u < length - 2; u++) for (let v = 0; v < t; v++) put(u, v, v === t - 1 ? edge : leaf);
+};
+
+/** The shop front's limestone, its street side lit. */
+const stoneSection: Painter['section'] = (put, t, length) => {
+    for (let v = 0; v < t; v++) for (let u = 0; u < length; u++) put(u, v, v === t - 1 ? PAL.limestone[5] : (u + v) % 4 === 0 ? PAL.limestone[1] : PAL.limestone[2]);
+};
+
+/** Glass between its frames: a thin bright line of pane in dark wood. */
+const glassSection: Painter['section'] = (put, t, length) => {
+    for (let v = 0; v < t; v++) for (let u = 0; u < length; u++) {
+        const frame = u === 0 || u === length - 1 || u === TILE / 2;
+        put(u, v, frame ? PAL.walnut[1] : v === Math.floor(t / 2) ? PAL.glass[4] : v === t - 1 ? PAL.limestone[4] : PAL.walnut[1]);
     }
-    for (let y = 9; y < 13; y++) for (let x = 5; x < 11; x++) face(x, y, y === 9 ? PAL.glass[3] : PAL.glass[1], 0.5);
-    face(11, 15, PAL.steel[5], 0.8);
-    face(11, 16, PAL.steel[5], 0.8);
-    for (let y = 11; y < 14; y++) { face(14, y, PAL.steel[0], 0.8); face(15, y, PAL.steel[1], 0.8); }
 };
 
-/** A door in a side wall, seen from above: a gap in the cap with the door leaf standing open against the jamb. */
-const sideDoor: Painter = (cap, face, rand) => {
-    solidCap(cap, face, rand);
-    for (let y = 1; y < CAP - 1; y++) for (let x = 3; x < 13; x++) cap(x, y, step(PAL.marbleCream, 1), 0.3);
-    for (let y = 1; y < CAP - 1; y++) { cap(3, y, PAL.walnut[5], 1); cap(4, y, PAL.walnut[3], 0.95); }
+/** Inside the bank: plaster above a walnut wainscot with a brass chair rail and a dark skirting board. */
+const interiorFace: Painter['face'] = (put, rand) => {
+    for (let z = 1; z <= F; z++) for (let u = 0; u < TILE; u++) {
+        if (z <= 3) put(u, z, PAL.walnut[0], 0.5);
+        else if (z <= 10) put(u, z, u % 8 === 0 ? PAL.walnut[1] : u % 8 === 1 ? PAL.walnut[4] : PAL.walnut[3], 0.5);
+        else if (z === 11) put(u, z, PAL.brass[3], 0.7);
+        else put(u, z, step(PAL.plaster, rand() > 0.92 ? 4 : 3), 0.5);
+    }
 };
 
-/** Limestone in courses with a darker plinth; the building's face to the street. */
-const stoneFace = (face: (x: number, y: number, c: number, h: number) => void, rand: () => number) => {
-    for (let y = 0; y < F; y++) for (let x = 0; x < TILE; x++) {
-        const course = Math.floor(y / 4);
-        const joint = y % 4 === 3 || (x + (course % 2) * 8) % 16 === 0;
+/** The vault side of the corridor: painted concrete block, a darker dado and a yellow safety line. */
+const concreteFace: Painter['face'] = put => {
+    for (let z = 1; z <= F; z++) for (let u = 0; u < TILE; u++) {
+        if (z <= 2) put(u, z, PAL.concrete[1], 0.5);
+        else if (z <= 9) put(u, z, z === 9 ? PAL.concrete[3] : PAL.concrete[2], 0.5);
+        else if (z === 10) put(u, z, PAL.cloth.mustard[3]!, 0.6);
+        else {
+            const course = Math.floor((z - 11) / 4), joint = (z - 11) % 4 === 3 || (u + (course % 2) * 8) % 16 === 0;
+            put(u, z, joint ? PAL.concrete[3] : PAL.concrete[4], joint ? 0.4 : 0.6);
+        }
+    }
+};
+
+/** Doors are about 2m tall, taller than the cut, so they reach from the floor to the top of a full wall. */
+const doorWood: Painter['face'] = (put, rand) => {
+    interiorFace(put, rand);
+    for (let z = 1; z <= F - 1; z++) for (let u = 2; u < 14; u++) {
+        const frame = u === 2 || u === 13 || z === F - 1;
+        const panel = (u === 5 || u === 10) && z > 2 && z < F - 3;
+        put(u, z, frame ? PAL.walnut[1] : panel ? PAL.walnut[2] : PAL.walnut[4], frame ? 0.7 : 0.55);
+    }
+    for (let u = 6; u < 10; u++) { put(u, F - 4, PAL.brass[4], 0.7); put(u, F - 5, PAL.brass[3], 0.7); }
+    put(11, 9, PAL.brass[5], 0.8);
+};
+
+/** A steel staff door with a wired-glass vision panel and a card reader on its frame (its LED is a prop). */
+const doorKeycard: Painter['face'] = (put, rand) => {
+    interiorFace(put, rand);
+    for (let z = 1; z <= F - 1; z++) for (let u = 2; u < 14; u++) {
+        const frame = u === 2 || u === 13 || z === F - 1;
+        put(u, z, frame ? PAL.steel[1] : step(PAL.steel, u < 7 ? 3 : 2), frame ? 0.7 : 0.55);
+    }
+    for (let z = 12; z <= 15; z++) for (let u = 5; u < 11; u++) put(u, z, z === 15 ? PAL.glass[3] : PAL.glass[1], 0.5);
+    put(11, 9, PAL.steel[5], 0.8);
+    put(11, 8, PAL.steel[5], 0.8);
+    for (let z = 11; z <= 13; z++) { put(14, z, PAL.steel[0], 0.8); put(15, z, PAL.steel[1], 0.8); }
+};
+
+/** Limestone in courses with a darker plinth: the building's face to the street. */
+const stoneFace: Painter['face'] = (put, rand) => {
+    for (let z = 1; z <= F; z++) for (let u = 0; u < TILE; u++) {
+        const course = Math.floor((F - z) / 4);
+        const joint = (F - z) % 4 === 3 || (u + (course % 2) * 8) % 16 === 0;
         let c = joint ? PAL.limestone[2] : step(PAL.limestone, rand() > 0.85 ? 5 : 4);
-        if (y === 0) c = PAL.limestone[5];
-        if (y >= F - 3) c = y === F - 3 ? PAL.limestone[3] : PAL.limestone[2];
-        face(x, y, c, joint ? 0.4 : 0.7);
+        if (z <= 3) c = z === 3 ? PAL.limestone[3] : PAL.limestone[2];
+        put(u, z, c, joint ? 0.4 : 0.7);
     }
-};
-
-const pier: Painter = (cap, face, rand) => {
-    thinCap(cap, face, rand);
-    stoneFace(face, rand);
 };
 
 /**
- * Glass is drawn partly see-through, so the lobby floor behind the shop front shows; frames and blinds are solid. From
- * the sunny street the interior looks darker than outside, so the tint is strong and the reflections sparse.
+ * Glass is partly see-through, so the lobby floor behind the shop front shows; frames and blinds are solid. From the
+ * sunny street the interior looks darker than outside, so the tint is strong and the reflections sparse.
  */
 const GLASS_ALPHA = 190;
 const REFLECTION_ALPHA = 140;
 
-const windowBlock: Painter = (cap, face, rand) => {
-    thinCap(cap, face, rand);
-    for (let y = 0; y < F; y++) for (let x = 0; x < TILE; x++) {
-        if (y >= F - 4) { face(x, y, y === F - 4 ? PAL.limestone[5] : PAL.limestone[3], 0.75); continue; }
-        if (y < 2) { face(x, y, y === 0 ? PAL.limestone[5] : PAL.limestone[3], 0.8); continue; }
+const windowFace: Painter['face'] = put => {
+    for (let z = 1; z <= F; z++) for (let u = 0; u < TILE; u++) {
+        if (z <= 4) { put(u, z, z === 4 ? PAL.limestone[5] : PAL.limestone[3], 0.75); continue; }
+        if (z >= F - 1) { put(u, z, z === F ? PAL.limestone[5] : PAL.limestone[3], 0.8); continue; }
         // One slim mullion per tile; the stone piers frame each run of windows.
-        if (y === 2 || x === TILE - 1) { face(x, y, PAL.walnut[1], 0.7); continue; }
-        // Blinds half-drawn at the top, then glass with the sky's reflection streaking across it.
-        if (y < 6) { face(x, y, y % 2 === 0 ? PAL.paper[1] : PAL.paper[0], 0.55); continue; }
-        const streak = (x - y + 32) % 13 === 0;
-        face(x, y, streak ? PAL.glass[3] : PAL.glass[0], 0.5, streak ? REFLECTION_ALPHA : GLASS_ALPHA);
+        if (z === F - 2 || u === TILE - 1) { put(u, z, PAL.walnut[1], 0.7); continue; }
+        // Blinds half drawn at the top, then glass with the sky's reflection streaking across it.
+        if (z >= F - 5) { put(u, z, z % 2 === 0 ? PAL.paper[1] : PAL.paper[0], 0.55); continue; }
+        const streak = (u + z + 8) % 13 === 0;
+        put(u, z, streak ? PAL.glass[3] : PAL.glass[0], 0.5, streak ? REFLECTION_ALPHA : GLASS_ALPHA);
     }
 };
 
 const glyphs: Record<string, string[]> = { B: ['##.', '###', '##.'], A: ['.#.', '###', '#.#'], N: ['#.#', '###', '#.#'], K: ['#.#', '##.', '#.#'] };
 
-const doorGlass = (side: 'left' | 'right'): Painter => (cap, face, rand) => {
-    thinCap(cap, face, rand);
-    for (let y = 0; y < F; y++) for (let x = 0; x < TILE; x++) {
-        const inner = side === 'left' ? TILE - 1 - x : x;
-        if (y < 2) { face(x, y, y === 0 ? PAL.limestone[5] : PAL.limestone[3], 0.8); continue; }
-        if (y === 2 || y === 7 || y === F - 1 || inner === 0 || inner === TILE - 1) { face(x, y, PAL.walnut[1], 0.7); continue; }
-        // Transom with gold leaf, then the door's glass.
-        if (y < 7) { face(x, y, PAL.glass[0], 0.5); continue; }
-        const streak = (x - y + 32) % 11 === 0;
-        face(x, y, streak ? PAL.glass[3] : PAL.glass[0], 0.5, streak ? REFLECTION_ALPHA : GLASS_ALPHA);
+/** One leaf of the glass double doors, "BA" or "NK" in gold leaf on its transom. */
+const doorGlass = (side: 'left' | 'right'): Painter['face'] => put => {
+    for (let z = 1; z <= F; z++) for (let u = 0; u < TILE; u++) {
+        const inner = side === 'left' ? TILE - 1 - u : u;
+        if (z >= F - 1) { put(u, z, z === F ? PAL.limestone[5] : PAL.limestone[3], 0.8); continue; }
+        if (z === F - 2 || z === F - 7 || z === 1 || inner === 0 || inner === TILE - 1) { put(u, z, PAL.walnut[1], 0.7); continue; }
+        if (z > F - 7) { put(u, z, PAL.glass[0], 0.5); continue; }
+        const streak = (u + z + 8) % 11 === 0;
+        put(u, z, streak ? PAL.glass[3] : PAL.glass[0], 0.5, streak ? REFLECTION_ALPHA : GLASS_ALPHA);
     }
-    const word = side === 'left' ? 'BA' : 'NK';
-    [...word].forEach((ch, i) => glyphs[ch]!.forEach((row, gy) => [...row].forEach((on, gx) => {
-        if (on === '#') face((side === 'left' ? 8 : 1) + i * 4 + gx, 3 + gy, gy === 0 ? PAL.brass[5] : PAL.brass[4], 0.6);
+    [...(side === 'left' ? 'BA' : 'NK')].forEach((ch, i) => glyphs[ch]!.forEach((row, gy) => [...row].forEach((on, gx) => {
+        if (on === '#') put((side === 'left' ? 8 : 1) + i * 4 + gx, F - 3 - gy, gy === 0 ? PAL.brass[5] : PAL.brass[4], 0.6);
     })));
-    // Brass push bar towards the meeting stiles.
     const bx = side === 'left' ? 11 : 2;
-    for (let x = bx; x < bx + 3; x++) { face(x, 14, PAL.brass[5], 0.8); face(x, 15, PAL.brass[2], 0.75); }
+    for (let u = bx; u < bx + 3; u++) { put(u, 10, PAL.brass[5], 0.8); put(u, 9, PAL.brass[2], 0.75); }
 };
 
-/** Through-the-wall ATM in a stone pier; its screen at face (4..11, 8..11) is a glow sprite. */
-const atm: Painter = (cap, face, rand) => {
-    pier(cap, face, rand);
-    for (let y = 5; y < 19; y++) for (let x = 2; x < 14; x++) {
-        let c: number = y === 5 || x === 2 || x === 13 ? PAL.steel[1] : PAL.steel[3];
-        if (y === 6 && x > 2 && x < 13) c = PAL.steel[4];
-        if (y >= 7 && y <= 12 && x >= 4 && x <= 11) c = PAL.steel[0];
-        if (y === 15 && x >= 5 && x <= 10) c = PAL.steel[5];
-        if (y === 17 && x >= 4 && x <= 11) c = mix(PAL.steel[2], PAL.ink, 0.4);
-        face(x, y, c, y === 5 ? 0.9 : 0.8);
+/** A through-the-wall cash machine in a stone pier; its screen is a glowing prop over the dark panel. */
+const atmFace: Painter['face'] = (put, rand) => {
+    stoneFace(put, rand);
+    for (let z = 6; z <= 19; z++) for (let u = 2; u < 14; u++) {
+        let c: number = z === 19 || u === 2 || u === 13 ? PAL.steel[1] : PAL.steel[3];
+        if (z === 18 && u > 2 && u < 13) c = PAL.steel[4];
+        if (z >= 12 && z <= 17 && u >= 4 && u <= 11) c = PAL.steel[0];
+        if (z === 9 && u >= 5 && u <= 10) c = PAL.steel[5];
+        if (z === 7 && u >= 4 && u <= 11) c = mix(PAL.steel[2], PAL.ink, 0.4);
+        put(u, z, c, z === 19 ? 0.9 : 0.8);
     }
 };
 
-const PAINTERS: Record<WallBlockName, Painter> = {
-    cap: solidCap, sideDoor, face: interiorFace, doorWood, doorKeycard,
-    pier, window: windowBlock, doorGlassLeft: doorGlass('left'), doorGlassRight: doorGlass('right'), atm
+const PAINTERS: Record<Exclude<WallKind, 'doorGlass'>, Painter> & { doorGlassLeft: Painter; doorGlassRight: Painter } = {
+    plaster: { section: plasterSection, face: interiorFace },
+    concrete: { section: concreteSection, face: concreteFace },
+    doorWood: { section: doorSection(PAL.walnut[3], PAL.walnut[5]), face: doorWood },
+    doorKeycard: { section: doorSection(PAL.steel[2], PAL.steel[4]), face: doorKeycard },
+    pier: { section: stoneSection, face: stoneFace },
+    window: { section: glassSection, face: windowFace },
+    doorGlassLeft: { section: glassSection, face: doorGlass('left') },
+    doorGlassRight: { section: glassSection, face: doorGlass('right') },
+    atm: { section: stoneSection, face: atmFace }
 };
 
-export const WALL_BLOCK_INDEX = Object.fromEntries(WALL_BLOCK_NAMES.map((n, i) => [n, i])) as Record<WallBlockName, number>;
+/** Which drawing a segment takes: its kind, except that the two leaves of a glass double door differ. */
+export type WallLook = keyof typeof PAINTERS;
 
-/** Paints every wall block side by side, each 16 wide and `BLOCK_HEIGHT` tall: cap on top, face below. */
-export function bankWalls(): PixelBitmap {
-    const bitmap = new PixelBitmap(TILE * WALL_BLOCK_NAMES.length, BLOCK_HEIGHT);
-    const rand = mulberry32(777);
-    WALL_BLOCK_NAMES.forEach((name, i) => {
-        const ox = i * TILE;
-        const cap = (x: number, y: number, c: number, h: number, a = 255) => bitmap.set(ox + x, y, c, h, a);
-        const face = (x: number, y: number, c: number, h: number, a = 255) => bitmap.set(ox + x, CAP + y, c, h, a);
-        PAINTERS[name](cap, face, rand);
-    });
+export function wallLook(wall: Wall, walls: readonly Wall[]): WallLook {
+    if (wall.kind !== 'doorGlass') return wall.kind;
+    const westIsDoor = walls.some(w => w.kind === 'doorGlass' && w.run === wall.run && w.tx === wall.tx - 1 && w.ty === wall.ty);
+    return westIsDoor ? 'doorGlassRight' : 'doorGlassLeft';
+}
+
+/**
+ * A wall segment cut at `height`. East-west: its section (as deep as the wall is thick) over its face. North-south:
+ * its section a tile long, then the end of its face, which the next segment of the run covers. The bitmap's bottom edge
+ * is the segment's south edge at floor level.
+ */
+export function wallArt(wall: Wall, look: WallLook, height: number): PixelBitmap {
+    const t = WALL_THICKNESS[wall.kind], painter = PAINTERS[look], rand = mulberry32(look.length * 97 + t);
+    const eastWest = wall.run === 'eastWest';
+    const top = eastWest ? t : TILE, bitmap = new PixelBitmap(eastWest ? TILE : t, top + height);
+    painter.section((u, v, c) => (eastWest ? bitmap.set(u, v, c, 1) : bitmap.set(v, u, c, 1)), t, TILE, rand);
+    painter.face((u, z, c, h, alpha) => {
+        if (z > height) return;
+        if (eastWest) bitmap.set(u, top + height - z, c, h, alpha);
+        else if (u < t) bitmap.set(u, top + height - z, c, h, alpha);
+    }, rand);
     return bitmap;
 }

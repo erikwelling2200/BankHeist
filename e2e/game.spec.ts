@@ -82,16 +82,34 @@ test.describe('lobby visual preview', () => {
         return errors;
     }
 
-    test('renders the lobby and the street within the light budget', async ({ page }) => {
+    test('renders the lobby and the street within the light budget, cutting walls the camera looks past', async ({ page }) => {
         const errors = await bootLobby(page);
-        const lobby = (x: number, y: number) => page.evaluate(([x, y]) => (window as any).game.scene.getScene('lobby').lookAt(x, y), [x, y]);
-        await lobby(176, 104);
-        await page.waitForTimeout(300);
+        const scene = () => page.evaluate(() => (window as any).game.scene.getScene('lobby').debugState);
+        const lookAt = async (x: number, y: number) => {
+            await page.evaluate(([x, y]) => (window as any).game.scene.getScene('lobby').lookAt(x, y), [x, y]);
+            await page.waitForTimeout(400);
+        };
+        type WallState = { run: string; ty: number; height: number };
+        const heights = (walls: WallState[], ty: number) => [...new Set(walls.filter(w => w.run === 'eastWest' && w.ty === ty).map(w => w.height))];
+        const BACK_WALL = 4, FACADE = 14;
+
+        await lookAt(176, 136);
         await page.locator('canvas').screenshot({ path: 'screenshots/lobby.png' });
-        await lobby(176, 230);
-        await page.waitForTimeout(300);
+        let state = await scene();
+        // Looking at the lobby: the back wall stands behind it, the shop front in front of it is cut down.
+        expect(heights(state.walls, BACK_WALL)).toEqual([24]);
+        expect(heights(state.walls, FACADE)).toEqual([8]);
+
+        await lookAt(176, 48);
+        await page.locator('canvas').screenshot({ path: 'screenshots/lobby-corridor.png' });
+        state = await scene();
+        // Looking at the corridor behind it, the back wall is cut down too.
+        expect(heights(state.walls, BACK_WALL)).toEqual([8]);
+
+        await lookAt(176, 262);
         await page.locator('canvas').screenshot({ path: 'screenshots/lobby-street.png' });
-        const state = await page.evaluate(() => (window as any).game.scene.getScene('lobby').debugState);
+        state = await scene();
+        expect(heights(state.walls, FACADE)).toEqual([24]);
         // Lights past render.maxLights are silently dropped.
         expect(state.lights).toBeLessThanOrEqual(32);
         expect(errors).toEqual([]);

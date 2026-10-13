@@ -16,13 +16,18 @@ export const px = (metres: number): number => Math.round(metres * PX_PER_METRE);
 
 export const WALL_HEIGHT = px(1.92);
 
+/**
+ * A wall the camera looks past is cut down to this height, so the floor and anyone behind it stay in view. Walls step
+ * between their full and cut heights through `WALL_STEPS`, lowest first.
+ */
+export const CUT_HEIGHT = px(0.6);
+export const WALL_STEPS = [CUT_HEIGHT, Math.round((CUT_HEIGHT + WALL_HEIGHT) / 2), WALL_HEIGHT] as const;
+
 /** How deep the top of an object is drawn, as a share of its real depth. Floor-level things keep their full depth. */
 export const TOP_DEPTH = 2 / 3;
 
 /** Screen rows the top of something `depth` pixels deep takes. */
 export const topRows = (depth: number): number => Math.round(depth * TOP_DEPTH);
-/** The shop front is a thin wall: only this much of its tile, along the street edge, is wall. */
-export const THIN_WALL = px(0.3);
 
 /**
  * Size of an object in pixels, in its own frame: `w` across its front, `d` from back to front, `h` tall. Facing south
@@ -54,22 +59,36 @@ export type AlignY = 'north' | 'center' | 'south';
  */
 export interface Placement { tx: number; ty: number; span?: [number, number]; alignX?: AlignX; alignY?: AlignY; elevation?: number; facing?: Facing }
 
+/** How far walls reach into a span of tiles from each side; something pushed against a side stands against the wall's face. */
+export interface Insets { north: number; south: number; west: number; east: number }
+
+export const NO_INSETS: Insets = { north: 0, south: 0, west: 0, east: 0 };
+
+/** The tiles a placement takes: its north-west tile and how many tiles across and deep, in world directions. */
+export function spanOf(p: Placement, local: Size): { tx: number; ty: number; w: number; d: number } {
+    const facing = p.facing ?? 'south';
+    const size = turned(local, facing);
+    const span = p.span ? turned({ w: p.span[0], d: p.span[1] }, facing) : undefined;
+    return { tx: p.tx, ty: p.ty, w: span?.w ?? Math.max(1, Math.ceil(size.w / TILE)), d: span?.d ?? Math.max(1, Math.ceil(size.d / TILE)) };
+}
+
 function align(start: number, room: number, size: number, side: 'low' | 'center' | 'high'): number {
     if (side === 'low') return start;
     if (side === 'high') return start + room - size;
     return start + Math.floor((room - size) / 2);
 }
 
-export function place(p: Placement, local: Size): Box {
+/** Places an object in its span. Pushed against a side, it stands against the face of any wall on that side (`insets`). */
+export function place(p: Placement, local: Size, insets: Insets = NO_INSETS): Box {
     const facing = p.facing ?? 'south';
     const size = turned(local, facing);
-    const span = p.span ? turned({ w: p.span[0], d: p.span[1] }, facing) : undefined;
-    const spanX = span?.w ?? Math.max(1, Math.ceil(size.w / TILE));
-    const spanY = span?.d ?? Math.max(1, Math.ceil(size.d / TILE));
-    if (size.w > spanX * TILE || size.d > spanY * TILE) throw new Error(`A ${size.w}x${size.d} footprint does not fit a ${spanX}x${spanY} tile span`);
+    const span = spanOf(p, local);
+    const room = { x: p.tx * TILE + insets.west, y: p.ty * TILE + insets.north, w: span.w * TILE - insets.west - insets.east, d: span.d * TILE - insets.north - insets.south };
+    if (size.w > room.w || size.d > room.d) throw new Error(`A ${size.w}x${size.d} footprint does not fit a ${room.w}x${room.d} space between walls`);
     const ax = p.alignX ?? 'center', ay = p.alignY ?? 'center';
-    const x = align(p.tx * TILE, spanX * TILE, size.w, ax === 'west' ? 'low' : ax === 'east' ? 'high' : 'center');
-    const y = align(p.ty * TILE, spanY * TILE, size.d, ay === 'north' ? 'low' : ay === 'south' ? 'high' : 'center');
+    // Centred things stay centred on their tiles; only things pushed to a side move off a wall.
+    const x = ax === 'center' ? align(p.tx * TILE, span.w * TILE, size.w, 'center') : align(room.x, room.w, size.w, ax === 'west' ? 'low' : 'high');
+    const y = ay === 'center' ? align(p.ty * TILE, span.d * TILE, size.d, 'center') : align(room.y, room.d, size.d, ay === 'north' ? 'low' : 'high');
     return { x, y, z: p.elevation ?? 0, w: size.w, d: size.d, h: size.h, facing };
 }
 

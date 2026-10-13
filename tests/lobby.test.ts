@@ -1,37 +1,85 @@
 import { describe, expect, it } from 'vitest';
-import { buildLightMaps, type Caster } from '../src/art/bank/lightmap';
+import { buildExposure, buildLightMaps, facade, type Caster } from '../src/art/bank/lightmap';
 import { TILE } from '../src/level/level';
 import { propBox } from '../src/level/catalog';
-import { isStructure, LOBBY_PEOPLE, LOBBY_PROPS, LOBBY_TILES, parseLobby } from '../src/level/lobby';
-import { boxesOverlap, PERSON_SIZE, place, WALL_HEIGHT, type Box } from '../src/level/space';
+import { isOffMap, isOutdoors, LOBBY_PEOPLE, LOBBY_PLAN, LOBBY_PROPS, parseLobby } from '../src/level/lobby';
+import { boxesOverlap, CUT_HEIGHT, PERSON_SIZE, place, WALL_HEIGHT, type Box } from '../src/level/space';
+import { wallFootprint, wallInsets, WALL_THICKNESS, type Wall } from '../src/level/walls';
 
-const tiles = parseLobby(LOBBY_TILES);
-const facadeRow = tiles.findIndex(row => row.includes('g'));
+const level = parseLobby(LOBBY_PLAN);
+const { tiles, walls } = level;
+const front = facade(level);
 const glow = (maps: ReturnType<typeof buildLightMaps>, x: number, y: number) => maps.glow[(y * maps.width + x) * 4]!;
 const shade = (maps: ReturnType<typeof buildLightMaps>, x: number, y: number) => maps.shade[(y * maps.width + x) * 4]!;
 
-describe('lobby layout', () => {
-    it('rejects ragged rows and unknown tiles', () => {
-        expect(() => parseLobby(['##', '#'])).toThrow();
-        expect(() => parseLobby(['#?'])).toThrow();
+describe('lobby plan', () => {
+    it('rejects ragged rows, unknown floors and walls, and walls where a corner belongs', () => {
+        expect(() => parseLobby([' - ', '|.', ' - '])).toThrow();
+        expect(() => parseLobby(['   ', ' ? ', '   '])).toThrow();
+        expect(() => parseLobby([' ? ', ' . ', '   '])).toThrow();
+        expect(() => parseLobby(['-  ', ' . ', '   '])).toThrow();
     });
 
-    it('puts the street along the bottom, below the façade', () => {
-        expect(facadeRow).toBeGreaterThan(0);
-        expect(tiles[facadeRow + 1]!.every(t => t === 's')).toBe(true);
+    it('reads floors from the odd cells and walls from the edges between them', () => {
+        const plan = parseLobby(['+-+', '|.d', '+ +']);
+        expect(plan.tiles).toEqual([['.']]);
+        expect(plan.walls).toEqual([
+            { kind: 'plaster', run: 'eastWest', tx: 0, ty: 0 },
+            { kind: 'plaster', run: 'northSouth', tx: 0, ty: 0 },
+            { kind: 'doorWood', run: 'northSouth', tx: 1, ty: 0 }
+        ]);
+    });
+
+    it('puts the street along the bottom, in front of the shop front', () => {
+        expect(front.walls.length).toBe(tiles[0]!.length);
+        expect(tiles[front.line / TILE]!.every(t => t === 's')).toBe(true);
         expect(tiles.at(-1)!.every(t => t === 'r')).toBe(true);
     });
+});
 
+describe('walls between tiles', () => {
+    it('centres a segment on its edge at its own thickness', () => {
+        const wall: Wall = { kind: 'concrete', run: 'eastWest', tx: 2, ty: 3 };
+        const f = wallFootprint(wall), t = WALL_THICKNESS.concrete;
+        expect(f).toEqual({ x: 2 * TILE, y: 3 * TILE - Math.floor(t / 2), w: TILE, d: t });
+        const side = wallFootprint({ kind: 'plaster', run: 'northSouth', tx: 2, ty: 3 });
+        expect(side.w).toBe(WALL_THICKNESS.plaster);
+        expect(side.d).toBe(TILE);
+    });
+
+    it('pushes something against a wall off its face', () => {
+        const wall: Wall = { kind: 'plaster', run: 'eastWest', tx: 0, ty: 1 };
+        const insets = wallInsets([wall], 0, 1, 1, 1);
+        const f = wallFootprint(wall);
+        expect(insets.north).toBe(f.y + f.d - TILE);
+        const box = place({ tx: 0, ty: 1, alignY: 'north' }, { w: 4, d: 4, h: 4 }, insets);
+        expect(box.y).toBe(f.y + f.d);
+        // Centred things stay centred on their tile.
+        expect(place({ tx: 0, ty: 1 }, { w: 4, d: 4, h: 4 }, insets).y).toBe(TILE + 6);
+    });
+
+    it('steps walls down to a cut that still shows them', () => {
+        expect(CUT_HEIGHT).toBeGreaterThan(0);
+        expect(CUT_HEIGHT).toBeLessThan(WALL_HEIGHT / 2);
+    });
+});
+
+describe('lobby layout', () => {
     const things: { name: string; box: Box }[] = [
-        ...LOBBY_PROPS.map(p => ({ name: `${p.kind} at ${p.tx},${p.ty}`, box: propBox(p) })),
+        ...LOBBY_PROPS.map(p => ({ name: `${p.kind} at ${p.tx},${p.ty}`, box: propBox(p, walls) })),
         ...LOBBY_PEOPLE.map(p => ({ name: `${p.look} at ${p.tx},${p.ty}`, box: place({ tx: p.tx, ty: p.ty }, PERSON_SIZE) }))
     ];
+    const inWall = (box: Box) => walls.some(w => {
+        const f = wallFootprint(w);
+        return box.x < f.x + f.w && f.x < box.x + box.w && box.y < f.y + f.d && f.y < box.y + box.d;
+    });
 
-    it('stands every footprint on open floor, never inside a wall', () => {
+    it('stands every footprint on the map and clear of every wall', () => {
         for (const { name, box } of things) {
             for (let y = box.y; y < box.y + box.d; y++) for (let x = box.x; x < box.x + box.w; x++) {
-                expect(isStructure(tiles[Math.floor(y / TILE)]![Math.floor(x / TILE)]!), name).toBe(false);
+                expect(isOffMap(tiles[Math.floor(y / TILE)]![Math.floor(x / TILE)]!), name).toBe(false);
             }
+            expect(inWall(box), name).toBe(false);
         }
     });
 
@@ -41,61 +89,67 @@ describe('lobby layout', () => {
         }
     });
 
-    it('hangs wall dressing against its wall and below the cut-away top', () => {
+    it('hangs wall dressing on the face of a wall, below the cut-away top', () => {
         for (const { name, box } of things.filter(t => t.box.z > 0 && t.box.d <= 1)) {
-            expect(box.y % TILE, name).toBe(0);
-            expect(isStructure(tiles[box.y / TILE - 1]![Math.floor(box.x / TILE)]!), name).toBe(true);
+            const wall = walls.find(w => w.run === 'eastWest' && w.tx === Math.floor(box.x / TILE) && w.ty === Math.floor(box.y / TILE));
+            expect(wall, name).toBeDefined();
+            const f = wallFootprint(wall!);
+            expect(box.y, name).toBe(f.y + f.d);
             expect(box.z + box.h, name).toBeLessThanOrEqual(WALL_HEIGHT);
         }
     });
 
     it('stands people in the middle of their tile', () => {
-        const box = place({ tx: 3, ty: 5 }, PERSON_SIZE);
-        expect(box.y + box.d / 2).toBe(5 * TILE + TILE / 2);
+        const box = place({ tx: 3, ty: 7 }, PERSON_SIZE);
+        expect(box.y + box.d / 2).toBe(7 * TILE + TILE / 2);
     });
 });
 
 describe('light maps', () => {
-    const facadeY = facadeRow * TILE;
-    const doorX = tiles[facadeRow]!.indexOf('D') * TILE;
+    const facadeY = front.line;
+    const doorX = front.walls.find(w => w.kind === 'doorGlass')!.tx * TILE;
 
     it('lets sun in only through the glass and only onto the floor inside', () => {
-        const maps = buildLightMaps(tiles, [], []);
+        const maps = buildLightMaps(level, [], []);
         // Just inside the doors the floor is lit; just inside a stone pier it is not.
         expect(glow(maps, doorX + 8 - 2, facadeY - 4)).toBeGreaterThan(0);
-        const pierX = tiles[facadeRow]!.indexOf('p', 1) * TILE;
+        const pierX = front.walls.filter(w => w.kind === 'pier')[1]!.tx * TILE;
         expect(glow(maps, pierX + 8 - 2, facadeY - 4)).toBe(0);
-        for (let x = 0; x < maps.width; x++) expect(glow(maps, x, facadeY + TILE + 4)).toBe(0);
+        for (let x = 0; x < maps.width; x++) expect(glow(maps, x, facadeY + 4)).toBe(0);
     });
 
     it('lets someone standing in a shaft block it', () => {
         const x = doorX + 8 - 4, y = facadeY - 10;
-        const open = buildLightMaps(tiles, [], []);
-        const blocked = buildLightMaps(tiles, [{ x: x + 2, y: y + 6, w: 8, h: 3, height: 22 }], []);
+        const open = buildLightMaps(level, [], []);
+        const blocked = buildLightMaps(level, [{ x: x + 2, y: y + 6, w: 8, h: 3, height: 22 }], []);
         expect(glow(open, x, y)).toBeGreaterThan(0);
         expect(glow(blocked, x, y)).toBe(0);
     });
 
     it('casts sun shadows outdoors only, up and to the left of the caster', () => {
-        const base = (facadeRow + 3) * TILE;
+        const base = facadeY + 3 * TILE;
         const post: Caster = { left: 100, top: base - 40, width: 2, height: 40, base, opaque: () => true };
-        const maps = buildLightMaps(tiles, [], [post]);
-        const plain = buildLightMaps(tiles, [], []);
+        const maps = buildLightMaps(level, [], [post]);
+        const plain = buildLightMaps(level, [], []);
         // A pixel 20px up lands 12px up the screen and leans left with the shafts.
         const x = Math.round(100 - 12 * 0.38);
         expect(shade(maps, x, base - 12)).toBeLessThan(shade(plain, x, base - 12));
         expect(shade(maps, 100 + 6, base - 12)).toBe(shade(plain, 100 + 6, base - 12));
         const indoor: Caster = { ...post, top: facadeY - 60, base: facadeY - 20 };
-        expect(buildLightMaps(tiles, [], [indoor]).shade).toEqual(plain.shade);
+        expect(buildLightMaps(level, [], [indoor]).shade).toEqual(plain.shade);
     });
 
-    it('keeps the street at full exposure and shades the inside', () => {
-        const maps = buildLightMaps(tiles, [], []);
-        const exposure = (x: number, y: number) => maps.exposure[(y * maps.width + x) * 4 + 2]!;
-        expect(exposure(40, facadeY + TILE * 2)).toBe(255);
-        expect(exposure(40, 6 * TILE)).toBeLessThan(128);
-        // Just inside the shop front (whose 1.5-tile face rises above its own tile) the window light lifts the shade.
-        expect(exposure(40, facadeY - 14)).toBeGreaterThan(exposure(40, 6 * TILE));
-        expect(exposure(40, facadeY - 14)).toBeLessThan(255);
+    it('keeps the street at full exposure and shades the inside, up to the top of the shop front as drawn', () => {
+        const width = tiles[0]!.length * TILE;
+        const exposureAt = (map: Uint8ClampedArray, x: number, y: number) => map[(y * width + x) * 4 + 2]!;
+        const full = buildExposure(level, facadeY - WALL_HEIGHT), cut = buildExposure(level, facadeY - CUT_HEIGHT);
+        const deep = (8 * TILE);
+        expect(isOutdoors(tiles[deep / TILE]![2]!)).toBe(false);
+        expect(exposureAt(full, 40, facadeY + TILE * 2)).toBe(255);
+        expect(exposureAt(full, 40, deep)).toBeLessThan(128);
+        // Floor just inside the glass is outdoors on screen while the full front covers it, indoors once the front is cut.
+        expect(exposureAt(full, 40, facadeY - 12)).toBe(255);
+        expect(exposureAt(cut, 40, facadeY - 12)).toBeLessThan(255);
+        expect(exposureAt(cut, 40, facadeY - 12)).toBeGreaterThan(exposureAt(cut, 40, deep));
     });
 });
