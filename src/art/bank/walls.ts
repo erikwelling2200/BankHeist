@@ -2,7 +2,10 @@ import { TILE } from '../../level/level';
 import { PAL, mix, step } from '../palette';
 import { PixelBitmap } from '../PixelBitmap';
 import { mulberry32 } from '../random';
-import { BLOCK_HEIGHT, THIN_CAP, WALL_HEIGHT } from './geometry';
+import { THIN_WALL, WALL_HEIGHT } from '../../level/space';
+
+/** A wall block is the wall's cap (one tile deep) over its face; see `space.ts` for the heights. */
+export const BLOCK_HEIGHT = TILE + WALL_HEIGHT;
 
 export const WALL_BLOCK_NAMES = ['cap', 'sideDoor', 'face', 'doorWood', 'doorKeycard', 'pier', 'window', 'doorGlassLeft', 'doorGlassRight', 'atm'] as const;
 export type WallBlockName = typeof WALL_BLOCK_NAMES[number];
@@ -20,7 +23,7 @@ const solidCap: Painter = (cap, _face, rand) => {
 /** The shop front is a thin wall: a limestone coping along its street edge, the rest of the tile is floor behind it. */
 const thinCap: Painter = (cap) => {
     const coping = [PAL.limestone[2], PAL.limestone[5], PAL.limestone[4], PAL.limestone[1]];
-    for (let x = 0; x < TILE; x++) coping.forEach((c, i) => cap(x, TILE - THIN_CAP + i, c, i === THIN_CAP - 1 ? 0.9 : 1));
+    for (let x = 0; x < TILE; x++) coping.forEach((c, i) => cap(x, TILE - THIN_WALL + i, c, i === THIN_WALL - 1 ? 0.9 : 1));
 };
 
 /** Interior face: plaster above a walnut wainscot with a brass chair rail and a dark skirting board. */
@@ -37,7 +40,8 @@ const interiorFace: Painter = (cap, face, rand) => {
     }
 };
 
-const DOOR_TOP = 6;
+/** Doors are about 2m tall, taller than the cut-away face, so they run from just under the cut line to the floor. */
+const DOOR_TOP = 1;
 
 const doorWood: Painter = (cap, face, rand) => {
     interiorFace(cap, face, rand);

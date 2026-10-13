@@ -1,3 +1,5 @@
+import type { Placement } from './space';
+
 /**
  * The lobby of the visual-preview bank: a small city branch, mid-morning. Street along the bottom, public lobby in the
  * middle, the teller area (Staff) behind the counter and the back wall with the doors to the manager's office and the
@@ -53,61 +55,68 @@ export function isStructure(tile: LobbyTile): boolean {
     return BLOCKING.has(tile);
 }
 
-/** Static furniture and dressing, placed by tile. `tx`/`ty` is the tile the object stands on; for a long object, its southmost (base) row. */
-export type LobbyProp =
-    | { kind: 'counter'; tx: number; ty: number; width: number; stations: number[]; closed: number[]; gate: number }
-    | { kind: 'backCounter'; tx: number; ty: number; width: number }
-    | { kind: 'queueRail'; tx: number; ty: number; length: number }
-    | { kind: 'writingDesk' | 'sofa' | 'coffeeTable'; tx: number; ty: number }
-    | { kind: 'plant' | 'waterCooler' | 'bin' | 'brochureRack' | 'mat'; tx: number; ty: number }
-    | { kind: 'clock' | 'crest' | 'painting' | 'noticeBoard' | 'exitSign' | 'keycardLed' | 'atmScreen' | 'camera'; tx: number; ty: number }
-    | { kind: 'filingCabinet' | 'printer'; tx: number; ty: number }
-    | { kind: 'streetLamp' | 'hydrant' | 'newsBox' | 'streetBin' | 'manhole' | 'bollard'; tx: number; ty: number }
-    | { kind: 'van'; tx: number; ty: number };
+/**
+ * Static furniture and dressing. `tx`/`ty` is the north-west tile of the tiles the object occupies; its size, default
+ * alignment and elevation come from `CATALOG` (catalog.ts), and an entry can override the alignment or span here.
+ */
+type Placed = { tx: number; ty: number } & Partial<Pick<Placement, 'span' | 'alignX' | 'alignY'>>;
+
+export type LobbyProp = Placed & (
+    | { kind: 'counter'; width: number; stations: number[]; closed: number[]; gate: number }
+    | { kind: 'backCounter'; width: number }
+    | { kind: 'queueRail'; length: number }
+    | { kind: 'writingDesk' | 'sofa' | 'coffeeTable' | 'plant' | 'waterCooler' | 'bin' | 'brochureRack' | 'mat' }
+    | { kind: 'clock' | 'crest' | 'painting' | 'noticeBoard' | 'exitSign' | 'keycardLed' | 'atmScreen' | 'camera' }
+    | { kind: 'filingCabinet' | 'printer' }
+    | { kind: 'streetLamp' | 'hydrant' | 'newsBox' | 'streetBin' | 'manhole' | 'bollard' | 'van' }
+);
 
 export const LOBBY_PROPS: LobbyProp[] = [
+    // Teller line, against the back wall.
     { kind: 'backCounter', tx: 1, ty: 2, width: 4 },
+    { kind: 'painting', tx: 5, ty: 2 },
     { kind: 'filingCabinet', tx: 6, ty: 2 },
     { kind: 'filingCabinet', tx: 7, ty: 2 },
-    { kind: 'printer', tx: 9, ty: 2 },
+    { kind: 'printer', tx: 8, ty: 2 },
+    { kind: 'crest', tx: 9, ty: 2 },
     { kind: 'backCounter', tx: 12, ty: 2, width: 4 },
-    { kind: 'waterCooler', tx: 20, ty: 2 },
+    { kind: 'clock', tx: 13, ty: 2 },
+    { kind: 'noticeBoard', tx: 16, ty: 2 },
+    { kind: 'exitSign', tx: 17, ty: 2, alignX: 'east' },
+    { kind: 'keycardLed', tx: 18, ty: 2 },
+    { kind: 'waterCooler', tx: 20, ty: 2, alignX: 'east' },
     { kind: 'counter', tx: 1, ty: 4, width: 20, stations: [3, 7, 11, 15], closed: [11], gate: 19 },
-    { kind: 'crest', tx: 9, ty: 1 },
-    { kind: 'clock', tx: 13, ty: 1 },
-    { kind: 'noticeBoard', tx: 16, ty: 1 },
-    { kind: 'painting', tx: 6, ty: 1 },
-    { kind: 'exitSign', tx: 18, ty: 1 },
-    { kind: 'keycardLed', tx: 18, ty: 1 },
-    { kind: 'atmScreen', tx: 16, ty: 12 },
-    { kind: 'camera', tx: 21, ty: 5 },
 
-    { kind: 'queueRail', tx: 8, ty: 9, length: 4 },
-    { kind: 'queueRail', tx: 11, ty: 9, length: 4 },
-    { kind: 'mat', tx: 9, ty: 11 },
-    { kind: 'writingDesk', tx: 3, ty: 8 },
+    // Lobby.
+    { kind: 'camera', tx: 20, ty: 5 },
+    { kind: 'plant', tx: 1, ty: 5, alignX: 'west', alignY: 'north' },
+    { kind: 'plant', tx: 20, ty: 5, alignX: 'east', alignY: 'north' },
+    { kind: 'queueRail', tx: 8, ty: 6, length: 4 },
+    { kind: 'queueRail', tx: 11, ty: 6, length: 4 },
     { kind: 'sofa', tx: 15, ty: 7 },
+    { kind: 'writingDesk', tx: 3, ty: 8 },
     { kind: 'coffeeTable', tx: 15, ty: 9 },
-    { kind: 'plant', tx: 1, ty: 5 },
-    { kind: 'plant', tx: 20, ty: 5 },
-    { kind: 'plant', tx: 19, ty: 11 },
-    { kind: 'brochureRack', tx: 1, ty: 10 },
+    { kind: 'brochureRack', tx: 1, ty: 10, alignX: 'west' },
     { kind: 'bin', tx: 7, ty: 11 },
+    { kind: 'mat', tx: 9, ty: 11 },
+    { kind: 'plant', tx: 20, ty: 11, alignX: 'east' },
 
-    { kind: 'streetLamp', tx: 5, ty: 14 },
-    { kind: 'streetLamp', tx: 17, ty: 14 },
-    { kind: 'hydrant', tx: 13, ty: 14 },
+    // Street.
+    { kind: 'atmScreen', tx: 16, ty: 13 },
     { kind: 'newsBox', tx: 2, ty: 13 },
     { kind: 'streetBin', tx: 12, ty: 13 },
+    { kind: 'streetLamp', tx: 5, ty: 14 },
+    { kind: 'streetLamp', tx: 17, ty: 14 },
     { kind: 'bollard', tx: 8, ty: 14 },
     { kind: 'bollard', tx: 11, ty: 14 },
-    { kind: 'van', tx: 1, ty: 17 },
+    { kind: 'hydrant', tx: 13, ty: 14 },
+    { kind: 'van', tx: 1, ty: 16 },
     { kind: 'manhole', tx: 14, ty: 18 }
 ];
 
 export type Facing = 'front' | 'back';
 
-/** People are placed by tile and named after the archetype they are drawn as. */
+/** People stand in the middle of their tile (`PERSON_SIZE`) and are named after the archetype they are drawn as. */
 export interface LobbyPerson { look: string; tx: number; ty: number; facing: Facing }
 
 export const LOBBY_PEOPLE: LobbyPerson[] = [

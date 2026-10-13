@@ -40,6 +40,11 @@ export class PixelBitmap {
         return this.inBounds(x, y) && this.colors[(y * this.width + x) * 4 + 3]! > 0;
     }
 
+    clear(x: number, y: number): void {
+        const i = y * this.width + x;
+        this.colors.fill(0, i * 4, i * 4 + 4);
+        this.heights[i] = 0;
+    }
 
     rect(x: number, y: number, w: number, h: number, color: number, height: number): void {
         for (let py = y; py < y + h; py++) for (let px = x; px < x + w; px++) this.plot(px, py, color, height);

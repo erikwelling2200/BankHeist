@@ -30,11 +30,16 @@ Example:
 4. **Dither only where bands meet.** Never across whole gradients.
 5. **Keep one light direction.** Rim light, cast shadows and sel-out outlines all follow it. No pillow shading.
 6. **Make figures readable first.** Silhouette, value contrast against the floor, a contact shadow. Detail last.
-7. **Generate characters from one parametric function** so a cast stays consistent, and vary build, hair,
+7. **Give every object a place in 3D before drawing it.** Decide its real size (width, depth, height in metres), its
+   elevation if it hangs or is mounted, and where it stands in its tiles: centred, against which edge, in a corner, or
+   on the line between two tiles. In this game that goes in `src/level/catalog.ts` (1px is about 8cm, walls are cut at
+   1.9m, people are 1.75m); the painter draws to that box and the scene places it, so proportions and positions stay
+   consistent and no two objects intersect (the lobby tests check this).
+8. **Generate characters from one parametric function** so a cast stays consistent, and vary build, hair,
    clothing, props and pose.
-8. **See, critique, fix.** Render, look at the full image and an 8x crop, list what is wrong against the style
+9. **See, critique, fix.** Render, look at the full image and an 8x crop, list what is wrong against the style
    card, fix, re-render. At least 2 passes, at most 3–4 before showing.
-9. **Report honestly.** Say what still looks wrong when delivering.
+10. **Report honestly.** Say what still looks wrong when delivering.
 
 ## Things that went wrong before (avoid)
 

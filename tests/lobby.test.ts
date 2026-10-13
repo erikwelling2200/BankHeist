@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import { buildLightMaps, type Caster } from '../src/art/bank/lightmap';
 import { TILE } from '../src/level/level';
+import { propBox } from '../src/level/catalog';
 import { isStructure, LOBBY_PEOPLE, LOBBY_PROPS, LOBBY_TILES, parseLobby } from '../src/level/lobby';
+import { boxesOverlap, PERSON_SIZE, place, WALL_HEIGHT, type Box } from '../src/level/space';
 
 const tiles = parseLobby(LOBBY_TILES);
 const facadeRow = tiles.findIndex(row => row.includes('g'));
@@ -20,10 +22,36 @@ describe('lobby layout', () => {
         expect(tiles.at(-1)!.every(t => t === 'r')).toBe(true);
     });
 
-    it('stands every person and floor prop on open ground', () => {
-        const hanging = new Set(['clock', 'crest', 'painting', 'noticeBoard', 'exitSign', 'keycardLed', 'atmScreen', 'camera']);
-        for (const p of LOBBY_PEOPLE) expect(isStructure(tiles[p.ty]![p.tx]!), `${p.look} at ${p.tx},${p.ty}`).toBe(false);
-        for (const p of LOBBY_PROPS.filter(p => !hanging.has(p.kind))) expect(isStructure(tiles[p.ty]![p.tx]!), `${p.kind} at ${p.tx},${p.ty}`).toBe(false);
+    const things: { name: string; box: Box }[] = [
+        ...LOBBY_PROPS.map(p => ({ name: `${p.kind} at ${p.tx},${p.ty}`, box: propBox(p) })),
+        ...LOBBY_PEOPLE.map(p => ({ name: `${p.look} at ${p.tx},${p.ty}`, box: place({ tx: p.tx, ty: p.ty }, PERSON_SIZE) }))
+    ];
+
+    it('stands every footprint on open floor, never inside a wall', () => {
+        for (const { name, box } of things) {
+            for (let y = box.y; y < box.y + box.d; y++) for (let x = box.x; x < box.x + box.w; x++) {
+                expect(isStructure(tiles[Math.floor(y / TILE)]![Math.floor(x / TILE)]!), name).toBe(false);
+            }
+        }
+    });
+
+    it('keeps every object out of every other object in 3D', () => {
+        for (let i = 0; i < things.length; i++) for (let j = i + 1; j < things.length; j++) {
+            expect(boxesOverlap(things[i]!.box, things[j]!.box), `${things[i]!.name} and ${things[j]!.name}`).toBe(false);
+        }
+    });
+
+    it('hangs wall dressing against its wall and below the cut-away top', () => {
+        for (const { name, box } of things.filter(t => t.box.z > 0 && t.box.d <= 1)) {
+            expect(box.y % TILE, name).toBe(0);
+            expect(isStructure(tiles[box.y / TILE - 1]![Math.floor(box.x / TILE)]!), name).toBe(true);
+            expect(box.z + box.h, name).toBeLessThanOrEqual(WALL_HEIGHT);
+        }
+    });
+
+    it('stands people in the middle of their tile', () => {
+        const box = place({ tx: 3, ty: 5 }, PERSON_SIZE);
+        expect(box.y + box.d / 2).toBe(5 * TILE + TILE / 2);
     });
 });
 

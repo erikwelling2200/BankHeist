@@ -1,14 +1,15 @@
 import Phaser from 'phaser';
 import { buildLightMaps, type Caster, type Occluder } from '../art/bank/lightmap';
 import { LOOKS, person, PERSON_HEIGHT } from '../art/bank/people';
-import { propArt, type PropArt } from '../art/bank/props';
+import { propArt } from '../art/bank/props';
 import { BANK_TILE_INDEX, bankTileset, type BankTileName } from '../art/bank/tiles';
-import { BLOCK_HEIGHT, THIN_CAP, WALL_HEIGHT } from '../art/bank/geometry';
-import { bankWalls, WALL_BLOCK_NAMES, type WallBlockName } from '../art/bank/walls';
+import { bankWalls, BLOCK_HEIGHT, WALL_BLOCK_NAMES, type WallBlockName } from '../art/bank/walls';
 import { PixelBitmap, toCanvas } from '../art/PixelBitmap';
 import { bayer4, mulberry32, valueNoise } from '../art/random';
+import { propBox } from '../level/catalog';
 import { TILE } from '../level/level';
 import { isStructure, LOBBY_PEOPLE, LOBBY_PROPS, LOBBY_TILES, parseLobby, type LobbyTile } from '../level/lobby';
+import { baseLine, PERSON_SIZE, place, THIN_WALL, WALL_HEIGHT, type Box } from '../level/space';
 
 const KEY = { tiles: 'bank-tiles', walls: 'bank-walls', shade: 'lobby-shade', glow: 'lobby-glow', exposure: 'lobby-exposure', clouds: 'lobby-clouds', mote: 'lobby-mote', shadow: 'person-shadow' } as const;
 
@@ -127,47 +128,34 @@ export class LobbyScene extends Phaser.Scene {
         }));
     }
 
-    /** Places every prop with its glow layer and lights, and returns what each one shades on the floor. */
+    /**
+     * Places every prop by its box (catalog size, level placement): its bitmap's bottom edge on the box's front edge at
+     * the box's elevation, drawn in order of that front edge. Returns the floor footprints that shade and block the sun.
+     */
     private buildProps(): Occluder[] {
         const occluders: Occluder[] = [];
         LOBBY_PROPS.forEach((p, i) => {
-            const art = propArt(p);
+            const box = propBox(p);
+            const art = propArt(p, box);
             const key = `lobby-prop-${i}`;
-            const { left, bottom } = this.placeProp(p.tx, p.ty, art);
-            // Wall-mounted art hangs from the top of its wall's face or sits on its cap, just in front of the wall.
-            const top = art.mount === 'face' ? bottom - WALL_HEIGHT : art.mount === 'cap' ? bottom - BLOCK_HEIGHT : bottom - art.lit.height;
-            const depth = art.flat ? DEPTH.flat : DEPTH.standing + bottom + (art.mount ? 0.25 : 0);
+            const left = box.x - (art.originX ?? 0);
+            const top = baseLine(box) - box.z - art.lit.height;
+            const flat = box.h === 0;
+            const depth = flat ? DEPTH.flat : DEPTH.standing + baseLine(box);
             this.addBitmap(art.lit, key, left, top, depth, true);
-            if (!art.flat) this.casters.push(caster(art.lit, left, top, bottom));
+            if (!flat) this.casters.push(caster(art.lit, left, top, baseLine(box)));
             if (art.glow) {
                 this.addBitmap(art.glow, `${key}-glow`, left, top, depth + 0.5, false);
                 // The exposure layer dims everything indoors; a second, additive pass puts the glow back over it.
                 this.add.image(left, top, `${key}-glow`).setOrigin(0, 0).setDepth(DEPTH.emissive).setBlendMode(Phaser.BlendModes.ADD).setAlpha(0.7);
             }
             for (const l of art.lights ?? []) this.lights.addLight(left + l.x, top + l.y, l.radius, l.color, l.intensity);
-            if (art.shadow) occluders.push(propOccluder(art, left, top));
+            if (!flat && box.z === 0) occluders.push(floorOccluder(box));
         });
         return occluders;
     }
 
-    /**
-     * Where a prop's bitmap goes: its bottom-left corner sits on the bottom-left of its tile, except that furniture with
-     * a footprint depth is pushed back flush against a wall to its north, and sideways against a wall to its west or east.
-     */
-    private placeProp(tx: number, ty: number, art: PropArt): { left: number; bottom: number } {
-        let left = tx * TILE + (art.offsetX ?? 0);
-        let bottom = (ty + 1) * TILE;
-        if (art.depth === undefined) return { left, bottom };
-        const wallAt = (x: number, y: number) => { const t = this.tiles[y]?.[x]; return t !== undefined && isStructure(t); };
-        if (wallAt(tx, ty - 1)) bottom = ty * TILE + art.depth;
-        if (art.lit.width === TILE) {
-            const columns = [...Array(TILE).keys()].filter(x => [...Array(art.lit.height).keys()].some(y => art.lit.opaque(x, y)));
-            if (wallAt(tx - 1, ty)) left = tx * TILE - columns[0]!;
-            else if (wallAt(tx + 1, ty)) left = tx * TILE + TILE - 1 - columns.at(-1)!;
-        }
-        return { left, bottom };
-    }
-
+    /** People stand in the middle of their tile: the sprite's soles on the front edge of their box, centred across it. */
     private buildPeople(): Occluder[] {
         if (!this.textures.exists(KEY.shadow)) personShadow().addTo(this.textures, KEY.shadow);
         return LOBBY_PEOPLE.map(p => {
@@ -176,12 +164,12 @@ export class LobbyScene extends Phaser.Scene {
             const key = `person-${p.look}-${p.facing}`;
             const bitmap = person(spec, p.facing);
             if (!this.textures.exists(key)) bitmap.addTo(this.textures, key);
-            // People stand in the middle of their tile: the soles' bottom row sits just below the tile's centre.
-            const x = p.tx * TILE, feet = p.ty * TILE + TILE / 2 + 1;
-            this.casters.push(caster(bitmap, x, feet - PERSON_HEIGHT + 1, feet + 1));
-            this.add.image(x + 8, feet, KEY.shadow).setDepth(DEPTH.shadows).setAlpha(0.55);
-            this.add.image(x, feet - PERSON_HEIGHT + 1, key).setOrigin(0, 0).setLighting(true).setDepth(DEPTH.standing + feet);
-            return { x: x + 4, y: feet - 2, w: 8, h: 3, height: PERSON_HEIGHT - 2 };
+            const box = place({ tx: p.tx, ty: p.ty }, PERSON_SIZE);
+            const left = box.x + box.w / 2 - bitmap.width / 2, top = baseLine(box) - PERSON_HEIGHT;
+            this.casters.push(caster(bitmap, left, top, baseLine(box)));
+            this.add.image(box.x + box.w / 2, box.y + box.d / 2, KEY.shadow).setDepth(DEPTH.shadows).setAlpha(0.55);
+            this.add.image(left, top, key).setOrigin(0, 0).setLighting(true).setDepth(DEPTH.standing + baseLine(box));
+            return floorOccluder(box);
         });
     }
 
@@ -216,7 +204,7 @@ export class LobbyScene extends Phaser.Scene {
         const facadeRow = this.tiles.findIndex(row => row.includes('g'));
         if (!this.textures.exists(KEY.clouds)) this.textures.addCanvas(KEY.clouds, cloudCanvas(128));
         // Slow cloud shadows drifting over the street and the shop front, cut off at the top of the façade.
-        const outsideTop = (facadeRow + 1) * TILE - WALL_HEIGHT - THIN_CAP;
+        const outsideTop = (facadeRow + 1) * TILE - WALL_HEIGHT - THIN_WALL;
         this.clouds = this.add.tileSprite(0, outsideTop, this.mapWidth, this.mapHeight - outsideTop, KEY.clouds)
             .setOrigin(0, 0).setDepth(DEPTH.clouds).setBlendMode(Phaser.BlendModes.MULTIPLY);
 
@@ -271,10 +259,9 @@ function caster(bitmap: PixelBitmap, left: number, top: number, base: number): C
     return { left, top, width: bitmap.width, height: bitmap.height, base, opaque: (x, y) => bitmap.opaque(x, y) };
 }
 
-/** A prop blocks the sun up to the top of its bitmap, measured from its footprint. */
-function propOccluder(art: PropArt, left: number, top: number): Occluder {
-    const s = art.shadow!;
-    return { x: left + s.x, y: top + s.y, w: s.w, h: s.h, height: s.y };
+/** Something standing on the floor shades its footprint and blocks the sun up to its height. */
+function floorOccluder(box: Box): Occluder {
+    return { x: box.x, y: box.y, w: box.w, h: box.d, height: box.h };
 }
 
 function personShadow(): PixelBitmap {

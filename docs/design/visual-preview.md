@@ -13,18 +13,23 @@ is agreed.
    south of the wall is open, under a cap the depth of the tile, both lifted so they overlap the floor (and anyone)
    up to 1.5 tiles behind the wall. Half-height objects such as the counter have a 15px front, so full walls and half
    cover read apart at a glance. The shop front is a thin wall of stone and see-through glass. People are 16x24 and
-   **stand in the middle of their tile**; depth follows each object's base line. Furniture is drawn to scale against
-   the 24px wall (1px is about 10cm) and stands flush against the wall it backs onto, not at the front of its tile.
-2. **Muted, hue-shifted ramps** (`src/art/palette.ts`). Darks drift cool, lights warm, the lightest steps desaturate.
+   **stand in the middle of their tile**; depth follows each object's base line.
+2. **Every object is a box in a real scale** (`src/level/space.ts`, `src/level/catalog.ts`): 1px is about 8cm, so a
+   tile is about 1.3m, people are 1.75m and walls are cut away at 1.9m. Each kind of object has its real width, depth
+   and height, an elevation if it hangs, and an alignment within its tiles (centred, against an edge or corner, or on
+   the line between two tiles via a two-tile span). Wall dressing stands on the floor tile in front of its wall,
+   aligned north, at its height. The scene places, orders, shades and lets each box block the sun from those numbers;
+   a test checks that no two boxes intersect and nothing stands inside a wall.
+3. **Muted, hue-shifted ramps** (`src/art/palette.ts`). Darks drift cool, lights warm, the lightest steps desaturate.
    No pure black: the darkest colour is a cool ink. One ramp per material, so greens stay green.
-3. **Zones are drawn into the floor** (§8.1): cream marble and a red runner for Public, linoleum for Staff; concrete and
+4. **Zones are drawn into the floor** (§8.1): cream marble and a red runner for Public, linoleum for Staff; concrete and
    steel plate will mark Secure. The lobby floor is kept calm and mid-valued so the safe-floor overlay stays readable
    on top of it.
-4. **Flat albedo, light in the engine.** Sprites carry only material detail and a little top-light; Light2D and the
+5. **Flat albedo, light in the engine.** Sprites carry only material detail and a little top-light; Light2D and the
    normal maps (from per-colour heights) do the shading. Sel-out outlines on figures, never black ones.
-5. **One sun.** It sits low in the south-east, behind the viewer: shafts through the façade glass run up and to the
+6. **One sun.** It sits low in the south-east, behind the viewer: shafts through the façade glass run up and to the
    left, and everything outdoors casts a shadow the same way.
-6. **Readable first.** Silhouette and value contrast against the floor before detail; a contact shadow under everyone.
+7. **Readable first.** Silhouette and value contrast against the floor before detail; a contact shadow under everyone.
 
 ## Layout
 

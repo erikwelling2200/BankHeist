@@ -1,7 +1,7 @@
 import { TILE } from '../../level/level';
 import { isStructure, type LobbyTile } from '../../level/lobby';
 import { bayer4 } from '../random';
-import { THIN_CAP, WALL_HEIGHT } from './geometry';
+import { THIN_WALL, WALL_HEIGHT } from '../../level/space';
 
 /** Something standing on the floor: it darkens the floor under it and blocks sun shafts up to its height. */
 export interface Occluder { x: number; y: number; w: number; h: number; height: number }
@@ -121,7 +121,7 @@ export function buildLightMaps(tiles: LobbyTile[][], occluders: Occluder[], cast
 
         let r = 1;
         // Everything above the top of the shop front is under the roof; the façade itself faces the sunny street.
-        if (facadeRow > 0 && y < facadeY + TILE - WALL_HEIGHT - THIN_CAP) {
+        if (facadeRow > 0 && y < facadeY + TILE - WALL_HEIGHT - THIN_WALL) {
             const near = Math.max(0, 1 - (facadeY - y) / WINDOW_REACH);
             r = ROOF_DEEP + (ROOF_WINDOW - ROOF_DEEP) * band(near, 3, x, y);
         }
