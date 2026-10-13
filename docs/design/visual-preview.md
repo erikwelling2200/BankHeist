@@ -42,8 +42,8 @@ is agreed.
 4. **Zones are drawn into the floor** (§8.1): cream marble and a red runner for Public, linoleum for Staff; concrete and
    steel plate will mark Secure. The lobby floor is kept calm and mid-valued so the safe-floor overlay stays readable
    on top of it.
-5. **Flat albedo, light in the engine.** Sprites carry only material detail and a little top-light; Light2D and the
-   normal maps (from per-colour heights) do the shading. Sel-out outlines on figures, never black ones.
+5. **Flat albedo, light from the lamps.** Sprites carry only material detail and a little top-light; the lamps and
+   the normal maps (from per-colour heights) do the shading. Sel-out outlines on figures, never black ones.
 6. **One sun.** It sits low in the south-east, behind the viewer: shafts through the façade glass run up and to the
    left, and everything outdoors casts a shadow the same way.
 7. **Readable first.** Silhouette and value contrast against the floor before detail; a contact shadow under everyone.
@@ -118,8 +118,8 @@ parametric `person()` for the whole cast).
 
 ## Lighting model
 
-Light2D lights have no occlusion, so a sun light over the street would shine straight through the façade into the
-lobby. The preview splits the job instead:
+Phaser's Light2D lights have no occlusion: a light shines through any wall. The preview doesn't use them; it splits
+the job instead:
 
 - **Half exposure, then an exposure layer.** The scene renders at half brightness: ambient is half the street's
   sunlight. A full-screen layer drawn with a custom `2 × source × destination` blend then doubles the street and scales
@@ -127,12 +127,15 @@ lobby. The preview splits the job instead:
   the shop front, so there is one layer per height of the front, swapped as it drops or stands; the cloud shadows'
   top edge follows it the same way. Rendering at half first leaves the lamps
   headroom; with a plain multiply the interior clipped to white before it was darkened, and every lamp pool vanished.
-- **Lamps are Light2D** (about 26 of the 32 allowed; they shine through walls, so those near the glass are kept small
-  enough that their pools end at the shop front): warm pools over the lobby, brighter ones over the teller line,
-  cool strip lights in the corridor,
-  banker's lamps on the counter, cyan from the teller monitors and the ATM, green from the exit sign. The interior is
-  meant to read as a believably lit bank, with the grit coming from the shade between pools and the dark corners,
-  not from dimness.
+- **Lamps are baked, and walls block them** (`src/art/bank/lamps.ts`). When the level loads, each lamp's reach is
+  traced across the floor against the walls (glass lets light through), and the floor, every wall segment at each of
+  its heights, every prop and every person is lit with the same formula Light2D uses, normal maps included: a standing
+  thing by the lamps that reach its footprint. By day, lamp light doesn't show outdoors, where the sun drowns it.
+  Warm pools over the lobby, brighter ones over the teller line, cool strip lights in the corridor, banker's lamps on
+  the counter, cyan from the teller monitors, green from the exit sign. The interior is meant to read as a believably
+  lit bank, with the grit coming from the shade between pools and the dark corners, not from dimness. The same reach
+  says which tiles are lit, for the rules (`tileLight`; the scene's `debugState.lit`). Baking takes about a second at
+  load; a lamp that changes (a power cut, a lamp shot out) only needs its own reach and what it lights rebaked.
 - **Baked light maps** (`src/art/bank/lightmap.ts`): ambient occlusion along the foot of walls and under furniture
   (multiply, floor only), sun shafts through the glass with the far end striped by the blinds (additive, banded,
   dithered only where bands meet), people and furniture cutting their shadow out of the shafts, and sheared sun

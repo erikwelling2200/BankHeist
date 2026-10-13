@@ -77,6 +77,16 @@ export class PixelBitmap {
         }
     }
 
+    /** Copies the opaque pixels of `source` onto this bitmap with its top-left corner at (left, top): colour, height and normal. */
+    stamp(source: PixelBitmap, left: number, top: number): void {
+        for (let y = 0; y < source.height; y++) for (let x = 0; x < source.width; x++) {
+            if (!source.opaque(x, y)) continue;
+            const i = (y * source.width + x) * 3;
+            this.set(left + x, top + y, source.color(x, y), source.heightAt(x, y));
+            this.setNormal(left + x, top + y, source.normals[i]!, source.normals[i + 1]!, source.normals[i + 2]!);
+        }
+    }
+
     /** Runs `paint` for every opaque pixel, letting it recolour the pixel. */
     each(paint: (x: number, y: number, color: number, height: number) => [number, number] | void): void {
         for (let y = 0; y < this.height; y++) for (let x = 0; x < this.width; x++) {

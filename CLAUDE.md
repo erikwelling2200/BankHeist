@@ -30,8 +30,10 @@ Top-down 2D pixel-art stealth game. Phaser 4 + TypeScript + Vite, shipped as an 
 ## Rendering
 - Internal resolution is 320x180 with `pixelArt: true`, scaled to fit with nearest-neighbour filtering. Keep art on a
   16px grid (`TILE`).
-- Lighting is Phaser's Light2D: objects opt in with `setLighting(true)`; normal maps are the texture's data source.
-  `render.maxLights` is 32 – lights beyond that are silently dropped, so raise it if a scene gets busier.
+- Lighting: Phaser's Light2D (objects opt in with `setLighting(true)`; normal maps are the texture's data source;
+  `render.maxLights` is 32 and lights beyond that are silently dropped) shines through walls, so the lobby doesn't use
+  it. Its lamps are baked with Light2D's formula in `src/art/bank/lamps.ts`, traced against the walls; light anything
+  new in the lobby through `LobbyScene.bake`. The demo and the prop sheet still use Light2D.
 - All art is generated in `src/art` from palette grids, with a height per colour that becomes the normal map. Real art
   can replace it by loading PNGs plus `-n.png` normal maps in a preload scene and keeping the `TEX` keys.
 - Every object is a box at a real scale (`src/level/space.ts`: 1px ≈ 8cm, people 1.75m, walls cut at 1.9m). Floor tiles

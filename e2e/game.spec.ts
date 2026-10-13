@@ -82,7 +82,7 @@ test.describe('lobby visual preview', () => {
         return errors;
     }
 
-    test('renders the lobby and the street within the light budget, cutting walls the camera looks past', async ({ page }) => {
+    test('renders the lobby and the street, cutting walls the camera looks past and keeping lamp light behind walls', async ({ page }) => {
         const errors = await bootLobby(page);
         const scene = () => page.evaluate(() => (window as any).game.scene.getScene('lobby').debugState);
         const lookAt = async (x: number, y: number) => {
@@ -110,8 +110,10 @@ test.describe('lobby visual preview', () => {
         await page.locator('canvas').screenshot({ path: 'screenshots/lobby-street.png' });
         state = await scene();
         expect(heights(state.walls, FACADE)).toEqual([24]);
-        // Lights past render.maxLights are silently dropped.
-        expect(state.lights).toBeLessThanOrEqual(32);
+        // Lamp light is blocked by walls and drowned by day outdoors: the corridor has its own, the street none.
+        expect(state.lamps).toBeGreaterThan(0);
+        expect(state.lit[2]).toContain('#');
+        expect(state.lit[FACADE]).not.toContain('#');
         expect(errors).toEqual([]);
     });
 });

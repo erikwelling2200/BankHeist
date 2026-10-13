@@ -1,7 +1,8 @@
 import Phaser from 'phaser';
+import { bakeLighting, LampReach, lightBlockers, LIT, tileLight, type Lamp } from '../art/bank/lamps';
 import { buildExposure, buildLightMaps, facade, type Caster, type Occluder } from '../art/bank/lightmap';
 import { LOOKS, person, PERSON_HEIGHT } from '../art/bank/people';
-import { propArt } from '../art/bank/props';
+import { propArt, type PropArt } from '../art/bank/props';
 import { BANK_TILE_INDEX, bankTileset, type BankTileName } from '../art/bank/tiles';
 import { wallArt, wallLook } from '../art/bank/walls';
 import { PAL } from '../art/palette';
@@ -11,17 +12,17 @@ import { propBox, propSize } from '../level/catalog';
 import { TILE } from '../level/level';
 import { isOffMap, LOBBY_PEOPLE, LOBBY_PLAN, LOBBY_PROPS, parseLobby, type Lobby, type LobbyProp } from '../level/lobby';
 import { baseLine, PERSON_SIZE, place, WALL_STEPS, type Box } from '../level/space';
-import { wallFootprint, type Wall } from '../level/walls';
+import { wallFootprint, type Footprint, type Wall } from '../level/walls';
 
-const KEY = { tiles: 'bank-tiles', shade: 'lobby-shade', glow: 'lobby-glow', exposure: 'lobby-exposure', clouds: 'lobby-clouds', mote: 'lobby-mote', shadow: 'person-shadow' } as const;
+const KEY = { floor: 'lobby-floor', shade: 'lobby-shade', glow: 'lobby-glow', exposure: 'lobby-exposure', clouds: 'lobby-clouds', mote: 'lobby-mote', shadow: 'person-shadow' } as const;
 
 /**
  * Mid-morning. The scene renders at half exposure: ambient is half the sun on the street, so the street needs no
- * lights of its own (Light2D lights would shine through the façade). The exposure layer then doubles the street and
- * scales indoors down to the building's shade, while lamps and sun shafts still have headroom to make pools.
+ * lights of its own. The exposure layer then doubles the street and scales indoors down to the building's shade, while
+ * lamps and sun shafts still have headroom to make pools. Lamp light is baked (lamps.ts), so walls block it.
  */
 const AMBIENT = 0x8a8274;
-const DEPTH = { floor: 0, flat: 1, shade: 2, sunFloor: 3, shadows: 4, standing: 10, exposure: 1900, haze: 1910, emissive: 1920, clouds: 1930, motes: 1940 } as const;
+const DEPTH = { floor: 0, shade: 2, sunFloor: 3, shadows: 4, standing: 10, exposure: 1900, haze: 1910, emissive: 1920, clouds: 1930, motes: 1940 } as const;
 const PAN_SPEED = 120;
 
 /**
@@ -35,6 +36,9 @@ const STEP_MS = 40;
 
 /** Dressing that matters for play stays in view on a cut wall, as a marker of where it is. */
 const ALWAYS_SHOWN: LobbyProp['kind'][] = ['camera', 'keycardLed'];
+
+/** A prop placed in the lobby, with its art for the way it faces. */
+interface PlacedProp { p: LobbyProp; box: Box; art: PropArt; left: number; top: number }
 
 /** A wall segment on screen: the step it is drawn at, the step it is heading for, and what hangs on it. */
 interface WallSprite {
@@ -58,6 +62,9 @@ interface WallSprite {
  */
 export class LobbyScene extends Phaser.Scene {
     private level!: Lobby;
+    private lamps: Lamp[] = [];
+    private reach!: LampReach;
+    private litTiles: boolean[][] = [];
     private readonly casters: Caster[] = [];
     private walls: WallSprite[] = [];
     private exposures: Phaser.GameObjects.Image[] = [];
@@ -77,15 +84,20 @@ export class LobbyScene extends Phaser.Scene {
         this.exposures = [];
         this.mapWidth = this.level.tiles[0]!.length * TILE;
         this.mapHeight = this.level.tiles.length * TILE;
-        if (!this.textures.exists(KEY.tiles)) bankTileset().addTo(this.textures, KEY.tiles);
 
-        this.lights.enable().setAmbientColor(AMBIENT);
-        this.buildFloor();
+        const props = LOBBY_PROPS.map((p): PlacedProp => {
+            const box = propBox(p, this.level.walls), art = propArt(p, propSize(p), box.facing);
+            return { p, box, art, left: box.x - art.originX, top: baseLine(box) - box.z - art.lit.height };
+        });
+        this.lamps = [...this.ceilingLamps(), ...props.flatMap(propLamps)];
+        this.reach = new LampReach(lightBlockers(this.level), this.lamps);
+        this.litTiles = tileLight(this.level, this.lamps, this.reach).map(row => row.map(light => light >= LIT));
+
+        this.buildFloor(props.filter(({ box }) => box.h === 0));
         this.buildWalls();
-        const occluders = [...this.buildProps(), ...this.buildPeople()];
+        const occluders = [...this.buildProps(props.filter(({ box }) => box.h > 0)), ...this.buildPeople()];
         this.buildLightMaps(occluders);
         this.casters.length = 0;
-        this.buildDaylight();
         this.buildAtmosphere();
         this.setupCamera();
         this.updateWalls(0);
@@ -110,7 +122,9 @@ export class LobbyScene extends Phaser.Scene {
     get debugState() {
         const cam = this.cameras.main;
         return {
-            ready: true, width: this.mapWidth, height: this.mapHeight, scrollX: cam.scrollX, scrollY: cam.scrollY, lights: this.lights.getLightCount(),
+            ready: true, width: this.mapWidth, height: this.mapHeight, scrollX: cam.scrollX, scrollY: cam.scrollY, lamps: this.lamps.length,
+            /** Which tiles lamp light reaches, for the rules: rows of '#' (lit) and '.'. */
+            lit: this.litTiles.map(row => row.map(lit => (lit ? '#' : '.')).join('')),
             walls: this.walls.map(w => ({ kind: w.wall.kind, run: w.wall.run, tx: w.wall.tx, ty: w.wall.ty, height: WALL_STEPS[w.step]! }))
         };
     }
@@ -168,29 +182,57 @@ export class LobbyScene extends Phaser.Scene {
         }
     }
 
-    private buildFloor(): void {
-        const data = this.level.tiles.map((row, y) => row.map((_, x) => BANK_TILE_INDEX[this.tileName(x, y)]));
-        const map = this.make.tilemap({ data, tileWidth: TILE, tileHeight: TILE });
-        const tileset = map.addTilesetImage(KEY.tiles, KEY.tiles, TILE, TILE, 0, 0)!;
-        (map.createLayer(0, tileset, 0, 0) as Phaser.Tilemaps.TilemapLayer).setLighting(true).setDepth(DEPTH.floor);
+    /**
+     * The floor as one image: every tile, with flat props (mats, a manhole cover) laid into it, lit per pixel by the
+     * lamps that reach it.
+     */
+    private buildFloor(flat: PlacedProp[]): void {
+        const tiles = bankTileset(), floor = new PixelBitmap(this.mapWidth, this.mapHeight);
+        this.level.tiles.forEach((row, y) => row.forEach((_, x) => {
+            const index = BANK_TILE_INDEX[this.tileName(x, y)];
+            for (let j = 0; j < TILE; j++) for (let i = 0; i < TILE; i++) {
+                floor.set(x * TILE + i, y * TILE + j, tiles.color(index * TILE + i, j), tiles.heightAt(index * TILE + i, j));
+            }
+        }));
+        for (const { art, left, top } of flat) floor.stamp(art.lit, left, top);
+        this.addBaked(KEY.floor, floor, 0, 0, (lamp, x, y) => this.reach.reaches(lamp, x, y)).setDepth(DEPTH.floor);
+    }
+
+    /** Makes texture `key`: `bitmap` drawn at (left, top), lit the way Light2D would light it by the lamps `reaches` lets through. */
+    private bake(key: string, bitmap: PixelBitmap, left: number, top: number, reaches: (lamp: Lamp, x: number, y: number) => boolean): string {
+        if (!this.textures.exists(key)) this.textures.addCanvas(key, toCanvas(bakeLighting(bitmap, left, top, AMBIENT, this.lamps, reaches), bitmap.width, bitmap.height));
+        return key;
+    }
+
+    private addBaked(key: string, bitmap: PixelBitmap, left: number, top: number, reaches: (lamp: Lamp, x: number, y: number) => boolean): Phaser.GameObjects.Image {
+        return this.add.image(left, top, this.bake(key, bitmap, left, top, reaches)).setOrigin(0, 0);
+    }
+
+    /** Lamps reaching any of `points` on the floor: how a standing object is lit, by what can see where it stands. */
+    private reachingAny(points: [number, number][]): (lamp: Lamp) => boolean {
+        const seen = new Map<Lamp, boolean>();
+        return lamp => {
+            let reached = seen.get(lamp);
+            if (reached === undefined) seen.set(lamp, reached = points.some(([x, y]) => this.reach.reaches(lamp, x, y)));
+            return reached;
+        };
     }
 
     /**
      * One image per wall segment, standing on its footprint's south edge and ordered by it, with a texture for each of
-     * its heights (shared between segments that look alike).
+     * its heights, lit by the lamps on its open sides.
      */
     private buildWalls(): void {
         const { tiles, walls } = this.level;
         const front = facade(this.level).walls;
-        for (const wall of walls) {
-            const look = wallLook(wall, walls);
+        walls.forEach((wall, i) => {
+            const look = wallLook(wall, walls), f = wallFootprint(wall), base = f.y + f.d;
+            const reaches = this.reachingAny(wallSides(wall, f));
             const keys = WALL_STEPS.map(height => {
-                const key = `wall-${wall.run}-${look}-${height}`;
-                if (!this.textures.exists(key)) wallArt(wall, look, height).addTo(this.textures, key);
-                return key;
+                const art = wallArt(wall, look, height);
+                return this.bake(`wall-${i}-${height}`, art, f.x, base - art.height, reaches);
             });
-            const f = wallFootprint(wall), base = f.y + f.d;
-            const image = this.add.image(f.x, base, keys[0]!).setOrigin(0, 1).setLighting(true).setDepth(DEPTH.standing + base);
+            const image = this.add.image(f.x, base, keys[0]!).setOrigin(0, 1).setDepth(DEPTH.standing + base);
             const north = wall.run === 'eastWest' ? tiles[wall.ty - 1]?.[wall.tx] : undefined;
             const isFacade = front.includes(wall);
             this.walls.push({
@@ -199,33 +241,27 @@ export class LobbyScene extends Phaser.Scene {
                 standing: !isFacade && (north === undefined || isOffMap(north)),
                 facade: isFacade
             });
-        }
+        });
     }
 
     /**
-     * Places every prop by its box (catalog size, level placement): its bitmap's bottom edge on the box's front edge at
-     * the box's elevation, drawn in order of that front edge. Returns the floor footprints that shade and block the sun.
+     * Places every standing prop by its box (catalog size, level placement): its bitmap's bottom edge on the box's front
+     * edge at the box's elevation, drawn in order of that front edge and lit by the lamps that reach its footprint.
+     * Returns the floor footprints that shade and block the sun.
      */
-    private buildProps(): Occluder[] {
+    private buildProps(props: PlacedProp[]): Occluder[] {
         const occluders: Occluder[] = [];
-        LOBBY_PROPS.forEach((p, i) => {
-            const box = propBox(p, this.level.walls);
-            const images: Phaser.GameObjects.Image[] = [];
-            const art = propArt(p, propSize(p), box.facing);
-            const key = `lobby-prop-${i}`;
-            const left = box.x - art.originX;
-            const top = baseLine(box) - box.z - art.lit.height;
-            const flat = box.h === 0;
-            const depth = flat ? DEPTH.flat : DEPTH.standing + baseLine(box);
-            images.push(this.addBitmap(art.lit, key, left, top, depth, true));
-            if (!flat) this.casters.push(caster(art.lit, left, top, baseLine(box)));
+        props.forEach(({ p, box, art, left, top }, i) => {
+            const key = `lobby-prop-${i}`, depth = DEPTH.standing + baseLine(box);
+            const images = [this.addBaked(key, art.lit, left, top, this.reachingAny(footprintPoints(box))).setDepth(depth)];
+            this.casters.push(caster(art.lit, left, top, baseLine(box)));
             if (hasPixels(art.glow)) {
-                images.push(this.addBitmap(art.glow, `${key}-glow`, left, top, depth + 0.5, false));
+                art.glow.addTo(this.textures, `${key}-glow`);
+                images.push(this.add.image(left, top, `${key}-glow`).setOrigin(0, 0).setDepth(depth + 0.5));
                 // The exposure layer dims everything indoors; a second, additive pass puts the glow back over it.
                 images.push(this.add.image(left, top, `${key}-glow`).setOrigin(0, 0).setDepth(DEPTH.emissive).setBlendMode(Phaser.BlendModes.ADD).setAlpha(0.7));
             }
-            for (const l of art.lights) this.lights.addLight(left + l.x, top + l.y, l.radius, l.color, l.intensity);
-            if (!flat && box.z === 0) occluders.push(floorOccluder(box));
+            if (box.z === 0) occluders.push(floorOccluder(box));
             if (box.z > 0 && !ALWAYS_SHOWN.includes(p.kind)) this.hangOnWall(box, images);
         });
         return occluders;
@@ -241,24 +277,17 @@ export class LobbyScene extends Phaser.Scene {
     /** People stand in the middle of their tile: the sprite's soles on the front edge of their box, centred across it. */
     private buildPeople(): Occluder[] {
         if (!this.textures.exists(KEY.shadow)) personShadow().addTo(this.textures, KEY.shadow);
-        return LOBBY_PEOPLE.map(p => {
+        return LOBBY_PEOPLE.map((p, i) => {
             const spec = LOOKS[p.look];
             if (!spec) throw new Error(`No look named '${p.look}'`);
-            const key = `person-${p.look}-${p.facing}`;
             const bitmap = person(spec, p.facing);
-            if (!this.textures.exists(key)) bitmap.addTo(this.textures, key);
             const box = place({ tx: p.tx, ty: p.ty }, PERSON_SIZE);
             const left = box.x + box.w / 2 - bitmap.width / 2, top = baseLine(box) - PERSON_HEIGHT;
             this.casters.push(caster(bitmap, left, top, baseLine(box)));
             this.add.image(box.x + box.w / 2, box.y + box.d / 2, KEY.shadow).setDepth(DEPTH.shadows).setAlpha(0.55);
-            this.add.image(left, top, key).setOrigin(0, 0).setLighting(true).setDepth(DEPTH.standing + baseLine(box));
+            this.addBaked(`person-${i}`, bitmap, left, top, this.reachingAny(footprintPoints(box))).setDepth(DEPTH.standing + baseLine(box));
             return floorOccluder(box);
         });
-    }
-
-    private addBitmap(bitmap: PixelBitmap, key: string, x: number, y: number, depth: number, lit: boolean): Phaser.GameObjects.Image {
-        if (!this.textures.exists(key)) bitmap.addTo(this.textures, key);
-        return this.add.image(x, y, key).setOrigin(0, 0).setDepth(depth).setLighting(lit);
     }
 
     private buildLightMaps(occluders: Occluder[]): void {
@@ -279,17 +308,18 @@ export class LobbyScene extends Phaser.Scene {
     }
 
     /** Indoors: warm ceiling pools with darker floor between them, and sun patches where the shafts land. */
-    private buildDaylight(): void {
+    private ceilingLamps(): Lamp[] {
+        const lamp = (x: number, y: number, radius: number, color: number, intensity: number, z: number): Lamp => ({ x, y, z, radius, color, intensity, from: { x, y } });
         const facadeY = facade(this.level).line;
-        // Sun patches just inside the glass. Lights shine through walls, so they stand far enough in to stay off the pavement.
-        for (const x of [2.5, 6.5, 10, 13.5, 19.5]) this.lights.addLight(x * TILE - 20, facadeY - 3 * TILE - 4, 48, 0xffd9a0, 0.8, 30);
-        // Ceiling lamps; the row nearest the glass is smaller, so its pools end at the shop front instead of lighting the pavement.
-        const lobby = [[3.5, 8.5, 80], [9.5, 8, 80], [15.5, 8.5, 80], [6.5, 10.75, 56], [13.5, 10.75, 56]] as const;
-        for (const [x, y, radius] of lobby) this.lights.addLight(x * TILE, y * TILE, radius, 0xffd8b0, 1.5, 48);
-        // The teller line is lit brighter than the lobby, and these reach up the back wall to its dressing.
-        for (const x of [4, 10, 16]) this.lights.addLight(x * TILE, 4.2 * TILE, 84, 0xffdcb8, 1.8, 50);
-        // Cool strip lights along the staff corridor.
-        for (const x of [6, 15]) this.lights.addLight(x * TILE, 2.6 * TILE, 70, 0xdde6ff, 1.3, 40);
+        return [
+            // Daylight bouncing off the floor just inside the glass.
+            ...[2.5, 6.5, 10, 13.5, 19.5].map(x => lamp(x * TILE - 20, facadeY - 2 * TILE, 52, 0xffd9a0, 0.8, 30)),
+            ...[[3.5, 8.5], [9.5, 8], [15.5, 8.5], [6.5, 11.5], [13.5, 11.5]].map(([x, y]) => lamp(x! * TILE, y! * TILE, 80, 0xffd8b0, 1.5, 48)),
+            // The teller line is lit brighter than the lobby, and these reach up the back wall to its dressing.
+            ...[4, 10, 16].map(x => lamp(x * TILE, 4.2 * TILE, 84, 0xffdcb8, 1.8, 50)),
+            // Cool strip lights along the staff corridor.
+            ...[6, 15].map(x => lamp(x * TILE, 2.6 * TILE, 70, 0xdde6ff, 1.3, 40))
+        ];
     }
 
     private buildAtmosphere(): void {
@@ -349,6 +379,26 @@ function doubleMultiply(scene: Phaser.Scene): number {
         registry.bankDoubleMultiply = renderer.blendModes.length - 1;
     }
     return registry.bankDoubleMultiply;
+}
+
+/**
+ * The lights a prop gives off (banker's lamps, screens, the exit sign) as lamps: placed where the art puts them, at
+ * Light2D's default height, spreading from the prop's footprint.
+ */
+function propLamps({ box, art, left, top }: PlacedProp): Lamp[] {
+    return art.lights.map(l => ({ x: left + l.x, y: top + l.y, z: l.radius * 0.1, radius: l.radius, color: l.color, intensity: l.intensity, from: { x: left + l.x, y: box.y + box.d / 2 } }));
+}
+
+/** Floor points across a footprint: its middle and towards each end, so a long counter is lit by lamps along it. */
+function footprintPoints(box: Box): [number, number][] {
+    const y = box.y + box.d / 2;
+    return [[box.x + box.w / 2, y], [box.x + Math.min(4, box.w / 2), y], [box.x + box.w - Math.min(4, box.w / 2), y]];
+}
+
+/** Floor points beside a wall segment: in front of an east-west wall, either side of a north-south one. */
+function wallSides(wall: Wall, f: Footprint): [number, number][] {
+    if (wall.run === 'eastWest') return [2, 8, 14].map(u => [f.x + u, f.y + f.d + 0.5]);
+    return [[f.x - 0.5, f.y + 8], [f.x + f.w + 0.5, f.y + 8]];
 }
 
 function hasPixels(bitmap: PixelBitmap): boolean {
