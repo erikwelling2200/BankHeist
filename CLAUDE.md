@@ -2,6 +2,16 @@
 
 Top-down 2D pixel-art stealth game. Phaser 4 + TypeScript + Vite, shipped as an offline-capable PWA on GitHub Pages.
 
+## Game design
+- `docs/design/GAME_DESIGN.md` is the source of truth for how the game plays: rules, numbers, canonical tables and the
+  milestone order (§22). The current playable content is only a stack demo and doesn't reflect it.
+- `docs/design/research.md` holds the key research findings behind each design decision, with the full notes per area in
+  `docs/design/research/`.
+- The design's hard promises: the safe-floor overlay and every preview use the same rules as the real outcome; every
+  alarm carrier shows a countdown of at least 2; no NPC raises an alarm, draws a weapon or breaches without a telegraphed
+  intent, and grenades land a phase before they go off. Full previews are for stealth only; in combat, police announce
+  only breach points and decide movement and targets when they act (§13.6).
+
 ## Commands
 - `npm run dev` – Vite dev server with hot reload.
 - `npm run typecheck` / `npm test` – TypeScript and Vitest unit tests (pure logic in `src/logic`, `src/level`).
@@ -22,6 +32,8 @@ Top-down 2D pixel-art stealth game. Phaser 4 + TypeScript + Vite, shipped as an 
   `render.maxLights` is 32 – lights beyond that are silently dropped, so raise it if a scene gets busier.
 - All art is generated in `src/art` from palette grids, with a height per colour that becomes the normal map. Real art
   can replace it by loading PNGs plus `-n.png` normal maps in a preload scene and keeping the `TEX` keys.
+- Before generating or restyling art, read `docs/pixel-art/PROMPTING.md` (rules) and `docs/pixel-art/README.md`
+  (findings, example scripts in `scripts/pixel-art/`).
 - Camera post-processing (bloom, vignette) lives in `VaultScene.create`. Phaser's vignette goes near black at its
   radius, so keep `strength` low.
 - The HUD is an HTML overlay (`src/ui/Hud.ts`) so text stays crisp, not canvas text.
