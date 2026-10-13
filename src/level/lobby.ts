@@ -53,7 +53,7 @@ export function isStructure(tile: LobbyTile): boolean {
     return BLOCKING.has(tile);
 }
 
-/** Static furniture and dressing, placed by tile. `tx`/`ty` is the tile the object stands on (its base row). */
+/** Static furniture and dressing, placed by tile. `tx`/`ty` is the tile the object stands on; for a long object, its southmost (base) row. */
 export type LobbyProp =
     | { kind: 'counter'; tx: number; ty: number; width: number; stations: number[]; closed: number[]; gate: number }
     | { kind: 'backCounter'; tx: number; ty: number; width: number }
@@ -77,13 +77,13 @@ export const LOBBY_PROPS: LobbyProp[] = [
     { kind: 'clock', tx: 13, ty: 1 },
     { kind: 'noticeBoard', tx: 16, ty: 1 },
     { kind: 'painting', tx: 6, ty: 1 },
-    { kind: 'exitSign', tx: 18, ty: 0 },
+    { kind: 'exitSign', tx: 18, ty: 1 },
     { kind: 'keycardLed', tx: 18, ty: 1 },
     { kind: 'atmScreen', tx: 16, ty: 12 },
     { kind: 'camera', tx: 21, ty: 5 },
 
-    { kind: 'queueRail', tx: 8, ty: 6, length: 4 },
-    { kind: 'queueRail', tx: 11, ty: 6, length: 4 },
+    { kind: 'queueRail', tx: 8, ty: 9, length: 4 },
+    { kind: 'queueRail', tx: 11, ty: 9, length: 4 },
     { kind: 'mat', tx: 9, ty: 11 },
     { kind: 'writingDesk', tx: 3, ty: 8 },
     { kind: 'sofa', tx: 15, ty: 7 },

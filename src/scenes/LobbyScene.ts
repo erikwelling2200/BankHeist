@@ -1,14 +1,16 @@
 import Phaser from 'phaser';
 import { buildLightMaps, type Caster, type Occluder } from '../art/bank/lightmap';
 import { LOOKS, person, PERSON_HEIGHT } from '../art/bank/people';
-import { propArt, WALL_DRESSING, type PropArt } from '../art/bank/props';
+import { propArt, type PropArt } from '../art/bank/props';
 import { BANK_TILE_INDEX, bankTileset, type BankTileName } from '../art/bank/tiles';
+import { BLOCK_HEIGHT, THIN_CAP, WALL_HEIGHT } from '../art/bank/geometry';
+import { bankWalls, WALL_BLOCK_NAMES, type WallBlockName } from '../art/bank/walls';
 import { PixelBitmap, toCanvas } from '../art/PixelBitmap';
 import { bayer4, mulberry32, valueNoise } from '../art/random';
 import { TILE } from '../level/level';
 import { isStructure, LOBBY_PEOPLE, LOBBY_PROPS, LOBBY_TILES, parseLobby, type LobbyTile } from '../level/lobby';
 
-const KEY = { tiles: 'bank-tiles', shade: 'lobby-shade', glow: 'lobby-glow', exposure: 'lobby-exposure', clouds: 'lobby-clouds', mote: 'lobby-mote', shadow: 'person-shadow' } as const;
+const KEY = { tiles: 'bank-tiles', walls: 'bank-walls', shade: 'lobby-shade', glow: 'lobby-glow', exposure: 'lobby-exposure', clouds: 'lobby-clouds', mote: 'lobby-mote', shadow: 'person-shadow' } as const;
 
 /**
  * Mid-morning. The scene renders at half exposure: ambient is half the sun on the street, so the street needs no
@@ -21,7 +23,8 @@ const PAN_SPEED = 120;
 
 /**
  * Visual preview of the bank lobby: no rules, just the look. Drag or use the arrow keys to look around.
- * Depth follows each object's base row, so people and furniture overlap correctly in the ¾ view.
+ * Depth follows each object's base line, so walls, furniture and people overlap correctly in the ¾ view: a wall hides
+ * the floor and anyone up to 1.5 tiles behind it.
  */
 export class LobbyScene extends Phaser.Scene {
     private tiles!: LobbyTile[][];
@@ -40,6 +43,10 @@ export class LobbyScene extends Phaser.Scene {
         this.mapWidth = this.tiles[0]!.length * TILE;
         this.mapHeight = this.tiles.length * TILE;
         if (!this.textures.exists(KEY.tiles)) bankTileset().addTo(this.textures, KEY.tiles);
+        if (!this.textures.exists(KEY.walls)) {
+            const walls = bankWalls().addTo(this.textures, KEY.walls);
+            WALL_BLOCK_NAMES.forEach((name, i) => walls.add(name, 0, i * TILE, 0, TILE, BLOCK_HEIGHT));
+        }
 
         this.lights.enable().setAmbientColor(AMBIENT);
         this.buildFloorAndWalls();
@@ -74,26 +81,36 @@ export class LobbyScene extends Phaser.Scene {
         this.cameras.main.centerOn(x, y);
     }
 
+    /** The floor under every tile. Under the shop front it is the lobby's marble, seen through the glass. */
     private tileName(x: number, y: number): BankTileName {
         const t = this.tiles[y]![x]!;
         const variant = (n: number) => (Math.imul(x * 73856093 ^ y * 19349663, 0x9e3779b1) >>> 0) % n;
-        const south = this.tiles[y + 1]?.[x];
         switch (t) {
-            case '#': return south !== undefined && !isStructure(south) ? 'wallFace' : 'wallCap';
-            case 'd': return 'doorWood';
-            case 'k': return 'doorKeycard';
-            case 'w': return 'sideDoor';
+            case '#': case 'd': case 'k': case 'w': return 'wallBase';
             case ',': return (['linoleum0', 'linoleum1'] as const)[variant(2)]!;
-            case '.': return (['marble0', 'marble1', 'marble2'] as const)[variant(3)]!;
+            case '.': case 'p': case 'g': case 'D': case 'A': return (['marble0', 'marble1', 'marble2'] as const)[variant(3)]!;
             case '=': return this.tiles[y]![x - 1] === '=' ? 'runnerRight' : 'runnerLeft';
-            case 'p': return 'pier';
-            case 'g': return 'window';
-            case 'D': return this.tiles[y]![x - 1] === 'D' ? 'doorGlassRight' : 'doorGlassLeft';
-            case 'A': return 'atm';
             case 's': return (['sidewalkTL', 'sidewalkTR', 'sidewalkBL', 'sidewalkBR'] as const)[(x % 2) + (y % 2) * 2]!;
             case 'c': return 'curb';
             case 'r': return variant(5) === 0 ? 'road1' : 'road0';
             case 'l': return x % 2 === 0 ? 'roadDash' : 'roadGap';
+        }
+    }
+
+    /** The wall block standing on a tile: a face where the tile south of it is open, otherwise just the cap. */
+    private wallBlock(x: number, y: number): WallBlockName | undefined {
+        const t = this.tiles[y]![x]!;
+        const south = this.tiles[y + 1]?.[x];
+        switch (t) {
+            case '#': return south !== undefined && !isStructure(south) ? 'face' : 'cap';
+            case 'd': return 'doorWood';
+            case 'k': return 'doorKeycard';
+            case 'w': return 'sideDoor';
+            case 'p': return 'pier';
+            case 'g': return 'window';
+            case 'D': return this.tiles[y]![x - 1] === 'D' ? 'doorGlassRight' : 'doorGlassLeft';
+            case 'A': return 'atm';
+            default: return undefined;
         }
     }
 
@@ -102,6 +119,12 @@ export class LobbyScene extends Phaser.Scene {
         const map = this.make.tilemap({ data, tileWidth: TILE, tileHeight: TILE });
         const tileset = map.addTilesetImage(KEY.tiles, KEY.tiles, TILE, TILE, 0, 0)!;
         (map.createLayer(0, tileset, 0, 0) as Phaser.Tilemaps.TilemapLayer).setLighting(true).setDepth(DEPTH.floor);
+        this.tiles.forEach((row, y) => row.forEach((_, x) => {
+            const block = this.wallBlock(x, y);
+            if (!block) return;
+            const base = (y + 1) * TILE;
+            this.add.image(x * TILE, base - BLOCK_HEIGHT, KEY.walls, block).setOrigin(0, 0).setLighting(true).setDepth(DEPTH.standing + base);
+        }));
     }
 
     /** Places every prop with its glow layer and lights, and returns what each one shades on the floor. */
@@ -112,8 +135,9 @@ export class LobbyScene extends Phaser.Scene {
             const key = `lobby-prop-${i}`;
             const left = p.tx * TILE + (art.offsetX ?? 0);
             const bottom = (p.ty + 1) * TILE;
-            const top = bottom - art.lit.height;
-            const depth = art.flat ? DEPTH.flat : WALL_DRESSING.has(p.kind) ? DEPTH.standing + bottom - TILE : DEPTH.standing + bottom;
+            // Wall-mounted art hangs from the top of its wall's face or sits on its cap, just in front of the wall.
+            const top = art.mount === 'face' ? bottom - WALL_HEIGHT : art.mount === 'cap' ? bottom - BLOCK_HEIGHT : bottom - art.lit.height;
+            const depth = art.flat ? DEPTH.flat : DEPTH.standing + bottom + (art.mount ? 0.25 : 0);
             this.addBitmap(art.lit, key, left, top, depth, true);
             if (!art.flat) this.casters.push(caster(art.lit, left, top, bottom));
             if (art.glow) {
@@ -135,9 +159,10 @@ export class LobbyScene extends Phaser.Scene {
             const key = `person-${p.look}-${p.facing}`;
             const bitmap = person(spec, p.facing);
             if (!this.textures.exists(key)) bitmap.addTo(this.textures, key);
-            const x = p.tx * TILE, feet = (p.ty + 1) * TILE - 2;
+            // People stand in the middle of their tile: the soles' bottom row sits just below the tile's centre.
+            const x = p.tx * TILE, feet = p.ty * TILE + TILE / 2 + 1;
             this.casters.push(caster(bitmap, x, feet - PERSON_HEIGHT + 1, feet + 1));
-            this.add.image(x + 8, feet + 1, KEY.shadow).setDepth(DEPTH.shadows).setAlpha(0.55);
+            this.add.image(x + 8, feet, KEY.shadow).setDepth(DEPTH.shadows).setAlpha(0.55);
             this.add.image(x, feet - PERSON_HEIGHT + 1, key).setOrigin(0, 0).setLighting(true).setDepth(DEPTH.standing + feet);
             return { x: x + 4, y: feet - 2, w: 8, h: 3, height: PERSON_HEIGHT - 2 };
         });
@@ -165,16 +190,16 @@ export class LobbyScene extends Phaser.Scene {
         const facadeRow = this.tiles.findIndex(row => row.includes('g'));
         for (const x of [2.5, 6.5, 10, 13.5, 19.5]) this.lights.addLight(x * TILE - 20, (facadeRow - 2) * TILE, 52, 0xffd9a0, 0.8, 30);
         const lobby = [[3.5, 6.5], [9.5, 6], [15.5, 6.5], [6.5, 9.5], [13.5, 9.5]] as const;
-        for (const [x, y] of lobby) this.lights.addLight(x * TILE, y * TILE, 64, 0xffcf98, 1.1, 40);
+        for (const [x, y] of lobby) this.lights.addLight(x * TILE, y * TILE, 80, 0xffd8b0, 1.5, 48);
         // The teller line is lit brighter than the lobby, and these reach up the back wall to its dressing.
-        for (const x of [4, 10, 16]) this.lights.addLight(x * TILE, 2.2 * TILE, 72, 0xffd6a8, 1.5, 45);
+        for (const x of [4, 10, 16]) this.lights.addLight(x * TILE, 2.2 * TILE, 84, 0xffdcb8, 1.8, 50);
     }
 
     private buildAtmosphere(): void {
         const facadeRow = this.tiles.findIndex(row => row.includes('g'));
         if (!this.textures.exists(KEY.clouds)) this.textures.addCanvas(KEY.clouds, cloudCanvas(128));
-        // Slow cloud shadows drifting over the street, cut off at the building line.
-        const outsideTop = facadeRow * TILE + 4;
+        // Slow cloud shadows drifting over the street and the shop front, cut off at the top of the façade.
+        const outsideTop = (facadeRow + 1) * TILE - WALL_HEIGHT - THIN_CAP;
         this.clouds = this.add.tileSprite(0, outsideTop, this.mapWidth, this.mapHeight - outsideTop, KEY.clouds)
             .setOrigin(0, 0).setDepth(DEPTH.clouds).setBlendMode(Phaser.BlendModes.MULTIPLY);
 

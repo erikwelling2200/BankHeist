@@ -66,6 +66,8 @@ describe('light maps', () => {
         const exposure = (x: number, y: number) => maps.exposure[(y * maps.width + x) * 4 + 2]!;
         expect(exposure(40, facadeY + TILE * 2)).toBe(255);
         expect(exposure(40, 6 * TILE)).toBeLessThan(128);
-        expect(exposure(40, facadeY - 4)).toBeGreaterThan(exposure(40, 6 * TILE));
+        // Just inside the shop front (whose 1.5-tile face rises above its own tile) the window light lifts the shade.
+        expect(exposure(40, facadeY - 14)).toBeGreaterThan(exposure(40, 6 * TILE));
+        expect(exposure(40, facadeY - 14)).toBeLessThan(255);
     });
 });

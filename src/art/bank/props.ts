@@ -20,10 +20,9 @@ export interface PropArt {
     lights?: PropLight[];
     /** Flat on the floor: drawn under people and furniture whatever its row. */
     flat?: boolean;
+    /** Hung on the face of the wall in its tile (from the face's top edge), or sat on that wall's cap. */
+    mount?: 'face' | 'cap';
 }
-
-/** Wall dressing hangs on a face, so it is drawn over the wall but under anyone standing in front of it. */
-export const WALL_DRESSING = new Set<LobbyProp['kind']>(['clock', 'crest', 'painting', 'noticeBoard', 'exitSign', 'keycardLed', 'atmScreen']);
 
 const glowOf = (b: PixelBitmap) => new PixelBitmap(b.width, b.height);
 
@@ -43,20 +42,25 @@ function walnutFront(b: PixelBitmap, x0: number, y0: number, w: number, h: numbe
 }
 
 /**
- * The teller counter, one sprite across the room. It stands in its own row with a 15px walnut front and a 10px deep
- * green marble top, so a teller standing in the row behind shows from the waist up. Teller glass rises from the
- * front edge of the top; monitors sit off to one side so the teller's face stays visible.
+ * The teller counter, one sprite across the room. It stands in its own row with a 15px walnut front (a half-height
+ * object, well below the 24px walls) and a top the full depth of the tile: green marble on the customer side, a lower
+ * walnut work shelf on the teller side. A teller standing in the middle of the row behind shows from the waist up.
+ * Teller glass rises from the front edge of the top; monitors sit off to one side so the teller's face stays visible.
  */
 function counter(p: Extract<LobbyProp, { kind: 'counter' }>): PropArt {
     const w = p.width * TILE, h = 56;
     const b = new PixelBitmap(w, h), glow = glowOf(b);
     const lights: PropLight[] = [];
-    const base = h, frontTop = base - 15, back = frontTop - 10;
+    const base = h, frontTop = base - 15, back = frontTop - TILE, shelf = back + 6;
     for (let x = 0; x < w; x++) for (let y = back; y < frontTop; y++) {
-        let c: number = y === back ? PAL.marbleGreen[1] : y < back + 3 ? PAL.marbleGreen[2] : PAL.marbleGreen[3];
-        if ((x * 7 + y * 3) % 23 === 0) c = PAL.marbleGreen[4];
-        if (y === frontTop - 1) c = PAL.brass[3];
-        b.set(x, y, c, y === frontTop - 1 ? 1 : 0.95);
+        let c: number, ht = 0.95;
+        if (y < shelf) { c = y === back ? PAL.walnut[1] : y === shelf - 1 ? PAL.walnut[1] : PAL.walnut[3]; ht = 0.85; }
+        else {
+            c = y === shelf ? PAL.marbleGreen[4] : y < shelf + 3 ? PAL.marbleGreen[2] : PAL.marbleGreen[3];
+            if ((x * 7 + y * 3) % 23 === 0) c = PAL.marbleGreen[4];
+        }
+        if (y === frontTop - 1) { c = PAL.brass[3]; ht = 1; }
+        b.set(x, y, c, ht);
     }
     walnutFront(b, 0, frontTop, w, 15);
     const gx = (p.gate - p.tx) * TILE;
@@ -67,12 +71,12 @@ function counter(p: Extract<LobbyProp, { kind: 'counter' }>): PropArt {
     for (const st of p.stations) {
         const sx = (st - p.tx) * TILE;
         const closed = p.closed.includes(st);
-        // Teller monitor seen from behind at the far end of the window; its screen lights the teller.
-        b.rect(sx + 12, back - 4, 4, 5, PAL.steel[1], 0.95);
-        b.hline(sx + 12, back - 4, 4, PAL.steel[3], 0.97);
-        if (!closed) lights.push({ x: sx + 11, y: back - 6, radius: 22, color: 0x7fd8e8, intensity: 0.8 });
+        // Teller monitor on the work shelf, seen from behind at the far end of the window; its screen lights the teller.
+        b.rect(sx + 12, shelf - 4, 4, 5, PAL.steel[1], 0.95);
+        b.hline(sx + 12, shelf - 4, 4, PAL.steel[3], 0.97);
+        if (!closed) lights.push({ x: sx + 11, y: shelf - 6, radius: 22, color: 0x7fd8e8, intensity: 0.8 });
         // Teller glass across the window: brass posts and top rail, the pane itself only a faint tint and two streaks.
-        const glassTop = frontTop - 30;
+        const glassTop = frontTop - 34;
         for (let y = glassTop; y < frontTop - 1; y++) for (let x = sx - 2; x < sx + TILE + 2; x++) {
             const post = x === sx - 2 || x === sx + TILE + 1;
             if (post) { b.set(x, y, x === sx - 2 ? PAL.brass[4] : PAL.brass[2], 0.95); continue; }
@@ -86,11 +90,11 @@ function counter(p: Extract<LobbyProp, { kind: 'counter' }>): PropArt {
         b.rect(sx + 4, frontTop - 4, 8, 3, PAL.ink, 0.5);
         b.hline(sx + 4, frontTop - 5, 8, PAL.brass[3], 0.95);
         if (closed) {
-            b.rect(sx + 3, glassTop + 14, 10, 6, PAL.paper[3], 0.95);
-            b.rect(sx + 4, glassTop + 16, 8, 2, PAL.cloth.burgundy[3]!, 0.95);
-            b.hline(sx + 3, glassTop + 20, 10, PAL.paper[1], 0.95);
-            b.vline(sx + 5, glassTop + 2, 12, PAL.steel[3], 0.95);
-            b.vline(sx + 10, glassTop + 2, 12, PAL.steel[3], 0.95);
+            b.rect(sx + 3, glassTop + 18, 10, 6, PAL.paper[3], 0.95);
+            b.rect(sx + 4, glassTop + 20, 8, 2, PAL.cloth.burgundy[3]!, 0.95);
+            b.hline(sx + 3, glassTop + 24, 10, PAL.paper[1], 0.95);
+            b.vline(sx + 5, glassTop + 2, 16, PAL.steel[3], 0.95);
+            b.vline(sx + 10, glassTop + 2, 16, PAL.steel[3], 0.95);
         } else {
             // Banker's lamp on the counter: brass stem, green glass shade that glows.
             const lx = sx + 2;
@@ -99,7 +103,7 @@ function counter(p: Extract<LobbyProp, { kind: 'counter' }>): PropArt {
             glow.rect(lx - 1, frontTop - 8, 5, 1, PAL.leaf[5], 1);
             glow.set(lx, frontTop - 7, PAL.emissive.lampWarm[1], 1);
             glow.set(lx + 1, frontTop - 7, PAL.emissive.lampWarm[0], 1);
-            lights.push({ x: lx + 1, y: frontTop - 6, radius: 60, color: 0xffcf8a, intensity: 1.0 });
+            lights.push({ x: lx + 1, y: frontTop - 6, radius: 64, color: 0xffcf8a, intensity: 1.5 });
             // Deposit slips and a pen on a chain.
             b.rect(sx + 12, frontTop - 4, 3, 2, PAL.paper[2], 0.96);
             b.set(sx + 13, frontTop - 6, PAL.ink, 0.97);
@@ -180,7 +184,7 @@ function crest(): PropArt {
     b.rect(12, 10, 9, 1, PAL.brass[4], 0.9);
     b.rect(4, 7, 5, 1, PAL.brass[3], 0.7);
     b.rect(24, 7, 5, 1, PAL.brass[3], 0.7);
-    return { lit: b };
+    return { lit: b, mount: 'face' };
 }
 
 function clock(): PropArt {
@@ -191,7 +195,7 @@ function clock(): PropArt {
     b.hline(8, 8, 3, PAL.ink, 0.8);
     b.set(8, 8, PAL.cloth.burgundy[3]!, 0.85);
     b.set(8, 3, PAL.brass[5], 0.9);
-    return { lit: b };
+    return { lit: b, mount: 'face' };
 }
 
 function painting(): PropArt {
@@ -203,7 +207,7 @@ function painting(): PropArt {
     b.rect(8, 7, 3, 2, PAL.limestone[4], 0.62);
     b.rect(8, 6, 3, 1, PAL.terracotta[2], 0.62);
     b.hline(1, 4, 14, PAL.brass[4], 0.8);
-    return { lit: b };
+    return { lit: b, mount: 'face' };
 }
 
 function noticeBoard(): PropArt {
@@ -215,31 +219,31 @@ function noticeBoard(): PropArt {
     b.rect(9, 9, 3, 2, PAL.emissive.sky[1], 0.7);
     b.set(5, 5, PAL.cloth.burgundy[3]!, 0.8);
     b.set(10, 6, PAL.cloth.denim[3]!, 0.8);
-    return { lit: b };
+    return { lit: b, mount: 'face' };
 }
 
 function exitSign(): PropArt {
     const b = new PixelBitmap(TILE, TILE), glow = glowOf(b);
-    // Hangs from the underside of the cap, just above the door below it.
-    b.rect(3, 11, 10, 5, PAL.steel[1], 0.8);
-    glow.rect(4, 12, 8, 3, PAL.emissive.exitGreen[1], 1);
-    glow.rect(5, 13, 2, 1, PAL.emissive.exitGreen[2], 1);
-    glow.rect(8, 13, 3, 1, PAL.emissive.exitGreen[2], 1);
-    return { lit: b, glow, lights: [{ x: 8, y: 15, radius: 34, color: 0x52e08a, intensity: 0.6 }] };
+    // Above the door frame, in the strip of wall between the door and the top of the face.
+    b.rect(3, 0, 10, 5, PAL.steel[1], 0.8);
+    glow.rect(4, 1, 8, 3, PAL.emissive.exitGreen[1], 1);
+    glow.rect(5, 2, 2, 1, PAL.emissive.exitGreen[2], 1);
+    glow.rect(8, 2, 3, 1, PAL.emissive.exitGreen[2], 1);
+    return { lit: b, glow, mount: 'face', lights: [{ x: 8, y: 5, radius: 34, color: 0x52e08a, intensity: 0.6 }] };
 }
 
 function keycardLed(): PropArt {
     const b = new PixelBitmap(TILE, TILE), glow = glowOf(b);
-    glow.set(14, 8, PAL.emissive.ledRed, 1);
-    return { lit: b, glow, lights: [{ x: 14, y: 8, radius: 14, color: 0xff4a3a, intensity: 0.8 }] };
+    glow.set(14, 12, PAL.emissive.ledRed, 1);
+    return { lit: b, glow, mount: 'face', lights: [{ x: 14, y: 12, radius: 14, color: 0xff4a3a, intensity: 0.8 }] };
 }
 
 function atmScreen(): PropArt {
     const b = new PixelBitmap(TILE, TILE), glow = glowOf(b);
-    glow.rect(4, 7, 8, 4, PAL.emissive.screen[1], 1);
-    glow.rect(5, 8, 5, 1, PAL.emissive.screen[2], 1);
-    glow.rect(5, 10, 3, 1, PAL.emissive.screen[0], 1);
-    return { lit: b, glow, lights: [{ x: 8, y: 12, radius: 30, color: 0x7fd8e8, intensity: 0.8 }] };
+    glow.rect(4, 8, 8, 4, PAL.emissive.screen[1], 1);
+    glow.rect(5, 9, 5, 1, PAL.emissive.screen[2], 1);
+    glow.rect(5, 11, 3, 1, PAL.emissive.screen[0], 1);
+    return { lit: b, glow, mount: 'face', lights: [{ x: 8, y: 14, radius: 30, color: 0x7fd8e8, intensity: 0.8 }] };
 }
 
 function camera(): PropArt {
@@ -252,15 +256,16 @@ function camera(): PropArt {
     b.set(10, 6, PAL.glass[3], 1);
     b.rect(12, 7, 8, 1, PAL.paper[0], 0.9);
     glow.set(19, 5, PAL.emissive.ledRed, 1);
-    return { lit: b, glow, offsetX: -TILE };
+    return { lit: b, glow, offsetX: -TILE, mount: 'cap' };
 }
 
 function queueRail(p: Extract<LobbyProp, { kind: 'queueRail' }>): PropArt {
-    const h = p.length * TILE;
+    // Headroom above the first post for its finial; posts stand in the middle of their tiles.
+    const pad = 8, h = p.length * TILE + pad;
     const b = new PixelBitmap(TILE, h);
     const cx = 8;
     for (let i = 0; i < p.length; i++) {
-        const foot = i * TILE + 14;
+        const foot = pad + i * TILE + TILE / 2 + 1;
         // Weighted base, polished post, round finial.
         b.rect(cx - 2, foot, 5, 1, PAL.brass[1], 0.4);
         b.rect(cx - 1, foot - 1, 3, 1, PAL.brass[3], 0.5);
@@ -276,7 +281,7 @@ function queueRail(p: Extract<LobbyProp, { kind: 'queueRail' }>): PropArt {
             }
         }
     }
-    return { lit: b, shadow: { x: 5, y: h - 3, w: 6, h: 2 } };
+    return { lit: b, shadow: { x: 5, y: h - 8, w: 6, h: 2 } };
 }
 
 function mat(): PropArt {
@@ -302,7 +307,7 @@ function writingDesk(): PropArt {
     b.rect(15, 0, 1, 5, PAL.brass[3], 1);
     b.rect(13, 0, 5, 2, PAL.leaf[3], 1);
     glow.rect(13, 1, 5, 1, PAL.leaf[5], 1);
-    return { lit: b, glow, lights: [{ x: 15, y: 3, radius: 40, color: 0xffcf8a, intensity: 0.9 }], shadow: { x: 2, y: h - 3, w: w - 4, h: 5 } };
+    return { lit: b, glow, lights: [{ x: 15, y: 3, radius: 48, color: 0xffcf8a, intensity: 1.4 }], shadow: { x: 2, y: h - 3, w: w - 4, h: 5 } };
 }
 
 function sofa(): PropArt {

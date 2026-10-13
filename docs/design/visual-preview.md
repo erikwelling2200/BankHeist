@@ -9,9 +9,11 @@ is agreed.
 
 ## Style card
 
-1. **¾ top-down on the 16px grid.** Walls are one tile; a wall whose south side is open shows a 16px face, every
-   other wall shows only its dark cap, so rooms read as lit pockets between solid mass. People are 16x24 and overlap
-   the row above them; depth follows each object's base row.
+1. **¾ top-down on the 16px grid.** Walls take one tile and stand **1.5 tiles tall**: a 24px face where the tile
+   south of the wall is open, under a cap the depth of the tile, both lifted so they overlap the floor (and anyone)
+   up to 1.5 tiles behind the wall. Half-height objects such as the counter have a 15px front, so full walls and half
+   cover read apart at a glance. The shop front is a thin wall of stone and see-through glass. People are 16x24 and
+   **stand in the middle of their tile**; depth follows each object's base line.
 2. **Muted, hue-shifted ramps** (`src/art/palette.ts`). Darks drift cool, lights warm, the lightest steps desaturate.
    No pure black: the darkest colour is a cool ink. One ramp per material, so greens stay green.
 3. **Zones are drawn into the floor** (§8.1): cream marble and a red runner for Public, linoleum for Staff; concrete and
@@ -94,8 +96,10 @@ lobby. The preview splits the job instead:
   sunlight. A full-screen layer drawn with a custom `2 × source × destination` blend then doubles the street and scales
   the inside down to the building's shade, lifting towards the glass. Rendering at half first leaves the lamps
   headroom; with a plain multiply the interior clipped to white before it was darkened, and every lamp pool vanished.
-- **Lamps are Light2D** (about 23 of the 32 allowed): small warm pools over the lobby, brighter ones over the teller
-  line, banker's lamps on the counter, cyan from the teller monitors and the ATM, green from the exit sign.
+- **Lamps are Light2D** (about 23 of the 32 allowed): warm pools over the lobby, brighter ones over the teller line,
+  banker's lamps on the counter, cyan from the teller monitors and the ATM, green from the exit sign. The interior is
+  meant to read as a believably lit bank, with the grit coming from the shade between pools and the dark corners,
+  not from dimness.
 - **Baked light maps** (`src/art/bank/lightmap.ts`): ambient occlusion along the foot of walls and under furniture
   (multiply, floor only), sun shafts through the glass with the far end striped by the blinds (additive, banded,
   dithered only where bands meet), people and furniture cutting their shadow out of the shafts, and sheared sun
@@ -107,7 +111,7 @@ lobby. The preview splits the job instead:
 
 ## Open questions
 
-- Is ¾ the right camera, or should walls be pure top-down (thicker, no faces) like Door Kickers? ¾ reads better as a
-  place; top-down reads walls and cover more exactly.
+- Tall walls hide what stands just north of them. That is fine for back walls, but for the shop front and other south
+  walls a cutaway (fading the wall when a crew member or a threat is behind it) will probably be needed in play.
 - Daytime only for now. Closing time (warmer, lower sun) and a power cut (§8.13: emergency lights only) would reuse
   the same layers with different values.

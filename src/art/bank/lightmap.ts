@@ -1,6 +1,7 @@
 import { TILE } from '../../level/level';
 import { isStructure, type LobbyTile } from '../../level/lobby';
 import { bayer4 } from '../random';
+import { THIN_CAP, WALL_HEIGHT } from './geometry';
 
 /** Something standing on the floor: it darkens the floor under it and blocks sun shafts up to its height. */
 export interface Occluder { x: number; y: number; w: number; h: number; height: number }
@@ -33,11 +34,9 @@ const SUN = [255, 214, 158] as const;
 
 const SHADE_BANDS = [1, 0.92, 0.82, 0.7, 0.58];
 /** How much daylight survives indoors, deep in the room and right behind the glass. */
-const ROOF_DEEP = 0.34;
-const ROOF_WINDOW = 0.55;
+const ROOF_DEEP = 0.37;
+const ROOF_WINDOW = 0.56;
 const WINDOW_REACH = 56;
-/** The façade's lip is the building's top edge: everything above it is under the roof. */
-const FACADE_LIP = 4;
 
 /** Quantises `value` (0 = no effect, 1 = full) into `bands` steps, dithering only in a thin strip where steps meet. */
 function band(value: number, bands: number, x: number, y: number): number {
@@ -121,7 +120,8 @@ export function buildLightMaps(tiles: LobbyTile[][], occluders: Occluder[], cast
         glow.set([SUN[0] * a, SUN[1] * a, SUN[2] * a, 255], i * 4);
 
         let r = 1;
-        if (facadeRow > 0 && y < facadeY + FACADE_LIP) {
+        // Everything above the top of the shop front is under the roof; the façade itself faces the sunny street.
+        if (facadeRow > 0 && y < facadeY + TILE - WALL_HEIGHT - THIN_CAP) {
             const near = Math.max(0, 1 - (facadeY - y) / WINDOW_REACH);
             r = ROOF_DEEP + (ROOF_WINDOW - ROOF_DEEP) * band(near, 3, x, y);
         }
