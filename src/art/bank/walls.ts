@@ -2,10 +2,13 @@ import { TILE } from '../../level/level';
 import { PAL, mix, step } from '../palette';
 import { PixelBitmap } from '../PixelBitmap';
 import { mulberry32 } from '../random';
-import { THIN_WALL, WALL_HEIGHT } from '../../level/space';
+import { THIN_WALL, topRows, WALL_HEIGHT } from '../../level/space';
 
 /** A wall block is the wall's cap (one tile deep) over its face; see `space.ts` for the heights. */
-export const BLOCK_HEIGHT = TILE + WALL_HEIGHT;
+/** The cap is the top of a wall a tile deep, drawn foreshortened like every top. */
+const CAP = topRows(TILE);
+const THIN_CAP = topRows(THIN_WALL);
+export const BLOCK_HEIGHT = CAP + WALL_HEIGHT;
 
 export const WALL_BLOCK_NAMES = ['cap', 'sideDoor', 'face', 'doorWood', 'doorKeycard', 'pier', 'window', 'doorGlassLeft', 'doorGlassRight', 'atm'] as const;
 export type WallBlockName = typeof WALL_BLOCK_NAMES[number];
@@ -17,13 +20,15 @@ const F = WALL_HEIGHT;
 
 /** Interior walls are solid masonry: a dark plaster cap the full depth of the tile. */
 const solidCap: Painter = (cap, _face, rand) => {
-    for (let y = 0; y < TILE; y++) for (let x = 0; x < TILE; x++) cap(x, y, y === TILE - 1 ? PAL.plaster[2] : rand() > 0.9 ? PAL.plaster[1] : PAL.plaster[0], 1);
+    for (let y = 0; y < CAP; y++) for (let x = 0; x < TILE; x++) cap(x, y, y === CAP - 1 ? PAL.plaster[2] : rand() > 0.9 ? PAL.plaster[1] : PAL.plaster[0], 1);
 };
 
 /** The shop front is a thin wall: a limestone coping along its street edge, the rest of the tile is floor behind it. */
 const thinCap: Painter = (cap) => {
     const coping = [PAL.limestone[2], PAL.limestone[5], PAL.limestone[4], PAL.limestone[1]];
-    for (let x = 0; x < TILE; x++) coping.forEach((c, i) => cap(x, TILE - THIN_WALL + i, c, i === THIN_WALL - 1 ? 0.9 : 1));
+    // The coping's rows, lit edge last: as many as the thin wall's foreshortened top takes.
+    const rows = coping.slice(coping.length - THIN_CAP);
+    for (let x = 0; x < TILE; x++) rows.forEach((c, i) => cap(x, CAP - THIN_CAP + i, c, i === THIN_CAP - 1 ? 0.9 : 1));
 };
 
 /** Interior face: plaster above a walnut wainscot with a brass chair rail and a dark skirting board. */
@@ -70,8 +75,8 @@ const doorKeycard: Painter = (cap, face, rand) => {
 /** A door in a side wall, seen from above: a gap in the cap with the door leaf standing open against the jamb. */
 const sideDoor: Painter = (cap, face, rand) => {
     solidCap(cap, face, rand);
-    for (let y = 2; y < 14; y++) for (let x = 3; x < 13; x++) cap(x, y, step(PAL.marbleCream, 1), 0.3);
-    for (let y = 2; y < 14; y++) { cap(3, y, PAL.walnut[5], 1); cap(4, y, PAL.walnut[3], 0.95); }
+    for (let y = 1; y < CAP - 1; y++) for (let x = 3; x < 13; x++) cap(x, y, step(PAL.marbleCream, 1), 0.3);
+    for (let y = 1; y < CAP - 1; y++) { cap(3, y, PAL.walnut[5], 1); cap(4, y, PAL.walnut[3], 0.95); }
 };
 
 /** Limestone in courses with a darker plinth; the building's face to the street. */
@@ -161,7 +166,7 @@ export function bankWalls(): PixelBitmap {
     WALL_BLOCK_NAMES.forEach((name, i) => {
         const ox = i * TILE;
         const cap = (x: number, y: number, c: number, h: number, a = 255) => bitmap.set(ox + x, y, c, h, a);
-        const face = (x: number, y: number, c: number, h: number, a = 255) => bitmap.set(ox + x, TILE + y, c, h, a);
+        const face = (x: number, y: number, c: number, h: number, a = 255) => bitmap.set(ox + x, CAP + y, c, h, a);
         PAINTERS[name](cap, face, rand);
     });
     return bitmap;

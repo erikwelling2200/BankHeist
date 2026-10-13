@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { renderModel, type Model } from '../src/art/bank/model';
-import type { Size } from '../src/level/space';
+import { topRows, type Size } from '../src/level/space';
 
 const RED = 0xff0000, GREEN = 0x00ff00, BLUE = 0x0000ff, YELLOW = 0xffff00, GREY = 0x808080;
 const size: Size = { w: 6, d: 3, h: 4 };
@@ -17,12 +17,17 @@ describe('rendering a model', () => {
         }
     });
 
-    it('stacks the top surface (as deep as the box) over the face (as tall as the box)', () => {
+    it('stacks the foreshortened top surface over the face (as tall as the box)', () => {
         const art = renderModel(crate, size, 'south');
-        expect(art.lit.height).toBe(size.d + size.h);
-        expect(art.lit.color(0, size.d - 1)).toBe(GREY);
-        expect(art.lit.color(0, size.d)).toBe(RED);
-        expect(renderModel(crate, size, 'east').lit.height).toBe(size.w + size.h);
+        expect(art.lit.height).toBe(topRows(size.d) + size.h);
+        expect(art.lit.color(0, topRows(size.d) - 1)).toBe(GREY);
+        expect(art.lit.color(0, topRows(size.d))).toBe(RED);
+        expect(renderModel(crate, size, 'east').lit.height).toBe(topRows(size.w) + size.h);
+    });
+
+    it('keeps something flat on the floor at its full depth', () => {
+        const mat: Model = { parts: [{ x: 0, y: 0, z: 0, w: 6, d: 6, h: 0, top: GREY }] };
+        expect(renderModel(mat, { w: 6, d: 6, h: 0 }, 'south').lit.height).toBe(6);
     });
 
     it('hides what is behind a nearer part, whichever way the model faces', () => {

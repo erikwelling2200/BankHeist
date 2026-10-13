@@ -4,14 +4,23 @@ import { TILE } from './level';
  * The world's 3D scale and how objects occupy it. One pixel is about 8cm in every direction, so a tile is about 1.3m,
  * a person about 1.75m (22px), and full walls are cut away at about 1.9m (24px), just above head height.
  *
- * The camera is a ¾ view with no foreshortening: a point at floor position (x, y) and height z above the floor is drawn
- * at screen (x, y - z). A box therefore shows its top surface (as deep on screen as the box is deep) above its front
- * face (as tall on screen as the box is tall).
+ * The camera is a ¾ view: a point at floor position (x, y) and height z above the floor is drawn at screen (x, y - z),
+ * so floor tiles are square and heights are drawn at full scale. The tops of things standing on the floor are the one
+ * exception: they are drawn at `TOP_DEPTH` of their real depth (see `topRows`), so a box shows a shallower top over its
+ * full-height front face. This is the familiar pixel-art cheat for a camera a little lower than 45°: a long thing that
+ * points at the camera (a van, a bench) still looks longer than it does side-on, but reads as lying down rather than
+ * standing up.
  */
 export const PX_PER_METRE = 12.5;
 export const px = (metres: number): number => Math.round(metres * PX_PER_METRE);
 
 export const WALL_HEIGHT = px(1.92);
+
+/** How deep the top of an object is drawn, as a share of its real depth. Floor-level things keep their full depth. */
+export const TOP_DEPTH = 2 / 3;
+
+/** Screen rows the top of something `depth` pixels deep takes. */
+export const topRows = (depth: number): number => Math.round(depth * TOP_DEPTH);
 /** The shop front is a thin wall: only this much of its tile, along the street edge, is wall. */
 export const THIN_WALL = px(0.3);
 

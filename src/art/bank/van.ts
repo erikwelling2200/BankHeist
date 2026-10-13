@@ -1,4 +1,4 @@
-import { px, type Facing, type Size } from '../../level/space';
+import { px, TOP_DEPTH, type Facing, type Size } from '../../level/space';
 import { mix, PAL } from '../palette';
 import type { PropArt } from './model';
 import { NORMAL, View } from './view';
@@ -95,8 +95,8 @@ function sidePanel(z: number, zTop: number): number {
  * Looking at the van's side: its right side (with the sliding door) when it faces east, nose to the screen's right; its
  * left side when it faces west, nose to the left.
  */
-function side(shape: Shape, right: boolean): View {
-    const v = new View(shape.length, shape.width, shape.height);
+function side(shape: Shape, right: boolean, k: number): View {
+    const v = new View(shape.length, shape.width, shape.height, 0, k);
     const X = (y: number) => (right ? y : shape.length - 1 - y);
     const toNose = right ? NORMAL.right : NORMAL.left;
     // The upper surfaces, seen across the van's width.
@@ -155,8 +155,8 @@ function side(shape: Shape, right: boolean): View {
 }
 
 /** Looking at the nose: roof, windscreen and bonnet from above, then the front with its grille and lamps. */
-function front(shape: Shape): View {
-    const v = new View(shape.width, shape.length, shape.height, 2);
+function front(shape: Shape, k: number): View {
+    const v = new View(shape.width, shape.length, shape.height, 2, k);
     const W = shape.width, mid = Math.floor(W / 2);
     for (let y = 0; y < shape.length; y++) {
         const z = shape.top(y), region = shape.region(y);
@@ -199,8 +199,8 @@ function front(shape: Shape): View {
 }
 
 /** Looking at the back: a sliver of bonnet beyond the roof, the long roof, then the rear doors. */
-function rear(shape: Shape): View {
-    const v = new View(shape.width, shape.length, shape.height, 2);
+function rear(shape: Shape, k: number): View {
+    const v = new View(shape.width, shape.length, shape.height, 2, k);
     const W = shape.width, mid = Math.floor(W / 2), L = shape.length;
     // Far to near: world row 0 is the nose. The windscreen faces away from the camera, so only bonnet and roof show.
     for (let row = 0; row < L; row++) {
@@ -234,12 +234,12 @@ function rear(shape: Shape): View {
 }
 
 /** The van seen facing `facing` (its nose's direction); `s` is its catalog size in its own frame. */
-export function vanArt(s: Size, facing: Facing): PropArt {
+export function vanArt(s: Size, facing: Facing, depthScale = TOP_DEPTH): PropArt {
     const shape = new Shape(s);
     switch (facing) {
-        case 'south': return front(shape).art();
-        case 'north': return rear(shape).art();
-        case 'east': return side(shape, true).art();
-        case 'west': return side(shape, false).art();
+        case 'south': return front(shape, depthScale).art();
+        case 'north': return rear(shape, depthScale).art();
+        case 'east': return side(shape, true, depthScale).art();
+        case 'west': return side(shape, false, depthScale).art();
     }
 }

@@ -23,6 +23,11 @@ is agreed.
    drawn by hand as pixel art on a `View` that knows the projection, from one set of measurements per object so the
    views agree (the van in `src/art/bank/van.ts` is the first; simpler furniture is still rendered from box models
    until it is redrawn). `/?scene=props` shows them all. ([sheet](../pixel-art/examples/props-four-facings.png): south, east, north, west.)
+   Floor tiles are square and heights are drawn at full scale, but the **tops of things are drawn at 2/3 of their
+   depth** (`TOP_DEPTH`), the usual cheat for a camera a little lower than 45°: a van nose-on is then 62px tall
+   rather than 95px against 54px side-on, so it reads as lying down
+   ([comparison](../pixel-art/examples/van-depth-compare.png): full depth on top, half below; we use two thirds).
+   Things flat on the floor keep their full depth, and rows of posts keep each post on its floor position.
 3. **Muted, hue-shifted ramps** (`src/art/palette.ts`). Darks drift cool, lights warm, the lightest steps desaturate.
    No pure black: the darkest colour is a cool ink. One ramp per material, so greens stay green.
 4. **Zones are drawn into the floor** (§8.1): cream marble and a red runner for Public, linoleum for Staff; concrete and

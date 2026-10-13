@@ -34,7 +34,9 @@ Top-down 2D pixel-art stealth game. Phaser 4 + TypeScript + Vite, shipped as an 
   `render.maxLights` is 32 – lights beyond that are silently dropped, so raise it if a scene gets busier.
 - All art is generated in `src/art` from palette grids, with a height per colour that becomes the normal map. Real art
   can replace it by loading PNGs plus `-n.png` normal maps in a preload scene and keeping the `TEX` keys.
-- Every object is a box at a real scale (`src/level/space.ts`: 1px ≈ 8cm, people 1.75m, walls cut at 1.9m). Before
+- Every object is a box at a real scale (`src/level/space.ts`: 1px ≈ 8cm, people 1.75m, walls cut at 1.9m). Floor tiles
+  are square and heights full scale, but the tops of things are drawn at `TOP_DEPTH` (2/3) of their depth, so long
+  things pointing at the camera don't look tall; `View` and the wall caps apply it, draw with them. Before
   drawing a new item, give it a `CATALOG` entry in `src/level/catalog.ts`: real width, depth and height, elevation if
   mounted, where it stands (centred, against which edge, between two tiles) and which way it faces. Every prop needs
   all four facings, each **drawn by hand as pixel art** on a `View` (`src/art/bank/view.ts`), which knows the

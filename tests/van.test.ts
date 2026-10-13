@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { vanArt } from '../src/art/bank/van';
 import { propSize } from '../src/level/catalog';
-import { FACINGS, turned } from '../src/level/space';
+import { FACINGS, topRows, turned } from '../src/level/space';
 
 describe('the hand-drawn van', () => {
     const size = propSize({ kind: 'van', tx: 0, ty: 0 });
@@ -12,7 +12,7 @@ describe('the hand-drawn van', () => {
             const footprint = turned(size, facing);
             // Wing mirrors may stand out past the sides; the body spans the footprint and stands on its south edge.
             expect(art.lit.width - art.originX * 2, facing).toBe(footprint.w);
-            expect(art.lit.height, facing).toBe(footprint.d + size.h);
+            expect(art.lit.height, facing).toBe(topRows(footprint.d) + size.h);
             const bottom = art.lit.height - 1;
             expect(art.lit.opaque(art.originX + 1, bottom) || art.lit.opaque(art.originX + Math.floor(footprint.w / 2), bottom), facing).toBe(true);
         }

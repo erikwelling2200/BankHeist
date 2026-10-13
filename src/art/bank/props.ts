@@ -255,7 +255,7 @@ function queueRail(p: Extract<LobbyProp, { kind: 'queueRail' }>, s: Size): Model
             parts.push(box(x + t, cy, s.h - 4 - sag, 1, 1, 1, { top: c, sides: PAL.carpet[2] }));
         }
     }
-    return { parts };
+    return { parts, upright: true };
 }
 
 function mat(s: Size): Model {

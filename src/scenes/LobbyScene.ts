@@ -9,7 +9,7 @@ import { bayer4, mulberry32, valueNoise } from '../art/random';
 import { propBox, propSize } from '../level/catalog';
 import { TILE } from '../level/level';
 import { isStructure, LOBBY_PEOPLE, LOBBY_PROPS, LOBBY_TILES, parseLobby, type LobbyTile } from '../level/lobby';
-import { baseLine, PERSON_SIZE, place, THIN_WALL, WALL_HEIGHT, type Box } from '../level/space';
+import { baseLine, PERSON_SIZE, place, THIN_WALL, topRows, WALL_HEIGHT, type Box } from '../level/space';
 
 const KEY = { tiles: 'bank-tiles', walls: 'bank-walls', shade: 'lobby-shade', glow: 'lobby-glow', exposure: 'lobby-exposure', clouds: 'lobby-clouds', mote: 'lobby-mote', shadow: 'person-shadow' } as const;
 
@@ -204,7 +204,7 @@ export class LobbyScene extends Phaser.Scene {
         const facadeRow = this.tiles.findIndex(row => row.includes('g'));
         if (!this.textures.exists(KEY.clouds)) this.textures.addCanvas(KEY.clouds, cloudCanvas(128));
         // Slow cloud shadows drifting over the street and the shop front, cut off at the top of the façade.
-        const outsideTop = (facadeRow + 1) * TILE - WALL_HEIGHT - THIN_WALL;
+        const outsideTop = (facadeRow + 1) * TILE - WALL_HEIGHT - topRows(THIN_WALL);
         this.clouds = this.add.tileSprite(0, outsideTop, this.mapWidth, this.mapHeight - outsideTop, KEY.clouds)
             .setOrigin(0, 0).setDepth(DEPTH.clouds).setBlendMode(Phaser.BlendModes.MULTIPLY);
 
