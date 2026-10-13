@@ -35,7 +35,7 @@ describe('placing a box', () => {
 });
 
 describe('boxes overlapping', () => {
-    const a = { x: 0, y: 0, z: 0, w: 10, d: 10, h: 10 };
+    const a = { x: 0, y: 0, z: 0, w: 10, d: 10, h: 10, facing: 'south' as const };
 
     it('counts shared volume but not touching faces', () => {
         expect(boxesOverlap(a, { ...a, x: 5 })).toBe(true);

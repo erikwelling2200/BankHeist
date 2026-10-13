@@ -97,3 +97,21 @@ test.describe('lobby visual preview', () => {
         expect(errors).toEqual([]);
     });
 });
+
+test('renders every prop in its four facings', async ({ page }) => {
+    const errors: string[] = [];
+    page.on('pageerror', e => errors.push(e.message));
+    page.on('console', m => { if (m.type() === 'error') errors.push(m.text()); });
+    await page.goto('/?scene=props');
+    await page.waitForFunction(() => (window as any).game?.scene.getScene('props')?.sys.isActive());
+    const sheet = await page.evaluate(() => (window as any).game.scene.getScene('props').debugState);
+    // Show the whole sheet at 1:1, three screen pixels to a pixel.
+    await page.setViewportSize({ width: sheet.width * 3, height: sheet.height * 3 });
+    await page.evaluate(([w, h]) => {
+        (window as any).game.scale.setGameSize(w, h);
+        (window as any).game.scene.getScene('props').cameras.main.setSize(w, h);
+    }, [sheet.width, sheet.height]);
+    await page.waitForTimeout(500);
+    await page.locator('canvas').screenshot({ path: 'screenshots/props.png' });
+    expect(errors).toEqual([]);
+});

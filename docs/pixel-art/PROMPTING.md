@@ -34,7 +34,9 @@ Example:
    elevation if it hangs or is mounted, and where it stands in its tiles: centred, against which edge, in a corner, or
    on the line between two tiles. In this game that goes in `src/level/catalog.ts` (1px is about 8cm, walls are cut at
    1.9m, people are 1.75m); the painter draws to that box and the scene places it, so proportions and positions stay
-   consistent and no two objects intersect (the lobby tests check this).
+   consistent and no two objects intersect (the lobby tests check this). Every object needs **all four facings**:
+   build it as a 3D model of boxes with a texture for each face (front, back, both sides and top) and let the renderer
+   turn it, rather than drawing only the side that faces the camera.
 8. **Generate characters from one parametric function** so a cast stays consistent, and vary build, hair,
    clothing, props and pose.
 9. **See, critique, fix.** Render, look at the full image and an 8x crop, list what is wrong against the style

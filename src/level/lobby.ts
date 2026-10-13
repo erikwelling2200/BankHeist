@@ -57,9 +57,9 @@ export function isStructure(tile: LobbyTile): boolean {
 
 /**
  * Static furniture and dressing. `tx`/`ty` is the north-west tile of the tiles the object occupies; its size, default
- * alignment and elevation come from `CATALOG` (catalog.ts), and an entry can override the alignment or span here.
+ * facing, alignment and elevation come from `CATALOG` (catalog.ts), and an entry can override facing, alignment or span.
  */
-type Placed = { tx: number; ty: number } & Partial<Pick<Placement, 'span' | 'alignX' | 'alignY'>>;
+type Placed = { tx: number; ty: number } & Partial<Pick<Placement, 'span' | 'alignX' | 'alignY' | 'facing'>>;
 
 export type LobbyProp = Placed & (
     | { kind: 'counter'; width: number; stations: number[]; closed: number[]; gate: number }
@@ -88,15 +88,15 @@ export const LOBBY_PROPS: LobbyProp[] = [
     { kind: 'counter', tx: 1, ty: 4, width: 20, stations: [3, 7, 11, 15], closed: [11], gate: 19 },
 
     // Lobby.
-    { kind: 'camera', tx: 20, ty: 5 },
+    { kind: 'camera', tx: 20, ty: 5, facing: 'west', alignX: 'east' },
     { kind: 'plant', tx: 1, ty: 5, alignX: 'west', alignY: 'north' },
     { kind: 'plant', tx: 20, ty: 5, alignX: 'east', alignY: 'north' },
-    { kind: 'queueRail', tx: 8, ty: 6, length: 4 },
-    { kind: 'queueRail', tx: 11, ty: 6, length: 4 },
+    { kind: 'queueRail', tx: 8, ty: 6, length: 4, facing: 'east' },
+    { kind: 'queueRail', tx: 11, ty: 6, length: 4, facing: 'west' },
     { kind: 'sofa', tx: 15, ty: 7 },
     { kind: 'writingDesk', tx: 3, ty: 8 },
     { kind: 'coffeeTable', tx: 15, ty: 9 },
-    { kind: 'brochureRack', tx: 1, ty: 10, alignX: 'west' },
+    { kind: 'brochureRack', tx: 1, ty: 10, facing: 'east', alignX: 'west' },
     { kind: 'bin', tx: 7, ty: 11 },
     { kind: 'mat', tx: 9, ty: 11 },
     { kind: 'plant', tx: 20, ty: 11, alignX: 'east' },

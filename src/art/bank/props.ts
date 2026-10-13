@@ -1,526 +1,458 @@
 import { TILE } from '../../level/level';
 import type { LobbyProp } from '../../level/lobby';
-import { px, type Size } from '../../level/space';
-import { PAL, deepen, mix, step, type Ramp } from '../palette';
-import { PixelBitmap } from '../PixelBitmap';
+import { px, type Facing, type Size } from '../../level/space';
+import { PAL, mix, step } from '../palette';
 import { mulberry32 } from '../random';
+import { renderModel, type Model, type Part, type PropArt, type Tex } from './model';
 
-/** A light a prop gives off, in pixels relative to the prop bitmap's top-left corner. */
-export interface PropLight { x: number; y: number; radius: number; color: number; intensity: number }
+export type { PropArt } from './model';
 
-/**
- * A prop's art for its box (see `space.ts`). `lit` responds to scene lights; `glow` is drawn on top unlit (screens,
- * bulbs, signs). `originX` is the bitmap column of the footprint's west edge, for art that spreads wider than its
- * footprint; the bitmap's bottom edge is always the box's front edge at the box's own floor level.
+/*
+ * Every prop as a small 3D model of boxes in its own frame (see model.ts): x across its front, y from its back (0) to
+ * its front (`s.d`), z up. Sizes come from the catalog; the renderer turns a model to any of the four facings.
  */
-export interface PropArt {
-    lit: PixelBitmap;
-    glow?: PixelBitmap;
-    lights?: PropLight[];
-    originX?: number;
+
+const box = (x: number, y: number, z: number, w: number, d: number, h: number, faces: Omit<Part, 'x' | 'y' | 'z' | 'w' | 'd' | 'h'>): Part => ({ x, y, z, w, d, h, ...faces });
+const none: Tex = () => null;
+
+/** Rectangles painted onto a texture: later ones on top. */
+function decals(base: Tex, items: { x: number; y: number; w: number; h: number; c: number }[]): Tex {
+    return (u, v) => {
+        for (let i = items.length - 1; i >= 0; i--) {
+            const r = items[i]!;
+            if (u >= r.x && u < r.x + r.w && v >= r.y && v < r.y + r.h) return r.c;
+        }
+        return typeof base === 'number' ? base : base(u, v);
+    };
 }
 
-/**
- * Drawing surface for one box. Points are given as (x across from the west edge, gy back-to-front from the north edge,
- * z up from the box's floor); `row(gy, z)` is where such a point lands. `headroom` adds rows above the box for parts that
- * rise higher than it (teller glass, a lamp), `margin` adds columns either side for parts that spread wider (leaves).
- */
-class BoxArt {
-    readonly lit: PixelBitmap;
-    readonly glow: PixelBitmap;
-    readonly lights: PropLight[] = [];
+const inEllipse = (u: number, v: number, cx: number, cy: number, rx: number, ry: number) => ((u + 0.5 - cx) / rx) ** 2 + ((v + 0.5 - cy) / ry) ** 2 <= 1;
 
-    constructor(readonly s: Size, readonly headroom = 0, readonly margin = 0) {
-        this.lit = new PixelBitmap(s.w + margin * 2, headroom + s.h + s.d);
-        this.glow = new PixelBitmap(this.lit.width, this.lit.height);
-    }
-
-    row(gy: number, z: number): number {
-        return this.headroom + this.s.h + gy - z;
-    }
-
-    col(x: number): number {
-        return this.margin + x;
-    }
-
-    /** Paints the box's top surface and its front face with the given colour functions (x, and depth or height). */
-    block(top: (x: number, gy: number) => number, front: (x: number, z: number) => number, heights = { top: 1, front: 0.7 }): void {
-        const { w, d, h } = this.s;
-        for (let gy = 0; gy < d; gy++) for (let x = 0; x < w; x++) this.lit.set(this.col(x), this.row(gy, h), top(x, gy), heights.top);
-        for (let z = h; z > 0; z--) for (let x = 0; x < w; x++) this.lit.set(this.col(x), this.row(d, z), front(x, z), heights.front);
-    }
-
-    art(): PropArt {
-        return { lit: this.lit, glow: this.glow, lights: this.lights, originX: this.margin };
-    }
+/** Raised walnut panels on a face, a brass kick rail along the floor. `v` counts down from the top edge. */
+function walnutPanel(w: number, h: number): (u: number, v: number) => number {
+    return (u, v) => {
+        const z = h - v, px = u % TILE;
+        if (z <= 2) return z === 2 ? PAL.brass[3] : PAL.brass[1];
+        if (z === h) return PAL.walnut[1];
+        const inX = px > 2 && px < 13 && w - u > 2, inZ = z > 4 && z < h - 1;
+        if (inX && inZ) return z === h - 2 ? PAL.walnut[4] : PAL.walnut[3];
+        if ((px === 2 || px === 13) && z >= 4 && z <= h - 1) return PAL.walnut[1];
+        if ((z === 4 || z === h - 1) && px >= 2 && px <= 13) return PAL.walnut[1];
+        return PAL.walnut[2];
+    };
 }
 
-/** Raised walnut panels on a front face, a brass kick rail along the floor. */
-function walnutPanel(x: number, z: number, w: number, h: number): number {
-    const px = x % TILE;
-    if (z <= 2) return z === 2 ? PAL.brass[3] : PAL.brass[1];
-    if (z === h) return PAL.walnut[1];
-    const inX = px > 2 && px < 13 && w - x > 2, inZ = z > 4 && z < h - 1;
-    if (inX && inZ) return z === h - 2 ? PAL.walnut[4] : PAL.walnut[3];
-    if ((px === 2 || px === 13) && z >= 4 && z <= h - 1) return PAL.walnut[1];
-    if ((z === 4 || z === h - 1) && px >= 2 && px <= 13) return PAL.walnut[1];
-    return PAL.walnut[2];
-}
+/** Plain cabinet back: boards with a darker seam every half tile. */
+const boards = (light: number, dark: number): Tex => (u, v) => (u % (TILE / 2) === 0 || v === 0 ? dark : light);
 
 /**
- * The teller counter, one sprite across the room: a walnut front 1.2m tall, the top the full depth of its row (a
- * walnut work shelf on the teller side, green marble on the customer side). Teller glass rises 1.4m above the front
- * edge of the top; a teller standing in the middle of the row behind shows from the waist up.
+ * The teller counter: a walnut front 1.2m tall, its top the full depth of the row (a walnut work shelf at the back,
+ * on the teller side, green marble towards the customers). Teller glass 1.4m tall stands on the top's front edge;
+ * each window has a monitor on the shelf, screen towards the teller, and open windows a banker's lamp.
  */
-function counter(p: Extract<LobbyProp, { kind: 'counter' }>, s: Size): PropArt {
-    const glassHeight = 28;
-    const a = new BoxArt(s, glassHeight);
-    const shelf = 6;
-    a.block((x, gy) => {
-        if (gy < shelf) return gy === 0 || gy === shelf - 1 ? PAL.walnut[1] : PAL.walnut[3];
-        if (gy === s.d - 1) return PAL.brass[3];
-        if ((x * 7 + gy * 3) % 23 === 0) return PAL.marbleGreen[4];
-        return gy === shelf ? PAL.marbleGreen[4] : gy < shelf + 3 ? PAL.marbleGreen[2] : PAL.marbleGreen[3];
-    }, (x, z) => walnutPanel(x, z, s.w, s.h), { top: 0.95, front: 0.65 });
-    const b = a.lit, glow = a.glow;
+function counter(p: Extract<LobbyProp, { kind: 'counter' }>, s: Size): Model {
+    const shelf = 6, glass = 28;
+    const stations = p.stations.map(st => ({ sx: (st - p.tx) * TILE, closed: p.closed.includes(st) }));
     const gx = (p.gate - p.tx) * TILE;
-    // The gate: a hinged section with a seam either side.
-    for (let y = a.row(0, s.h); y < a.row(s.d, 2); y++) { b.set(gx, y, PAL.ink, 0.3); b.set(gx + TILE - 1, y, PAL.ink, 0.3); }
-    b.rect(gx + 6, a.row(s.d, 8), 4, 1, PAL.brass[4], 0.8);
-
-    const surface = (gy: number) => a.row(gy, s.h);
-    for (const st of p.stations) {
-        const sx = (st - p.tx) * TILE;
-        const closed = p.closed.includes(st);
-        // Teller monitor on the work shelf, seen from behind at the east end of the window; it lights the teller.
-        b.rect(sx + 12, surface(3) - 4, 4, 5, PAL.steel[1], 0.95);
-        b.hline(sx + 12, surface(3) - 4, 4, PAL.steel[3], 0.97);
-        if (!closed) a.lights.push({ x: sx + 11, y: surface(3) - 6, radius: 22, color: 0x7fd8e8, intensity: 0.8 });
-        // Teller glass along the front edge of the top: brass posts and rail, the pane a faint tint with two streaks.
-        const base = surface(s.d - 1), glassTop = base - glassHeight;
-        for (let y = glassTop; y < base; y++) for (let x = sx - 2; x < sx + TILE + 2; x++) {
-            if (x === sx - 2 || x === sx + TILE + 1) { b.set(x, y, x === sx - 2 ? PAL.brass[4] : PAL.brass[2], 0.95); continue; }
-            if (y === glassTop) { b.set(x, y, PAL.brass[4], 0.95); continue; }
-            if (y === glassTop + 1) { b.set(x, y, PAL.brass[1], 0.9); continue; }
-            const k = (x - sx + (y - glassTop)) % 17;
-            if (k === 0 || k === 3) b.set(x, y, PAL.glass[5], 0.9, 90);
-            else if (!b.opaque(x, y)) b.set(x, y, PAL.glass[4], 0.9, 22);
+    const top: Tex = (u, v) => {
+        for (const { sx, closed } of stations) {
+            if (v >= s.d - 4 && v < s.d - 1 && u >= sx + 4 && u < sx + 12) return PAL.ink;
+            if (v === s.d - 5 && u >= sx + 4 && u < sx + 12) return PAL.brass[3];
+            if (!closed && v >= s.d - 4 && v < s.d - 2 && u >= sx + 12 && u < sx + 15) return PAL.paper[2];
         }
-        // The pass-through tray in the counter top.
-        b.rect(sx + 4, surface(s.d - 4), 8, 3, PAL.ink, 0.5);
-        b.hline(sx + 4, surface(s.d - 5), 8, PAL.brass[3], 0.95);
+        if (u === gx || u === gx + TILE - 1) return PAL.ink;
+        if (v < shelf) return v === 0 || v === shelf - 1 ? PAL.walnut[1] : PAL.walnut[3];
+        if (v === s.d - 1) return PAL.brass[3];
+        if ((u * 7 + v * 3) % 23 === 0) return PAL.marbleGreen[4];
+        return v === shelf ? PAL.marbleGreen[4] : v < shelf + 3 ? PAL.marbleGreen[2] : PAL.marbleGreen[3];
+    };
+    const panel = walnutPanel(s.w, s.h);
+    const front: Tex = (u, v) => (u === gx || u === gx + TILE - 1 ? PAL.ink : u >= gx + 6 && u < gx + 10 && v === 7 ? PAL.brass[4] : panel(u, v));
+    const parts: Part[] = [box(0, 0, 0, s.w, s.d, s.h, { top, front, back: boards(PAL.walnut[3], PAL.walnut[1]), sides: PAL.walnut[2], bump: { top: 0.95, face: 0.65 } })];
+    const lights: NonNullable<Model['lights']> = [];
+    for (const { sx, closed } of stations) {
+        // Monitor on the work shelf, its screen facing the teller (the back of the counter).
+        parts.push(box(sx + 12, 1, s.h, 4, 3, 5, { top: PAL.steel[3], sides: PAL.steel[1] }));
+        parts.push(box(sx + 12, 0, s.h, 4, 1, 4, { back: (_u, v) => (v === 0 ? PAL.emissive.screen[2] : PAL.emissive.screen[1]), top: PAL.steel[1], sides: PAL.steel[1], glow: !closed }));
+        if (!closed) lights.push({ x: sx + 14, y: 0, z: s.h + 3, radius: 22, color: 0x7fd8e8, intensity: 0.8 });
+        // Teller glass on the front edge: brass posts and top rail, a faintly tinted pane with two streaks.
+        const y = s.d - 1;
+        parts.push(box(sx - 2, y, s.h, 1, 1, glass, { sides: PAL.brass[4], top: PAL.brass[5] }));
+        parts.push(box(sx + TILE + 1, y, s.h, 1, 1, glass, { sides: PAL.brass[2], top: PAL.brass[5] }));
+        parts.push(box(sx - 1, y, s.h + glass - 2, TILE + 2, 1, 2, { sides: (_u, v) => (v === 0 ? PAL.brass[4] : PAL.brass[1]), top: PAL.brass[5] }));
+        const streak = (u: number, v: number) => (u + v) % 17 === 0 || (u + v) % 17 === 3;
+        parts.push(box(sx - 1, y, s.h, TILE + 2, 1, glass - 2, { sides: (u, v) => (streak(u, v) ? PAL.glass[5] : PAL.glass[4]), top: none, alpha: (u, v) => (streak(u, v) ? 90 : 22) }));
         if (closed) {
-            b.rect(sx + 3, glassTop + 12, 10, 6, PAL.paper[3], 0.95);
-            b.rect(sx + 4, glassTop + 14, 8, 2, PAL.cloth.burgundy[3]!, 0.95);
-            b.hline(sx + 3, glassTop + 18, 10, PAL.paper[1], 0.95);
-            b.vline(sx + 5, glassTop + 2, 10, PAL.steel[3], 0.95);
-            b.vline(sx + 10, glassTop + 2, 10, PAL.steel[3], 0.95);
+            // "Position closed" sign standing in the window, blank on the teller's side.
+            parts.push(box(sx + 3, y - 1, s.h + 6, 10, 1, 6, { front: (_u, v) => (v === 2 || v === 3 ? PAL.cloth.burgundy[3]! : v === 5 ? PAL.paper[1] : PAL.paper[3]), sides: PAL.paper[2], top: PAL.paper[3] }));
         } else {
-            // Banker's lamp at the front of the top: brass stem, green glass shade that glows.
-            const lx = sx + 2, ly = surface(s.d - 3);
-            b.rect(lx + 1, ly - 3, 1, 3, PAL.brass[3], 0.9);
-            b.rect(lx - 1, ly - 5, 5, 2, PAL.leaf[3], 0.95);
-            glow.rect(lx - 1, ly - 5, 5, 1, PAL.leaf[5], 1);
-            glow.set(lx, ly - 4, PAL.emissive.lampWarm[1], 1);
-            glow.set(lx + 1, ly - 4, PAL.emissive.lampWarm[0], 1);
-            a.lights.push({ x: lx + 1, y: ly - 3, radius: 64, color: 0xffcf8a, intensity: 1.5 });
-            // Deposit slips and a pen on a chain.
-            b.rect(sx + 12, surface(s.d - 4), 3, 2, PAL.paper[2], 0.96);
-            b.set(sx + 13, surface(s.d - 5), PAL.ink, 0.97);
+            // Banker's lamp at the front of the top: brass stem, green glass shade glowing warm underneath.
+            parts.push(box(sx + 2, s.d - 3, s.h, 1, 1, 3, { sides: PAL.brass[3], top: PAL.brass[4] }));
+            parts.push(box(sx, s.d - 4, s.h + 3, 5, 2, 2, { top: PAL.leaf[4], sides: (_u, v) => (v === 1 ? PAL.emissive.lampWarm[0] : PAL.leaf[5]), glow: true }));
+            lights.push({ x: sx + 2, y: s.d - 3, z: s.h + 3, radius: 64, color: 0xffcf8a, intensity: 1.5 });
         }
     }
-    return a.art();
+    return { parts, lights };
 }
 
-function backCounter(p: Extract<LobbyProp, { kind: 'backCounter' }>, s: Size): PropArt {
-    const a = new BoxArt(s);
+function backCounter(p: Extract<LobbyProp, { kind: 'backCounter' }>, s: Size): Model {
+    // A credenza: drawers on its front, clutter on top (paper stacks, a cash tray, a phone).
     const rand = mulberry32(p.tx * 31 + 7);
-    a.block((_x, gy) => gy === s.d - 1 ? PAL.walnut[5] : gy === 0 ? PAL.walnut[2] : PAL.walnut[4],
-        (x, z) => (x % (TILE / 2) === 0 || z === s.h || z === 1) ? PAL.walnut[1] : (z === s.h - 3 && x % (TILE / 2) === 3) ? PAL.brass[4] : PAL.walnut[3],
-        { top: 0.9, front: 0.6 });
-    // Clutter on top: paper stacks, a cash tray, a phone.
-    const top = a.row(0, s.h);
+    const clutter: { x: number; y: number; w: number; h: number; c: number }[] = [];
     for (let i = 0; i < s.w / TILE; i++) {
-        const x = i * TILE + 2 + Math.floor(rand() * 6);
-        const pick = rand();
-        if (pick < 0.4) { a.lit.rect(x, top + 1, 5, 3, PAL.paper[2], 0.95); a.lit.hline(x, top + 1, 5, PAL.paper[3], 0.97); }
-        else if (pick < 0.7) { a.lit.rect(x, top + 1, 7, 3, PAL.steel[2], 0.95); a.lit.rect(x + 1, top + 2, 5, 1, PAL.cloth.olive[2]!, 0.96); }
-        else { a.lit.rect(x, top + 2, 4, 2, PAL.ink, 0.95); a.lit.set(x + 1, top + 1, PAL.cloth.black[3]!, 0.97); }
+        const x = i * TILE + 2 + Math.floor(rand() * 6), pick = rand();
+        if (pick < 0.4) clutter.push({ x, y: 1, w: 5, h: 3, c: PAL.paper[2] }, { x, y: 1, w: 5, h: 1, c: PAL.paper[3] });
+        else if (pick < 0.7) clutter.push({ x, y: 1, w: 7, h: 3, c: PAL.steel[2] }, { x: x + 1, y: 2, w: 5, h: 1, c: PAL.cloth.olive[2]! });
+        else clutter.push({ x, y: 2, w: 4, h: 2, c: PAL.ink });
     }
-    return a.art();
+    const top = decals((_u, v) => (v === s.d - 1 ? PAL.walnut[5] : v === 0 ? PAL.walnut[2] : PAL.walnut[4]), clutter);
+    const front: Tex = (u, v) => (u % (TILE / 2) === 0 || v === 0 || v === s.h - 1 ? PAL.walnut[1] : v === 3 && u % (TILE / 2) === 3 ? PAL.brass[4] : PAL.walnut[3]);
+    return { parts: [box(0, 0, 0, s.w, s.d, s.h, { top, front, back: boards(PAL.walnut[2], PAL.walnut[1]), sides: PAL.walnut[2], bump: { top: 0.9, face: 0.6 } })] };
 }
 
-function filingCabinet(s: Size): PropArt {
-    const a = new BoxArt(s);
+function filingCabinet(s: Size): Model {
     // Three drawers, each with a handle and a label card.
     const drawer = Math.floor(s.h / 3);
-    a.block((_x, gy) => gy === s.d - 1 ? PAL.steel[5] : PAL.steel[4], (x, z) => {
+    const front: Tex = (u, v) => {
+        const z = s.h - v;
         if (z % drawer === 0 && z < s.h) return PAL.steel[1];
-        const inDrawer = (s.h - z) % drawer;
-        if (inDrawer === 2 && x >= 4 && x < s.w - 4) return PAL.steel[5];
-        if (inDrawer === 1 && x >= 5 && x < s.w - 5) return PAL.paper[3];
-        return step(PAL.steel, x < 2 ? 4 : x > s.w - 3 ? 2 : 3);
-    }, { top: 1, front: 0.7 });
-    a.lit.rect(2, a.row(1, s.h), 5, 3, PAL.paper[2], 1);
-    return a.art();
+        const inDrawer = v % drawer;
+        if (inDrawer === 2 && u >= 4 && u < s.w - 4) return PAL.steel[5];
+        if (inDrawer === 1 && u >= 5 && u < s.w - 5) return PAL.paper[3];
+        return step(PAL.steel, u < 2 ? 4 : u > s.w - 3 ? 2 : 3);
+    };
+    const top = decals((_u, v) => (v === s.d - 1 ? PAL.steel[5] : PAL.steel[4]), [{ x: 2, y: 1, w: 5, h: 3, c: PAL.paper[2] }]);
+    return { parts: [box(0, 0, 0, s.w, s.d, s.h, { top, front, sides: PAL.steel[3], back: PAL.steel[2] })] };
 }
 
-function printer(s: Size): PropArt {
-    // A copier on a low stand: the machine is the top 0.5m of the box, the stand below it.
-    const a = new BoxArt(s);
-    const machine = 6;
-    a.block((_x, gy) => gy < 2 ? PAL.paper[3] : PAL.paper[2], (x, z) => {
-        if (z > s.h - machine) return z === s.h - 2 && x > 1 && x < s.w - 2 ? PAL.ink : PAL.paper[1];
-        return z === s.h - machine ? PAL.walnut[5] : PAL.walnut[3];
-    }, { top: 1, front: 0.75 });
-    a.lit.set(s.w - 2, a.row(s.d, s.h - 1), PAL.emissive.ledGreen, 1);
-    return a.art();
+function printer(s: Size): Model {
+    // A copier (the top 0.5m) on a walnut stand, its paper slot and status light on the front.
+    const machine = 6, stand = s.h - machine;
+    return {
+        parts: [
+            box(0, 0, 0, s.w, s.d, stand, { top: PAL.walnut[5], front: (_u, v) => (v === 0 ? PAL.walnut[5] : PAL.walnut[3]), sides: PAL.walnut[3], back: PAL.walnut[2] }),
+            box(0, 0, stand, s.w, s.d, machine, { top: (_u, v) => (v < 2 ? PAL.paper[3] : PAL.paper[2]), front: (u, v) => (v === 4 && u > 1 && u < s.w - 2 ? PAL.ink : PAL.paper[1]), sides: PAL.paper[1], back: PAL.paper[0] }),
+            box(s.w - 2, s.d - 1, s.h - 2, 1, 1, 1, { sides: PAL.emissive.ledGreen, top: PAL.emissive.ledGreen, glow: true })
+        ]
+    };
 }
 
-function waterCooler(s: Size): PropArt {
-    // White body to 0.85m, the blue bottle above it.
-    const a = new BoxArt(s);
-    const body = coolerBody(s);
-    a.block((_x, gy) => gy === s.d - 1 ? PAL.glass[4] : PAL.glass[3], (x, z) => {
-        if (z > body) return x < 2 ? PAL.glass[4] : z === body + 2 ? PAL.glass[2] : PAL.glass[3];
-        if (z === body) return PAL.paper[3];
-        if (z === body - 3 && (x === 1 || x === 3)) return x === 1 ? PAL.cloth.denim[3]! : PAL.cloth.burgundy[3]!;
-        return x === s.w - 1 ? PAL.paper[1] : PAL.paper[2];
-    }, { top: 0.95, front: 0.7 });
-    return a.art();
+function waterCooler(s: Size): Model {
+    // White body to two thirds of its height with two taps on the front, the blue bottle above.
+    const body = Math.round(s.h * 0.65);
+    return {
+        parts: [
+            box(0, 0, 0, s.w, s.d, body, {
+                top: PAL.paper[3],
+                front: (u, v) => (v === 3 && u === 1 ? PAL.cloth.denim[3]! : v === 3 && u === 3 ? PAL.cloth.burgundy[3]! : u === s.w - 1 ? PAL.paper[1] : PAL.paper[2]),
+                sides: PAL.paper[1]
+            }),
+            box(1, 1, body, s.w - 2, s.d - 2, s.h - body, { top: PAL.glass[2], sides: (u, v) => (u === 0 ? PAL.glass[4] : v === 2 ? PAL.glass[2] : PAL.glass[3]) })
+        ]
+    };
 }
 
-/** The cooler's white body is about two thirds of its height, the bottle the rest. */
-const coolerBody = (s: Size) => Math.round(s.h * 0.65);
+/** Wall dressing is a thin slab: its face shows facing away from the wall, an edge seen from the side. */
+function slab(s: Size, front: Tex, edge: number, glow = false): Model {
+    return { parts: [box(0, 0, 0, s.w, s.d, s.h, { front, back: edge, sides: edge, top: edge, glow })] };
+}
 
-function crest(s: Size): PropArt {
+function crest(s: Size): Model {
     // A brass roundel with a columned bank front, flanked by two brass bars.
-    const a = new BoxArt(s);
-    const b = a.lit, cx = s.w / 2, cy = a.row(1, s.h / 2);
-    b.ellipse(cx, cy, 6.5, 5, PAL.brass[1], 0.6);
-    b.ellipse(cx, cy, 5.5, 4, PAL.brass[3], 0.8);
-    b.rect(Math.round(cx) - 3, Math.round(cy) - 3, 7, 1, PAL.brass[5], 0.9);
-    for (const dx of [-3, -1, 1, 3]) b.rect(Math.round(cx) + dx, Math.round(cy) - 2, 1, 4, PAL.brass[4], 0.9);
-    b.rect(Math.round(cx) - 4, Math.round(cy) + 2, 9, 1, PAL.brass[4], 0.9);
-    b.rect(0, Math.round(cy), 5, 1, PAL.brass[3], 0.7);
-    b.rect(s.w - 5, Math.round(cy), 5, 1, PAL.brass[3], 0.7);
-    return a.art();
+    const cx = s.w / 2, cy = s.h / 2;
+    return slab(s, (u, v) => {
+        if (inEllipse(u, v, cx, cy, 5.5, 4)) {
+            const du = Math.round(u - cx + 0.5);
+            if (v === Math.round(cy) - 3) return PAL.brass[5];
+            if ([-3, -1, 1, 3].includes(du) && v >= cy - 2 && v < cy + 2) return PAL.brass[4];
+            return PAL.brass[3];
+        }
+        if (inEllipse(u, v, cx, cy, 6.5, 5)) return PAL.brass[1];
+        if (v === Math.floor(cy) && (u < 5 || u >= s.w - 5)) return PAL.brass[3];
+        return null;
+    }, PAL.brass[2]);
 }
 
-function clock(s: Size): PropArt {
-    const a = new BoxArt(s);
-    const b = a.lit, c = (s.w - 1) / 2, cy = a.row(1, s.h / 2);
-    b.ellipse(c + 0.5, cy, s.w / 2, s.h / 2, PAL.brass[2], 0.8);
-    b.ellipse(c + 0.5, cy, s.w / 2 - 1, s.h / 2 - 1, PAL.paper[3], 0.75);
-    b.vline(Math.round(c), Math.round(cy) - 3, 3, PAL.ink, 0.8);
-    b.hline(Math.round(c), Math.round(cy), 3, PAL.ink, 0.8);
-    b.set(Math.round(c), Math.round(cy), PAL.cloth.burgundy[3]!, 0.85);
-    return a.art();
+function clock(s: Size): Model {
+    const c = s.w / 2;
+    return slab(s, (u, v) => {
+        if (!inEllipse(u, v, c, c, c, c)) return null;
+        if (!inEllipse(u, v, c, c, c - 1, c - 1)) return PAL.brass[2];
+        const cu = Math.floor(c), cv = Math.floor(c);
+        if (u === cu && v === cv) return PAL.cloth.burgundy[3]!;
+        if ((u === cu && v >= cv - 3 && v < cv) || (v === cv && u > cu && u <= cu + 2)) return PAL.ink;
+        return PAL.paper[3];
+    }, PAL.brass[2]);
 }
 
-function painting(s: Size): PropArt {
-    const a = new BoxArt(s);
-    const b = a.lit, top = a.row(1, s.h);
-    b.rect(0, top, s.w, s.h, PAL.brass[2], 0.75);
-    b.rect(1, top + 1, s.w - 2, s.h - 2, PAL.emissive.sky[0], 0.6);
-    b.rect(1, top + 4, s.w - 2, s.h - 5, PAL.leaf[3], 0.62);
-    b.rect(1, top + s.h - 2, s.w - 2, 1, PAL.leaf[2], 0.62);
-    b.rect(7, top + 2, 3, 2, PAL.limestone[4], 0.62);
-    b.hline(0, top, s.w, PAL.brass[4], 0.8);
-    return a.art();
+function painting(s: Size): Model {
+    return slab(s, (u, v) => {
+        if (u === 0 || v === 0 || u === s.w - 1 || v === s.h - 1) return v === 0 ? PAL.brass[4] : PAL.brass[2];
+        if (u >= 7 && u < 10 && v >= 2 && v < 4) return PAL.limestone[4];
+        return v < 4 ? PAL.emissive.sky[0] : v === s.h - 2 ? PAL.leaf[2] : PAL.leaf[3];
+    }, PAL.brass[2]);
 }
 
-function noticeBoard(s: Size): PropArt {
-    const a = new BoxArt(s);
-    const b = a.lit, top = a.row(1, s.h);
-    b.rect(0, top, s.w, s.h, PAL.terracotta[3], 0.65);
-    b.hline(0, top, s.w, PAL.walnut[4], 0.8);
-    b.rect(1, top + 1, 4, 5, PAL.paper[3], 0.7);
-    b.rect(6, top + 2, 4, 3, PAL.paper[2], 0.7);
-    b.rect(8, top + 5, 3, 2, PAL.emissive.sky[1], 0.7);
-    b.set(3, top + 1, PAL.cloth.burgundy[3]!, 0.8);
-    return a.art();
+function noticeBoard(s: Size): Model {
+    return slab(s, decals((_u, v) => (v === 0 ? PAL.walnut[4] : PAL.terracotta[3]), [
+        { x: 1, y: 1, w: 4, h: 5, c: PAL.paper[3] }, { x: 6, y: 2, w: 4, h: 3, c: PAL.paper[2] },
+        { x: 8, y: 5, w: 3, h: 2, c: PAL.emissive.sky[1] }, { x: 3, y: 1, w: 1, h: 1, c: PAL.cloth.burgundy[3]! }
+    ]), PAL.walnut[3]);
 }
 
-function exitSign(s: Size): PropArt {
-    const a = new BoxArt(s);
-    const top = a.row(1, s.h);
-    a.lit.rect(0, top, s.w, s.h, PAL.steel[1], 0.8);
-    a.glow.rect(1, top + 1, s.w - 2, s.h - 2, PAL.emissive.exitGreen[1], 1);
-    a.glow.rect(2, top + 1, 2, 1, PAL.emissive.exitGreen[2], 1);
-    a.glow.rect(5, top + 2, 3, 1, PAL.emissive.exitGreen[2], 1);
-    a.lights.push({ x: s.w / 2, y: top + s.h, radius: 34, color: 0x52e08a, intensity: 0.6 });
-    return a.art();
+function exitSign(s: Size): Model {
+    // A steel box, its lit panel on the front.
+    return {
+        parts: [
+            box(0, 0, 0, s.w, s.d, s.h, { sides: PAL.steel[1], top: PAL.steel[1] }),
+            box(1, 0, 1, s.w - 2, s.d, s.h - 2, { front: (u, v) => ((v === 0 && u >= 1 && u < 3) || (v === 1 && u >= 4 && u < 7) ? PAL.emissive.exitGreen[2] : PAL.emissive.exitGreen[1]), back: none, sides: none, top: none, glow: true })
+        ],
+        lights: [{ x: s.w / 2, y: s.d, z: 0, radius: 34, color: 0x52e08a, intensity: 0.6 }]
+    };
 }
 
-function keycardLed(s: Size): PropArt {
-    const a = new BoxArt(s);
-    const y = a.row(1, s.h);
-    a.glow.set(0, y, PAL.emissive.ledRed, 1);
-    a.lights.push({ x: 0, y, radius: 14, color: 0xff4a3a, intensity: 0.8 });
-    return a.art();
+function keycardLed(s: Size): Model {
+    return { parts: [box(0, 0, 0, s.w, s.d, s.h, { sides: PAL.emissive.ledRed, top: PAL.emissive.ledRed, glow: true })], lights: [{ x: 0, y: s.d, z: 0, radius: 14, color: 0xff4a3a, intensity: 0.8 }] };
 }
 
-function atmScreen(s: Size): PropArt {
-    const a = new BoxArt(s);
-    const top = a.row(1, s.h);
-    a.glow.rect(0, top, s.w, s.h, PAL.emissive.screen[1], 1);
-    a.glow.rect(1, top + 1, 5, 1, PAL.emissive.screen[2], 1);
-    a.glow.rect(1, top + 3, 3, 1, PAL.emissive.screen[0], 1);
-    a.lights.push({ x: s.w / 2, y: top + s.h + 2, radius: 30, color: 0x7fd8e8, intensity: 0.8 });
-    return a.art();
+function atmScreen(s: Size): Model {
+    const screen: Tex = (u, v) => (v === 1 && u >= 1 && u < 6 ? PAL.emissive.screen[2] : v === 3 && u >= 1 && u < 4 ? PAL.emissive.screen[0] : PAL.emissive.screen[1]);
+    return { parts: [box(0, 0, 0, s.w, s.d, s.h, { front: screen, back: PAL.steel[1], sides: PAL.steel[1], top: PAL.steel[1], glow: true })], lights: [{ x: s.w / 2, y: s.d + 2, z: 0, radius: 30, color: 0x7fd8e8, intensity: 0.8 }] };
 }
 
-function camera(s: Size): PropArt {
-    // A box camera on a bracket from the east wall, its lens looking west and down into the lobby.
-    const a = new BoxArt(s);
-    a.block((x, gy) => (gy === 0 ? PAL.paper[2] : x === s.w - 1 ? PAL.steel[2] : PAL.paper[3]), (x, z) => (x < 2 ? (z === 2 ? PAL.glass[3] : PAL.ink) : z === 1 ? PAL.paper[0] : PAL.paper[2]));
-    a.glow.set(s.w - 3, a.row(s.d, s.h), PAL.emissive.ledRed, 1);
-    return a.art();
+function camera(s: Size): Model {
+    // A box camera on a bracket from the wall behind it, its lens on the front, a red tally light on top at the back.
+    return {
+        parts: [
+            box(2, 0, 1, 2, 1, 2, { sides: PAL.steel[2], top: PAL.steel[3] }),
+            box(0, 1, 0, s.w, s.d - 1, s.h, {
+                top: (_u, v) => (v === 0 ? PAL.paper[2] : PAL.paper[3]),
+                front: (u, v) => (u >= 3 && u < 5 && v >= 1 && v < 3 ? (u === 3 && v === 1 ? PAL.glass[3] : PAL.ink) : PAL.paper[2]),
+                sides: (_u, v) => (v === s.h - 1 ? PAL.paper[0] : PAL.paper[2])
+            }),
+            box(s.w - 2, 1, s.h, 1, 1, 1, { sides: PAL.emissive.ledRed, top: PAL.emissive.ledRed, glow: true })
+        ]
+    };
 }
 
-function queueRail(p: Extract<LobbyProp, { kind: 'queueRail' }>, s: Size): PropArt {
-    // Posts on the footprint's centre line, one in the middle of each tile, a velvet rope sagging between them.
-    const a = new BoxArt(s);
-    const b = a.lit, cx = Math.floor(s.w / 2);
+/**
+ * A run of stanchions along its width: a post 0.95m tall in the middle of each tile, a velvet rope sagging between
+ * them. Facing east or west the run goes north-south.
+ */
+function queueRail(p: Extract<LobbyProp, { kind: 'queueRail' }>, s: Size): Model {
+    const parts: Part[] = [];
+    const cy = Math.floor(s.d / 2) - 1;
     for (let i = 0; i < p.length; i++) {
-        const gy = Math.floor(s.w / 2) + i * TILE;
-        b.rect(cx - 2, a.row(gy, 0), 4, 1, PAL.brass[1], 0.4);
-        b.rect(cx - 1, a.row(gy, 1), 3, 1, PAL.brass[3], 0.5);
-        for (let z = 2; z < s.h - 1; z++) { b.set(cx - 1, a.row(gy, z), PAL.brass[4], 0.95); b.set(cx, a.row(gy, z), PAL.brass[2], 0.9); }
-        b.rect(cx - 1, a.row(gy, s.h), 2, 2, PAL.brass[5], 1);
+        const x = i * TILE;
+        parts.push(box(x, 0, 0, 4, 4, 1, { top: PAL.brass[3], sides: PAL.brass[1] }));
+        parts.push(box(x + 1, cy, 1, 2, 2, s.h - 3, { top: PAL.brass[4], sides: u => (u === 0 ? PAL.brass[4] : PAL.brass[2]) }));
+        parts.push(box(x + 1, cy, s.h - 2, 2, 2, 2, { top: PAL.brass[5], sides: PAL.brass[4] }));
         if (i === p.length - 1) continue;
-        // The rope leaves each post just below its finial and dips 2px (in height) midway to the next.
-        for (let t = 0; t <= TILE; t++) {
-            const sag = Math.round(Math.sin((t / TILE) * Math.PI) * 2);
-            b.set(cx - 2, a.row(gy + t, s.h - 2 - sag), t > 2 && t < TILE - 2 ? PAL.carpet[3] : PAL.carpet[2], 0.85);
+        for (let t = 3; t < TILE + 1; t++) {
+            const sag = Math.round(Math.sin(((t - 2) / (TILE - 2)) * Math.PI) * 2);
+            const c = t > 4 && t < TILE - 2 ? PAL.carpet[3] : PAL.carpet[2];
+            parts.push(box(x + t, cy, s.h - 4 - sag, 1, 1, 1, { top: c, sides: PAL.carpet[2] }));
         }
     }
-    return a.art();
+    return { parts };
 }
 
-function mat(s: Size): PropArt {
-    const a = new BoxArt(s);
-    for (let gy = 0; gy < s.d; gy++) for (let x = 0; x < s.w; x++) {
-        const border = gy === 0 || gy === s.d - 1 || x === 0 || x === s.w - 1;
-        a.lit.set(x, a.row(gy, 0), border ? PAL.brass[1] : ((x + gy) % 2 ? PAL.asphalt[2] : PAL.asphalt[3]), 0.35);
+function mat(s: Size): Model {
+    const top: Tex = (u, v) => (u === 0 || v === 0 || u === s.w - 1 || v === s.d - 1 ? PAL.brass[1] : (u + v) % 2 ? PAL.asphalt[2] : PAL.asphalt[3]);
+    return { parts: [box(0, 0, 0, s.w, s.d, 0, { top, bump: { top: 0.35, face: 0.35 } })] };
+}
+
+function writingDesk(s: Size): Model {
+    // A standing island: a walnut plinth under a green marble top, slips and a pen on top, a banker's lamp in the middle.
+    const slabH = 2, plinth = s.h - slabH, lx = Math.floor(s.w / 2) - 2;
+    const top = decals((_u, v) => (v === 0 ? PAL.marbleGreen[1] : v === s.d - 1 ? PAL.marbleGreen[4] : PAL.marbleGreen[3]), [
+        { x: 2, y: 2, w: 4, h: 2, c: PAL.paper[3] }, { x: 7, y: 3, w: 3, h: 2, c: PAL.paper[2] }, { x: s.w - 7, y: 2, w: 4, h: 2, c: PAL.paper[3] }, { x: 11, y: 5, w: 1, h: 1, c: PAL.ink }
+    ]);
+    return {
+        parts: [
+            box(2, 1, 0, s.w - 4, s.d - 2, plinth, { front: walnutPanel(s.w - 4, plinth), back: walnutPanel(s.w - 4, plinth), sides: PAL.walnut[2], top: PAL.walnut[2], bump: { top: 0.6, face: 0.6 } }),
+            box(0, 0, plinth, s.w, s.d, slabH, { top, sides: (_u, v) => (v === 0 ? PAL.marbleGreen[4] : PAL.marbleGreen[1]), bump: { top: 0.95, face: 0.9 } }),
+            box(lx + 2, 3, s.h, 1, 1, 5, { sides: PAL.brass[3], top: PAL.brass[4] }),
+            box(lx, 2, s.h + 5, 5, 3, 2, { top: PAL.leaf[4], sides: (_u, v) => (v === 1 ? PAL.emissive.lampWarm[0] : PAL.leaf[5]), glow: true })
+        ],
+        lights: [{ x: lx + 2, y: 3, z: s.h + 5, radius: 48, color: 0xffcf8a, intensity: 1.4 }]
+    };
+}
+
+function sofa(s: Size): Model {
+    // Oxblood leather Chesterfield: a 0.25m deep tufted back to the full height, two seat cushions at 0.45m, rolled arms
+    // at 0.6m, and short walnut feet with a gap under the seat.
+    const leather = PAL.cloth.burgundy, shine = mix(leather[3]!, 0xffffff, 0.18);
+    const back = 3, seat = 6, arm = 8, armW = 4, inner = s.w - armW * 2;
+    const tufted: Tex = (u, v) => ((u + (v % 4 === 0 ? 2 : 0)) % 4 === 1 && v % 2 === 1 ? leather[0]! : leather[2]!);
+    /** An arm's face seen from the front or back: a foot at its outer corner, the gap under the seat beside it. */
+    const armEnd = (foot: number): Tex => (u, v) => (v === arm - 1 ? (u === foot ? PAL.walnut[1] : null) : v === 0 ? leather[3]! : leather[2]!);
+    /** An arm's outer side: feet at both ends, the rolled top catching the light. */
+    const armOuter: Tex = (u, v) => (v === arm - 1 ? (u === 1 || u === s.d - 2 ? PAL.walnut[1] : null) : v === 0 ? shine : leather[2]!);
+    const armTop = (outer: number): Tex => (u, v) => (u === outer && (v === 0 || v === s.d - 1) ? null : u === 1 || u === 2 ? shine : leather[3]!);
+    return {
+        parts: [
+            box(armW, 0, 0, inner, back, s.h, { top: (_u, v) => (v === back - 1 ? shine : leather[3]!), front: tufted, back: leather[2]!, sides: leather[2]! }),
+            box(armW, back, 0, inner, s.d - back, seat, {
+                top: (u, v) => (u === Math.floor(inner / 2) ? leather[1]! : v === s.d - back - 1 ? shine : leather[3]!),
+                sides: (_u, v) => (v === seat - 1 ? null : v === 0 ? leather[2]! : leather[1]!)
+            }),
+            box(0, 0, 0, armW, s.d, arm, { top: armTop(0), front: armEnd(1), back: armEnd(armW - 2), left: armOuter, right: leather[2]! }),
+            box(s.w - armW, 0, 0, armW, s.d, arm, { top: armTop(armW - 1), front: armEnd(armW - 2), back: armEnd(1), right: armOuter, left: leather[2]! })
+        ]
+    };
+}
+
+function coffeeTable(s: Size): Model {
+    // A walnut top on four legs; magazines, papers and a cup on top.
+    const legs = s.h - 2;
+    const top = decals((_u, v) => (v === s.d - 1 ? PAL.walnut[5] : PAL.walnut[4]), [
+        { x: 1, y: 2, w: 5, h: 3, c: PAL.cloth.denim[3]! }, { x: 2, y: 3, w: 3, h: 1, c: PAL.paper[3] }, { x: 7, y: 1, w: 4, h: 3, c: PAL.paper[2] }, { x: 12, y: 3, w: 1, h: 1, c: PAL.paper[3] }
+    ]);
+    const parts = [box(0, 0, legs, s.w, s.d, 2, { top, sides: (_u, v) => (v === 0 ? PAL.walnut[3] : PAL.walnut[2]), bump: { top: 0.8, face: 0.75 } })];
+    for (const [x, y] of [[0, 0], [s.w - 1, 0], [0, s.d - 1], [s.w - 1, s.d - 1]] as const) parts.push(box(x, y, 0, 1, 1, legs, { sides: PAL.walnut[1], top: PAL.walnut[1] }));
+    return { parts };
+}
+
+function plant(s: Size, seed: number): Model {
+    // A brass planter 0.5m tall filling the footprint; a rubber plant above it, its leaves spreading past the planter.
+    const pot = 6, rand = mulberry32(seed);
+    const parts: Part[] = [
+        box(0, 0, 0, s.w, s.d, pot, {
+            top: (u, v) => (u === 0 || v === 0 || u === s.w - 1 || v === s.d - 1 ? PAL.brass[5] : PAL.terracotta[0]),
+            sides: u => (u < 2 ? PAL.brass[4] : u > s.w - 2 ? PAL.brass[1] : PAL.brass[3]),
+            bump: { top: 0.8, face: 0.8 }
+        }),
+        box(Math.floor(s.w / 2) - 1, Math.floor(s.d / 2) - 1, pot, 2, 2, s.h - pot - 2, { sides: PAL.leaf[1], top: PAL.leaf[2] })
+    ];
+    for (let i = 0; i < 16; i++) {
+        const x = -4 + Math.floor(rand() * (s.w + 6)), y = -2 + Math.floor(rand() * (s.d + 2)), z = pot + 2 + Math.floor(rand() * (s.h - pot - 3));
+        const tone = z > s.h - 6 ? 4 : z > s.h - 11 ? 3 : 2;
+        parts.push(box(x, y, z, 3, 2, 1, { top: step(PAL.leaf, tone + 1), sides: step(PAL.leaf, tone) }));
     }
-    return a.art();
+    return { parts };
 }
 
-function writingDesk(s: Size): PropArt {
-    // A standing island: green marble top on a walnut plinth, slips and chained pens, a banker's lamp in the middle.
-    const lampHeight = 6;
-    const a = new BoxArt(s, lampHeight);
-    a.block((_x, gy) => gy === 0 ? PAL.marbleGreen[1] : gy === s.d - 1 ? PAL.marbleGreen[4] : PAL.marbleGreen[3], (x, z) => walnutPanel(x, z, s.w, s.h), { top: 0.95, front: 0.6 });
-    const b = a.lit, top = a.row(0, s.h);
-    b.rect(2, top + 2, 4, 2, PAL.paper[3], 1);
-    b.rect(7, top + 3, 3, 2, PAL.paper[2], 1);
-    b.rect(s.w - 7, top + 2, 4, 2, PAL.paper[3], 1);
-    b.set(11, top + 4, PAL.ink, 1);
-    const lx = Math.floor(s.w / 2), ly = a.row(3, s.h);
-    b.rect(lx, ly - lampHeight + 1, 1, lampHeight - 1, PAL.brass[3], 1);
-    b.rect(lx - 2, ly - lampHeight, 5, 2, PAL.leaf[3], 1);
-    a.glow.rect(lx - 2, ly - lampHeight + 1, 5, 1, PAL.leaf[5], 1);
-    a.lights.push({ x: lx, y: ly - lampHeight + 2, radius: 48, color: 0xffcf8a, intensity: 1.4 });
-    return a.art();
-}
-
-function sofa(s: Size): PropArt {
-    // Oxblood leather Chesterfield: a 0.25m deep tufted back to the full height, the seat at 0.45m, rolled arms at 0.6m,
-    // short walnut feet with a gap under the seat.
-    const a = new BoxArt(s);
-    const b = a.lit, leather = PAL.cloth.burgundy, shine = mix(leather[3]!, 0xffffff, 0.18);
-    const back = 3, seat = 6, arm = 8, armW = 4, feet = 1;
-    for (let gy = 0; gy < back; gy++) for (let x = armW; x < s.w - armW; x++) b.set(x, a.row(gy, s.h), gy === back - 1 ? shine : leather[3]!, 0.95);
-    for (let z = s.h - 1; z > seat; z--) for (let x = armW; x < s.w - armW; x++) {
-        const tuft = (x + (z % 4 === 0 ? 2 : 0)) % 4 === 1 && z % 2 === 0;
-        b.set(x, a.row(back, z), tuft ? leather[0]! : leather[2]!, 0.85);
-    }
-    // Two seat cushions, their front edges catching the light.
-    for (let gy = back; gy < s.d; gy++) for (let x = armW; x < s.w - armW; x++) {
-        const split = x === Math.floor(s.w / 2);
-        b.set(x, a.row(gy, seat), split ? leather[1]! : gy === s.d - 1 ? shine : leather[3]!, 0.75);
-    }
-    for (let z = seat; z > feet; z--) for (let x = armW; x < s.w - armW; x++) b.set(x, a.row(s.d, z), z === seat ? leather[2]! : leather[1]!, 0.6);
-    for (const ax of [0, s.w - armW]) {
-        for (let gy = 0; gy < s.d; gy++) for (let x = ax; x < ax + armW; x++) b.set(x, a.row(gy, arm), x === ax + 1 || x === ax + 2 ? shine : leather[3]!, 0.9);
-        for (let z = arm; z > feet; z--) for (let x = ax; x < ax + armW; x++) b.set(x, a.row(s.d, z), z === arm ? leather[3]! : leather[2]!, 0.8);
-        // Rolled arm: round off its outer top corners.
-        const outer = ax === 0 ? ax : ax + armW - 1;
-        b.clear(outer, a.row(0, arm));
-        b.clear(outer, a.row(s.d, arm));
-        b.set(ax === 0 ? ax + 1 : ax + armW - 2, a.row(s.d, feet), PAL.walnut[1], 0.3);
-    }
-    return a.art();
-}
-
-function coffeeTable(s: Size): PropArt {
-    // A 4px walnut top on four legs; magazines, papers and a cup on top.
-    const a = new BoxArt(s);
-    const b = a.lit;
-    for (let gy = 0; gy < s.d; gy++) for (let x = 0; x < s.w; x++) b.set(x, a.row(gy, s.h), gy === s.d - 1 ? PAL.walnut[5] : PAL.walnut[4], 0.8);
-    for (let x = 0; x < s.w; x++) b.set(x, a.row(s.d, s.h), PAL.walnut[2], 0.75);
-    for (let z = s.h - 1; z > 0; z--) for (const x of [1, s.w - 2]) b.set(x, a.row(s.d, z), PAL.walnut[1], 0.5);
-    const top = a.row(0, s.h);
-    b.rect(1, top + 2, 5, 3, PAL.cloth.denim[3]!, 0.85);
-    b.rect(2, top + 3, 3, 1, PAL.paper[3], 0.86);
-    b.rect(7, top + 1, 4, 3, PAL.paper[2], 0.85);
-    b.set(12, top + 3, PAL.paper[3], 0.9);
-    return a.art();
-}
-
-function plant(s: Size, seed: number): PropArt {
-    // A brass planter 0.5m tall filling the footprint; a rubber plant above it whose leaves spread 4px past either side.
-    const spread = 4;
-    const a = new BoxArt(s, 0, spread);
-    const b = a.lit, rand = mulberry32(seed), pot = 6;
-    for (let gy = 0; gy < s.d; gy++) for (let x = 0; x < s.w; x++) b.set(a.col(x), a.row(gy, pot), gy < 2 ? PAL.terracotta[0] : PAL.brass[5], 0.8);
-    for (let z = pot; z > 0; z--) for (let x = 0; x < s.w; x++) b.set(a.col(x), a.row(s.d, z), x < 2 ? PAL.brass[4] : x > s.w - 2 ? PAL.brass[1] : PAL.brass[3], 0.8);
-    // Leaves on the stem above the planter's centre, lighter towards the top.
-    const cx = a.col(s.w / 2), stemBase = a.row(s.d / 2, pot);
-    b.vline(Math.floor(cx), a.row(s.d / 2, s.h - 2), stemBase - a.row(s.d / 2, s.h - 2), PAL.leaf[1], 0.8);
-    const leaves: [number, number][] = [];
-    for (let i = 0; i < 12; i++) leaves.push([cx - spread - 1 + rand() * (s.w + spread * 2 - 2), a.row(s.d / 2, pot + 2 + rand() * (s.h - pot - 3))]);
-    leaves.sort((p, q) => p[1] - q[1]);
-    const topRow = a.row(s.d / 2, s.h);
-    for (const [lx, ly] of leaves) {
-        const tone = ly - topRow < 5 ? 4 : ly - topRow < 10 ? 3 : 2;
-        b.ellipse(lx, ly, 2.4, 1.5, step(PAL.leaf, tone), 1);
-        b.plot(Math.round(lx - 1), Math.round(ly - 1), step(PAL.leaf, tone + 1), 1);
-    }
-    return a.art();
-}
-
-function brochureRack(s: Size): PropArt {
-    // Three shelves of leaflets on its front face.
-    const a = new BoxArt(s);
-    a.block(() => PAL.walnut[4], () => PAL.walnut[2], { top: 0.8, front: 0.6 });
+function brochureRack(s: Size): Model {
+    // A back panel with side cheeks and three shelves of leaflets facing out.
     const colors = [PAL.cloth.denim[3]!, PAL.paper[3], PAL.cloth.burgundy[3]!, PAL.cloth.teal[3]!, PAL.cloth.mustard[3]!, PAL.paper[2]];
-    for (let shelf = 0; shelf < 3; shelf++) for (let col = 0; col < 2; col++) {
-        const y = a.row(s.d, s.h - 1 - shelf * 6), x = 1 + col * 5, c = colors[shelf * 2 + col]!;
-        a.lit.rect(x, y, 3, 4, c, 0.75);
-        a.lit.hline(x, y, 3, mix(c, 0xffffff, 0.3), 0.77);
-        a.lit.hline(x - 1, y + 4, 5, PAL.walnut[1], 0.7);
+    const parts: Part[] = [
+        box(0, 0, 0, s.w, 1, s.h, { sides: PAL.walnut[2], top: PAL.walnut[4] }),
+        box(0, 1, 0, 1, s.d - 1, s.h, { sides: PAL.walnut[2], top: PAL.walnut[4] }),
+        box(s.w - 1, 1, 0, 1, s.d - 1, s.h, { sides: PAL.walnut[2], top: PAL.walnut[4] })
+    ];
+    for (let shelf = 0; shelf < 3; shelf++) {
+        const z = 1 + shelf * 6;
+        parts.push(box(1, 1, z, s.w - 2, s.d - 1, 1, { top: PAL.walnut[4], sides: PAL.walnut[1] }));
+        for (let col = 0; col < 2; col++) {
+            const c = colors[shelf * 2 + col]!;
+            parts.push(box(1 + col * 4, 1, z + 1, 3, 1, 4, { front: (_u, v) => (v === 0 ? mix(c, 0xffffff, 0.3) : c), sides: c, top: mix(c, 0xffffff, 0.3) }));
+        }
     }
-    return a.art();
+    return { parts };
 }
 
-function bin(s: Size): PropArt {
-    const a = new BoxArt(s);
-    a.block((_x, gy) => (gy === 0 || gy === s.d - 1 ? PAL.brass[5] : PAL.ink), (x, z) => (z === s.h ? PAL.brass[5] : x === 0 ? PAL.brass[4] : x === s.w - 1 ? PAL.brass[1] : PAL.brass[3]), { top: 0.6, front: 0.8 });
-    return a.art();
+function bin(s: Size): Model {
+    const top: Tex = (u, v) => (u === 0 || v === 0 || u === s.w - 1 || v === s.d - 1 ? PAL.brass[5] : PAL.ink);
+    return { parts: [box(0, 0, 0, s.w, s.d, s.h, { top, sides: (u, v) => (v === 0 ? PAL.brass[5] : u === 0 ? PAL.brass[4] : u === s.w - 1 ? PAL.brass[1] : PAL.brass[3]), bump: { top: 0.6, face: 0.8 } })] };
 }
 
-function streetLamp(s: Size): PropArt {
+function streetLamp(s: Size): Model {
     // A cast-iron post with a lantern head 0.6m across at the top, unlit by day.
-    const spread = 2;
-    const a = new BoxArt(s, 0, spread);
-    const b = a.lit, iron = PAL.steel, cx = a.col(1), mid = Math.floor(s.d / 2);
-    b.rect(a.col(0), a.row(mid, 2), s.w, 3, iron[1], 0.5);
-    for (let z = 2; z < s.h - 6; z++) { b.set(cx, a.row(mid, z), iron[3], 0.95); b.set(cx + 1, a.row(mid, z), iron[2], 0.9); }
-    const head = a.row(mid, s.h);
-    b.rect(a.col(-2), head + 1, 8, 2, iron[1], 1);
-    b.rect(a.col(-1), head + 3, 6, 5, PAL.glass[3], 1);
-    b.rect(a.col(-1), head + 3, 2, 5, PAL.glass[4], 1);
-    b.rect(a.col(-1), head + 8, 6, 1, iron[1], 1);
-    b.rect(a.col(0), head, 4, 1, iron[2], 1);
-    return a.art();
+    const iron = PAL.steel, head = s.h - 7;
+    return {
+        parts: [
+            box(0, 0, 0, s.w, s.d, 3, { top: iron[2], sides: iron[1] }),
+            box(1, 1, 3, 2, 2, head - 3, { top: iron[3], sides: u => (u === 0 ? iron[3] : iron[2]) }),
+            box(-1, -1, head, 6, 6, 1, { top: iron[2], sides: iron[1] }),
+            box(-1, -1, head + 1, 6, 6, 5, { top: PAL.glass[3], sides: u => (u === 0 || u === 5 ? iron[1] : u < 3 ? PAL.glass[4] : PAL.glass[3]) }),
+            box(-2, -2, head + 6, 8, 8, 1, { top: iron[2], sides: iron[1] })
+        ]
+    };
 }
 
-function hydrant(s: Size): PropArt {
-    // A red barrel with a domed cap and two side nozzles reaching 1px past the footprint.
-    const a = new BoxArt(s, 0, 1);
+function hydrant(s: Size): Model {
+    // A red barrel with a domed cap, a nozzle on each side and the big pumper nozzle on its front.
     const red = PAL.carpet;
-    a.block((_x, gy) => (gy === 0 ? red[3] : red[4]), (x, z) => (z === 1 ? red[1] : x === 0 ? red[4] : x === s.w - 1 ? red[1] : red[3]), { top: 0.9, front: 0.75 });
-    const y = a.row(s.d, s.h - 3);
-    a.lit.set(a.col(-1), y, red[2], 0.7);
-    a.lit.set(a.col(s.w), y, red[1], 0.7);
-    return a.art();
+    return {
+        parts: [
+            box(0, 0, 0, s.w, s.d, s.h - 2, { top: red[4], sides: (u, v) => (v === s.h - 3 ? red[1] : u === 0 ? red[4] : u === s.w - 1 ? red[1] : red[3]), bump: { top: 0.9, face: 0.75 } }),
+            box(1, 1, s.h - 2, s.w - 2, s.d - 2, 2, { top: red[4], sides: red[3] }),
+            box(-1, 2, 4, 1, 1, 1, { sides: red[2], top: red[3] }),
+            box(s.w, 2, 4, 1, 1, 1, { sides: red[2], top: red[3] }),
+            box(2, s.d - 1, 3, 1, 1, 2, { sides: red[2], top: red[3] })
+        ]
+    };
 }
 
-function newsBox(s: Size): PropArt {
-    // A vending box on short legs, the day's front page behind its window.
-    const a = new BoxArt(s);
-    const body = PAL.cloth.teal, legs = 3;
-    a.block((_x, gy) => (gy === s.d - 1 ? body[3]! : body[2]!), (x, z) => {
-        if (z <= legs) return PAL.steel[1];
-        if (z > s.h - 7 && z < s.h - 1 && x > 0 && x < s.w - 1) return z === s.h - 2 ? PAL.ink : PAL.paper[2];
-        return body[2]!;
-    }, { top: 0.9, front: 0.75 });
-    // Clear the gap between the legs.
-    for (let z = legs; z > 0; z--) for (let x = 1; x < s.w - 1; x++) a.lit.clear(x, a.row(s.d, z));
-    return a.art();
+function newsBox(s: Size): Model {
+    // A vending box on short legs, the day's front page behind the window on its front.
+    const legs = 3, body = PAL.cloth.teal;
+    const parts: Part[] = [box(0, 0, legs, s.w, s.d, s.h - legs, {
+        top: (_u, v) => (v === s.d - 1 ? body[3]! : body[2]!),
+        front: (u, v) => (v >= 1 && v < 6 && u > 0 && u < s.w - 1 ? (v === 1 ? PAL.ink : PAL.paper[2]) : v === 0 ? body[3]! : body[2]!),
+        sides: body[1]!
+    })];
+    for (const [x, y] of [[0, 0], [s.w - 1, 0], [0, s.d - 1], [s.w - 1, s.d - 1]] as const) parts.push(box(x, y, 0, 1, 1, legs, { sides: PAL.steel[1], top: PAL.steel[1] }));
+    return { parts };
 }
 
-function streetBin(s: Size): PropArt {
-    const a = new BoxArt(s);
+function streetBin(s: Size): Model {
     const body = PAL.leaf;
-    a.block((_x, gy) => (gy === 0 || gy === s.d - 1 ? body[3] : PAL.ink), (x, z) => (z === s.h ? body[3] : x % 3 === 0 ? body[1] : body[2]), { top: 0.9, front: 0.75 });
-    return a.art();
+    const top: Tex = (u, v) => (u === 0 || v === 0 || u === s.w - 1 || v === s.d - 1 ? body[3] : PAL.ink);
+    return { parts: [box(0, 0, 0, s.w, s.d, s.h, { top, sides: (u, v) => (v === 0 ? body[3] : u % 3 === 0 ? body[1] : body[2]) })] };
 }
 
-function bollard(s: Size): PropArt {
-    const a = new BoxArt(s);
-    a.block(() => PAL.steel[4], (x, z) => (z === s.h - 2 ? PAL.brass[3] : x === 0 ? PAL.steel[4] : PAL.steel[2]), { top: 1, front: 0.8 });
-    return a.art();
+function bollard(s: Size): Model {
+    return { parts: [box(0, 0, 0, s.w, s.d, s.h, { top: PAL.steel[4], sides: (u, v) => (v === 2 ? PAL.brass[3] : u === 0 ? PAL.steel[4] : PAL.steel[2]), bump: { top: 1, face: 0.8 } })] };
 }
 
-function manhole(s: Size): PropArt {
-    const a = new BoxArt(s);
-    const r = s.w / 2, cy = a.row(s.d / 2, 0);
-    a.lit.ellipse(r, cy, r, s.d / 2, PAL.steel[0], 0.3);
-    a.lit.ellipse(r, cy, r - 1, s.d / 2 - 1, PAL.steel[1], 0.4);
-    for (let x = 2; x < s.w - 2; x += 2) a.lit.vline(x, Math.round(cy) - 2, 4, PAL.steel[2], 0.45);
-    return a.art();
+function manhole(s: Size): Model {
+    const r = s.w / 2;
+    const top: Tex = (u, v) => (!inEllipse(u, v, r, r, r, r) ? null : !inEllipse(u, v, r, r, r - 1, r - 1) ? PAL.steel[0] : u % 2 === 0 && Math.abs(v + 0.5 - r) < 2 ? PAL.steel[2] : PAL.steel[1]);
+    return { parts: [box(0, 0, 0, s.w, s.d, 0, { top, bump: { top: 0.4, face: 0.4 } })] };
 }
 
-function van(s: Size): PropArt {
-    // The crew's panel van against the kerb, nose to the west. The cargo box is the full height; the cab at the front
-    // is lower (1.9m) with a bonnet (1.1m) ahead of it. The near side faces the street, wheels at its foot.
-    const a = new BoxArt(s);
-    const b = a.lit, body: Ramp = PAL.concrete;
-    const bonnet = 11, cab = 18, bonnetZ = px(1.1), cabZ = px(1.9);
-    const heightAt = (x: number) => (x < bonnet ? bonnetZ : x < cab ? cabZ : s.h);
-    for (let x = 0; x < s.w; x++) {
-        const z = heightAt(x);
-        for (let gy = 0; gy < s.d; gy++) {
-            const windscreen = x >= bonnet && x < bonnet + 3;
-            b.set(x, a.row(gy, z), windscreen ? PAL.glass[2] : gy === 0 ? body[3]! : gy === s.d - 1 ? body[4]! : body[5]!, 1);
-        }
-        for (let zz = z; zz > 0; zz--) {
-            let c = step(body, zz > z - 2 ? 3 : zz < 6 ? 1 : 2);
-            if (x === 0 || x === s.w - 1) c = body[1]!;
-            b.set(x, a.row(s.d, zz), c, 0.75);
-        }
-    }
-    // Roof: stiffening ribs across the cargo box and a gutter along its street edge.
-    for (let x = cab + 4; x < s.w - 2; x += 6) for (let gy = 1; gy < s.d - 1; gy++) b.set(x, a.row(gy, s.h), body[3]!, 0.95);
-    b.hline(cab, a.row(s.d - 2, s.h), s.w - cab, body[2]!, 0.9);
-    // Cab side window, panel seams, the sliding door's handle and faded signwriting for a plumber that doesn't exist.
-    b.rect(bonnet + 1, a.row(s.d, cabZ - 2), cab - bonnet - 2, 6, PAL.glass[1], 0.8);
-    b.hline(bonnet + 1, a.row(s.d, cabZ - 2), cab - bonnet - 2, PAL.glass[3], 0.82);
-    b.vline(cab + 1, a.row(s.d, s.h - 1), s.h - 3, body[1]!, 0.7);
-    b.vline(48, a.row(s.d, s.h - 1), s.h - 3, body[1]!, 0.7);
-    b.rect(44, a.row(s.d, 14), 3, 1, PAL.steel[1], 0.8);
-    b.rect(24, a.row(s.d, 20), 18, 2, mix(body[2]!, PAL.cloth.navy[3]!, 0.6), 0.76);
-    b.rect(24, a.row(s.d, 16), 12, 1, mix(body[2]!, PAL.cloth.navy[3]!, 0.4), 0.76);
-    b.rect(0, a.row(s.d, 8), 2, 2, PAL.paper[3], 0.85);
-    b.rect(s.w - 2, a.row(s.d, 10), 2, 3, PAL.carpet[3], 0.85);
-    b.rect(0, a.row(s.d, 4), s.w, 2, PAL.steel[1], 0.6);
-    // Wheels: 0.7m across, their hubs at axle height on the near side.
-    for (const wx of [8, s.w - 12]) {
-        const cy = a.row(s.d, 4);
-        b.ellipse(wx, cy, 4.5, 4.5, PAL.ink, 0.5);
-        b.ellipse(wx, cy, 2.2, 2.2, PAL.steel[3], 0.6);
-        b.set(wx, cy, PAL.steel[1], 0.6);
-    }
-    b.each((x, y, c, ht) => (y > a.row(s.d, 8) && y < a.row(s.d, 3) && x > 0 && x < s.w - 1 ? [deepen(c, 0.12), ht] : undefined));
-    return a.art();
+/**
+ * The crew's panel van. Its front is its nose, so its length runs along y: the cargo box at the back is the full
+ * 2.3m, then the cab (1.9m) with its windscreen, then the bonnet (1.1m). Wheels sit flush in its sides.
+ */
+function van(s: Size): Model {
+    const body = PAL.concrete;
+    const bonnetZ = px(1.1), cabZ = px(1.9), bonnetD = 11, cabD = 7, cargoD = s.d - bonnetD - cabD;
+    const band = (z: number, h: number) => (h - z < 2 ? body[3]! : z <= 4 ? PAL.steel[1] : z < 8 ? body[1]! : body[2]!);
+    // A side seen from outside: `fromBack` turns u into the distance from the van's back.
+    const cargoSide = (fromBack: (u: number) => number): Tex => (u, v) => {
+        const b = fromBack(u), z = s.h - v;
+        if (b === 1) return body[1]!;
+        if (z === 19 && b >= 6 && b < 24) return mix(body[2]!, PAL.cloth.navy[3]!, 0.6);
+        if (z === 16 && b >= 6 && b < 18) return mix(body[2]!, PAL.cloth.navy[3]!, 0.4);
+        if (z === 13 && b === 27) return PAL.steel[1];
+        return band(z, s.h);
+    };
+    const cabSide: Tex = (_u, v) => (v >= 2 && v < 8 ? (v === 2 ? PAL.glass[3] : PAL.glass[1]) : band(cabZ - v, cabZ));
+    const parts: Part[] = [
+        box(0, 0, 0, s.w, cargoD, s.h, {
+            top: (u, v) => (u === 0 || u === s.w - 1 ? body[3]! : v % 6 === 4 ? body[3]! : body[5]!),
+            back: (u, v) => (u === Math.floor(s.w / 2) ? body[1]! : (u === 1 || u === s.w - 2) && v === 18 ? PAL.carpet[3] : band(s.h - v, s.h)),
+            left: cargoSide(u => u),
+            right: cargoSide(u => cargoD - 1 - u),
+            front: body[3]!
+        }),
+        box(0, cargoD, 0, s.w, cabD, cabZ, { top: (_u, v) => (v >= cabD - 3 ? PAL.glass[2] : body[4]!), left: cabSide, right: cabSide, front: PAL.glass[2] }),
+        box(0, cargoD + cabD, 0, s.w, bonnetD, bonnetZ, {
+            top: body[4]!,
+            front: (u, v) => ((u === 1 || u === s.w - 2) && v === 4 ? PAL.paper[3] : v >= 5 && v < 9 && u > 3 && u < s.w - 4 ? PAL.steel[1] : band(bonnetZ - v, bonnetZ)),
+            sides: (_u, v) => band(bonnetZ - v, bonnetZ)
+        })
+    ];
+    // Wheels: 0.7m across, set into both sides under the cargo box and behind the bonnet.
+    const wheel: Tex = (u, v) => (!inEllipse(u, v, 4.5, 4.5, 4.5, 4.5) ? null : inEllipse(u, v, 4.5, 4.5, 2.2, 2.2) ? (u === 4 && v === 4 ? PAL.steel[1] : PAL.steel[3]) : PAL.ink);
+    for (const y of [6, cargoD + cabD - 2]) for (const x of [0, s.w - 1]) parts.push(box(x, y, 0, 1, 9, 9, { left: wheel, right: wheel, front: none, back: none, top: none }));
+    return { parts };
 }
 
-/** Draws a prop for its catalog size; the scene places the result by its box. */
-export function propArt(p: LobbyProp, s: Size): PropArt {
+function model(p: LobbyProp, s: Size): Model {
     switch (p.kind) {
         case 'counter': return counter(p, s);
         case 'backCounter': return backCounter(p, s);
@@ -551,4 +483,9 @@ export function propArt(p: LobbyProp, s: Size): PropArt {
         case 'manhole': return manhole(s);
         case 'van': return van(s);
     }
+}
+
+/** Draws a prop of catalog size `s` (in its own frame) turned to `facing`. */
+export function propArt(p: LobbyProp, s: Size, facing: Facing): PropArt {
+    return renderModel(model(p, s), s, facing);
 }

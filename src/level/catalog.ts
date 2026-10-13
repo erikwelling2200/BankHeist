@@ -1,13 +1,14 @@
 import { TILE } from './level';
 import type { LobbyProp } from './lobby';
-import { place, px, type AlignX, type AlignY, type Box, type Size } from './space';
+import { place, px, type AlignX, type AlignY, type Box, type Facing, type Size } from './space';
 
 /**
  * Every kind of object's real size and where it stands by default. Sizes are real-world dimensions turned into pixels
  * (`px` takes metres), so a cabinet, a counter and a person keep their proportions to each other and to the walls.
- * A level entry can override the alignment or span; the size is the object's own.
+ * Size and span are in the object's own frame (across its front, back to front, up); `facing` turns both. A level
+ * entry can override the facing, alignment or span; the size is the object's own.
  */
-interface ItemSpec { size: (p: LobbyProp) => Size; alignX?: AlignX; alignY?: AlignY; span?: (p: LobbyProp) => [number, number]; elevation?: number }
+interface ItemSpec { size: (p: LobbyProp) => Size; facing?: Facing; alignX?: AlignX; alignY?: AlignY; span?: (p: LobbyProp) => [number, number]; elevation?: number }
 
 const fixed = (w: number, d: number, h: number) => () => ({ w: px(w), d: px(d), h: px(h) });
 const widthOf = (p: LobbyProp) => ('width' in p ? p.width : 1);
@@ -30,9 +31,11 @@ export const CATALOG: Record<LobbyProp['kind'], ItemSpec> = {
     keycardLed: { size: fixed(0.08, 0.08, 0.08), alignX: 'east', alignY: 'north', elevation: px(1.0) },
     // The ATM's screen, on the street side of the shop front.
     atmScreen: { size: fixed(0.6, 0.08, 0.3), alignY: 'north', elevation: px(1.1) },
-    camera: { size: fixed(0.6, 0.3, 0.3), alignX: 'east', elevation: px(1.8) },
-    // A run of stanchions from the middle of its first tile to the middle of its last: posts 0.95m tall.
-    queueRail: { size: p => ({ w: px(0.3), d: ('length' in p ? p.length - 1 : 0) * TILE + px(0.3), h: px(0.95) }), span: p => [1, 'length' in p ? p.length : 1] },
+    // A box camera on a wall bracket, looking out of the wall it hangs on.
+    camera: { size: fixed(0.6, 0.3, 0.3), elevation: px(1.8) },
+    // A run of stanchions across its width, from the middle of its first tile to the middle of its last: posts 0.95m
+    // tall. Facing east or west the run goes north-south.
+    queueRail: { size: p => ({ w: ('length' in p ? p.length - 1 : 0) * TILE + px(0.3), d: px(0.3), h: px(0.95) }), span: p => ['length' in p ? p.length : 1, 1] },
     mat: { size: fixed(2.2, 1.0, 0), span: () => [2, 1] },
     writingDesk: { size: fixed(2.1, 0.6, 1.1), span: () => [2, 1] },
     sofa: { size: fixed(2.3, 0.9, 0.85), span: () => [2, 1] },
@@ -48,15 +51,19 @@ export const CATALOG: Record<LobbyProp['kind'], ItemSpec> = {
     newsBox: { size: fixed(0.55, 0.45, 1.1), alignY: 'north' },
     streetBin: { size: fixed(0.55, 0.55, 1.0), alignY: 'north' },
     manhole: { size: fixed(0.7, 0.7, 0) },
-    // Panel van parked against the kerb: 5.3m long, 2m wide, 2.3m tall.
-    van: { size: fixed(5.3, 2.0, 2.3), alignX: 'west', alignY: 'north', span: () => [5, 2] }
+    // Panel van: 2m wide across its nose, 5.3m long, 2.3m tall; parked nose to the west against the kerb.
+    van: { size: fixed(2.0, 5.3, 2.3), facing: 'west', alignX: 'west', alignY: 'north', span: () => [2, 5] }
 };
+
+/** A prop's size in its own frame. */
+export const propSize = (p: LobbyProp): Size => CATALOG[p.kind].size(p);
 
 /** Where a prop stands in the world, from its catalog entry and the level's overrides. */
 export function propBox(p: LobbyProp): Box {
     const spec = CATALOG[p.kind];
     const size = spec.size(p);
     return place({
+        facing: p.facing ?? spec.facing,
         tx: p.tx,
         ty: p.ty,
         span: p.span ?? spec.span?.(p),

@@ -1,4 +1,4 @@
-import Phaser from 'phaser';
+import type Phaser from 'phaser';
 import { buildNormalMap } from '../logic/normalMap';
 
 /** A colour + height bitmap that is turned into a Phaser texture with a linked normal map. Unpainted pixels stay transparent. */

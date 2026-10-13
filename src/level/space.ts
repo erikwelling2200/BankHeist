@@ -15,22 +15,35 @@ export const WALL_HEIGHT = px(1.92);
 /** The shop front is a thin wall: only this much of its tile, along the street edge, is wall. */
 export const THIN_WALL = px(0.3);
 
-/** Size of an object in pixels: across (west to east), deep (north to south) and tall. */
+/**
+ * Size of an object in pixels, in its own frame: `w` across its front, `d` from back to front, `h` tall. Facing south
+ * (its front towards the camera) that is west-to-east, north-to-south and up; facing east or west, `w` and `d` swap.
+ */
 export interface Size { w: number; d: number; h: number }
 
-/** An object's place in the world: a footprint on the floor (x, y, w, d) and the height range z..z + h above it. */
-export interface Box { x: number; y: number; z: number; w: number; d: number; h: number }
+/** Which way an object's front points. Facing south it shows the camera its front; north, its back; east and west, a side. */
+export type Facing = 'south' | 'east' | 'north' | 'west';
+export const FACINGS: readonly Facing[] = ['south', 'east', 'north', 'west'];
+
+/** The footprint and span an object takes up in the world once turned to `facing`. */
+export function turned<T extends { w: number; d: number }>(size: T, facing: Facing): T {
+    return facing === 'east' || facing === 'west' ? { ...size, w: size.d, d: size.w } : size;
+}
+
+/** An object's place in the world: a footprint on the floor (x, y, w, d, in world axes) and the height range z..z + h. */
+export interface Box { x: number; y: number; z: number; w: number; d: number; h: number; facing: Facing }
 
 export type AlignX = 'west' | 'center' | 'east';
 export type AlignY = 'north' | 'center' | 'south';
 
 /**
  * Where an object stands. `tx`/`ty` is the north-west tile of the tiles it occupies; `span` is how many tiles across
- * and deep that is (by default as many as its footprint needs). Within that span the footprint is pushed to a side or
- * centred: a one-tile object centred stands in the middle of its tile, one given a two-tile span and centred stands on
- * the line between them. Wall dressing stands on the floor tile in front of its wall, aligned north, at an elevation.
+ * and deep that is in the object's own frame (by default as many as its footprint needs), turned with it. Within that
+ * span the footprint is pushed to a side or centred (in world directions): a one-tile object centred stands in the
+ * middle of its tile, one given a two-tile span and centred stands on the line between them. Wall dressing stands on
+ * the floor tile in front of its wall, against that wall, at an elevation, facing away from it.
  */
-export interface Placement { tx: number; ty: number; span?: [number, number]; alignX?: AlignX; alignY?: AlignY; elevation?: number }
+export interface Placement { tx: number; ty: number; span?: [number, number]; alignX?: AlignX; alignY?: AlignY; elevation?: number; facing?: Facing }
 
 function align(start: number, room: number, size: number, side: 'low' | 'center' | 'high'): number {
     if (side === 'low') return start;
@@ -38,14 +51,17 @@ function align(start: number, room: number, size: number, side: 'low' | 'center'
     return start + Math.floor((room - size) / 2);
 }
 
-export function place(p: Placement, size: Size): Box {
-    const spanX = p.span?.[0] ?? Math.max(1, Math.ceil(size.w / TILE));
-    const spanY = p.span?.[1] ?? Math.max(1, Math.ceil(size.d / TILE));
+export function place(p: Placement, local: Size): Box {
+    const facing = p.facing ?? 'south';
+    const size = turned(local, facing);
+    const span = p.span ? turned({ w: p.span[0], d: p.span[1] }, facing) : undefined;
+    const spanX = span?.w ?? Math.max(1, Math.ceil(size.w / TILE));
+    const spanY = span?.d ?? Math.max(1, Math.ceil(size.d / TILE));
     if (size.w > spanX * TILE || size.d > spanY * TILE) throw new Error(`A ${size.w}x${size.d} footprint does not fit a ${spanX}x${spanY} tile span`);
     const ax = p.alignX ?? 'center', ay = p.alignY ?? 'center';
     const x = align(p.tx * TILE, spanX * TILE, size.w, ax === 'west' ? 'low' : ax === 'east' ? 'high' : 'center');
     const y = align(p.ty * TILE, spanY * TILE, size.d, ay === 'north' ? 'low' : ay === 'south' ? 'high' : 'center');
-    return { x, y, z: p.elevation ?? 0, ...size };
+    return { x, y, z: p.elevation ?? 0, w: size.w, d: size.d, h: size.h, facing };
 }
 
 /** True when two boxes share volume; touching faces don't count, and flat things (no height) never collide. */

@@ -6,7 +6,7 @@ import { BANK_TILE_INDEX, bankTileset, type BankTileName } from '../art/bank/til
 import { bankWalls, BLOCK_HEIGHT, WALL_BLOCK_NAMES, type WallBlockName } from '../art/bank/walls';
 import { PixelBitmap, toCanvas } from '../art/PixelBitmap';
 import { bayer4, mulberry32, valueNoise } from '../art/random';
-import { propBox } from '../level/catalog';
+import { propBox, propSize } from '../level/catalog';
 import { TILE } from '../level/level';
 import { isStructure, LOBBY_PEOPLE, LOBBY_PROPS, LOBBY_TILES, parseLobby, type LobbyTile } from '../level/lobby';
 import { baseLine, PERSON_SIZE, place, THIN_WALL, WALL_HEIGHT, type Box } from '../level/space';
@@ -136,20 +136,20 @@ export class LobbyScene extends Phaser.Scene {
         const occluders: Occluder[] = [];
         LOBBY_PROPS.forEach((p, i) => {
             const box = propBox(p);
-            const art = propArt(p, box);
+            const art = propArt(p, propSize(p), box.facing);
             const key = `lobby-prop-${i}`;
-            const left = box.x - (art.originX ?? 0);
+            const left = box.x - art.originX;
             const top = baseLine(box) - box.z - art.lit.height;
             const flat = box.h === 0;
             const depth = flat ? DEPTH.flat : DEPTH.standing + baseLine(box);
             this.addBitmap(art.lit, key, left, top, depth, true);
             if (!flat) this.casters.push(caster(art.lit, left, top, baseLine(box)));
-            if (art.glow) {
+            if (hasPixels(art.glow)) {
                 this.addBitmap(art.glow, `${key}-glow`, left, top, depth + 0.5, false);
                 // The exposure layer dims everything indoors; a second, additive pass puts the glow back over it.
                 this.add.image(left, top, `${key}-glow`).setOrigin(0, 0).setDepth(DEPTH.emissive).setBlendMode(Phaser.BlendModes.ADD).setAlpha(0.7);
             }
-            for (const l of art.lights ?? []) this.lights.addLight(left + l.x, top + l.y, l.radius, l.color, l.intensity);
+            for (const l of art.lights) this.lights.addLight(left + l.x, top + l.y, l.radius, l.color, l.intensity);
             if (!flat && box.z === 0) occluders.push(floorOccluder(box));
         });
         return occluders;
@@ -253,6 +253,11 @@ function doubleMultiply(scene: Phaser.Scene): number {
         registry.bankDoubleMultiply = renderer.blendModes.length - 1;
     }
     return registry.bankDoubleMultiply;
+}
+
+function hasPixels(bitmap: PixelBitmap): boolean {
+    for (let y = 0; y < bitmap.height; y++) for (let x = 0; x < bitmap.width; x++) if (bitmap.opaque(x, y)) return true;
+    return false;
 }
 
 function caster(bitmap: PixelBitmap, left: number, top: number, base: number): Caster {
