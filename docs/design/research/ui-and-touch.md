@@ -88,6 +88,15 @@ gritty tone (§1). The mockups now use:
   Panels are square-cornered with hairline borders. Type is Oswald for labels and numbers and Share Tech Mono for
   small data.
 
+## Revision: named actions and visible cover
+
+- **The selected action is named on Confirm** ("MOVE", "FIRE ×6", "SHOUT"), with its icon and action cost, and is
+  dimmed while nothing is previewed. Players don't have to memorise the icon set: the name sits on the button they
+  commit with, under the same thumb. Long-pressing any action button shows its name beside it.
+- **Half cover is a light-blue bar on the protected edge** of the target's tile, with a soft glow and end ticks, in
+  place of a small shield icon that was easy to miss. When the shot comes from outside the cover's 90° arc, the bar
+  turns into a dashed grey line (flanked), which matches §11.4's "greyed out when flanked".
+
 ## A conflict in the design document
 
 §20.1 asks for a close zoom of "about 11 tiles high" and also for "a tile roughly 10mm". A landscape phone screen is

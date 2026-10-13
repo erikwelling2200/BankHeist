@@ -221,7 +221,9 @@ def s_aim(bullets=6):
     p_guard(s, 31, 19, 180); p_guard(s, 30, 16, 180)
     for i, x in enumerate((25, 35)): p_teller(s, x, 14, i + 2)
     p_crew(s, 'mara', 24, 21, 'right', masked=True, sel=True)
-    u.marker(s.over, 31, 19, 'hostile'); u.glyph(s.over, u.G['halfsh'], 31 * TS - 5, 19 * TS + 12, BONE)
+    u.cover_edge(s.over, 31, 19, 'w')                 # the desk covers his west edge, and the shot comes from the west
+    if bullets > 2: u.cover_edge(s.over, 33, 20, 'n', flanked=True)   # the bench north of the bystander doesn't face the shooter
+    u.marker(s.over, 31, 19, 'hostile')
     u.marker(s.over, 30, 16, 'hostile')
     if bullets > 2: u.marker(s.over, 33, 20, 'civ')
     return s.crop(15, 12)

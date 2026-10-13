@@ -13,6 +13,7 @@ U = 2
 TS = 16 * U
 SAFE, AMBER, RED, GREY, CMD = (128, 190, 138), (226, 162, 64), (212, 70, 56), (128, 126, 136), (138, 182, 214)
 BONE, INK, DIM = (228, 220, 200), (8, 7, 10), (150, 146, 156)
+COVER = (172, 216, 244)
 CREW = {'mara': (96, 192, 206), 'jun': (206, 116, 184), 'dex': (150, 132, 224), 'sol': (218, 200, 162)}
 HOSTILE, CIV, CREWBLUE = RED, (214, 210, 200), (110, 160, 220)
 
@@ -269,3 +270,27 @@ def marker(im, tx, ty, kind):
 
 def glyph_at_tile(im, tx, ty, name, c):
     rows = G[name]; glyph(im, rows, cx(tx) - len(rows[0]) // 2, cx(ty) - len(rows) // 2, c)
+
+def cover_edge(im, tx, ty, side, flanked=False):
+    """Half cover: a light-blue bar along the edge of the target's tile that the cover protects, with a soft glow and
+    end ticks turned into the tile. Dashed grey when the shot comes from outside the 90-degree arc."""
+    x0, y0 = tx * TS, ty * TS
+    vertical = side in ('w', 'e')
+    inward = {'w': (1, 0), 'e': (-1, 0), 'n': (0, 1), 's': (0, -1)}[side]
+    edge = {'w': x0 + 1, 'e': x0 + TS - 2, 'n': y0 + 1, 's': y0 + TS - 2}[side]
+    run = range((y0 if vertical else x0) + 2, (y0 if vertical else x0) + TS - 2)
+    c = DIM if flanked else COVER
+    for i, v in enumerate(run):
+        if flanked and i % 5 >= 3: continue
+        for w in range(3 if not flanked else 2):
+            x, y = (edge + inward[0] * w, v) if vertical else (v, edge + inward[1] * w)
+            put(im, x, y, c, 250)
+        if not flanked:
+            for w, a in ((3, 110), (4, 50), (-1, 110)):
+                x, y = (edge + inward[0] * w, v) if vertical else (v, edge + inward[1] * w)
+                put(im, x, y, c, a)
+    if not flanked:
+        for v in (run[0], run[-1]):
+            for k in range(3, 7):
+                x, y = (edge + inward[0] * k, v) if vertical else (v, edge + inward[1] * k)
+                put(im, x, y, c, 235)

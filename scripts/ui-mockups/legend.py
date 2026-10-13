@@ -39,10 +39,13 @@ for i, (k, c, n, sym) in enumerate(items):
 bh.up(sheet.convert('RGB'), 2).save(os.path.join(OUT, 'legend-badges.png'))
 
 # 3. pips and cone markers
-sheet = Image.new('RGBA', (8 * 48, 48), (18, 17, 22, 255))
+sheet = Image.new('RGBA', (9 * 48, 48), (18, 17, 22, 255))
 for i, (n, c, tot) in enumerate(((1, CREW['mara'], 3), (2, CREW['jun'], 3), (3, CREW['dex'], 3), (2, CMD, 2))):
     ui = u.layer(48, 48); u.pips(ui, 0, 0, n, c, total=tot, dy=20); sheet.alpha_composite(ui, (i * 48 + 8, 0))
 for i, k in enumerate(('hostile', 'civ', 'crew')):
     ui = u.layer(48, 48); u.marker(ui, 0, 1, k); sheet.alpha_composite(ui, ((4 + i) * 48 + 8, -12))
+for i, fl in enumerate((False, True)):
+    cell = floor_cell(TS, TS).copy(); ui = u.layer(TS, TS); u.cover_edge(ui, 0, 0, 'w', flanked=fl); cell.alpha_composite(ui)
+    sheet.alpha_composite(cell, ((7 + i) * 48 + 8, 8))
 bh.up(sheet.convert('RGB'), 2).save(os.path.join(OUT, 'legend-pips.png'))
 print('legend ok')
