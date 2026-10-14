@@ -2,7 +2,7 @@ import { bankDoors, bankFront, counterGate, defaultWalls, placeBank, railings } 
 import { buildFeatures } from './features';
 import { Furnisher } from './furnish';
 import { layoutBank } from './layout';
-import { ARCHETYPES, PLOTS, type Archetype, type GeneratedBank, type GenRoom, type Headline, type PlotKind, type Tier } from './model';
+import { ARCHETYPES, PLOTS, TIERS, type Archetype, type GeneratedBank, type GenRoom, type Headline, type PlotKind, type Tier } from './model';
 import { finishNeighbour, placeNeighbour, type Neighbour } from './neighbours';
 import { composePlot, type Plot } from './plot';
 import { Rng, seedOf } from './rng';
@@ -43,7 +43,10 @@ export function archetypesFor(tier: Tier): Archetype[] {
 
 /** Rolls the plot, tier, archetype and the headlines that shape the building. */
 export function rollShape(rng: Rng, opts: GenerateOptions): { tier: Tier; archetype: Archetype; plotKind: PlotKind; headlines: Headline[] } {
-    const tier = opts.tier ?? rollTier(rng.fork('tier'));
+    // A pinned archetype narrows the tiers it can be rolled in (Mezzanine Watch needs an operator).
+    let tier = opts.tier ?? rollTier(rng.fork('tier'));
+    if (!opts.tier && opts.archetype && !archetypesFor(tier).includes(opts.archetype)) tier = rng.fork('tier-fit').pick(TIERS.filter(t => archetypesFor(t).includes(opts.archetype!)));
+    if (opts.archetype && !archetypesFor(tier).includes(opts.archetype)) throw new Error(`A ${TIER_SPECS[tier].name.toLowerCase()} can't be a ${opts.archetype} bank`);
     const archetype = opts.archetype ?? rng.fork('archetype').pick(archetypesFor(tier));
     const plotKind = opts.plot ?? rng.fork('plot').pick(PLOTS);
     const pick = rng.fork('headlines');

@@ -1,17 +1,17 @@
-import { HEADLINE_NAMES, ARCHETYPES, PLOTS, TIERS, type GeneratedBank } from '../gen/model';
+import { HEADLINE_NAMES, type GeneratedBank } from '../gen/model';
 import { TIER_SPECS } from '../gen/tiers';
+import { ARCHETYPE_NAMES, PLOT_NAMES } from './names';
 
 /**
  * The briefing for a generated bank (§17.2 step 8): the bank, its headline features, the vault and its keys (the
- * objectives board), the ways in, the day's timeline, the intel journal and the checks it passed, plus the controls to
- * roll another bank. HTML, like the HUD, so the text stays crisp. The knowledge toggle switches the map between what
- * the blueprint shows before casing and the full layout (§17.8).
+ * objectives board), the ways in, the day's timeline, the intel journal and the checks it passed. HTML, like the
+ * HUD, so the text stays crisp. The controls to roll another bank are on the generator bar.
  */
 export class Briefing {
     private readonly root: HTMLDivElement;
     private readonly panel: HTMLDivElement;
 
-    constructor(bank: GeneratedBank, actions: { reroll: (params: Record<string, string>) => void; knowledge: (full: boolean) => void }) {
+    constructor(bank: GeneratedBank) {
         this.root = el('div', 'briefing') as HTMLDivElement;
         const toggle = el('button', 'briefing-toggle', 'Briefing');
         toggle.setAttribute('aria-label', 'Briefing');
@@ -23,11 +23,11 @@ export class Briefing {
         this.root.append(toggle, this.panel);
         // Open by default where there is room for it beside the map.
         if (window.innerWidth >= 1200) this.root.classList.add('open');
-        this.render(bank, actions);
+        this.render(bank);
         document.body.append(this.root);
     }
 
-    private render(bank: GeneratedBank, actions: { reroll: (params: Record<string, string>) => void; knowledge: (full: boolean) => void }): void {
+    private render(bank: GeneratedBank): void {
         const p = this.panel, spec = TIER_SPECS[bank.tier];
         const section = (title: string) => {
             const s = el('section');
@@ -44,36 +44,6 @@ export class Briefing {
         p.append(el('p', 'briefing-sub', `${spec.name} · ${ARCHETYPE_NAMES[bank.archetype]} · ${PLOT_NAMES[bank.plot]} · police in ${bank.policeEta} turns`));
         list(section('Headline'), bank.headlines.map(h => HEADLINE_NAMES[h]));
 
-        // Controls: another bank, the same building with new people, pinned choices, the knowledge layer.
-        const controls = el('div', 'briefing-controls');
-        const pin = (name: string, values: readonly string[], labels: Record<string, string>) => {
-            const select = el('select') as HTMLSelectElement;
-            select.setAttribute('aria-label', name);
-            select.append(new Option(`Any ${name}`, ''));
-            for (const v of values) select.append(new Option(labels[v] ?? v, v));
-            select.value = new URLSearchParams(location.search).get(name) ?? '';
-            controls.append(select);
-            return select;
-        };
-        const tier = pin('tier', TIERS, Object.fromEntries(TIERS.map(t => [t, TIER_SPECS[t].name])));
-        const archetype = pin('archetype', ARCHETYPES, ARCHETYPE_NAMES);
-        const plot = pin('plot', PLOTS, PLOT_NAMES);
-        const pinned = () => Object.fromEntries([['tier', tier.value], ['archetype', archetype.value], ['plot', plot.value]].filter(([, v]) => v));
-        const button = (text: string, action: () => void) => {
-            const b = el('button', '', text);
-            b.addEventListener('click', action);
-            controls.append(b);
-            return b;
-        };
-        button('New bank', () => actions.reroll({ ...pinned(), seed: `${Math.floor(Math.random() * 1e6)}-${Math.floor(Math.random() * 1e3)}` }));
-        button('Same building, new people', () => actions.reroll({ ...pinned(), seed: `${bank.seed.layout}-${Math.floor(Math.random() * 1e3)}` }));
-        let full = true;
-        const know = button('Show blueprint only', () => {
-            full = !full;
-            know.textContent = full ? 'Show blueprint only' : 'Show everything';
-            actions.knowledge(full);
-        });
-        p.append(controls);
         p.append(el('p', 'briefing-seed', `Seed ${bank.seed.layout}-${bank.seed.population}`));
 
         const vault = section('Vault and keys');
@@ -118,8 +88,6 @@ function el(tag: string, className = '', text?: string): HTMLElement {
     return e;
 }
 
-const ARCHETYPE_NAMES: Record<string, string> = { twoWing: 'Two Wing', atrium: 'Atrium', threeKeys: 'Three Keys', fortress: 'Fortress', mezzanineWatch: 'Mezzanine Watch' };
-const PLOT_NAMES: Record<string, string> = { midBlock: 'mid-block', cornerLot: 'corner lot', plazaFront: 'plaza front', stripMallEnd: 'strip-mall end' };
 const NEIGHBOUR_NAMES: Record<string, string> = { cafe: 'café', vacantShop: 'vacant shop', garage: 'parking garage', buildingSite: 'building site', shop: 'shop', tower: 'office tower (sniper nest)' };
 const ROLE_NAMES: Record<string, string> = {
     headTeller: 'head teller', lobbyGuard: 'lobby guard', patrolGuard: 'patrol guard', chief: 'security chief', operator: 'CCTV operator', 'passer-by': 'passer-by'

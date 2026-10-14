@@ -273,14 +273,47 @@ test.describe('generated banks (§17)', () => {
         expect(first.tier).toBe('small');
         await expect(page.locator('.briefing-panel')).toBeVisible();
         await page.locator('.briefing-panel').screenshot({ path: 'screenshots/briefing.png' });
-        await page.getByRole('button', { name: 'Show blueprint only' }).click();
+        await page.getByRole('button', { name: 'Blueprint' }).click();
         await page.waitForTimeout(300);
         await page.locator('canvas').screenshot({ path: 'screenshots/generated-blueprint.png' });
-        await Promise.all([page.waitForURL(url => url.searchParams.get('seed') !== first.seed), page.getByRole('button', { name: 'Same building, new people' }).click()]);
+        await Promise.all([page.waitForURL(url => url.searchParams.get('seed') !== first.seed), page.getByRole('button', { name: 'New people' }).click()]);
         await page.waitForFunction(() => (window as any).game?.scene?.getScene('bank')?.sys.isActive(), null, { timeout: 60000 });
         const again = await generated(page);
         expect(again.seed.split('-')[0]).toBe(first.seed.split('-')[0]);
         expect(again.tier).toBe('small');
+        expect(errors).toEqual([]);
+    });
+});
+
+test.describe('the generator bar', () => {
+    test.use({ viewport: { width: 1280, height: 800 } });
+
+    test('regenerates the bank as an archetype is picked, and again on Regenerate', async ({ page }) => {
+        const errors = await boot(page, 'bank', 'seed=5-5&tier=city');
+        const bar = page.locator('.generator-bar');
+        await expect(bar).toBeVisible();
+        await bar.screenshot({ path: 'screenshots/generator-bar.png' });
+        const bank = () => page.evaluate(() => {
+            const g = (window as any).generated;
+            return { archetype: g.archetype as string, tier: g.tier as string, seed: `${g.seed.layout}-${g.seed.population}` };
+        });
+        const reloaded = async (act: () => Promise<unknown>) => {
+            const before = (await bank()).seed;
+            await Promise.all([page.waitForURL(url => url.searchParams.get('seed') !== before), act()]);
+            await page.waitForFunction(() => (window as any).game?.scene?.getScene('bank')?.sys.isActive(), null, { timeout: 60000 });
+            return bank();
+        };
+        let now = await reloaded(() => bar.getByRole('combobox', { name: 'Archetype' }).selectOption('atrium'));
+        expect(now).toMatchObject({ archetype: 'atrium', tier: 'city' });
+        await expect(bar.getByRole('combobox', { name: 'Archetype' })).toHaveValue('atrium');
+        const atrium = now.seed;
+        now = await reloaded(() => bar.getByRole('button', { name: 'Regenerate' }).click());
+        expect(now.archetype).toBe('atrium');
+        expect(now.seed).not.toBe(atrium);
+        // A small branch has no CCTV operator to put on a mezzanine: that pick is greyed out with it.
+        now = await reloaded(() => bar.getByRole('combobox', { name: 'Tier' }).selectOption('small'));
+        await expect(bar.locator('option[value="mezzanineWatch"]')).toBeDisabled();
+        expect(now.tier).toBe('small');
         expect(errors).toEqual([]);
     });
 });

@@ -2,6 +2,7 @@ import Phaser from 'phaser';
 import { registerSW } from 'virtual:pwa-register';
 import { bankFromAddress } from './bankSource';
 import { Briefing } from './ui/Briefing';
+import { GeneratorBar } from './ui/GeneratorBar';
 import { BankScene } from './scenes/BankScene';
 import { OfficerScene } from './scenes/OfficerScene';
 import { PropSheetScene } from './scenes/PropSheetScene';
@@ -33,8 +34,9 @@ const game = new Phaser.Game({
 });
 
 if (bank?.generated) {
-    new Briefing(bank.generated, {
-        reroll: params => { location.search = `?${new URLSearchParams(params)}`; },
+    new Briefing(bank.generated);
+    new GeneratorBar(bank.generated, {
+        regenerate: params => { location.search = `?${new URLSearchParams(params)}`; },
         knowledge: full => (game.scene.getScene('bank') as BankScene).showKnowledge(full)
     });
 }
