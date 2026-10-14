@@ -17,6 +17,7 @@ The full notes for each area, each with 20–25 lessons, pitfalls, ideas, open q
 | Aiming and shot resolution (Phoenix Point, Jagged Alliance, Fallout, XCOM odds, Payday weapon stats) | [aiming.md](research/aiming.md) |
 | NPCs, hostages and police (SWAT 4, Ready or Not, Splinter Cell Blacklist AI, Project Highrise, GTA) | [npcs-hostages-police.md](research/npcs-hostages-police.md) |
 | Procedural banks (Spelunky, Gungeon, Unexplored, XCOM 2 plots, real bank security) | [procedural-banks.md](research/procedural-banks.md) |
+| Procedural interiors: room shapes, furnishing by activity, environmental storytelling (floor-plan and furniture-layout papers, Shadows of Doubt, Skyrim, Heat Signature) | [procedural-interiors.md](research/procedural-interiors.md) |
 | Touch UX and campaign structure (Into the Breach mobile, XCOM iOS, FTL, Hitman Freelancer) | [touch-ux-and-campaign.md](research/touch-ux-and-campaign.md) |
 | Critique of the original concept against all of the above | [concept-critique.md](research/concept-critique.md) |
 
@@ -271,6 +272,36 @@ The finding that came up in every area: a deep simulation is only fun if the pla
     drills and withheld best gear drew backlash.
     → A federal investigation meter is the campaign clock. No grind gates, no prestige resets, no
     microtransactions.
+
+## 10. Generated interiors that tell a story
+
+A second pass (October 2026), after the first generated banks read as big empty rectangles. Unlike the first, its
+claims were adversarially checked; the practitioner sources it cites were fetched but not checked.
+
+49. **Program before geometry, and surplus space becomes another room with a job.** Floor-plan generators start
+    from a graph of room types and neighbours; Shadows of Doubt places rooms in order of importance and lets a room
+    steal floor from one that has too much.
+    → Wing stacks get programs with target areas; leftover space becomes a records room, a counting room or a staff
+    office instead of a stretched office.
+50. **Rectangles, then L-shapes on purpose; never free growth.** Constrained growth (Lopes et al. 2010) gives
+    believable notches and L-rooms; cell-by-cell growth gives pockets "unlike real-world structures" (Green et al.
+    2019). Shapes are scored by corners and concavity, corridors exempt (Merrell et al. 2010).
+    → Shape moves between neighbouring rooms (a corner handed over, a corridor bent round a closet), scored per room
+    type; the hardened core stays rectangular.
+51. **Furnish by activity, with clearance.** Furniture-layout research places functional groups (desk and chair,
+    table and chairs) at set distances and facings, keeps space clear where things are used and along walks between
+    doors, and scores candidates (Yu et al. 2011, Merrell et al. 2011). Wrong orientation is noticed before wrong
+    distance.
+    → Room programs of groups scaled by area, placed by scored candidates with the `Furnisher` as the hard filter;
+    second-tier props stand on desks.
+52. **History on top, and variation that changes play.** Environmental storytelling lets players infer what happened
+    (Smith and Worch, GDC 2010); players notice repeated clutter before repeated architecture (Skyrim); variation not
+    tied to a mechanic is oatmeal (Compton, Short).
+    → A story pass per room by occupant, no vignette twice in a bank, and every shape or group adds cover, a blind
+    corner or a route.
+53. **Measure stealth.** Xu et al. 2014 spread observers with a Voronoi split and measure difficulty as the share of
+    randomized agents that reach the goal unseen.
+    → Cover and sight-line metrics per room in the validation report and the tests.
 
 ---
 

@@ -72,6 +72,31 @@ stairs.
 - **Vault depth**: at least two doors between the public floor and the vault, and the CCTV room doesn't open onto the
   corridor that leads into the core.
 
+## Interiors (in progress)
+
+The first generated banks read as big empty rectangles: a wing's last room stretches to fill what is left, and a
+parcel sized for a typical room furnishes it. The plan, from [research/procedural-interiors.md](research/procedural-interiors.md):
+
+1. **Shapes and programs.** A room is a union of rectangles (`parts`), not one. Each wing gets a program of rooms with
+   target areas; space a program can't use becomes another room with a job (counting room, records room, staff office,
+   conference room, kitchenette) instead of stretching one. Then bounded, scored shape moves between neighbouring rooms:
+   a corner handed to a neighbour (a notch and an L), a corridor bent round a closet, an alcove, a column bay in a wide
+   hall. The shape cost counts corners and concavity per room type, corridors exempt; no U-shapes, no arm under two
+   tiles; the hardened core and the teller line stay rectangles. A locked shortcut goes where two adjacent rooms are far
+   apart by walking.
+2. **Props to furnish with.** Second-tier props that stand on desks and counters (a monitor, a lamp, paperwork, a mug,
+   a photo, a cash counter, a microwave) with a per-prop elevation, and floor props for the new rooms and stories (a
+   meeting table, a coat stand, a whiteboard, cash bags, a cleaning trolley, a wet-floor sign).
+3. **Furnishing by activity.** Each room type is a program of functional groups (workstation, manager's desk with
+   visitor chairs, meeting table, counting table, storage wall, kitchenette, lounge, locker bank, server row), each an
+   anchor and satellites at set offsets and facings, with clearance tiles where they are used. The walks between a
+   room's doors are kept free first. Groups are placed by scored candidates (backed onto a wall, in a corner, by a
+   window, away from the door) with the `Furnisher` as the hard filter, and their number scales with the room's area.
+4. **Stories.** A pass per room from its type and occupant: one or two vignettes (coffee on the desk, cash bags
+   waiting, a cake in the break room, a sticky note with a code that is an opportunity), never the same twice in a bank.
+5. **Metrics.** Shape cost, floor seen from the doors and tall-cover tiles per room in the validation report, asserted
+   in the tests, so a change that makes rooms read as empty again fails.
+
 ## Where it simplifies
 
 - The population, schedules, key graph and opportunities are **data**. The stealth rules that act on them (vision,
