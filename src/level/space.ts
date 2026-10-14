@@ -55,9 +55,19 @@ export type AlignY = 'north' | 'center' | 'south';
  * and deep that is in the object's own frame (by default as many as its footprint needs), turned with it. Within that
  * span the footprint is pushed to a side or centred (in world directions): a one-tile object centred stands in the
  * middle of its tile, one given a two-tile span and centred stands on the line between them. Wall dressing stands on
- * the floor tile in front of its wall, against that wall, at an elevation, facing away from it.
+ * the floor tile in front of its wall, against that wall, at an elevation, facing away from it. `offset` moves it by
+ * whole pixels (world axes) from there: a mug or a monitor stands where it stands on a desk, not only in a tile's middle.
  */
-export interface Placement { tx: number; ty: number; span?: [number, number]; alignX?: AlignX; alignY?: AlignY; elevation?: number; facing?: Facing }
+export interface Placement {
+    tx: number;
+    ty: number;
+    span?: [number, number];
+    alignX?: AlignX;
+    alignY?: AlignY;
+    elevation?: number;
+    facing?: Facing;
+    offset?: [number, number];
+}
 
 /** How far walls reach into a span of tiles from each side; something pushed against a side stands against the wall's face. */
 export interface Insets { north: number; south: number; west: number; east: number }
@@ -90,7 +100,7 @@ export function place(p: Placement, local: Size, insets: Insets = NO_INSETS): Bo
     const clamp = (v: number, start: number, room: number, size: number) => Math.min(start + room - size, Math.max(start, v));
     const x = ax === 'center' ? clamp(align(p.tx * TILE, span.w * TILE, size.w, 'center'), room.x, room.w, size.w) : align(room.x, room.w, size.w, ax === 'west' ? 'low' : 'high');
     const y = ay === 'center' ? clamp(align(p.ty * TILE, span.d * TILE, size.d, 'center'), room.y, room.d, size.d) : align(room.y, room.d, size.d, ay === 'north' ? 'low' : 'high');
-    return { x, y, z: p.elevation ?? 0, w: size.w, d: size.d, h: size.h, facing };
+    return { x: x + (p.offset?.[0] ?? 0), y: y + (p.offset?.[1] ?? 0), z: p.elevation ?? 0, w: size.w, d: size.d, h: size.h, facing };
 }
 
 /** True when two boxes share volume; touching faces don't count, and flat things (no height) never collide. */

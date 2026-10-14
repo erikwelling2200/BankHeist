@@ -1,4 +1,6 @@
 import type { Level, LevelPerson, LevelProp, Room } from '../level/plan';
+import type { RoomMetrics } from './metrics';
+import type { Story } from './parcels';
 
 /*
  * What the procedural bank generator (GAME_DESIGN §17) produces: a level the scene draws like the hand-made one, and
@@ -173,5 +175,8 @@ export interface GeneratedBank {
     timeline: TimelineEvent[];
     opportunities: Opportunity[];
     intel: string[];
-    validation: { results: RuleResult[]; relaxed: string[]; attempts: number };
+    /** The vignettes the story pass left in the rooms (who uses them, what just happened). */
+    stories: Story[];
+    /** The checks of §17.7, and per room how full it is, how much cover it has and how much of it its doors see. */
+    validation: { results: RuleResult[]; relaxed: string[]; attempts: number; metrics: RoomMetrics[] };
 }

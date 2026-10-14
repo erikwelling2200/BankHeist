@@ -17,6 +17,13 @@ import { TIER_SPECS } from './tiers';
 
 const FIRST = ['Ana', 'Ben', 'Carla', 'Dev', 'Elif', 'Femi', 'Greta', 'Hugo', 'Ines', 'Jonas', 'Kofi', 'Lena', 'Marco', 'Nadia', 'Omar', 'Petra', 'Quinn', 'Rosa', 'Sami', 'Tess', 'Umar', 'Vera', 'Wim', 'Yara', 'Zeno'];
 const LAST = ['Adler', 'Bakker', 'Costa', 'Dijk', 'Engel', 'Fischer', 'Garcia', 'Haas', 'Ivanov', 'Jansen', 'Kowal', 'Lund', 'Meyer', 'Novak', 'Okafor', 'Peeters', 'Reyes', 'Smit', 'Tanaka', 'Visser', 'Wouters'];
+/** The desks people work at, by the station's role: what share of them is staffed on a day, and who is drawn there. */
+const DESKS: Record<string, { share: [number, number]; looks: string[] }> = {
+    clerk: { share: [0.45, 0.85], looks: ['officeWorker', 'tellerB', 'teller'] },
+    counter: { share: [0.5, 1], looks: ['headTeller', 'tellerB'] },
+    archivist: { share: [0.3, 0.8], looks: ['officeWorker', 'headTeller'] },
+    technician: { share: [0.2, 0.6], looks: ['itTech'] }
+};
 const CUSTOMERS = ['customerSuit', 'customerCoat', 'customerDress', 'customerCasual', 'customerOld', 'customerHoodie', 'passerby', 'officeWorker'];
 
 export interface Population {
@@ -81,13 +88,21 @@ export function populate(ctx: Ctx): Population {
     if (spec.operator && operator) add({ role: 'operator', look: 'operator', observer: 'staff', tx: operator.tx, ty: operator.ty, facing: operator.facing });
     const breakStation = stationsOf('staff')[0];
     if (breakStation && rng.chance(0.6)) add({ role: 'teller', look: rng.pick(['teller', 'tellerB']), observer: 'staff', tx: breakStation.tx, ty: breakStation.ty, facing: breakStation.facing, traits: ['on break'] });
-    // The cleaner sweeps the staff corridors.
+    // The desks the building has, staffed for today: a seeded share of each kind, so some desks stand empty (out on a
+    // call, on holiday) and which ones changes with the people, not the building.
+    for (const [role, { share, looks }] of Object.entries(DESKS)) {
+        const filled = share[0] + rng.next() * (share[1] - share[0]);
+        for (const s of stationsOf(role)) if (rng.chance(filled)) add({ role, look: rng.pick(looks), observer: 'staff', tx: s.tx, ty: s.ty, facing: s.facing });
+    }
+    // The cleaner starts where their trolley is (the story pass put it somewhere), or anywhere in the staff corridors,
+    // and sweeps the corridors.
     const corridors = bank.filter(r => r.type === 'staffCorridor');
-    const sweepFrom = standAt(freeIn(rng.pick(corridors)));
+    const trolley = stationsOf('cleaner')[0];
+    const sweepFrom = trolley ? { x: trolley.tx, y: trolley.ty } : standAt(freeIn(rng.pick(corridors)));
     if (sweepFrom) {
         const to = freeIn(rng.pick(corridors));
         const path = to && nav.path(sweepFrom, to);
-        add({ role: 'cleaner', look: 'cleaner', observer: 'staff', tx: sweepFrom.x, ty: sweepFrom.y, facing: 'front', ...(path && path.length > 2 ? { route: toTiles(corners(path).slice(1)) } : {}) });
+        add({ role: 'cleaner', look: 'cleaner', observer: 'staff', tx: sweepFrom.x, ty: sweepFrom.y, facing: trolley?.facing ?? 'front', ...(path && path.length > 2 ? { route: toTiles(corners(path).slice(1)) } : {}) });
     }
     // Guards on the posts and routes security planned.
     ctx.guards.forEach(g => {
@@ -166,6 +181,7 @@ function scheduleDay(ctx: Ctx, people: GenPerson[]): { timeline: TimelineEvent[]
     const of = (role: string) => people.filter(p => p.role === role);
     const block = (p: GenPerson, from: number, activity: string, room: string) => p.schedule.push({ from, activity, room });
     const roomAt = (p: GenPerson) => ctx.nav.site.roomAt(p.tx, p.ty);
+    const roomName = (id: string) => ctx.nav.site.room(id).name.toLowerCase();
     for (const p of people) block(p, 1, p.route ? 'patrol' : p.role === 'customer' ? 'queue, then the teller window, then leave' : 'at post', p.route ? 'route' : bank.find(r => r === roomAt(p))?.id ?? 'outside');
 
     if (t.chance(0.25)) timeline.push({ turn: 1, name: 'Opening', detail: 'Staff arrive; the vault day gate opens.' });
@@ -220,7 +236,9 @@ function scheduleDay(ctx: Ctx, people: GenPerson[]): { timeline: TimelineEvent[]
     timeline.push({ turn: close, name: 'Closing time', detail: 'The doors lock, customers leave, and the guards sweep every room. Then the time lock re-engages.' });
     for (const p of people.filter(p => p.observer === 'enforcer')) block(p, close, 'closing sweep', 'all rooms');
 
-    // Opportunities that follow from the building (§17.6).
+    // Opportunities that follow from the building (§17.6); a note left on a desk (the story pass) comes first.
+    const note = ctx.furnished.stories.find(s => s.id === 'sticky-note');
+    if (note) opportunities.unshift({ id: 'sticky-note', text: `A note by a monitor in the ${roomName(note.room)} has the vault code on it.`, found: 'documents' });
     const bribable = people.find(p => p.traits.includes('in debt (bribable)'));
     if (bribable) opportunities.push({ id: 'bribe', text: `${bribable.name}, a teller, is in debt and can be bribed (Smooth Talker) to stay off the alarm.`, found: 'eavesdropping' });
     if (ctx.neighbours.some(n => n.scaffoldTop)) opportunities.push({ id: 'scaffolding', text: 'Renovation scaffolding next door gives roof access.', found: 'intel' });

@@ -29,7 +29,10 @@ export interface GalleryCell { type: RoomType; variant: GalleryVariant; room: st
 
 const CORRIDOR = 2;
 /** Who stands at a station, by its role. */
-const LOOK_OF: Record<string, string> = { manager: 'manager', operator: 'operator', teller: 'teller', driveTeller: 'tellerB', staff: 'tellerB', queue: 'customerSuit', customer: 'customerCoat' };
+const LOOK_OF: Record<string, string> = {
+    manager: 'manager', operator: 'operator', teller: 'teller', driveTeller: 'tellerB', staff: 'tellerB', queue: 'customerSuit', customer: 'customerCoat',
+    clerk: 'officeWorker', counter: 'headTeller', archivist: 'officeWorker', cleaner: 'cleaner', technician: 'itTech', guard: 'guard'
+};
 
 /** The gallery as a bank the scene can draw, with where each room is. Deterministic: `seed` picks the parcels. */
 export function roomGallery(seed = 1): { data: BankData; cells: GalleryCell[] } {

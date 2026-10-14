@@ -94,5 +94,6 @@ function el(tag: string, className = '', text?: string): HTMLElement {
 
 const NEIGHBOUR_NAMES: Record<string, string> = { cafe: 'café', vacantShop: 'vacant shop', garage: 'parking garage', buildingSite: 'building site', shop: 'shop', tower: 'office tower (sniper nest)' };
 const ROLE_NAMES: Record<string, string> = {
-    headTeller: 'head teller', lobbyGuard: 'lobby guard', patrolGuard: 'patrol guard', chief: 'security chief', operator: 'CCTV operator', 'passer-by': 'passer-by'
+    headTeller: 'head teller', lobbyGuard: 'lobby guard', patrolGuard: 'patrol guard', chief: 'security chief', operator: 'CCTV operator', 'passer-by': 'passer-by',
+    clerk: 'clerk', counter: 'cash counter', archivist: 'archivist', technician: 'ATM technician'
 };

@@ -52,7 +52,7 @@ export function propArt(p: LevelProp, s: Size, facing: Facing): PropArt {
         case 'alarmPanel': return alarmPanel(s, facing);
         case 'breakerPanel': return breakerPanel(s, facing);
         case 'cctvDesk': return cctvDesk(s, facing);
-        case 'desk': return desk(s, facing);
+        case 'desk': return desk(s, facing, p.bare === true);
         case 'officeChair': return officeChair(s, facing);
         case 'bookshelf': return bookshelf(s, facing);
         case 'lockers': return lockers(s, facing);
@@ -60,10 +60,10 @@ export function propArt(p: LevelProp, s: Size, facing: Facing): PropArt {
         case 'mopBucket': return mopBucket(s, facing);
         case 'atmBack': return atmBack(s, facing);
         case 'boxes': return boxes(s, facing);
-        case 'diningTable': return diningTable(s, facing);
+        case 'diningTable': return diningTable(s, facing, p.bare === true);
         case 'chair': return chair(s, facing);
         case 'fridge': return fridge(s, facing);
-        case 'kitchenCounter': return kitchenCounter(s, facing);
+        case 'kitchenCounter': return kitchenCounter(s, facing, p.bare === true);
         case 'toilet': return toilet(s, facing);
         case 'washbasin': return washbasin(s, facing);
         case 'cafeTable': return cafeTable(s, facing);

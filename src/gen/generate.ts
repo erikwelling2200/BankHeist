@@ -10,6 +10,7 @@ import type { Site } from './site';
 import { rollTier, TIER_SPECS, type TierSpec } from './tiers';
 import { placeWays } from './approaches';
 import { keyGraph } from './keys';
+import { roomMetrics } from './metrics';
 import { Nav } from './nav';
 import { furnishBank } from './parcels';
 import { populate } from './population';
@@ -169,6 +170,7 @@ function finishBank(shell: Shell, rng: Rng, people: Rng, spec: TierSpec, opts: G
     const pop = populate({ rng: people, tier, headlines, bank, neighbours: shell.neighbours, furnished, guards, nav, furnish, timeLock, softDepositWall, sidewalkY: plot.sidewalkY, width: site.width });
     const locks = keyGraph({ archetype, vaultClass, timeLock, dualControl: spec.dualControl, rooms: bank, doors: site.doors, people: pop.people });
     const results = validate({ site, nav, bank, doors: site.doors, approaches: ways.approaches, cameras, guards, furnished, getaways: ways.getaways, exits: ways.exits, traffic, tall });
+    const metrics = roomMetrics(nav, bank, furnish.boxes, tall);
     const named = rng.fork('name');
     return {
         seed: { layout: opts.layout, population: opts.population },
@@ -177,6 +179,6 @@ function finishBank(shell: Shell, rng: Rng, people: Rng, spec: TierSpec, opts: G
         level: site.level(), rooms: site.rooms, doors: site.doors, props: site.props, people: pop.people, cameras, locks,
         approaches: ways.approaches, routes: ways.routes, getaways: ways.getaways, exits: ways.exits, staging: ways.staging,
         neighbours: shell.neighbours.map(n => n.slot.kind), timeline: pop.timeline, opportunities: pop.opportunities, intel: pop.intel,
-        validation: { results, relaxed: [], attempts: 0 }
+        stories: furnished.stories, validation: { results, relaxed: [], attempts: 0, metrics }
     };
 }

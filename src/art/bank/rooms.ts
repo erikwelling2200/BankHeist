@@ -163,19 +163,30 @@ export function cctvDesk(s: Size, facing: Facing): PropArt {
     return view.art();
 }
 
-/** The manager's desk: walnut pedestals with drawers, a leather inlay, papers, a banker's lamp and a monitor facing the chair behind it. */
-export function desk(s: Size, facing: Facing): PropArt {
-    const t = new Turn(s, facing), view = new View(t.w, t.d, s.h, { headroom: 7 });
+/**
+ * The manager's desk: walnut pedestals with drawers, a leather inlay, papers, a banker's lamp and a monitor facing the
+ * chair behind it. A bare desk is only the desk, for a generated room to dress with props of its own.
+ */
+export function desk(s: Size, facing: Facing, bare = false): PropArt {
+    const t = new Turn(s, facing), view = new View(t.w, t.d, s.h, { headroom: bare ? 0 : 7 });
     const legs = s.h - 2, ped = 6;
     const drawers = (u: number, v: number) => (v === 0 ? W[4] : v % 3 === 0 ? W[1] : v % 3 === 1 && (u === 2 || u === 3) ? PAL.brass[4] : W[3]);
-    t.draw(view, [
+    const desk: [Part, Faces][] = [
         [part(0, 1, 0, ped, s.d - 2, legs), { front: drawers, back: W[2], sides: rows(v => (v === 0 ? W[3] : W[2])), top: W[2] }],
         [part(s.w - ped, 1, 0, ped, s.d - 2, legs), { front: drawers, back: W[2], sides: rows(v => (v === 0 ? W[3] : W[2])), top: W[2] }],
         [part(ped, 1, 1, s.w - ped * 2, 1, legs - 1), { sides: W[2], back: W[2], front: W[1] }],
         [part(0, 0, legs, s.w, s.d, 2), {
             top: (u, v) => (v === s.d - 1 ? W[5] : u > 2 && u < s.w - 3 && v > 1 && v < s.d - 2 ? (v === 2 ? PAL.leaf[2] : PAL.leaf[1]) : W[4]),
             sides: rows(v => (v === 0 ? W[4] : W[2])), corner: 1
-        }],
+        }]
+    ];
+    if (bare) {
+        t.draw(view, desk);
+        view.outline(0.3);
+        return view.art();
+    }
+    t.draw(view, [
+        ...desk,
         [part(3, 4, s.h, 5, 3, 0), { top: rows(v => (v === 0 ? PAL.paper[2] : PAL.paper[3])) }],
         [part(12, 1, s.h, 1, 1, 4), { sides: S[1], top: S[1] }],
         [part(10, 1, s.h + 3, 6, 1, 4), { back: rows(v => (v === 0 ? PAL.emissive.screen[2] : PAL.emissive.screen[1])), front: S[1], sides: S[0], top: S[1], glow: facing === 'north' }],
@@ -327,15 +338,15 @@ export function boxes(s: Size, facing: Facing): PropArt {
     return view.art();
 }
 
-/** The break room's table: an oak veneer top on four legs, two mugs and a folded newspaper. */
-export function diningTable(s: Size, facing: Facing): PropArt {
-    const t = new Turn(s, facing), view = new View(t.w, t.d, s.h, { headroom: 2 });
+/** The break room's table: an oak veneer top on four legs, two mugs and a folded newspaper; a bare one has only its top. */
+export function diningTable(s: Size, facing: Facing, bare = false): PropArt {
+    const t = new Turn(s, facing), view = new View(t.w, t.d, s.h, { headroom: bare ? 0 : 2 });
     const legs = s.h - 2, parts: [Part, Faces][] = [];
     for (const [x, y] of [[1, 1], [s.w - 2, 1], [1, s.d - 2], [s.w - 2, s.d - 2]] as const) parts.push([part(x, y, 0, 1, 1, legs), { sides: S[2], top: S[2] }]);
     parts.push([part(0, 0, legs, s.w, s.d, 2), { top: (u, v) => (v === s.d - 1 ? O[4] : (u * 3 + v) % 11 === 0 ? O[2] : O[3]), sides: rows(v => (v === 0 ? O[3] : O[1])), corner: 1 }]);
-    parts.push([part(4, 3, s.h, 6, 4, 0), { top: (u, v) => (v === 0 ? PAL.ink : u === 3 ? PAL.paper[1] : PAL.paper[2]) }]);
+    if (!bare) parts.push([part(4, 3, s.h, 6, 4, 0), { top: (u, v) => (v === 0 ? PAL.ink : u === 3 ? PAL.paper[1] : PAL.paper[2]) }]);
     t.draw(view, parts);
-    for (const [mx, my, c] of [[13.5, 4.5, PAL.paper[3]], [15.5, 7.5, PAL.carpet[3]]] as const) {
+    if (!bare) for (const [mx, my, c] of [[13.5, 4.5, PAL.paper[3]], [15.5, 7.5, PAL.carpet[3]]] as const) {
         const [x, y] = t.point(mx, my);
         view.cylinder(x, y, 1, s.h, 2, a => (a < 0 ? c : mix(c, PAL.ink, 0.2)), () => W[0]);
     }
@@ -373,9 +384,9 @@ export function fridge(s: Size, facing: Facing): PropArt {
 
 /**
  * The break room's kitchenette: white cupboards under a dark worktop, a steel sink with its tap, a microwave with its
- * clock glowing, and a kettle.
+ * clock glowing, and a kettle. A bare one keeps its sink and tap; what stands on its worktop is placed on its own.
  */
-export function kitchenCounter(s: Size, facing: Facing): PropArt {
+export function kitchenCounter(s: Size, facing: Facing, bare = false): PropArt {
     const t = new Turn(s, facing), view = new View(t.w, t.d, s.h, { headroom: 6 });
     const base = s.h - 1, K = PAL.cloth.charcoal;
     t.draw(view, [
@@ -388,13 +399,13 @@ export function kitchenCounter(s: Size, facing: Facing): PropArt {
         }],
         [part(7, 0, s.h, 1, 2, 3), { sides: S[4], top: S[5] }],
         [part(7, 1, s.h + 2, 1, 2, 1), { sides: S[4], top: S[5] }],
-        [part(17, 0, s.h, 8, 6, 5), {
+        ...(bare ? [] : [[part(17, 0, s.h, 8, 6, 5), {
             top: C[3]!, back: C[1]!, sides: C[1]!, corner: 1,
-            front: (u, v) => (u === 0 || u === 7 || v === 0 || v === 4 ? C[2]! : u === 6 ? (v === 1 ? PAL.emissive.exitGreen[1] : S[2]) : u < 5 ? (v === 1 ? PAL.glass[2] : PAL.ink) : C[2]!)
-        }]
+            front: (u: number, v: number) => (u === 0 || u === 7 || v === 0 || v === 4 ? C[2]! : u === 6 ? (v === 1 ? PAL.emissive.exitGreen[1] : S[2]) : u < 5 ? (v === 1 ? PAL.glass[2] : PAL.ink) : C[2]!)
+        }] as [Part, Faces]])
     ]);
     const [kx, ky] = t.point(s.w - 3.5, s.d / 2);
-    view.cylinder(kx, ky, 1.4, s.h, 3, a => roundBands([S[0], S[1], S[2], S[3], S[5]], a), () => S[1]);
+    if (!bare) view.cylinder(kx, ky, 1.4, s.h, 3, a => roundBands([S[0], S[1], S[2], S[3], S[5]], a), () => S[1]);
     view.outline(0.3);
     return view.art();
 }

@@ -109,7 +109,7 @@ export interface Room {
  * elevation. Things that stand on another prop (a monitor on a desk) take their elevation from the level: the height of
  * that prop's top, in pixels.
  */
-type Placed = { tx: number; ty: number } & Partial<Pick<Placement, 'span' | 'alignX' | 'alignY' | 'facing' | 'elevation'>>;
+type Placed = { tx: number; ty: number } & Partial<Pick<Placement, 'span' | 'alignX' | 'alignY' | 'facing' | 'elevation' | 'offset'>>;
 
 export type LevelProp = Placed & (
     | { kind: 'counter'; width: number; stations: number[]; closed: number[]; gate: number }
@@ -122,8 +122,11 @@ export type LevelProp = Placed & (
     | { kind: 'van' }
     | { kind: 'depositBoxes' | 'cashShelf' | 'vaultConsole' | 'serverRack' | 'cashCart' }
     | { kind: 'alarmPanel' | 'breakerPanel' | 'menuBoard' | 'wallLadder' }
-    | { kind: 'cctvDesk' | 'desk' | 'officeChair' | 'bookshelf' | 'lockers' | 'shelving' | 'mopBucket' | 'atmBack' | 'boxes' }
-    | { kind: 'diningTable' | 'chair' | 'fridge' | 'kitchenCounter' | 'toilet' | 'washbasin' }
+    | { kind: 'cctvDesk' | 'officeChair' | 'bookshelf' | 'lockers' | 'shelving' | 'mopBucket' | 'atmBack' | 'boxes' }
+    | { kind: 'chair' | 'fridge' | 'toilet' | 'washbasin' }
+    // Tops drawn with their own dressing (a desk's monitor and lamp, a table's mugs, a counter's microwave), unless `bare`:
+    // then what stands on them is placed as props of its own.
+    | { kind: 'desk' | 'diningTable' | 'kitchenCounter'; bare?: boolean }
     | { kind: 'cafeTable' | 'cafeCounter' }
     | { kind: 'dumpster' | 'generator' }
     | { kind: 'tree' | 'bench' | 'rifleCase' }

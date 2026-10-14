@@ -1,6 +1,6 @@
 import { TILE } from './level';
 import type { LevelProp } from './plan';
-import { place, px, spanOf, type AlignX, type AlignY, type Box, type Facing, type Size } from './space';
+import { place, px, spanOf, type AlignX, type AlignY, type Box, type Facing, type Placement, type Size } from './space';
 import { wallInsets, type Wall } from './walls';
 
 /**
@@ -152,19 +152,27 @@ export const propSize = (p: LevelProp): Size => CATALOG[p.kind].size(p);
  * tiles, it stands against the face of the level's wall there.
  */
 export function propBox(p: LevelProp, walls: readonly Wall[]): Box {
+    const size = propSize(p), placement = propPlacement(p), span = spanOf(placement, size);
+    return place(placement, size, wallInsets(walls, span.tx, span.ty, span.w, span.d));
+}
+
+/** The tiles a prop takes in the world (before any offset), from its catalog entry and the level's overrides. */
+export function propSpan(p: LevelProp): { tx: number; ty: number; w: number; d: number } {
+    return spanOf(propPlacement(p), propSize(p));
+}
+
+function propPlacement(p: LevelProp): Placement {
     const spec = CATALOG[p.kind];
-    const size = spec.size(p);
     const elevation = p.elevation ?? spec.elevation;
     if (spec.onTop && elevation === undefined) throw new Error(`A ${p.kind} at (${p.tx}, ${p.ty}) stands on another prop: give it the elevation of that prop's top`);
-    const placement = {
+    return {
         facing: p.facing ?? spec.facing,
         tx: p.tx,
         ty: p.ty,
         span: p.span ?? spec.span?.(p),
         alignX: p.alignX ?? spec.alignX,
         alignY: p.alignY ?? spec.alignY,
-        elevation
+        elevation,
+        offset: p.offset
     };
-    const span = spanOf(placement, size);
-    return place(placement, size, wallInsets(walls, span.tx, span.ty, span.w, span.d));
 }

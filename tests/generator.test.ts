@@ -1,21 +1,23 @@
 import { describe, expect, it } from 'vitest';
 import { roomLamps } from '../src/art/bank/lamps';
-import { SHORTCUT_DETOUR } from '../src/gen/build';
-import { Furnisher } from '../src/gen/furnish';
+import { connect, defaultWalls, SHORTCUT_DETOUR } from '../src/gen/build';
+import { cctvConsole, countingTable, deskPair, kitchenette, lounge, managerDesk, meeting, viewingTable, workstation } from '../src/gen/activities';
+import { RoomPlan, type GroupDef } from '../src/gen/groups';
+import { Furnisher, type Placed } from '../src/gen/furnish';
 import { archetypesFor, buildShell, generateBank, parseSeed, rollShape, seedText, type Shell } from '../src/gen/generate';
 import { REPEATABLE } from '../src/gen/layout';
 import { ARCHETYPES, PLOTS, TIERS, type GeneratedBank, type GenRoom, type RoomType, type Tier, type Archetype, type PlotKind } from '../src/gen/model';
 import { Nav } from '../src/gen/nav';
 import { GALLERY_TYPES, GALLERY_VARIANTS, roomGallery } from '../src/gen/gallery';
-import { PARCELS } from '../src/gen/parcels';
+import { emptyFurnished, PARCELS } from '../src/gen/parcels';
 import { Rng } from '../src/gen/rng';
 import { ROOM_RULES } from '../src/gen/rooms';
-import { tilesOf } from '../src/gen/site';
+import { edgeBetween, edgeKey, Site, tilesOf } from '../src/gen/site';
 import { TIER_SPECS } from '../src/gen/tiers';
 import { TILE } from '../src/level/level';
-import { propBox } from '../src/level/catalog';
+import { isOnTop, propBox } from '../src/level/catalog';
 import { isOffMap, parsePlan, toPlan } from '../src/level/plan';
-import { boxesOverlap, PERSON_SIZE, place, WALL_HEIGHT, type Box } from '../src/level/space';
+import { boxesOverlap, FACINGS, PERSON_SIZE, place, supportOf, WALL_HEIGHT, type Box, type Facing } from '../src/level/space';
 import { wallFootprint } from '../src/level/walls';
 
 /*
@@ -330,5 +332,177 @@ describe('the room gallery', () => {
         for (const c of cells) expect(front(c).some(w => !w || w.kind.startsWith('door') || w.kind === 'vaultDoor' || w.kind === 'shutter'), `${c.type} ${c.variant}`).toBe(true);
         expect(data.props.length).toBeGreaterThan(cells.length * 2);
         expect(JSON.stringify(roomGallery().data)).toBe(JSON.stringify(data));
+    });
+});
+
+/** Every tier, archetype and plot once (layout seeds apart), for the checks that need a sweep. */
+const sweep: GeneratedBank[] = [];
+{
+    let k = 0;
+    for (const tier of TIERS) for (const archetype of archetypesFor(tier)) for (const plot of PLOTS) sweep.push(bank(5000 + 37 * k, ++k, { tier, archetype, plot }));
+}
+
+/** A generated level as the furniture leaves it: which room each tile is in, the tiles furniture blocks, the walls. */
+function siteOf(b: GeneratedBank): { roomAt: (x: number, y: number) => GenRoom | undefined; blocked: Set<string>; walls: Set<string> } {
+    const owner = new Map<string, GenRoom>();
+    for (const r of b.rooms) for (const p of r.parts) for (let y = p.y; y < p.y + p.h; y++) for (let x = p.x; x < p.x + p.w; x++) owner.set(`${x},${y}`, r);
+    const blocked = new Set<string>();
+    for (const p of b.props) {
+        const box = propBox(p, b.level.walls);
+        if (box.h === 0 || box.z >= PERSON_SIZE.h) continue;
+        for (let y = Math.floor(box.y / TILE) - 1; y <= Math.floor((box.y + box.d) / TILE) + 1; y++) for (let x = Math.floor(box.x / TILE) - 1; x <= Math.floor((box.x + box.w) / TILE) + 1; x++) {
+            if (p.kind === 'counter' && p.gate === x && p.ty === y) continue;
+            if (boxesOverlap(box, place({ tx: x, ty: y }, PERSON_SIZE))) blocked.add(`${x},${y}`);
+        }
+    }
+    const doors = new Set(b.doors.map(d => edgeKey(d)));
+    const walls = new Set(b.level.walls.map(w => edgeKey(w)).filter(k => !doors.has(k)));
+    return { roomAt: (x, y) => owner.get(`${x},${y}`), blocked, walls };
+}
+
+/*
+ * Furnishing by activity (generator.md, Interiors steps 3–5): rooms are furnished with functional groups turned as one,
+ * the walks between their doors kept free, desks staffed by a share of the people, a story or two per room, and the
+ * room metrics in the validation report.
+ */
+describe('furnishing by activity', () => {
+    /** A room `w` by `h` with walls round it and a door in its south wall, alone on a site. */
+    const lone = (w: number, h: number) => {
+        const site = new Site(w + 4, h + 4), rng = new Rng(5);
+        const room = site.addRoom('staffOffice', { x: 2, y: 2, w, h }, { wing: 'centre', bank: true });
+        const ring = [site.addRoom('staffCorridor', { x: 0, y: 0, w: w + 4, h: 2 }, { wing: 'centre', bank: true }), site.addRoom('staffCorridor', { x: 0, y: h + 2, w: w + 4, h: 2 }, { wing: 'centre', bank: true }),
+            site.addRoom('staffCorridor', { x: 0, y: 2, w: 2, h }, { wing: 'centre', bank: true }), site.addRoom('staffCorridor', { x: w + 2, y: 2, w: 2, h }, { wing: 'centre', bank: true })];
+        defaultWalls(site, { rng, oldBank: false, softOutside: false, softNeighbours: new Set() });
+        if (!connect(site, room, ring[1]!, 'none', rng)) throw new Error('No door for the test room');
+        const f = new Furnisher(site);
+        return { site, f, plan: new RoomPlan(room, f, rng, emptyFurnished(), site) };
+    };
+    const STEP: Record<Facing, [number, number]> = { north: [0, -1], south: [0, 1], east: [1, 0], west: [-1, 0] };
+    const tilesOfBox = (b: Box) => {
+        const out: string[] = [];
+        for (let y = Math.floor(b.y / TILE); y <= Math.floor((b.y + b.d - 1) / TILE); y++) for (let x = Math.floor(b.x / TILE); x <= Math.floor((b.x + b.w - 1) / TILE); x++) out.push(`${x},${y}`);
+        return out;
+    };
+    const GROUPS: GroupDef[] = [
+        workstation('clerk', 'lamp'), workstation('clerk', 'papers'), deskPair('clerk'), managerDesk(true), meeting(1, 'meetingTable'), meeting(1, 'diningTable', 'dining'),
+        countingTable(), kitchenette('staff'), lounge(), cctvConsole(), viewingTable()
+    ];
+
+    it('turns every group as one in all four facings, mirrored or not: chairs face their desk, tops stand on it, people stand at it', () => {
+        const bad: string[] = [];
+        for (const def of GROUPS) for (const facing of FACINGS) for (const mirror of [false, true]) {
+            const { f, plan } = lone(9, 9), label = `${def.name} facing ${facing}${mirror ? ' mirrored' : ''}`;
+            plan.walks();
+            const g = plan.group(def, { facings: [facing], mirror });
+            if (!g) { bad.push(`${label} doesn't fit an empty room`); continue; }
+            const anchors = g.placed.filter((b, i): b is Placed => !!b && !!def.pieces[i]!.tag && !def.pieces[i]!.on);
+            const anchorTiles = new Set(anchors.flatMap(a => tilesOfBox(a.box)));
+            for (const [i, b] of g.placed.entries()) {
+                if (!b) continue;
+                const piece = def.pieces[i]!;
+                if (piece.on && supportOf(b.box, f.boxes.map(x => x.box)) !== g.placed[piece.on.piece]!.box) bad.push(`${label}: ${piece.kind} isn't on its ${def.pieces[piece.on.piece]!.kind}`);
+                if ((b.prop.kind === 'chair' || b.prop.kind === 'officeChair') && anchors.length) {
+                    const [dx, dy] = STEP[b.box.facing];
+                    if (!anchorTiles.has(`${b.prop.tx + dx},${b.prop.ty + dy}`)) bad.push(`${label}: a chair at ${b.prop.tx},${b.prop.ty} faces ${b.box.facing}, away from its table`);
+                }
+            }
+            for (const s of g.stations) {
+                const at = (Object.entries(STEP) as [Facing, [number, number]][]).find(([, [dx, dy]]) => anchorTiles.has(`${s.tx + dx},${s.ty + dy}`));
+                if (!at) bad.push(`${label}: the ${s.role} stands away from the desk`);
+                else if (at[0] === 'north' && s.facing !== 'back') bad.push(`${label}: the ${s.role} turns their back on the desk`);
+                else if (at[0] === 'south' && s.facing !== 'front') bad.push(`${label}: the ${s.role} turns their back on the desk`);
+            }
+        }
+        expect(bad).toEqual([]);
+    });
+
+    it('keeps the walk between a room\'s doors free, so every door of every room reaches every other inside it', () => {
+        const cut: string[] = [];
+        for (const b of sweep) {
+            const site = siteOf(b);
+            for (const room of b.rooms.filter(r => r.bank && r.zone !== 'outdoors' && !['lobby', 'tellerLine', 'stairwell', 'mezzanine'].includes(r.type))) {
+                const inside = b.doors.filter(d => d.a === room.id || d.b === room.id).map(d => tilesOf(d).find(t => site.roomAt(t.x, t.y)?.id === room.id)!);
+                if (inside.length < 2) continue;
+                const seen = new Set([`${inside[0]!.x},${inside[0]!.y}`]), queue = [inside[0]!];
+                while (queue.length) {
+                    const p = queue.pop()!;
+                    for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]] as const) {
+                        const q = { x: p.x + dx, y: p.y + dy }, k = `${q.x},${q.y}`;
+                        if (seen.has(k) || site.roomAt(q.x, q.y)?.id !== room.id || site.blocked.has(k) || site.walls.has(edgeKey(edgeBetween(p, q)))) continue;
+                        seen.add(k);
+                        queue.push(q);
+                    }
+                }
+                for (const t of inside) if (!seen.has(`${t.x},${t.y}`)) cut.push(`${b.tier} ${b.archetype} ${b.plot}: ${room.id} door at ${t.x},${t.y}`);
+            }
+        }
+        expect(cut).toEqual([]);
+    });
+
+    it('fills the staff and secure rooms (no more than 12 tiles of floor per piece of furniture) and gives the staff rooms tall cover', () => {
+        const empty: string[] = [], bare: string[] = [];
+        const PASSAGES: RoomType[] = ['staffCorridor', 'loadingBay', 'mantrap', 'stairwell', 'mezzanine'];
+        for (const b of sweep) {
+            const metrics = b.validation.metrics, type = (id: string) => b.rooms.find(r => r.id === id)!;
+            expect(metrics.length, `${b.tier} ${b.archetype} ${b.plot}`).toBe(b.rooms.filter(r => r.bank).length);
+            for (const m of metrics) if (type(m.room).zone !== 'public' && !PASSAGES.includes(m.type) && m.tilesPerPiece > 12) empty.push(`${b.tier} ${b.archetype} ${b.plot}: ${m.room} ${m.area} tiles, ${m.furniture} pieces`);
+            const staff = metrics.filter(m => type(m.room).zone === 'staff' && !PASSAGES.includes(m.type));
+            const tall = staff.reduce((s, m) => s + m.tallTiles, 0) / staff.length;
+            if (tall < 1) bare.push(`${b.tier} ${b.archetype} ${b.plot}: ${tall.toFixed(2)} tall tiles per staff room`);
+            for (const m of metrics) expect(m.seenFromDoors, m.room).toBeLessThanOrEqual(1);
+        }
+        expect(empty).toEqual([]);
+        expect(bare).toEqual([]);
+    });
+
+    it('stands everything on a top on a top at its height, and passes §17.7 across every tier, archetype and plot', () => {
+        const failures: string[] = [];
+        for (const b of sweep) {
+            const boxes = b.props.map(p => propBox(p, b.level.walls));
+            b.props.forEach((p, i) => { if (isOnTop(p.kind)) expect(() => supportOf(boxes[i]!, boxes), `${p.kind} at ${p.tx},${p.ty}`).not.toThrow(); });
+            for (const r of b.validation.results) if (!r.ok && !b.validation.relaxed.includes(r.rule)) failures.push(`${b.tier} ${b.archetype} ${b.plot}: ${r.rule}`);
+        }
+        expect(failures).toEqual([]);
+    });
+
+    it('uses the arms of an L: something stands in the arm, not only in the largest part', () => {
+        const { data, cells } = roomGallery();
+        const missing: string[] = [];
+        for (const c of cells.filter(c => c.variant === 'L-shaped' && !['mantrap', 'restroom', 'antechamber'].includes(c.type))) {
+            const room = data.rooms.find(r => r.name.endsWith('(L-shaped)') && r.x === c.x && r.y === c.y)!;
+            const arm = room.parts![1]!;
+            const inArm = data.props.some(p => p.tx >= arm.x && p.tx < arm.x + arm.w && p.ty >= arm.y && p.ty < arm.y + arm.h && !isOnTop(p.kind));
+            if (!inArm) missing.push(c.type);
+        }
+        expect(missing).toEqual([]);
+    });
+
+    it('records who works at each desk, and staffs a share of them from the population seed', () => {
+        const roles = new Set(sweep.flatMap(b => b.people.map(p => p.role)));
+        for (const role of ['clerk', 'counter']) expect(roles.has(role), role).toBe(true);
+        const a = bank(4242, 7), other = bank(4242, 8);
+        const desks = (b: GeneratedBank) => b.people.filter(p => p.role === 'clerk').map(p => `${p.tx},${p.ty}`).sort();
+        expect(other.props).toEqual(a.props);
+        expect(desks(other)).not.toEqual(desks(a));
+        // Not every desk is staffed: across the sweep some stand empty.
+        const clerks = sweep.reduce((s, b) => s + b.people.filter(p => p.role === 'clerk').length, 0);
+        const chairs = sweep.reduce((s, b) => s + b.props.filter(p => p.kind === 'officeChair').length, 0);
+        expect(clerks).toBeGreaterThan(0);
+        expect(clerks).toBeLessThan(chairs);
+    });
+
+    it('tells a story or two per room, never the same one twice in a bank, and turns the note on a desk into an opportunity', () => {
+        let notes = 0;
+        for (const b of sweep) {
+            expect(b.stories.length, `${b.tier} ${b.archetype} ${b.plot}`).toBeGreaterThan(3);
+            const ids = b.stories.map(s => s.id);
+            expect(new Set(ids).size, `${b.tier} ${b.archetype} ${b.plot}`).toBe(ids.length);
+            for (const room of new Set(b.stories.map(s => s.room))) expect(b.stories.filter(s => s.room === room).length).toBeLessThanOrEqual(2);
+            if (ids.includes('sticky-note')) {
+                notes++;
+                expect(b.opportunities.find(o => o.id === 'sticky-note'), `${b.tier} ${b.archetype} ${b.plot}`).toMatchObject({ found: 'documents' });
+            }
+        }
+        expect(notes).toBeGreaterThan(sweep.length / 4);
     });
 });
