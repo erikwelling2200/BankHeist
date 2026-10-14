@@ -1,6 +1,7 @@
 import Phaser from 'phaser';
 import { registerSW } from 'virtual:pwa-register';
 import { BankScene } from './scenes/BankScene';
+import { OfficerScene } from './scenes/OfficerScene';
 import { PropSheetScene } from './scenes/PropSheetScene';
 import { VaultScene } from './scenes/VaultScene';
 import { Fullscreen } from './ui/Fullscreen';
@@ -20,8 +21,8 @@ const game = new Phaser.Game({
     physics: { default: 'arcade', arcade: { debug: false } },
     input: { activePointers: 3 },
     // The example bank opens by default; `?scene=props` shows every prop in its four facings, `?scene=demo` the old
-    // stack demo. `?scene=lobby` is an older link to the bank.
-    scene: [{ bank: BankScene, lobby: BankScene, props: PropSheetScene, demo: VaultScene }[new URLSearchParams(location.search).get('scene') ?? 'bank'] ?? BankScene]
+    // stack demo, `?scene=officer` the police officer's animation preview. `?scene=lobby` is an older link to the bank.
+    scene: [{ bank: BankScene, lobby: BankScene, props: PropSheetScene, officer: OfficerScene, demo: VaultScene }[new URLSearchParams(location.search).get('scene') ?? 'bank'] ?? BankScene]
 });
 
 // Handle for Playwright tests and console debugging.

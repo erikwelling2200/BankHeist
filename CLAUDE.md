@@ -6,7 +6,8 @@ Top-down 2D pixel-art stealth game. Phaser 4 + TypeScript + Vite, shipped as an 
 - `docs/design/GAME_DESIGN.md` is the source of truth for how the game plays: rules, numbers, canonical tables and the
   milestone order (§22). The current playable content is only a stack demo and doesn't reflect it.
 - `docs/design/visual-preview.md` holds the visual style card, the lighting model and the example bank built to settle
-  them; it is the default page (`/`). The old stack demo is at `/?scene=demo`, the prop sheet at `/?scene=props`.
+  them; it is the default page (`/`). The old stack demo is at `/?scene=demo`, the prop sheet at `/?scene=props`, the
+  police officer's animation preview at `/?scene=officer`.
 - `docs/design/research.md` holds the key research findings behind each design decision, with the full notes per area in
   `docs/design/research/`.
 - The design's hard promises: the safe-floor overlay and every preview use the same rules as the real outcome; every
@@ -58,7 +59,11 @@ Top-down 2D pixel-art stealth game. Phaser 4 + TypeScript + Vite, shipped as an 
   rest are cut down to `CUT_HEIGHT` (`BankScene.updateWalls`), so paint wall faces by height above the floor, and
   anything whose look depends on a wall's height (its exposure, the cloud shadows, dressing hung on it) has to follow it.
 - Before generating or restyling art, read `docs/pixel-art/PROMPTING.md` (rules) and `docs/pixel-art/README.md`
-  (findings, example scripts in `scripts/pixel-art/`).
+  (findings, example scripts in `scripts/pixel-art/`); before animating, `docs/pixel-art/animation.md`.
+- Animated characters are keyed poses painted by a rig (`src/art/bank/officer.ts`: joints per frame, hand-drawn head,
+  shoe and gun pieces), so volumes stay identical between frames. Choreography is data: cels with durations, a whole-pixel
+  `step` or `glide` for the footing and cues (`src/logic/timeline.ts`); a side-on walk steps exactly as far as the
+  planted foot slides back in the drawing. Hold every telegraph (an aim, a glance) at least 300ms.
 - Camera post-processing (bloom, vignette) lives in `VaultScene.create`. Phaser's vignette goes near black at its
   radius, so keep `strength` low.
 - The HUD is an HTML overlay (`src/ui/Hud.ts`) so text stays crisp, not canvas text.

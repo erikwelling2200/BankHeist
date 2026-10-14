@@ -47,6 +47,8 @@ Example:
 ## Things that went wrong before (avoid)
 
 - Bright saturated colours, thick black outlines and big heads read as a kids' game.
+- Even a coloured outline ring around a figure (sel-out drawn outside it) makes characters look like stickers on a
+  realistic scene. Edge figures the way props are edged, inside the silhouette (`src/art/bank/edges.ts`).
 - Ordered dithering over every gradient makes surfaces noisy.
 - Locking a small palette can push colours to the wrong hue family (green marble went purple); add ramps for each
   material.

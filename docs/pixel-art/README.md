@@ -2,7 +2,8 @@
 
 Notes from a session in which Claude generated pixel art entirely in code (Python + Pillow + numpy, no image
 model), iterating on a bank lobby scene. The scripts are in `scripts/pixel-art/` and every version of the output is
-in `examples/`. How to ask for new art is in [PROMPTING.md](PROMPTING.md).
+in `examples/`. How to ask for new art is in [PROMPTING.md](PROMPTING.md); how to animate it is in
+[animation.md](animation.md).
 
 ## What Claude can and can't do
 

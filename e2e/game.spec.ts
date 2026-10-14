@@ -235,3 +235,44 @@ test('renders every prop in its four facings', async ({ page }) => {
     await page.locator('canvas').screenshot({ path: 'screenshots/props.png' });
     expect(errors).toEqual([]);
 });
+
+test.describe('the police officer preview', () => {
+    const officer = (page: Page) => page.evaluate(() => (window as any).game.scene.getScene('officer').debugState);
+    const open = async (page: Page) => {
+        const errors: string[] = [];
+        page.on('pageerror', e => errors.push(e.message));
+        page.on('console', m => { if (m.type() === 'error') errors.push(m.text()); });
+        await page.goto('/?scene=officer');
+        await page.waitForFunction(() => (window as any).game?.scene.getScene('officer')?.sys.isActive(), undefined, { timeout: 60000 });
+        return errors;
+    };
+
+    test('plays the walk, the shots, the dive and the shots over cover, and loops', async ({ page }) => {
+        const errors = await open(page);
+        const start = await officer(page);
+        await expect.poll(async () => (await officer(page)).x, { timeout: 15000 }).toBeGreaterThan(start.x + 20);
+        // Each beat, held for a screenshot; a shot's beat shows its muzzle flash.
+        const beats: [string, string][] = [['walk', 'walkEast3'], ['aim', 'aimWest'], ['shot', 'kickWest'], ['dive', 'flyWest'], ['cover', 'coverEastLook'], ['over', 'overKickWest']];
+        for (const [name, frame] of beats) {
+            await page.evaluate(f => {
+                const scene = (window as any).game.scene.getScene('officer');
+                const cels = scene.timeline.cels;
+                const i = cels.findIndex((c: { frame: string }) => c.frame === f);
+                scene.seek(scene.timeline.startOf(i) + 10);
+            }, frame);
+            await page.waitForTimeout(150);
+            expect((await officer(page)).frame).toBe(frame);
+            await page.locator('canvas').screenshot({ path: `screenshots/officer-${name}.png` });
+        }
+        // Back on, it reaches the end of the loop and starts over.
+        const state = await officer(page);
+        await page.evaluate(d => {
+            const scene = (window as any).game.scene.getScene('officer');
+            scene.seek(d - 200);
+            scene.scene.resume();
+        }, state.duration);
+        await expect.poll(async () => (await officer(page)).elapsed % state.duration, { timeout: 5000 }).toBeLessThan(2000);
+        expect((await officer(page)).shots).toBeGreaterThan(0);
+        expect(errors).toEqual([]);
+    });
+});

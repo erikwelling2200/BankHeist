@@ -58,7 +58,9 @@ crisp at any zoom and a closer view draws fewer pixels. The camera's middle can 
    dusty boards). The lobby floor is kept calm and mid-valued so the safe-floor overlay stays readable
    on top of it.
 5. **Flat albedo, light from the lamps.** Sprites carry only material detail and a little top-light; the lamps and
-   the normal maps (from per-colour heights) do the shading. Sel-out outlines on figures, never black ones.
+   the normal maps (from per-colour heights) do the shading. Figures are edged like the furniture: their own outermost
+   pixels on the sides and bottom a shade darker (`PERSON_EDGE`), nothing drawn outside the silhouette and never black;
+   a ring around them made them look like cartoon stickers (`docs/pixel-art/examples/character-edges.png`).
 6. **One sun.** It sits low in the south-east, behind the viewer: shafts through the façade glass run up and to the
    left, and everything outdoors casts a shadow the same way.
 7. **Readable first.** Silhouette and value contrast against the floor before detail; a contact shadow under everyone.
