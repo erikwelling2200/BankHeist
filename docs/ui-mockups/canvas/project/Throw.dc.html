@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Loot: throwing a bag down the chain</title>
+<script src="./support.js"></script>
+<link rel="stylesheet" href="hud.css">
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=Oswald:wght@400;500;600&amp;family=Share+Tech+Mono&amp;display=swap" rel="stylesheet">
+<style>body{margin:0;background:#0b0d17}
+.phase{display:flex;align-items:center;gap:2px;padding:0 6px}
+.phase span{display:flex;align-items:center;gap:2px;height:24px;padding:0 4px;border-radius:4px;color:var(--dim)}
+.phase span.on{background:var(--iv);color:var(--ink)}
+.phase img{width:18px;height:18px;image-rendering:pixelated}
+</style>
+</helmet>
+<div class="phone">
+  <img class="world" src="img/throw.png" alt="Dex holds a cash bag; a dotted arc lands on Jun two tiles away, by the van">
+  <div class="notch"></div>
+
+  <div class="top">
+    <div class="panel heat"><img class="ic m" src="img/i-heat.png" alt="Heat"><span class="num">4</span><div class="heat-bar"><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i><i></i></div>
+      <span class="heat-next"><span class="num" style="font-size:18px">&#9654;5</span><img class="ic m" src="img/i-car.png" alt="Roadblock"><span class="num" style="font-size:18px">1</span></span></div>
+    <div class="panel phase">
+      <span><img src="img/i-shield.png" alt="Contain"></span>
+      <span><img src="img/i-phone.png" alt="Negotiate"></span>
+      <span><img src="img/i-charge.png" alt="Assault"></span>
+      <span class="on"><img src="img/i-car.png" alt="Regroup"><b class="num" style="font-size:18px">2</b></span>
+    </div>
+    <!-- the contract target and what's already in the van -->
+    <div class="panel row" style="padding: 0 8px; margin-left: auto"><img class="ic m" src="img/i-loot.png" alt="Loot in the van"><span class="num">120</span><span class="tiny">/150k</span></div>
+    <button class="panel ledger-btn" aria-label="Threat ledger"><img class="ic" src="img/i-bell.png" alt=""></button>
+  </div>
+
+  <div class="rail">
+    <div class="crew" style="--c: var(--mara)"><img class="face" src="img/p-mara-m.png" alt="Mara, masked"><div class="ap"><i></i><i></i></div><img class="prof" src="img/i-smg.png" alt=""><div class="hp"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div></div>
+    <div class="crew" style="--c: var(--jun)"><img class="face" src="img/p-jun-m.png" alt="Jun, masked"><div class="ap"><i></i><i></i></div><img class="prof" src="img/i-pistol.png" alt=""><div class="hp hurt"><i></i><i></i><i></i><i></i><i class="off"></i><i class="off"></i><i class="off"></i><i class="off"></i></div></div>
+    <div class="crew sel" style="--c: var(--dex)"><img class="face" src="img/p-dex-m.png" alt="Dex, masked"><div class="ap"><i></i><i style="box-shadow:0 0 0 1px #fff"></i></div><img class="prof" src="img/i-lmg.png" alt=""><img class="carry" src="img/i-bag.png" alt="Carrying a cash bag"><div class="hp"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div></div>
+    <div class="crew" style="--c: var(--sol)"><img class="face" src="img/p-sol-m.png" alt="Sol, masked"><div class="ap"><i></i><i></i></div><img class="prof" src="img/i-dmr.png" alt=""><div class="hp"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div></div>
+  </div>
+
+  <div class="chip safe" style="left: 432px; top: 236px"><img class="p" src="img/p-jun-m.png" alt="Jun catches"><img class="ic m" src="img/i-bag.png" alt="bag"></div>
+
+  <div class="ltools">
+    <button class="btn" aria-label="Tactical map"><img class="ic" src="img/i-map.png" alt=""></button>
+    <button class="btn" aria-label="Overlays"><img class="ic" src="img/i-layers.png" alt=""></button>
+  </div>
+  <button class="endturn" aria-label="End turn, hold"><img class="ic" src="img/i-end.png" alt=""></button>
+  <div class="actions">
+    <div class="actrow">
+      <button class="act" aria-label="Drop bag"><img class="ic" src="img/i-bag.png" alt=""><span class="cost"><i></i></span></button>
+      <button class="act sel" aria-label="Throw bag"><img class="ic" src="img/i-throw.png" alt=""><span class="cost"><i></i></span></button>
+    </div>
+    <div class="actrow">
+      <button class="act" aria-label="Attack"><img class="ic" src="img/i-attack.png" alt=""><span class="cost"><i></i></span></button>
+      <button class="act" aria-label="Move"><img class="ic" src="img/i-move.png" alt=""><span class="cost"><i></i></span><span class="num" style="position:absolute;right:4px;top:2px;font-size:16px;color:var(--amber)">-2</span></button>
+    </div>
+  </div>
+  <button class="panel btn undo" aria-label="Undo"><img class="ic" src="img/i-undo.png" alt=""></button>
+  <button class="confirm" aria-label="Throw"><img class="ic" src="img/i-throw.png" alt=""><span class="cname">Throw</span><span class="cost"><i></i></span></button>
+  <div class="tap" style="left: 400px; top: 276px"></div>
+  <div class="homebar"></div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":844,"height":390}}'>
+class Component extends DCLogic {
+  renderVals() { return {}; }
+}
+</script>
+</body>
+</html>

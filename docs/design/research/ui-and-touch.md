@@ -3,8 +3,9 @@
 Research note from October 2026, made for the UI mockups. A deep-research workflow searched six angles, fetched 26
 sources and extracted 102 claims. It then had three independent verifiers check 25 of them: 21 survived and 4 were
 refuted. A few targeted searches afterwards filled small gaps; those are marked *secondary*. The mockups that apply
-these findings live on a claude.ai design canvas ("BankHeist UI"). The scripts that render its pixel-art frames are in
-`scripts/ui-mockups/`.
+these findings are specified in [UI.md](../UI.md), and their sources are in [docs/ui-mockups/](../../ui-mockups/README.md),
+with the scripts that render the pixel-art frames in `scripts/ui-mockups/`. Every claim, with each verifier's vote and
+evidence, is in [ui-and-touch-claims.md](ui-and-touch-claims.md).
 
 ## Verified findings
 

@@ -1,0 +1,442 @@
+{
+  "v": 3,
+  "createdOnFiles": {
+    "v": 1,
+    "at": "2026-10-13T18:40:00Z"
+  },
+  "title": "BankHeist UI",
+  "launch": {
+    "view": "canvas",
+    "page": "hud"
+  },
+  "pages": [
+    {
+      "id": "hud",
+      "name": "HUD and language"
+    },
+    {
+      "id": "stealth",
+      "name": "Stealth"
+    },
+    {
+      "id": "takeover",
+      "name": "Alarm and takeover"
+    },
+    {
+      "id": "loud",
+      "name": "Loud"
+    },
+    {
+      "id": "meta",
+      "name": "Map, plan, campaign"
+    }
+  ],
+  "boards": {
+    "Main.dc.html": {
+      "x": 0,
+      "y": 0,
+      "w": 844,
+      "h": 390,
+      "title": "Stealth: Jun selected",
+      "page": "hud",
+      "radius": 34
+    },
+    "Layout.dc.html": {
+      "x": 924,
+      "y": 0,
+      "w": 844,
+      "h": 390,
+      "title": "Layout and thumb zones",
+      "page": "hud",
+      "radius": 34
+    },
+    "Language.dc.html": {
+      "x": 0,
+      "y": 733,
+      "w": 1280,
+      "h": 960,
+      "title": "Visual language",
+      "page": "hud"
+    },
+    "Input.dc.html": {
+      "x": 1360,
+      "y": 733,
+      "w": 1280,
+      "h": 560,
+      "title": "Touch grammar",
+      "page": "hud"
+    },
+    "Research.dc.html": {
+      "x": 0,
+      "y": 2036,
+      "w": 1280,
+      "h": 1300,
+      "title": "Research behind the UI",
+      "page": "hud"
+    },
+    "Path.dc.html": {
+      "x": 0,
+      "y": 0,
+      "w": 844,
+      "h": 390,
+      "title": "1 Drag a path: eye on the first unsafe tile",
+      "page": "stealth",
+      "radius": 34
+    },
+    "Why.dc.html": {
+      "x": 924,
+      "y": 0,
+      "w": 844,
+      "h": 390,
+      "title": "2 Long-press: who, when, why",
+      "page": "stealth",
+      "radius": 34
+    },
+    "Wait.dc.html": {
+      "x": 1848,
+      "y": 0,
+      "w": 844,
+      "h": 390,
+      "title": "3 One turn later: clean route",
+      "page": "stealth",
+      "radius": 34
+    },
+    "Route.dc.html": {
+      "x": 0,
+      "y": 733,
+      "w": 844,
+      "h": 390,
+      "title": "Multi-turn route and Wait for",
+      "page": "stealth",
+      "radius": 34
+    },
+    "NoiseQuiet.dc.html": {
+      "x": 924,
+      "y": 733,
+      "w": 844,
+      "h": 390,
+      "title": "Noise: quiet panel work",
+      "page": "stealth",
+      "radius": 34
+    },
+    "NoiseLoud.dc.html": {
+      "x": 1848,
+      "y": 733,
+      "w": 844,
+      "h": 390,
+      "title": "Noise: a pistol shot",
+      "page": "stealth",
+      "radius": 34
+    },
+    "Challenge.dc.html": {
+      "x": 0,
+      "y": 1466,
+      "w": 844,
+      "h": 390,
+      "title": "Trespass challenge with a deadline",
+      "page": "stealth",
+      "radius": 34
+    },
+    "WorldQuiet.dc.html": {
+      "x": 924,
+      "y": 1466,
+      "w": 844,
+      "h": 390,
+      "title": "World phase: a change and its cause",
+      "page": "stealth",
+      "radius": 34
+    },
+    "Wall.dc.html": {
+      "x": 1848,
+      "y": 1466,
+      "w": 844,
+      "h": 390,
+      "title": "Long-press a wall",
+      "page": "stealth",
+      "radius": 34
+    },
+    "Ledger.dc.html": {
+      "x": 0,
+      "y": 0,
+      "w": 844,
+      "h": 390,
+      "title": "Alarm carriers and the threat ledger",
+      "page": "takeover",
+      "radius": 34
+    },
+    "GoPreview.dc.html": {
+      "x": 924,
+      "y": 0,
+      "w": 844,
+      "h": 390,
+      "title": "GO: Dex's command previewed",
+      "page": "takeover",
+      "radius": 34
+    },
+    "GoAfter.dc.html": {
+      "x": 1848,
+      "y": 0,
+      "w": 844,
+      "h": 390,
+      "title": "The lobby held",
+      "page": "takeover",
+      "radius": 34
+    },
+    "Lapse.dc.html": {
+      "x": 0,
+      "y": 733,
+      "w": 844,
+      "h": 390,
+      "title": "Commands lapse a turn ahead",
+      "page": "takeover",
+      "radius": 34
+    },
+    "Aim.dc.html": {
+      "x": 0,
+      "y": 0,
+      "w": 844,
+      "h": 390,
+      "title": "Aim: full burst, loupe above the finger",
+      "page": "loud",
+      "radius": 34
+    },
+    "AimTight.dc.html": {
+      "x": 924,
+      "y": 0,
+      "w": 844,
+      "h": 390,
+      "title": "Aim: two rounds, bystander clear",
+      "page": "loud",
+      "radius": 34
+    },
+    "Watch.dc.html": {
+      "x": 1848,
+      "y": 0,
+      "w": 844,
+      "h": 390,
+      "title": "Dragging a Watch wedge",
+      "page": "loud",
+      "radius": 34
+    },
+    "Police.dc.html": {
+      "x": 0,
+      "y": 733,
+      "w": 844,
+      "h": 390,
+      "title": "Police: announced vs visible",
+      "page": "loud",
+      "radius": 34
+    },
+    "WorldLoud.dc.html": {
+      "x": 924,
+      "y": 733,
+      "w": 844,
+      "h": 390,
+      "title": "World phase in a firefight",
+      "page": "loud",
+      "radius": 34
+    },
+    "Negotiate.dc.html": {
+      "x": 1848,
+      "y": 733,
+      "w": 844,
+      "h": 390,
+      "title": "Negotiator on the line",
+      "page": "loud",
+      "radius": 34
+    },
+    "Throw.dc.html": {
+      "x": 0,
+      "y": 1466,
+      "w": 844,
+      "h": 390,
+      "title": "Bag relay",
+      "page": "loud",
+      "radius": 34
+    },
+    "Drive.dc.html": {
+      "x": 924,
+      "y": 1466,
+      "w": 844,
+      "h": 390,
+      "title": "Driving the van",
+      "page": "loud",
+      "radius": 34
+    },
+    "Tactical.dc.html": {
+      "x": 0,
+      "y": 0,
+      "w": 844,
+      "h": 390,
+      "title": "Tactical map and overlay drawer",
+      "page": "meta",
+      "radius": 34
+    },
+    "Planning.dc.html": {
+      "x": 924,
+      "y": 0,
+      "w": 844,
+      "h": 390,
+      "title": "Planning screen",
+      "page": "meta",
+      "radius": 34
+    },
+    "City.dc.html": {
+      "x": 1848,
+      "y": 0,
+      "w": 844,
+      "h": 390,
+      "title": "City map and the Squeeze",
+      "page": "meta",
+      "radius": 34
+    },
+    "Debrief.dc.html": {
+      "x": 0,
+      "y": 733,
+      "w": 844,
+      "h": 390,
+      "title": "Debrief",
+      "page": "meta",
+      "radius": 34
+    },
+    "Recap.dc.html": {
+      "x": 924,
+      "y": 733,
+      "w": 844,
+      "h": 390,
+      "title": "Resume recap card",
+      "page": "meta",
+      "radius": 34
+    },
+    "Desktop.dc.html": {
+      "x": 0,
+      "y": 1466,
+      "w": 1280,
+      "h": 720,
+      "title": "Desktop: hover and hotkeys",
+      "page": "meta"
+    }
+  },
+  "order": [
+    "Main.dc.html",
+    "Layout.dc.html",
+    "Language.dc.html",
+    "Input.dc.html",
+    "Research.dc.html",
+    "Path.dc.html",
+    "Why.dc.html",
+    "Wait.dc.html",
+    "Route.dc.html",
+    "NoiseQuiet.dc.html",
+    "NoiseLoud.dc.html",
+    "Challenge.dc.html",
+    "WorldQuiet.dc.html",
+    "Wall.dc.html",
+    "Ledger.dc.html",
+    "GoPreview.dc.html",
+    "GoAfter.dc.html",
+    "Lapse.dc.html",
+    "Aim.dc.html",
+    "AimTight.dc.html",
+    "Watch.dc.html",
+    "Police.dc.html",
+    "WorldLoud.dc.html",
+    "Negotiate.dc.html",
+    "Throw.dc.html",
+    "Drive.dc.html",
+    "Tactical.dc.html",
+    "Planning.dc.html",
+    "City.dc.html",
+    "Debrief.dc.html",
+    "Recap.dc.html",
+    "Desktop.dc.html"
+  ],
+  "notes": {
+    "t-hud": {
+      "x": 0,
+      "y": -300,
+      "text": "HUD and visual language",
+      "kind": "title1",
+      "maxW": 1768,
+      "page": "hud"
+    },
+    "s-hud": {
+      "x": 1848,
+      "y": 0,
+      "w": 380,
+      "maxH": 520,
+      "fill": "gray",
+      "page": "hud",
+      "text": "Two layers. World UI (tints, rings, cones, arrows, plates) is pixel art drawn at twice the art resolution over the 16px grid. Screen UI (portraits, buttons, chips, numbers) is HTML, so it stays crisp.\n\nLeft thumb: crew and camera. Right thumb: actions, Confirm, Undo. Top: the bank's state and its clock. End turn is a hold, top right, away from Confirm.\n\nTo pinch-zoom any frame: claude.ai/artifact/QQCaptekEV1Upr1MbVAMkY"
+    },
+    "t-stealth": {
+      "x": 0,
+      "y": -300,
+      "text": "Stealth: read the bank, then move",
+      "kind": "title1",
+      "maxW": 2692,
+      "page": "stealth"
+    },
+    "s-stealth": {
+      "x": 2772,
+      "y": 0,
+      "w": 380,
+      "maxH": 520,
+      "fill": "gray",
+      "page": "stealth",
+      "text": "Frames 1 to 3 are one decision: Jun's path ends on a hatched tile (the cleaner will see him next phase). Long-press shows who and why as a picture sentence. Waiting one turn clears it.\n\nA move's cost is shown on the NPC who pays it (pips appear over their head), never as a sentence."
+    },
+    "t-takeover": {
+      "x": 0,
+      "y": -300,
+      "text": "Alarm and takeover",
+      "kind": "title1",
+      "maxW": 2692,
+      "page": "takeover"
+    },
+    "s-takeover": {
+      "x": 924,
+      "y": 733,
+      "w": 380,
+      "maxH": 520,
+      "fill": "gray",
+      "page": "takeover",
+      "text": "The state pill always shows the most urgent clock. The ledger is every clock, sorted; tap a row and the camera goes there.\n\nGO turns the whole rail gold: masks on, a third action each. Dex's shout is previewed as two rings with every NPC's outcome on their head, and the one resister's chance as a number."
+    },
+    "t-loud": {
+      "x": 0,
+      "y": -300,
+      "text": "Loud: cones, wedges, police",
+      "kind": "title1",
+      "maxW": 2692,
+      "page": "loud"
+    },
+    "s-loud": {
+      "x": 1848,
+      "y": 1466,
+      "w": 380,
+      "maxH": 520,
+      "fill": "gray",
+      "page": "loud",
+      "text": "No hit numbers: the cone is the odds. The fire selector tightens it. Bodies in the cone wear hostile, civilian and crew markers.\n\nPolice show only breach points ahead of time. Grenades, wedges and sniper lines are simply visible. Out of sight, police are ghosts and sound pings."
+    },
+    "t-meta": {
+      "x": 0,
+      "y": -300,
+      "text": "Map, planning and the campaign",
+      "kind": "title1",
+      "maxW": 2692,
+      "page": "meta"
+    },
+    "s-meta": {
+      "x": 1848,
+      "y": 733,
+      "w": 380,
+      "maxH": 520,
+      "fill": "gray",
+      "page": "meta",
+      "text": "At tactical zoom a tile is too small to tap, so everything actionable becomes a large pin.\n\nThe city map follows XCOM 2's Geoscape regions: dossier top left, the Squeeze top centre with each complication on the day it lands, money top right."
+    }
+  },
+  "designSystems": []
+}

@@ -1,0 +1,242 @@
+<title>BankHeist UI Frames</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Oswald:wght@400;500&family=Share+Tech+Mono&display=swap">
+<style>
+/* Layout: a contact sheet of frames grouped by phase of the heist; tapping one opens a full-screen loupe you pinch and drag. */
+:root {
+  --bg: #0e0d12; --panel: #17151d; --fg: #e2dac6; --dim: #948e9c; --line: rgba(226, 218, 198, 0.14); --accent: #e2a240;
+  --display: 'Oswald', 'Arial Narrow', sans-serif; --mono: 'Share Tech Mono', ui-monospace, monospace;
+  color-scheme: dark;
+}
+html, body { background: var(--bg); color: var(--fg); }
+body { font-family: var(--display); font-weight: 400; letter-spacing: 0.02em; padding-inline: 16px; padding-block: 20px 48px; }
+.wrap { max-width: 1240px; margin: 0 auto; display: flex; flex-direction: column; gap: 28px; }
+header { display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: 12px; }
+h1 { margin: 0; font-weight: 500; font-size: clamp(24px, 4vw, 34px); text-transform: uppercase; letter-spacing: 0.08em; text-wrap: balance; }
+.meta { font-family: var(--mono); font-size: 13px; color: var(--dim); display: flex; gap: 14px; flex-wrap: wrap; }
+.meta a { color: var(--accent); }
+nav { position: sticky; top: env(safe-area-inset-top, 0px); z-index: 2; background: var(--bg); display: flex; gap: 6px; flex-wrap: wrap; padding-block: 8px; border-bottom: 1px solid var(--line); }
+nav a { font-family: var(--display); color: var(--dim); text-decoration: none; text-transform: uppercase; letter-spacing: 0.08em; font-size: 14px; padding: 6px 10px; border: 1px solid var(--line); border-radius: 2px; }
+nav a:hover, nav a:focus-visible { color: var(--fg); border-color: var(--fg); outline: none; }
+section { display: flex; flex-direction: column; gap: 12px; scroll-margin-top: 64px; }
+section h2 { margin: 0; font-weight: 500; font-size: 20px; text-transform: uppercase; letter-spacing: 0.08em; }
+section p { margin: 0; max-width: 68ch; color: var(--dim); font-size: 15px; line-height: 1.5; white-space: pre-line; }
+.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 340px), 1fr)); gap: 14px; }
+.card { display: flex; flex-direction: column; gap: 6px; padding: 0; background: none; border: 0; color: inherit; font: inherit; text-align: left; cursor: zoom-in; min-width: 0; }
+.card img { display: block; width: 100%; height: auto; border: 1px solid var(--line); border-radius: 2px; background: var(--panel); }
+.card:hover img, .card:focus-visible img { border-color: var(--fg); }
+.card:focus-visible { outline: none; }
+.card span { font-size: 15px; line-height: 1.3; }
+.card small { font-family: var(--mono); color: var(--dim); font-size: 12px; }
+
+/* the loupe */
+.viewer { position: fixed; inset: 0; z-index: 10; background: #060508; display: flex; flex-direction: column; }
+.stage { position: relative; flex: 1; overflow: hidden; touch-action: none; cursor: grab; }
+.stage.dragging { cursor: grabbing; }
+.stage img { position: absolute; left: 0; top: 0; transform-origin: 0 0; max-width: none; user-select: none; -webkit-user-drag: none; will-change: transform; }
+.stage img.px { image-rendering: pixelated; }
+.bar { display: flex; align-items: center; gap: 8px; padding: 4px max(12px, env(safe-area-inset-right, 0px)) 4px max(12px, env(safe-area-inset-left, 0px)); padding-bottom: calc(4px + env(safe-area-inset-bottom, 0px)); background: var(--panel); border-top: 1px solid var(--line); }
+.bar.topbar { border-top: 0; border-bottom: 1px solid var(--line); padding-top: calc(4px + env(safe-area-inset-top, 0px)); padding-bottom: 4px; }
+.bar .title { flex: 1; min-width: 0; font-size: 16px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.bar .zoom { font-family: var(--mono); color: var(--dim); font-size: 13px; min-width: 52px; text-align: right; font-variant-numeric: tabular-nums; }
+.bar button { min-width: 44px; height: 44px; padding: 0 10px; background: transparent; color: var(--fg); border: 1px solid var(--line); border-radius: 2px; font-family: var(--display); font-size: 16px; letter-spacing: 0.06em; cursor: pointer; }
+.bar button:hover, .bar button:focus-visible { border-color: var(--fg); outline: none; }
+.bar .count { font-family: var(--mono); color: var(--dim); font-size: 13px; font-variant-numeric: tabular-nums; }
+.hint { position: absolute; left: 50%; bottom: 14px; transform: translateX(-50%); font-family: var(--mono); font-size: 12px; color: var(--dim); background: rgba(14, 13, 18, 0.8); padding: 4px 8px; border-radius: 2px; pointer-events: none; transition: opacity 0.6s; white-space: nowrap; }
+@media (prefers-reduced-motion: reduce) { .hint { transition: none; } }
+</style>
+
+<div class="wrap">
+  <header>
+    <h1>BankHeist UI frames</h1>
+    <div class="meta"><span>32 frames · rendered at 3×</span><a href="https://claude.ai/artifact/2rDHSmzanq7ZquC2S9nmtU">Design canvas</a></div>
+  </header>
+  <nav id="nav" aria-label="Sections"></nav>
+  <div id="sections" class="wrap" style="gap: 36px"></div>
+</div>
+
+<div class="viewer" id="viewer" hidden>
+  <div class="bar topbar">
+    <span class="title" id="vtitle"></span>
+    <span class="count" id="vcount"></span>
+    <button type="button" id="close" aria-label="Close">Close</button>
+  </div>
+  <div class="stage" id="stage">
+    <img id="vimg" alt="" draggable="false">
+    <div class="hint" id="hint">Pinch or scroll to zoom · drag to pan · double-tap to zoom in</div>
+  </div>
+  <div class="bar">
+    <button type="button" id="prev" aria-label="Previous frame">&#8592;</button>
+    <button type="button" id="next" aria-label="Next frame">&#8594;</button>
+    <span style="flex: 1"></span>
+    <button type="button" id="zout" aria-label="Zoom out">&#8722;</button>
+    <span class="zoom" id="vzoom"></span>
+    <button type="button" id="zin" aria-label="Zoom in">+</button>
+    <button type="button" id="fit">Fit</button>
+  </div>
+</div>
+
+<script>
+const SECTIONS = [
+  ['hud', 'HUD and language', 'Two layers. World UI (tints, rings, cones, arrows, plates) is pixel art drawn at twice the art resolution over the 16px grid. Screen UI (portraits, buttons, chips, numbers) is HTML, so it stays crisp.\n\nLeft thumb: crew and camera. Right thumb: actions, Confirm, Undo. Top: the bank\'s state and its clock. End turn is a hold, top right, away from Confirm.'],
+  ['stealth', 'Stealth', 'Frames 1 to 3 are one decision: Jun\'s path ends on a hatched tile, where the cleaner will see him next phase. Long-press shows who and why as a picture sentence. Waiting one turn clears it.'],
+  ['takeover', 'Alarm and takeover', 'The state pill always shows the most urgent clock. The ledger is every clock, sorted; tap a row and the camera goes there. GO masks everyone up and gives each a third action.'],
+  ['loud', 'Loud', 'No hit numbers: the cone is the odds, and the fire selector tightens it. Police show only breach points ahead of time; grenades, wedges and sniper lines are simply visible.'],
+  ['meta', 'Map, plan, campaign', 'At tactical zoom a tile is too small to tap, so everything actionable becomes a large pin. The city map keeps the dossier top left, the Squeeze top centre and money top right.'],
+];
+const FRAMES = [
+  ['Main', 'hud', 'Stealth: Jun selected', 2532, 1170], ['Layout', 'hud', 'Layout and thumb zones', 2532, 1170],
+  ['Language', 'hud', 'Visual language', 3840, 2880], ['Input', 'hud', 'Touch grammar', 3840, 1680], ['Research', 'hud', 'Research behind the UI', 3840, 3900],
+  ['Path', 'stealth', '1 Drag a path: eye on the first unsafe tile', 2532, 1170], ['Why', 'stealth', '2 Long-press: who, when, why', 2532, 1170],
+  ['Wait', 'stealth', '3 One turn later: clean route', 2532, 1170], ['Route', 'stealth', 'Multi-turn route and Wait for', 2532, 1170],
+  ['NoiseQuiet', 'stealth', 'Noise: quiet panel work', 2532, 1170], ['NoiseLoud', 'stealth', 'Noise: a pistol shot', 2532, 1170],
+  ['Challenge', 'stealth', 'Trespass challenge with a deadline', 2532, 1170], ['WorldQuiet', 'stealth', 'World phase: a change and its cause', 2532, 1170],
+  ['Wall', 'stealth', 'Long-press a wall', 2532, 1170],
+  ['Ledger', 'takeover', 'Alarm carriers and the threat ledger', 2532, 1170], ['GoPreview', 'takeover', 'GO: Dex\'s command previewed', 2532, 1170],
+  ['GoAfter', 'takeover', 'The lobby held', 2532, 1170], ['Lapse', 'takeover', 'Commands lapse a turn ahead', 2532, 1170],
+  ['Aim', 'loud', 'Aim: full burst, loupe above the finger', 2532, 1170], ['AimTight', 'loud', 'Aim: two rounds, bystander clear', 2532, 1170],
+  ['Watch', 'loud', 'Dragging a Watch wedge', 2532, 1170], ['Police', 'loud', 'Police: announced vs visible', 2532, 1170],
+  ['WorldLoud', 'loud', 'World phase in a firefight', 2532, 1170], ['Negotiate', 'loud', 'Negotiator on the line', 2532, 1170],
+  ['Throw', 'loud', 'Bag relay', 2532, 1170], ['Drive', 'loud', 'Driving the van', 2532, 1170],
+  ['Tactical', 'meta', 'Tactical map and overlay drawer', 2532, 1170], ['Planning', 'meta', 'Planning screen', 2532, 1170],
+  ['City', 'meta', 'City map and the Squeeze', 2532, 1170], ['Debrief', 'meta', 'Debrief', 2532, 1170],
+  ['Recap', 'meta', 'Resume recap card', 2532, 1170], ['Desktop', 'meta', 'Desktop: hover and hotkeys', 3840, 2160],
+];
+const RENDER_SCALE = 3;   // frames are rendered at 3 device pixels per CSS pixel of the mockup
+
+// ---- contact sheet
+const nav = document.getElementById('nav'), host = document.getElementById('sections');
+for (const [id, name, text] of SECTIONS) {
+  const a = document.createElement('a'); a.href = '#s-' + id; a.textContent = name; nav.append(a);
+  const sec = document.createElement('section'); sec.id = 's-' + id;
+  const h = document.createElement('h2'); h.textContent = name;
+  const p = document.createElement('p'); p.textContent = text;
+  const grid = document.createElement('div'); grid.className = 'grid';
+  FRAMES.forEach(([key, page, title, w, h2], i) => {
+    if (page !== id) return;
+    const b = document.createElement('button'); b.type = 'button'; b.className = 'card';
+    const img = document.createElement('img'); img.src = 'thumbs/' + key + '.jpg'; img.alt = title; img.loading = 'lazy'; img.width = w / 3; img.height = h2 / 3;
+    const t = document.createElement('span'); t.textContent = title;
+    const s = document.createElement('small'); s.textContent = Math.round(w / RENDER_SCALE) + ' × ' + Math.round(h2 / RENDER_SCALE);
+    b.append(img, t, s); b.addEventListener('click', () => open(i)); grid.append(b);
+  });
+  sec.append(h, p, grid); host.append(sec);
+}
+
+// ---- loupe: free pinch zoom and pan
+const viewer = document.getElementById('viewer'), stage = document.getElementById('stage'), vimg = document.getElementById('vimg');
+const vtitle = document.getElementById('vtitle'), vcount = document.getElementById('vcount'), vzoom = document.getElementById('vzoom'), hint = document.getElementById('hint');
+let cur = -1, scale = 1, tx = 0, ty = 0, fitScale = 1, lastFocus = null;
+const MAX_ZOOM = 6;   // in mockup pixels per CSS pixel: 6x shows single UI pixels as small squares
+
+function frameSize() { const f = FRAMES[cur]; return [f[3], f[4]]; }
+function apply() {
+  vimg.style.transform = `translate(${tx}px, ${ty}px) scale(${scale})`;
+  const dpr = window.devicePixelRatio || 1;
+  vimg.classList.toggle('px', scale * dpr >= 1.01);
+  vzoom.textContent = Math.round(scale * RENDER_SCALE * 100) + '%';
+}
+function clampPan() {
+  const [w, h] = frameSize(), sw = stage.clientWidth, sh = stage.clientHeight, iw = w * scale, ih = h * scale;
+  tx = iw <= sw ? (sw - iw) / 2 : Math.min(0, Math.max(sw - iw, tx));
+  ty = ih <= sh ? (sh - ih) / 2 : Math.min(0, Math.max(sh - ih, ty));
+}
+function fit() {
+  const [w, h] = frameSize();
+  fitScale = Math.min(stage.clientWidth / w, stage.clientHeight / h);
+  scale = fitScale; tx = 0; ty = 0; clampPan(); apply();
+}
+function zoomAt(newScale, cx, cy) {
+  newScale = Math.max(fitScale, Math.min(MAX_ZOOM / RENDER_SCALE, newScale));
+  tx = cx - (cx - tx) * (newScale / scale); ty = cy - (cy - ty) * (newScale / scale);
+  scale = newScale; clampPan(); apply();
+}
+function open(i) {
+  cur = (i + FRAMES.length) % FRAMES.length;
+  const [key, , title] = FRAMES[cur];
+  lastFocus = lastFocus || document.activeElement;
+  viewer.hidden = false; document.body.style.overflow = 'hidden';
+  vtitle.textContent = title; vcount.textContent = (cur + 1) + ' / ' + FRAMES.length;
+  vimg.alt = title; vimg.src = 'frames/' + key + '.png';
+  const [w, h] = frameSize(); vimg.style.width = w + 'px'; vimg.style.height = h + 'px';
+  fit();
+  try { history.replaceState(null, '', '#' + key); } catch (e) {}
+}
+function close() {
+  viewer.hidden = true; document.body.style.overflow = '';
+  try { history.replaceState(null, '', location.pathname + location.search); } catch (e) {}
+  if (lastFocus) { lastFocus.focus(); lastFocus = null; }
+}
+document.getElementById('close').addEventListener('click', close);
+document.getElementById('prev').addEventListener('click', () => open(cur - 1));
+document.getElementById('next').addEventListener('click', () => open(cur + 1));
+document.getElementById('fit').addEventListener('click', fit);
+document.getElementById('zin').addEventListener('click', () => zoomAt(scale * 1.5, stage.clientWidth / 2, stage.clientHeight / 2));
+document.getElementById('zout').addEventListener('click', () => zoomAt(scale / 1.5, stage.clientWidth / 2, stage.clientHeight / 2));
+window.addEventListener('resize', () => { if (!viewer.hidden) fit(); });
+
+const pts = new Map();
+let pinch = null, drag = null, lastTap = 0, swipe = null;
+function local(e) { const r = stage.getBoundingClientRect(); return [e.clientX - r.left, e.clientY - r.top]; }
+stage.addEventListener('pointerdown', e => {
+  stage.setPointerCapture(e.pointerId); pts.set(e.pointerId, local(e)); hint.style.opacity = 0;
+  if (pts.size === 2) {
+    const [a, b] = [...pts.values()];
+    pinch = { d: Math.hypot(a[0] - b[0], a[1] - b[1]), s: scale, cx: (a[0] + b[0]) / 2, cy: (a[1] + b[1]) / 2, tx, ty };
+    drag = null; swipe = null;
+  } else if (pts.size === 1) {
+    const [x, y] = local(e);
+    drag = { x, y, tx, ty }; swipe = { x, t: e.timeStamp, zoomed: scale > fitScale * 1.02 };
+    stage.classList.add('dragging');
+  }
+});
+stage.addEventListener('pointermove', e => {
+  if (!pts.has(e.pointerId)) return;
+  pts.set(e.pointerId, local(e));
+  if (pinch && pts.size >= 2) {
+    const [a, b] = [...pts.values()];
+    const d = Math.hypot(a[0] - b[0], a[1] - b[1]), cx = (a[0] + b[0]) / 2, cy = (a[1] + b[1]) / 2;
+    const ns = Math.max(fitScale, Math.min(MAX_ZOOM / RENDER_SCALE, pinch.s * d / pinch.d));
+    tx = cx - (pinch.cx - pinch.tx) * (ns / pinch.s); ty = cy - (pinch.cy - pinch.ty) * (ns / pinch.s);
+    scale = ns; clampPan(); apply();
+  } else if (drag) {
+    const [x, y] = local(e);
+    tx = drag.tx + (x - drag.x); ty = drag.ty + (y - drag.y); clampPan(); apply();
+  }
+});
+function up(e) {
+  if (!pts.has(e.pointerId)) return;
+  const [x, y] = local(e);
+  pts.delete(e.pointerId);
+  if (pts.size < 2) pinch = null;
+  if (pts.size === 1) { const [p] = [...pts.values()]; drag = { x: p[0], y: p[1], tx, ty }; swipe = null; return; }
+  if (pts.size === 0) {
+    stage.classList.remove('dragging');
+    // a quick horizontal flick at fit size moves between frames
+    if (swipe && !swipe.zoomed && Math.abs(x - swipe.x) > 60 && e.timeStamp - swipe.t < 400) { open(cur + (x < swipe.x ? 1 : -1)); swipe = null; drag = null; return; }
+    // double-tap: zoom in to the mockup's own size around the tap, or back to fit
+    if (drag && Math.abs(x - drag.x) < 8 && Math.abs(y - drag.y) < 8) {
+      if (e.timeStamp - lastTap < 320) { scale > fitScale * 1.05 ? fit() : zoomAt(Math.max(fitScale * 2.5, 1 / RENDER_SCALE * 2), x, y); lastTap = 0; }
+      else lastTap = e.timeStamp;
+    }
+    drag = null; swipe = null;
+  }
+}
+stage.addEventListener('pointerup', up);
+stage.addEventListener('pointercancel', up);
+stage.addEventListener('wheel', e => {
+  e.preventDefault(); const [x, y] = local(e);
+  zoomAt(scale * Math.exp(-e.deltaY * (e.ctrlKey ? 0.01 : 0.002)), x, y);
+}, { passive: false });
+document.addEventListener('keydown', e => {
+  if (viewer.hidden) return;
+  if (e.key === 'Escape') close();
+  else if (e.key === 'ArrowRight') open(cur + 1);
+  else if (e.key === 'ArrowLeft') open(cur - 1);
+  else if (e.key === '+' || e.key === '=') zoomAt(scale * 1.5, stage.clientWidth / 2, stage.clientHeight / 2);
+  else if (e.key === '-') zoomAt(scale / 1.5, stage.clientWidth / 2, stage.clientHeight / 2);
+  else if (e.key === '0') fit();
+});
+
+const start = location.hash.slice(1), idx = FRAMES.findIndex(f => f[0] === start);
+if (idx >= 0) open(idx);
+</script>

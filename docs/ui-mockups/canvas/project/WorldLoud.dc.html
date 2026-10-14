@@ -1,0 +1,75 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>World phase in a firefight: one unit at a time</title>
+<script src="./support.js"></script>
+<link rel="stylesheet" href="hud.css">
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=Oswald:wght@400;500;600&amp;family=Share+Tech+Mono&amp;display=swap" rel="stylesheet">
+<style>body{margin:0;background:#0b0d17}
+.phase{display:flex;align-items:center;gap:2px;padding:0 6px}
+.phase span{display:flex;align-items:center;gap:2px;height:24px;padding:0 4px;border-radius:4px;color:var(--dim)}
+.phase span.on{background:var(--red);color:#fff}
+.phase img{width:18px;height:18px;image-rendering:pixelated}
+.bark{position:absolute;padding:4px 8px;background:#e2dac6;color:#0e0c14;border-radius:2px;font-size:18px;border:1px solid #0e0c14}
+.bark:after{content:"";position:absolute;left:14px;bottom:-8px;border:6px solid transparent;border-top-color:#e2dac6}
+.queue{position:absolute;left:50%;transform:translateX(-50%);top:48px;display:flex;gap:4px;padding:4px}
+.queue img{width:30px;height:30px;image-rendering:pixelated;border-radius:1px;opacity:.5}
+.queue img.now{opacity:1;box-shadow:0 0 0 1px var(--red)}
+.queue img.done{opacity:.25}
+</style>
+</helmet>
+<div class="phone">
+  <img class="world" src="img/tracers.png" alt="A SWAT officer, bracketed in red, fires a burst up the carpet at Dex; tracers and splinters">
+  <div class="notch"></div>
+
+  <div class="top">
+    <div class="panel heat"><img class="ic m" src="img/i-heat.png" alt="Heat"><span class="num">3</span><div class="heat-bar"><i class="on"></i><i class="on"></i><i></i><i></i><i></i></div></div>
+    <div class="panel phase">
+      <span><img src="img/i-shield.png" alt="Contain"></span>
+      <span><img src="img/i-phone.png" alt="Negotiate"></span>
+      <span class="on"><img src="img/i-charge.png" alt="Assault"><b class="num" style="font-size:18px">3</b></span>
+      <span><img src="img/i-car.png" alt="Regroup"></span>
+    </div>
+    <div class="panel turn" style="margin-left:auto; border-color: var(--iv)"><img class="ic m" src="img/i-play.png" alt="World phase"><span class="num">33</span></div>
+    <button class="panel ledger-btn" aria-label="Threat ledger"><img class="ic" src="img/i-bell.png" alt=""></button>
+  </div>
+
+  <!-- the order hostile units act in this phase: who moved, who shot -->
+  <div class="panel queue">
+    <img class="done" src="img/p-police.png" alt="Officer, done">
+    <img class="now" src="img/p-swat.png" alt="SWAT, acting">
+    <img src="img/p-swat.png" alt="SWAT, next">
+    <img src="img/p-swat.png" alt="SWAT">
+    <img src="img/p-police.png" alt="Officer">
+  </div>
+
+  <div class="rail" style="opacity:.85">
+    <div class="crew" style="--c: var(--mara)"><img class="face" src="img/p-mara-m.png" alt="Mara, masked"><div class="ap"><i class="off"></i><i class="off"></i></div><img class="prof" src="img/i-smg.png" alt=""><div class="hp"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div></div>
+    <div class="crew" style="--c: var(--jun)"><img class="face" src="img/p-jun-m.png" alt="Jun, masked"><div class="ap"><i class="off"></i><i class="off"></i></div><img class="prof" src="img/i-pistol.png" alt=""><div class="hp hurt"><i></i><i></i><i></i><i></i><i class="off"></i><i class="off"></i><i class="off"></i><i class="off"></i></div></div>
+    <div class="crew" style="--c: var(--dex); box-shadow: 0 0 0 1px var(--red)"><img class="face" src="img/p-dex-m.png" alt="Dex, masked, hit"><div class="ap"><i class="off"></i><i class="off"></i></div><img class="prof" src="img/i-lmg.png" alt=""><div class="hp"><i></i><i></i><i></i><i></i><i></i><i style="background: var(--red)"></i><i class="off"></i><i class="off"></i></div></div>
+    <div class="crew" style="--c: var(--sol)"><img class="face" src="img/p-sol-m.png" alt="Sol, masked"><div class="ap"><i class="off"></i><i class="off"></i></div><img class="prof" src="img/i-dmr.png" alt=""><div class="hp"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div></div>
+  </div>
+
+  <div class="bark" style="left: 244px; top: 236px">Covering!</div>
+  <div class="chip red" style="left: 488px; top: 92px"><span class="num" style="color: var(--red)">-2</span></div>
+
+  <div class="seg" style="position: absolute; right: 44px; bottom: 14px">
+    <button aria-label="Normal speed">1&#215;</button>
+    <button class="on" aria-label="Double speed">2&#215;</button>
+    <button aria-label="Skip to crew phase"><img class="ic" src="img/i-skip.png" alt=""></button>
+  </div>
+  <div class="homebar"></div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":844,"height":390}}'>
+class Component extends DCLogic {
+  renderVals() { return {}; }
+}
+</script>
+</body>
+</html>

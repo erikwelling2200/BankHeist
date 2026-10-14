@@ -1,0 +1,78 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Noise: quiet work at the alarm panel</title>
+<script src="./support.js"></script>
+<link rel="stylesheet" href="hud.css">
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=Oswald:wght@400;500;600&amp;family=Share+Tech+Mono&amp;display=swap" rel="stylesheet">
+<style>body{margin:0;background:#0b0d17}</style>
+</helmet>
+<div class="phone">
+  <img class="world" src="img/noise-quiet.png" alt="Jun at the alarm panel; the noise ring covers one tile around him and nobody is inside it">
+  <div class="notch"></div>
+
+  <div class="top">
+    <div class="panel state quiet"><img class="ic m" src="img/i-eye.png" alt=""><span class="num" style="font-size:15px">QUIET</span></div>
+    <div class="panel timeline">
+      <div class="tl-track">
+        <div class="tl-done" style="width: 26.7%"></div>
+        <div class="tl-ev" style="left: 17.8%"><img src="img/i-fork.png" alt="Lunch"><b>8</b></div>
+        <div class="tl-ev" style="left: 26.7%"><img src="img/i-cart.png" alt="Cash run"><b>12</b></div>
+        <div class="tl-now" style="left: 26.7%"></div>
+        <div class="tl-ev" style="left: 44.4%"><img src="img/i-truck.png" alt="Armoured car"><b>20</b></div>
+        <div class="tl-ev" style="left: 66.7%"><img src="img/i-police.png" alt="Patrol drive-by"><b>30</b></div>
+        <div class="tl-ev" style="left: 100%"><img src="img/i-moon.png" alt="Closing"><b>45</b></div>
+      </div>
+    </div>
+    <div class="panel turn"><span class="num">12</span></div>
+    <button class="panel ledger-btn" aria-label="Threat ledger"><img class="ic" src="img/i-bell.png" alt=""></button>
+  </div>
+
+  <div class="rail">
+    <div class="crew" style="--c: var(--mara)"><img class="face" src="img/p-mara.png" alt="Mara"><div class="ap"><i></i><i></i></div><img class="prof" src="img/i-clean.png" alt="Clean"><div class="hp"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div></div>
+    <div class="crew sel" style="--c: var(--jun)"><img class="face" src="img/p-jun.png" alt="Jun"><div class="ap"><i class="off" style="box-shadow:0 0 0 1px var(--jun)"></i><i class="off" style="box-shadow:0 0 0 1px var(--jun)"></i></div><img class="prof" src="img/i-concealed.png" alt="Concealed"><div class="hp"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div></div>
+    <div class="crew dim" style="--c: var(--dex)"><img class="face" src="img/p-dex.png" alt="Dex"><div class="ap"><i></i><i></i></div><img class="prof" src="img/i-heavy.png" alt="Heavy"><img class="carry" src="img/i-car.png" alt="In the van"><div class="hp"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div></div>
+    <div class="crew dim" style="--c: var(--sol)"><img class="face" src="img/p-sol.png" alt="Sol"><div class="ap"><i></i><i></i></div><img class="prof" src="img/i-armed.png" alt="Armed"><div class="hp"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div></div>
+  </div>
+
+  <!-- what the action does, as pictures: the panel goes dark and so do the wired alarms -->
+  <div class="chip safe" style="left: 392px; top: 60px">
+    <img class="ic m" src="img/i-ear.png" alt="Heard by"><span class="num" style="color: var(--safe)">0</span>
+  </div>
+  <div class="chip" style="left: 392px; top: 100px">
+    <img class="ic m" src="img/i-bell.png" alt="Wired alarms"><img class="ic m" src="img/i-phone.png" alt="" style="opacity:.35"><span class="num" style="color: var(--red)">&#10005;</span>
+  </div>
+
+  <div class="ltools">
+    <button class="btn" aria-label="Tactical map"><img class="ic" src="img/i-map.png" alt=""></button>
+    <button class="btn" aria-label="Overlays"><img class="ic" src="img/i-layers.png" alt=""></button>
+  </div>
+  <button class="endturn" aria-label="End turn, hold"><img class="ic" src="img/i-end.png" alt=""></button>
+  <div class="actions">
+    <div class="actrow">
+      <button class="act sel" aria-label="Disable alarm panel"><img class="ic" src="img/i-hack.png" alt=""><span class="cost"><i></i><i></i></span></button>
+      <button class="act" aria-label="Breaker"><img class="ic" src="img/i-interact.png" alt=""><span class="cost"><i></i></span></button>
+    </div>
+    <div class="actrow">
+      <button class="act" aria-label="Wait for"><img class="ic" src="img/i-wait.png" alt=""></button>
+      <button class="act" aria-label="Move"><img class="ic" src="img/i-move.png" alt=""><span class="cost"><i></i></span></button>
+    </div>
+  </div>
+  <button class="panel btn undo" aria-label="Undo"><img class="ic" src="img/i-undo.png" alt=""></button>
+  <button class="confirm" aria-label="Confirm"><img class="ic" src="img/i-hack.png" alt=""><span class="cname">Kill panel</span><span class="cost"><i></i><i></i></span></button>
+  <div class="tap" style="left: 704px; top: 228px"></div>
+  <div class="homebar"></div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":844,"height":390}}'>
+class Component extends DCLogic {
+  renderVals() { return {}; }
+}
+</script>
+</body>
+</html>

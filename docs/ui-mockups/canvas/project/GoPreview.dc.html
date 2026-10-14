@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Takeover: GO, Dex's command previewed</title>
+<script src="./support.js"></script>
+<link rel="stylesheet" href="hud.css">
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=Oswald:wght@400;500;600&amp;family=Share+Tech+Mono&amp;display=swap" rel="stylesheet">
+<style>body{margin:0;background:#0b0d17}</style>
+</helmet>
+<div class="phone">
+  <img class="world" src="img/go-preview.png" alt="Dex's command ring fills the lobby in blue with a down arrow over everyone inside; the amber panic ring reaches past it">
+  <div class="notch"></div>
+
+  <div class="top">
+    <div class="panel state" style="border-color: var(--gold); background: rgba(58,42,16,.92)"><img class="ic m" src="img/i-mask.png" alt=""><span class="num" style="color: var(--gold)">GO</span></div>
+    <div class="panel timeline">
+      <div class="tl-track">
+        <div class="tl-done" style="width: 31.1%"></div>
+        <div class="tl-ev" style="left: 17.8%"><img src="img/i-fork.png" alt="Lunch"><b>8</b></div>
+        <div class="tl-ev" style="left: 26.7%"><img src="img/i-cart.png" alt="Cash run"><b>12</b></div>
+        <div class="tl-now" style="left: 31.1%"></div>
+        <div class="tl-ev" style="left: 44.4%"><img src="img/i-truck.png" alt="Armoured car"><b>20</b></div>
+        <div class="tl-ev" style="left: 66.7%"><img src="img/i-police.png" alt="Patrol drive-by"><b>30</b></div>
+        <div class="tl-ev" style="left: 100%"><img src="img/i-moon.png" alt="Closing"><b>45</b></div>
+      </div>
+    </div>
+    <div class="panel turn"><span class="num">14</span></div>
+    <button class="panel ledger-btn" aria-label="Threat ledger"><img class="ic" src="img/i-bell.png" alt=""></button>
+  </div>
+
+  <!-- GO: everyone masked, everyone gets a third (gold) action this turn -->
+  <div class="rail">
+    <div class="crew" style="--c: var(--mara)"><img class="face" src="img/p-mara-m.png" alt="Mara, masked"><div class="ap"><i></i><i></i><i class="go"></i></div><img class="prof" src="img/i-heavy.png" alt="Heavy"><div class="hp"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div></div>
+    <div class="crew" style="--c: var(--jun)"><img class="face" src="img/p-jun-m.png" alt="Jun, masked"><div class="ap"><i></i><i></i><i class="go"></i></div><img class="prof" src="img/i-heavy.png" alt="Heavy"><div class="hp"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div></div>
+    <div class="crew sel" style="--c: var(--dex)"><img class="face" src="img/p-dex-m.png" alt="Dex, masked"><div class="ap"><i class="off"></i><i style="box-shadow:0 0 0 1px #fff"></i><i class="go"></i></div><img class="prof" src="img/i-heavy.png" alt="Heavy"><div class="hp"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div></div>
+    <div class="crew" style="--c: var(--sol)"><img class="face" src="img/p-sol-m.png" alt="Sol, masked"><div class="ap"><i></i><i></i><i class="go"></i></div><img class="prof" src="img/i-heavy.png" alt="Heavy"><div class="hp"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div></div>
+  </div>
+
+  <!-- what the shout will do, counted -->
+  <div class="chip cmd" style="left: 300px; top: 48px">
+    <img class="ic m" src="img/i-command.png" alt=""><span style="width: 2px; height: 18px; background: var(--line); margin: 0 2px"></span>
+    <span class="num" style="color: var(--cmd)">&#9660;</span><span class="num">10</span>
+    <span style="width: 2px; height: 18px; background: var(--line); margin: 0 2px"></span>
+    <span class="num" style="color: var(--amber)">&#8776;</span><span class="num">3</span>
+  </div>
+  <!-- the one resister: his chance, shown before committing -->
+  <div class="chip cmd" style="left: 120px; top: 206px">
+    <img class="p" src="img/p-guard.png" alt="Guard"><img class="ic m" src="img/i-star.png" alt="Surprised"><span class="num">5%</span>
+  </div>
+
+  <div class="ltools">
+    <button class="btn" aria-label="Tactical map"><img class="ic" src="img/i-map.png" alt=""></button>
+    <button class="btn" aria-label="Overlays"><img class="ic" src="img/i-layers.png" alt=""></button>
+  </div>
+  <button class="endturn" aria-label="End turn, hold"><img class="ic" src="img/i-end.png" alt=""></button>
+  <div class="actions">
+    <div class="actrow">
+      <button class="act" aria-label="Suppress"><img class="ic" src="img/i-suppress.png" alt=""><span class="cost"><i></i><i></i></span></button>
+      <button class="act" aria-label="Hold"><img class="ic" src="img/i-hold.png" alt=""><span class="cost"><i></i></span><span class="tag">Hold</span><span class="finger press" style="left: 26px; top: 26px"></span></button>
+    </div>
+    <div class="actrow">
+      <button class="act sel" aria-label="Command"><img class="ic" src="img/i-command.png" alt=""><span class="cost"><i></i></span></button>
+      <button class="act" aria-label="Move"><img class="ic" src="img/i-move.png" alt=""><span class="cost"><i></i></span></button>
+    </div>
+  </div>
+  <button class="panel btn undo" aria-label="Undo"><img class="ic" src="img/i-undo.png" alt=""></button>
+  <button class="confirm" aria-label="Shout" style="background: var(--cmd)"><img class="ic" src="img/i-command.png" alt=""><span class="cname">Shout</span><span class="cost"><i></i></span></button>
+  <div class="homebar"></div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":844,"height":390}}'>
+class Component extends DCLogic {
+  renderVals() { return {}; }
+}
+</script>
+</body>
+</html>

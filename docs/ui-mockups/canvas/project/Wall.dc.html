@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Long-press a wall: material and what opens it</title>
+<script src="./support.js"></script>
+<link rel="stylesheet" href="hud.css">
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=Oswald:wght@400;500;600&amp;family=Share+Tech+Mono&amp;display=swap" rel="stylesheet">
+<style>body{margin:0;background:#0b0d17}
+.tool{display:flex;align-items:center;gap:4px;height:34px;padding:0 6px;border-radius:2px;background:rgba(255,255,255,.05)}
+.tool img{width:22px;height:22px;image-rendering:pixelated}
+.ok{color:var(--safe);font-size:22px}.no{color:var(--red);font-size:22px}
+.mat{width:44px;height:44px;border-radius:4px;border:1px solid #000;image-rendering:pixelated}
+</style>
+</helmet>
+<div class="phone">
+  <img class="world" src="img/wall.png" alt="A run of plaster wall between the staff area and the secure corridor is highlighted">
+  <div class="notch"></div>
+
+  <!-- the material, as its own swatch, then every tool the crew carries that opens it -->
+  <div class="sheet" style="left: 420px; top: 40px; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; width: 300px">
+    <div class="row" style="grid-column: 1 / -1; gap: 8px">
+      <span class="mat" style="background: repeating-linear-gradient(90deg, #b0a492 0 14px, #968a7c 14px 16px)"></span>
+      <span class="big">Soft</span>
+      <span style="flex:1"></span>
+      <span class="row" style="gap:2px"><img class="ic m" src="img/i-attack.png" alt="Bullets"><span class="num" style="color:var(--amber)">-1</span></span>
+    </div>
+    <div class="tool"><img src="img/i-charge.png" alt="Breach charge"><span class="ok">&#10003;</span><span class="tiny">&#215;2</span></div>
+    <div class="tool"><img src="img/i-car.png" alt="Ram"><span class="ok">&#10003;</span></div>
+    <div class="tool"><img src="img/i-shotgun.png" alt="Shotgun breach"><span class="no">&#10005;</span></div>
+    <div class="tool"><img src="img/i-drill.png" alt="Drill"><span class="no">&#10005;</span></div>
+    <div class="tool" style="grid-column: 1 / -1"><img src="img/i-kit.png" alt="Reinforcement kit"><span class="num" style="color:var(--dim)">&#9654;</span><span class="mat" style="width:22px;height:22px;background:repeating-linear-gradient(0deg,#7c463c 0 4px,#46363a 4px 6px)"></span><span class="tiny">2</span></div>
+  </div>
+
+  <div class="ltools">
+    <button class="btn" aria-label="Tactical map"><img class="ic" src="img/i-map.png" alt=""></button>
+    <button class="btn on" aria-label="Overlays: wall materials"><img class="ic" src="img/i-layers.png" alt=""></button>
+  </div>
+  <div class="finger press" style="left: 352px; top: 176px"></div>
+  <div class="homebar"></div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":844,"height":390}}'>
+class Component extends DCLogic {
+  renderVals() { return {}; }
+}
+</script>
+</body>
+</html>

@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Alarm carriers and the threat ledger</title>
+<script src="./support.js"></script>
+<link rel="stylesheet" href="hud.css">
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=Oswald:wght@400;500;600&amp;family=Share+Tech+Mono&amp;display=swap" rel="stylesheet">
+<style>body{margin:0;background:#0b0d17}</style>
+</helmet>
+<div class="phone">
+  <img class="world" src="img/carriers.png" alt="A teller with a bell 2 over her head, the guard with a radio 2 and a red cone, a customer running for the door with 3">
+  <div class="notch"></div>
+
+  <div class="top">
+    <!-- the state pill always shows the most urgent countdown -->
+    <div class="panel state" style="border-color: var(--red)"><img class="ic m" src="img/i-bell.png" alt="Alarm in"><span class="num" style="color: var(--red)">2</span></div>
+    <div class="panel timeline">
+      <div class="tl-track">
+        <div class="tl-done" style="width: 20%"></div>
+        <div class="tl-ev" style="left: 17.8%"><img src="img/i-fork.png" alt="Lunch"><b>8</b></div>
+        <div class="tl-now" style="left: 20%"></div>
+        <div class="tl-ev" style="left: 26.7%"><img src="img/i-cart.png" alt="Cash run"><b>12</b></div>
+        <div class="tl-ev" style="left: 44.4%"><img src="img/i-truck.png" alt="Armoured car"><b>20</b></div>
+        <div class="tl-ev" style="left: 66.7%"><img src="img/i-police.png" alt="Patrol drive-by"><b>30</b></div>
+        <div class="tl-ev" style="left: 100%"><img src="img/i-moon.png" alt="Closing"><b>45</b></div>
+      </div>
+    </div>
+    <div class="panel turn"><span class="num">9</span></div>
+    <button class="panel ledger-btn on" aria-label="Threat ledger" style="border-color: var(--iv)"><img class="ic" src="img/i-bell.png" alt=""><span class="count">3</span></button>
+  </div>
+
+  <div class="rail">
+    <div class="crew" style="--c: var(--mara)"><img class="face" src="img/p-mara.png" alt="Mara"><div class="ap"><i></i><i></i></div><img class="prof" src="img/i-clean.png" alt="Clean"><div class="hp"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div></div>
+    <div class="crew sel" style="--c: var(--jun)"><img class="face" src="img/p-jun.png" alt="Jun"><div class="ap"><i></i><i></i></div><img class="prof" src="img/i-armed.png" alt="Armed">
+      <div class="exp"><img src="img/i-eye.png" alt="Exposed to">3</div>
+      <div class="hp"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div></div>
+    <div class="crew dim" style="--c: var(--dex)"><img class="face" src="img/p-dex.png" alt="Dex"><div class="ap"><i></i><i></i></div><img class="prof" src="img/i-heavy.png" alt="Heavy"><img class="carry" src="img/i-car.png" alt="In the van"><div class="hp"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div></div>
+    <div class="crew dim" style="--c: var(--sol)"><img class="face" src="img/p-sol.png" alt="Sol"><div class="ap"><i></i><i></i></div><img class="prof" src="img/i-armed.png" alt="Armed"><div class="hp"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div></div>
+  </div>
+
+  <!-- the ledger: every live clock, most urgent first; tap a row and the camera goes there -->
+  <div class="sheet col" style="right: 44px; top: 48px; width: 236px; gap: 4px">
+    <div class="ledger-row" style="background: rgba(232,64,52,.18); outline: 2px solid var(--red)"><span class="n">2</span><img class="p" src="img/p-teller.png" alt="Teller"><img class="ic" src="img/i-bell.png" alt="Silent alarm"><span style="flex:1"></span><img class="ic m" src="img/i-eye.png" alt="Jump"></div>
+    <div class="ledger-row"><span class="n">2</span><img class="p" src="img/p-guard.png" alt="Guard"><img class="ic" src="img/i-radio.png" alt="Radio"></div>
+    <div class="ledger-row"><span class="n">3</span><img class="p" src="img/p-customer.png" alt="Customer"><img class="ic" src="img/i-run.png" alt="Escaping"></div>
+    <div class="ledger-row"><span class="n b">5</span><img class="p" src="img/p-operator.png" alt="Operator"><img class="ic" src="img/i-radio.png" alt="Check-in call"></div>
+    <div class="ledger-row"><span class="n b">11</span><img class="p" src="img/p-manager.png" alt="Manager"><img class="ic" src="img/i-fork.png" alt="Back from lunch"></div>
+  </div>
+
+  <div class="ltools">
+    <button class="btn" aria-label="Tactical map"><img class="ic" src="img/i-map.png" alt=""></button>
+    <button class="btn" aria-label="Overlays"><img class="ic" src="img/i-layers.png" alt=""></button>
+  </div>
+  <button class="panel btn undo" aria-label="Undo"><img class="ic" src="img/i-undo.png" alt=""></button>
+  <button class="confirm off" aria-label="Confirm"><img class="ic" src="img/i-confirm.png" alt="" style="opacity:.4"></button>
+  <div class="tap" style="left: 640px; top: 74px"></div>
+  <div class="homebar"></div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":844,"height":390}}'>
+class Component extends DCLogic {
+  renderVals() { return {}; }
+}
+</script>
+</body>
+</html>

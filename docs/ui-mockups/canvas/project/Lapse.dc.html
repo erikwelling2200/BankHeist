@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Commands lapse, shown a turn ahead</title>
+<script src="./support.js"></script>
+<link rel="stylesheet" href="hud.css">
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=Oswald:wght@400;500;600&amp;family=Share+Tech+Mono&amp;display=swap" rel="stylesheet">
+<style>body{margin:0;background:#0b0d17}</style>
+</helmet>
+<div class="phone">
+  <img class="world" src="img/lapse.png" alt="A hostage whose pips ran out shows a red escape path; another, an off-duty cop, shows a red hand: reaching for a weapon">
+  <div class="notch"></div>
+
+  <div class="top">
+    <div class="panel state" style="border-color: var(--red)"><img class="ic m" src="img/i-ear.png" alt=""><span class="num" style="color: var(--red)">LOUD</span></div>
+    <div class="panel timeline">
+      <div class="tl-track">
+        <div class="tl-done" style="width: 37.8%"></div>
+        <div class="tl-ev" style="left: 17.8%"><img src="img/i-fork.png" alt="Lunch"><b>8</b></div>
+        <div class="tl-ev" style="left: 26.7%"><img src="img/i-cart.png" alt="Cash run"><b>12</b></div>
+        <div class="tl-now" style="left: 37.8%"></div>
+        <div class="tl-ev" style="left: 44.4%"><img src="img/i-truck.png" alt="Armoured car"><b>20</b></div>
+        <div class="tl-ev" style="left: 66.7%"><img src="img/i-police.png" alt="Patrol drive-by"><b>30</b></div>
+        <div class="tl-ev" style="left: 100%"><img src="img/i-moon.png" alt="Closing"><b>45</b></div>
+      </div>
+    </div>
+    <div class="panel turn"><span class="num">17</span></div>
+    <button class="panel ledger-btn" aria-label="Threat ledger"><img class="ic" src="img/i-bell.png" alt=""><span class="count">2</span></button>
+  </div>
+
+  <div class="rail">
+    <div class="crew sel" style="--c: var(--mara)"><img class="face" src="img/p-mara-m.png" alt="Mara, masked"><div class="ap"><i></i><i></i></div><img class="prof" src="img/i-heavy.png" alt="Heavy"><div class="hp"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div></div>
+    <div class="crew" style="--c: var(--jun)"><img class="face" src="img/p-jun-m.png" alt="Jun, masked"><div class="ap"><i></i><i></i></div><img class="prof" src="img/i-heavy.png" alt="Heavy"><div class="hp"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div></div>
+    <div class="crew" style="--c: var(--dex)"><img class="face" src="img/p-dex-m.png" alt="Dex, masked"><div class="ap"><i></i><i></i></div><img class="prof" src="img/i-heavy.png" alt="Heavy"><div class="hp"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div></div>
+    <div class="crew" style="--c: var(--sol)"><img class="face" src="img/p-sol-m.png" alt="Sol, masked"><div class="ap"><i></i><i></i></div><img class="prof" src="img/i-heavy.png" alt="Heavy"><div class="hp"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div></div>
+  </div>
+
+  <!-- he is reaching: shouting no longer works, only subduing or shooting does -->
+  <div class="sheet" style="left: 396px; top: 288px; display: flex; align-items: center; gap: 6px; border-color: var(--red); padding: 6px">
+    <img src="img/p-customer.png" alt="" style="width: 36px; height: 36px; image-rendering: pixelated; border-radius: 1px">
+    <img class="ic" src="img/i-hold.png" alt="Reaching">
+    <img class="ic" src="img/i-pistol.png" alt="for a weapon">
+    <span class="num" style="color: var(--red)">1</span>
+  </div>
+
+  <div class="ltools">
+    <button class="btn" aria-label="Tactical map"><img class="ic" src="img/i-map.png" alt=""></button>
+    <button class="btn" aria-label="Overlays"><img class="ic" src="img/i-layers.png" alt=""></button>
+  </div>
+  <button class="endturn" aria-label="End turn, hold"><img class="ic" src="img/i-end.png" alt=""></button>
+  <div class="actions">
+    <div class="actrow">
+      <button class="act na" aria-label="Command (no effect on him)"><img class="ic" src="img/i-command.png" alt=""><span class="num" style="position:absolute;right:4px;top:0;color:var(--red)">&#10005;</span></button>
+      <button class="act" aria-label="Attack"><img class="ic" src="img/i-attack.png" alt=""><span class="cost"><i></i></span></button>
+    </div>
+    <div class="actrow">
+      <button class="act" aria-label="Flashbang"><img class="ic" src="img/i-grenade.png" alt=""><span class="cost"><i></i></span></button>
+      <button class="act sel" aria-label="Knockout"><img class="ic" src="img/i-knockout.png" alt=""><span class="cost"><i></i></span></button>
+    </div>
+  </div>
+  <button class="panel btn undo" aria-label="Undo"><img class="ic" src="img/i-undo.png" alt=""></button>
+  <button class="confirm" aria-label="Knock out"><img class="ic" src="img/i-knockout.png" alt=""><span class="cname">Knock out</span><span class="cost"><i></i></span></button>
+  <div class="homebar"></div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":844,"height":390}}'>
+class Component extends DCLogic {
+  renderVals() { return {}; }
+}
+</script>
+</body>
+</html>

@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Negotiator on the line</title>
+<script src="./support.js"></script>
+<link rel="stylesheet" href="hud.css">
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=Oswald:wght@400;500;600&amp;family=Share+Tech+Mono&amp;display=swap" rel="stylesheet">
+<style>body{margin:0;background:#0b0d17}
+.deal{display:flex;align-items:center;justify-content:center;gap:6px;height:64px;min-width:150px;padding:0 10px;border-radius:2px;background:rgba(226,218,198,.05);border:1px solid var(--line);color:var(--iv);font:inherit;font-size:24px}
+.deal img{image-rendering:pixelated}
+.arrow{color:var(--dim);font-size:22px}
+</style>
+</helmet>
+<div class="phone">
+  <img class="world dimmed" src="img/go-after.png" alt="">
+  <div class="notch"></div>
+
+  <div class="sheet" style="left: 150px; right: 150px; top: 40px; bottom: 40px; display: flex; flex-direction: column; align-items: center; gap: 12px; padding: 16px">
+    <div class="row" style="gap: 12px">
+      <img src="img/p-negotiator.png" alt="Negotiator" style="width: 64px; height: 64px; image-rendering: pixelated; border-radius: 2px">
+      <img class="ic l" src="img/i-phone.png" alt="On the phone">
+      <div class="col" style="gap: 2px; align-items: flex-start">
+        <div class="row" style="gap: 4px"><img class="ic m" src="img/i-phone.png" alt="Negotiate"><span class="big">7</span></div>
+        <div class="row" style="gap: 2px"><img class="ic s" src="img/p-customer.png" alt="" style="width:16px;height:16px;image-rendering:pixelated"><span class="num" style="font-size:18px;color:var(--dim)">&#215;5</span></div>
+      </div>
+    </div>
+    <!-- every deal is an exchange rate: what you give, what you get -->
+    <div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; width: 100%">
+      <button class="deal" aria-label="Release a hostage"><img src="img/p-customer.png" alt="Hostage" style="width:36px;height:36px"><span class="arrow">&#9654;</span><img class="ic m" src="img/i-heat.png" alt="Heat"><span>-3</span></button>
+      <button class="deal" aria-label="Trade a hostage for Jun"><img src="img/p-customer.png" alt="Hostage" style="width:36px;height:36px"><span class="arrow">&#8644;</span><img src="img/p-jun-m.png" alt="Jun, arrested" style="width:36px;height:36px;box-shadow:0 0 0 1px var(--jun)"></button>
+      <button class="deal" aria-label="Stall"><img class="ic" src="img/i-wait.png" alt="Stall"><span class="arrow">&#9654;</span><img class="ic m" src="img/i-phone.png" alt=""><span>+2</span><span class="num" style="font-size:16px;color:var(--dim)">1&#215;</span></button>
+      <button class="deal" aria-label="Hang up" style="border-color: var(--red)"><img class="ic" src="img/i-phone.png" alt="Hang up"><span class="num" style="color: var(--red)">&#10005;</span></button>
+    </div>
+    <div class="row" style="gap: 4px; color: var(--dim)"><img class="ic s" src="img/i-heat.png" alt="Releases left"><span class="pip on" style="--c: var(--iv)"></span><span class="pip on" style="--c: var(--iv)"></span><span class="pip"></span></div>
+  </div>
+  <div class="homebar"></div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":844,"height":390}}'>
+class Component extends DCLogic {
+  renderVals() { return {}; }
+}
+</script>
+</body>
+</html>

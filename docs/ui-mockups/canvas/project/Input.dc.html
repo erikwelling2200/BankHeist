@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Touch grammar</title>
+<script src="./support.js"></script>
+<link rel="stylesheet" href="hud.css">
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=Oswald:wght@400;500;600&amp;family=Share+Tech+Mono&amp;display=swap" rel="stylesheet">
+<style>body{margin:0;background:#15131c}
+.g{display:flex;flex-direction:column;gap:6px}
+.g .pic{position:relative;width:280px;height:140px;border-radius:2px;overflow:hidden;border:1px solid var(--line)}
+.g .pic img.bg{position:absolute;width:844px;height:390px;image-rendering:pixelated}
+.g b{font-weight:400;font-size:22px}
+.g span.t{font-size:16px;color:var(--dim)}
+.f{position:absolute;width:38px;height:38px;margin:-19px 0 0 -19px;border-radius:50%;background:rgba(255,255,255,.2);border:1px solid #fff;box-shadow:0 0 0 3px rgba(0,0,0,.35)}
+.f.ghost{background:transparent;border-style:dashed;box-shadow:none}
+.f.press{background:conic-gradient(#fff 0 270deg,rgba(255,255,255,.15) 270deg)}
+.trail{position:absolute;height:0;border-top:3px dashed #fff}
+.x2{position:absolute;font-size:20px;color:#fff;text-shadow:0 2px 0 #000}
+</style>
+</helmet>
+<div class="board" style="width: 1280px; height: 560px; display: flex; flex-direction: column; gap: 16px">
+  <h1>Touch grammar</h1>
+  <div style="display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 22px 20px">
+
+    <div class="g"><div class="pic"><img class="bg" src="img/stealth-select.png" alt="" style="left:-450px;top:-230px"><div class="f" style="left:142px;top:106px"></div></div>
+      <b>Tap a crew member</b><span class="t">Selects, and zooms to Act view if the camera is further out. The portrait rail does the same.</span></div>
+
+    <div class="g"><div class="pic"><img class="bg" src="img/stealth-path.png" alt="" style="left:-450px;top:-110px"><div class="f" style="left:206px;top:66px"></div></div>
+      <b>Tap a tile: preview</b><span class="t">Snaps to the nearest valid tile; the path, eye icon, pips and rings appear. Nothing happens yet.</span></div>
+
+    <div class="g"><div class="pic"><img class="bg" src="img/stealth-wait.png" alt="" style="left:-450px;top:-110px"><div class="f" style="left:206px;top:66px"></div><span class="x2" style="left:228px;top:36px">&#215;2</span></div>
+      <b>Same tile again, or Confirm</b><span class="t">Commits. Confirm is fixed bottom-right, off the map, so reaching for it can't move the target.</span></div>
+
+    <div class="g"><div class="pic"><img class="bg" src="img/route.png" alt="" style="left:-120px;top:-250px"><div class="f ghost" style="left:56px;top:86px"></div><div class="f" style="left:236px;top:110px"></div></div>
+      <b>Drag from the selected crew</b><span class="t">Draws a path. A drag that starts on the crew member is a path; any other drag is a pan.</span></div>
+
+    <div class="g"><div class="pic"><img class="bg" src="img/stealth-path.png" alt="" style="left:-330px;top:-60px"><div class="f ghost" style="left:200px;top:100px"></div><div class="f" style="left:90px;top:100px"></div><div class="trail" style="left:100px;top:100px;width:90px"></div></div>
+      <b>Drag anywhere else: pan</b><span class="t">A preview stays locked while panning. Changing it takes a clean tap on another tile.</span></div>
+
+    <div class="g"><div class="pic"><img class="bg" src="img/tactical.png" alt="" style="left:-120px;top:-130px;width:768px;height:512px;image-rendering:auto"><div class="f" style="left:100px;top:90px"></div><div class="f" style="left:180px;top:50px"></div></div>
+      <b>Pinch: zoom in crisp steps</b><span class="t">From about 11 to 34 tiles high, only at whole-pixel scales. The map button jumps to the whole plot.</span></div>
+
+    <div class="g"><div class="pic"><img class="bg" src="img/stealth-why.png" alt="" style="left:-450px;top:-110px"><div class="f press" style="left:206px;top:66px"></div></div>
+      <b>Long-press: why</b><span class="t">On a tile: who notices and from where. On an NPC: its cones. On a wall: what opens it. On an action: its name.</span></div>
+
+    <div class="g"><div class="pic" style="background:#0b0d17"><img class="bg" src="img/stealth-select.png" alt="" style="left:-560px;top:0"><button class="endturn" aria-label="End turn" style="position:absolute;right:30px;top:40px;width:64px;height:54px"><span class="fill" style="width:70%"></span><img class="ic" src="img/i-end.png" alt=""></button><div class="f press" style="left:218px;top:66px"></div></div>
+      <b>Hold to end the turn</b><span class="t">The button fills while held. With actions left over, the unused pips on the portraits flash first.</span></div>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1280,"height":560}}'>
+class Component extends DCLogic {
+  renderVals() { return {}; }
+}
+</script>
+</body>
+</html>

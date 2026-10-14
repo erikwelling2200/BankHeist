@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Screen layout and thumb zones</title>
+<script src="./support.js"></script>
+<link rel="stylesheet" href="hud.css">
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=Oswald:wght@400;500;600&amp;family=Share+Tech+Mono&amp;display=swap" rel="stylesheet">
+<style>body{margin:0;background:#0b0d17}
+.zone{position:absolute;border:1px solid;border-radius:2px;display:flex;align-items:flex-start;justify-content:flex-start;padding:4px 6px;font-size:18px;box-sizing:border-box}
+</style>
+</helmet>
+<div class="phone">
+  <img class="world dimmed" src="img/stealth-select.png" alt="">
+  <div class="notch"></div>
+  <!-- thumb reach from the bottom corners in landscape -->
+  <svg style="position:absolute;left:0;top:0" width="844" height="390" viewBox="0 0 844 390" aria-hidden="true">
+    <circle cx="20" cy="390" r="250" fill="rgba(84,214,232,.10)" stroke="rgba(84,214,232,.6)" stroke-width="2" stroke-dasharray="6 6"></circle>
+    <circle cx="824" cy="390" r="250" fill="rgba(240,226,196,.10)" stroke="rgba(240,226,196,.6)" stroke-width="2" stroke-dasharray="6 6"></circle>
+    <rect x="44" y="6" width="756" height="363" fill="none" stroke="#e84034" stroke-width="1.5" stroke-dasharray="3 5"></rect>
+  </svg>
+  <div class="zone" style="left:108px;right:108px;top:8px;height:34px;border-color:#e2dac6;color:#e2dac6">state · schedule or police phase · turn · ledger</div>
+  <div class="zone" style="left:44px;top:8px;width:60px;height:270px;border-color:var(--mara);color:var(--mara)">crew</div>
+  <div class="zone" style="left:44px;bottom:14px;width:100px;height:48px;border-color:var(--mara);color:var(--mara)">camera</div>
+  <div class="zone" style="right:44px;bottom:82px;width:116px;height:116px;border-color:var(--sol);color:var(--sol)">actions</div>
+  <div class="zone" style="right:44px;bottom:14px;width:164px;height:58px;border-color:var(--sol);color:var(--sol);background:rgba(240,226,196,.15)">confirm</div>
+  <div class="zone" style="right:216px;bottom:14px;width:44px;height:44px;border-color:var(--sol);color:var(--sol)"></div>
+  <div class="zone" style="right:44px;top:8px;width:56px;height:46px;border-color:var(--dim);color:var(--dim)">end</div>
+  <div class="zone" style="left:240px;top:150px;width:300px;height:80px;border-color:var(--iv);color:var(--iv);border-style:dashed;justify-content:center;align-items:center">the map runs edge to edge</div>
+  <div class="homebar"></div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":844,"height":390}}'>
+class Component extends DCLogic {
+  renderVals() { return {}; }
+}
+</script>
+</body>
+</html>

@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Planning: crew, starts and assets on the plot</title>
+<script src="./support.js"></script>
+<link rel="stylesheet" href="hud.css">
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=Oswald:wght@400;500;600&amp;family=Share+Tech+Mono&amp;display=swap" rel="stylesheet">
+<style>body{margin:0;background:#0b0d17}
+.load{display:flex;align-items:center;gap:3px;height:46px;padding:0 4px;border-radius:2px;background:var(--panel);border:1px solid var(--line)}
+.load img.p{width:36px;height:36px;image-rendering:pixelated;border-radius:1px}
+.load img.g{width:20px;height:20px;image-rendering:pixelated;background:rgba(226,218,198,.05);border-radius:3px;padding:1px}
+.asset{display:flex;align-items:center;gap:4px;height:44px;padding:0 6px;border-radius:2px;background:var(--panel);border:1px solid var(--line);color:var(--iv);font:inherit}
+.asset .fv{display:flex;gap:2px}
+.asset .fv i{width:7px;height:7px;background:var(--gold);border:1px solid #000}
+.asset.on{border-color:var(--gold)}
+.spot{position:absolute;border:2px dashed var(--iv);border-radius:3px}
+.spot.on{border-style:solid;border-color:var(--safe);background:rgba(70,200,110,.25)}
+</style>
+</helmet>
+<div class="phone" style="background:#141826">
+  <img src="img/blueprint.png" alt="The plot as a blueprint: the lobby and street are known, staff and secure rooms are outlines with question marks" style="position:absolute;left:186px;top:42px;width:472px;height:315px;image-rendering:auto">
+  <div class="notch"></div>
+
+  <!-- van spots on the street: curb is close but in police view, the alley is safer -->
+  <div class="spot on" style="left: 489px; top: 315px; width: 39px; height: 20px"></div>
+  <div class="spot" style="left: 300px; top: 315px; width: 39px; height: 20px"></div>
+  <div class="spot" style="left: 220px; top: 42px; width: 39px; height: 12px"></div>
+  <div class="mark" style="position:absolute;left:500px;top:290px;display:flex;align-items:center;gap:2px;padding:2px 4px;background:var(--panel);border:1px solid var(--safe);border-radius:5px"><img class="ic m" src="img/i-car.png" alt="Van here"><img src="img/p-dex.png" alt="" style="width:18px;height:18px;image-rendering:pixelated"></div>
+  <!-- the stash drop, dragged onto the restroom -->
+  <div style="position:absolute;left:612px;top:224px;display:flex;align-items:center;padding:2px;background:var(--panel);border:1px solid var(--gold);border-radius:5px"><img class="ic m" src="img/i-bag.png" alt="Stash drop"></div>
+
+  <!-- top: contract, money and favours -->
+  <div class="top" style="left: 44px; right: 44px">
+    <div class="panel row" style="padding: 0 8px"><img class="ic m" src="img/i-loot.png" alt="Target"><span class="num">150k</span></div>
+    <div class="panel row" style="padding: 0 8px"><img class="ic m" src="img/i-police.png" alt="Police in"><span class="num">6</span><span style="width:2px;height:18px;background:var(--line)"></span><img class="ic m" src="img/i-lock.png" alt="Vault"><span class="num">I</span></div>
+    <div class="panel row" style="padding: 0 8px; margin-left: auto"><span class="num" style="color: var(--safe)">$</span><span class="num">23k</span></div>
+    <div class="panel row" style="padding: 0 8px"><span class="num" style="color: var(--gold)">&#9733;</span>
+      <span class="row" style="gap:2px"><i class="pip on" style="--c: var(--gold)"></i><i class="pip on" style="--c: var(--gold)"></i><i class="pip on" style="--c: var(--gold)"></i><i class="pip on" style="--c: var(--gold)"></i><i class="pip on" style="--c: var(--gold)"></i><i class="pip"></i><i class="pip"></i><i class="pip"></i></span></div>
+  </div>
+
+  <!-- crew and loadouts: what you carry is who you are -->
+  <div class="col" style="position:absolute;left:44px;top:48px;width:136px;gap:5px">
+    <div class="load" style="border-color: var(--mara)"><img class="p" src="img/p-mara.png" alt="Mara"><img class="g" src="img/i-clean.png" alt="Clean"><img class="g" src="img/i-chat.png" alt="Smooth Talker"><img class="g" src="img/i-ziptie.png" alt=""></div>
+    <div class="load" style="border-color: var(--jun)"><img class="p" src="img/p-jun.png" alt="Jun"><img class="g" src="img/i-concealed.png" alt="Concealed"><img class="g" src="img/i-pistol.png" alt="Pistol"><img class="g" src="img/i-hack.png" alt="Hacking kit"></div>
+    <div class="load" style="border-color: var(--dex)"><img class="p" src="img/p-dex.png" alt="Dex"><img class="g" src="img/i-heavy.png" alt="Heavy"><img class="g" src="img/i-lmg.png" alt="LMG"><img class="g" src="img/i-vest.png" alt="Heavy armour"></div>
+    <div class="load" style="border-color: var(--sol)"><img class="p" src="img/p-sol.png" alt="Sol"><img class="g" src="img/i-armed.png" alt="Armed"><img class="g" src="img/i-dmr.png" alt="DMR"><img class="g" src="img/i-medkit.png" alt="Medkit"></div>
+    <div class="load" style="justify-content:center;color:var(--dim)"><img class="ic" src="img/i-car.png" alt="Starts"><span class="num">3</span><span style="width:2px;height:18px;background:var(--line)"></span><img class="ic" src="img/i-dmr.png" alt="Nest"><span class="num">1</span></div>
+  </div>
+
+  <!-- assets: price and favour cost, drag onto the map -->
+  <div class="col" style="position:absolute;right:44px;top:48px;width:146px;gap:5px">
+    <button class="asset on"><img class="ic" src="img/i-map.png" alt="Blueprints"><span class="num" style="font-size:18px">2k</span><span style="flex:1"></span><span class="fv"><i></i></span></button>
+    <button class="asset on"><img class="ic" src="img/i-bag.png" alt="Stash drop"><span class="num" style="font-size:18px">4k</span><span style="flex:1"></span><span class="fv"><i></i><i></i></span></button>
+    <button class="asset on"><img class="ic" src="img/i-dmr.png" alt="Sniper nest"><span class="num" style="font-size:18px">6k</span><span style="flex:1"></span><span class="fv"><i></i><i></i></span></button>
+    <button class="asset"><img class="ic" src="img/i-phone.png" alt="Cut phone line"><span class="num" style="font-size:18px">3k</span><span style="flex:1"></span><span class="fv"><i></i></span></button>
+    <button class="asset"><img class="ic" src="img/i-radio.png" alt="Guard rota"><span class="num" style="font-size:18px">3k</span><span style="flex:1"></span><span class="fv"><i></i></span></button>
+  </div>
+
+  <button class="confirm" aria-label="Start the heist" style="right: 44px; bottom: 14px; width: 146px"><img class="ic" src="img/i-play.png" alt=""><span class="cname">Start</span></button>
+  <div class="homebar"></div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":844,"height":390}}'>
+class Component extends DCLogic {
+  renderVals() { return {}; }
+}
+</script>
+</body>
+</html>

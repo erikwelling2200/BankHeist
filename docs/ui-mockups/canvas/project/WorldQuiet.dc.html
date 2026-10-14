@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>World phase: a change and its cause</title>
+<script src="./support.js"></script>
+<link rel="stylesheet" href="hud.css">
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=Oswald:wght@400;500;600&amp;family=Share+Tech+Mono&amp;display=swap" rel="stylesheet">
+<style>body{margin:0;background:#0b0d17}
+.edge{position:absolute;display:flex;align-items:center;gap:4px;padding:4px 6px;background:var(--panel);border:1px solid var(--line);border-radius:2px}
+</style>
+</helmet>
+<div class="phone">
+  <img class="world" src="img/cause.png" alt="The guard turns toward Jun; a dashed line in Jun's colour joins the guard's new pip to Jun">
+  <div class="notch"></div>
+
+  <div class="top">
+    <div class="panel state quiet"><img class="ic m" src="img/i-eye.png" alt=""><span class="num" style="font-size:15px">QUIET</span></div>
+    <div class="panel timeline">
+      <div class="tl-track">
+        <div class="tl-done" style="width: 20%"></div>
+        <div class="tl-ev" style="left: 17.8%"><img src="img/i-fork.png" alt="Lunch"><b>8</b></div>
+        <div class="tl-now" style="left: 20%"></div>
+        <div class="tl-ev" style="left: 26.7%"><img src="img/i-cart.png" alt="Cash run"><b>12</b></div>
+        <div class="tl-ev" style="left: 44.4%"><img src="img/i-truck.png" alt="Armoured car"><b>20</b></div>
+        <div class="tl-ev" style="left: 66.7%"><img src="img/i-police.png" alt="Patrol drive-by"><b>30</b></div>
+        <div class="tl-ev" style="left: 100%"><img src="img/i-moon.png" alt="Closing"><b>45</b></div>
+      </div>
+    </div>
+    <div class="panel turn" style="border-color: var(--iv)"><img class="ic m" src="img/i-play.png" alt="World phase"><span class="num">9</span></div>
+    <button class="panel ledger-btn" aria-label="Threat ledger"><img class="ic" src="img/i-bell.png" alt=""></button>
+  </div>
+
+  <!-- crew controls step back while the world moves -->
+  <div class="rail" style="opacity: .5">
+    <div class="crew" style="--c: var(--mara)"><img class="face" src="img/p-mara.png" alt="Mara"><div class="ap"><i class="off"></i><i class="off"></i></div><img class="prof" src="img/i-clean.png" alt="Clean"><div class="hp"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div></div>
+    <div class="crew" style="--c: var(--jun)"><img class="face" src="img/p-jun.png" alt="Jun"><div class="ap"><i class="off"></i><i class="off"></i></div><img class="prof" src="img/i-concealed.png" alt="Concealed"><div class="hp"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div></div>
+    <div class="crew" style="--c: var(--dex)"><img class="face" src="img/p-dex.png" alt="Dex"><div class="ap"><i class="off"></i><i class="off"></i></div><img class="prof" src="img/i-heavy.png" alt="Heavy"><div class="hp"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div></div>
+    <div class="crew" style="--c: var(--sol)"><img class="face" src="img/p-sol.png" alt="Sol"><div class="ap"><i class="off"></i><i class="off"></i></div><img class="prof" src="img/i-armed.png" alt="Armed"><div class="hp"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div></div>
+  </div>
+
+  <!-- the camera stops here because suspicion on the crew changed -->
+  <div class="chip amber" style="left: 272px; top: 176px">
+    <img class="p" src="img/p-guard.png" alt="Guard">
+    <span class="pip on" style="--c: var(--jun)"></span><span class="pip"></span><span class="pip"></span>
+    <img class="p" src="img/p-jun.png" alt="Jun" style="box-shadow: 0 0 0 1px var(--jun)">
+  </div>
+
+  <!-- events elsewhere stay at the screen edge, pointing the way -->
+  <div class="edge" style="right: 44px; top: 140px"><img class="ic m" src="img/i-fork.png" alt=""><img src="img/p-manager.png" alt="Manager leaves" style="width:24px;height:24px;image-rendering:pixelated;border-radius:1px"><span class="num">&#9654;</span></div>
+
+  <!-- playback: speed and skip, always under the right thumb -->
+  <div class="seg" style="position: absolute; right: 44px; bottom: 14px">
+    <button class="on" aria-label="Normal speed">1&#215;</button>
+    <button aria-label="Double speed">2&#215;</button>
+    <button aria-label="Skip to crew phase"><img class="ic" src="img/i-skip.png" alt=""></button>
+  </div>
+  <div class="homebar"></div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":844,"height":390}}'>
+class Component extends DCLogic {
+  renderVals() { return {}; }
+}
+</script>
+</body>
+</html>

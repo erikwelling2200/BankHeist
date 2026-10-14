@@ -4,3 +4,8 @@ dev-dist/
 test-results/
 playwright-report/
 screenshots/
+docs/ui-mockups/out/
+docs/ui-mockups/viewer/frames/
+docs/ui-mockups/viewer/thumbs/
+docs/ui-mockups/canvas/project/img/.base-cache.png
+__pycache__/

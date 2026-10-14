@@ -1,0 +1,83 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Trespass: challenged, with a deadline</title>
+<script src="./support.js"></script>
+<link rel="stylesheet" href="hud.css">
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=Oswald:wght@400;500;600&amp;family=Share+Tech+Mono&amp;display=swap" rel="stylesheet">
+<style>body{margin:0;background:#0b0d17}</style>
+</helmet>
+<div class="phone">
+  <img class="world" src="img/challenge.png" alt="A guard challenges Mara behind the counter; a green path shows the nearest public tile she must reach this turn">
+  <div class="notch"></div>
+
+  <div class="top">
+    <div class="panel state quiet"><img class="ic m" src="img/i-eye.png" alt=""><span class="num" style="font-size:15px">QUIET</span></div>
+    <div class="panel timeline">
+      <div class="tl-track">
+        <div class="tl-done" style="width: 22.2%"></div>
+        <div class="tl-ev" style="left: 17.8%"><img src="img/i-fork.png" alt="Lunch"><b>8</b></div>
+        <div class="tl-now" style="left: 22.2%"></div>
+        <div class="tl-ev" style="left: 26.7%"><img src="img/i-cart.png" alt="Cash run"><b>12</b></div>
+        <div class="tl-ev" style="left: 44.4%"><img src="img/i-truck.png" alt="Armoured car"><b>20</b></div>
+        <div class="tl-ev" style="left: 66.7%"><img src="img/i-police.png" alt="Patrol drive-by"><b>30</b></div>
+        <div class="tl-ev" style="left: 100%"><img src="img/i-moon.png" alt="Closing"><b>45</b></div>
+      </div>
+    </div>
+    <div class="panel turn"><span class="num">10</span></div>
+    <button class="panel ledger-btn" aria-label="Threat ledger"><img class="ic" src="img/i-bell.png" alt=""><span class="count" style="background: var(--amber); color: var(--ink)">1</span></button>
+  </div>
+
+  <div class="rail">
+    <div class="crew sel" style="--c: var(--mara)"><img class="face" src="img/p-mara.png" alt="Mara"><div class="ap"><i></i><i></i></div><img class="prof" src="img/i-clean.png" alt="Clean">
+      <div class="exp" style="background: var(--amber); color: var(--ink)"><img src="img/i-hold.png" alt="Challenged">1</div>
+      <div class="hp"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div></div>
+    <div class="crew" style="--c: var(--jun)"><img class="face" src="img/p-jun.png" alt="Jun"><div class="ap"><i></i><i></i></div><img class="prof" src="img/i-concealed.png" alt="Concealed"><div class="hp"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div></div>
+    <div class="crew dim" style="--c: var(--dex)"><img class="face" src="img/p-dex.png" alt="Dex"><div class="ap"><i></i><i></i></div><img class="prof" src="img/i-heavy.png" alt="Heavy"><img class="carry" src="img/i-car.png" alt="In the van"><div class="hp"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div></div>
+    <div class="crew dim" style="--c: var(--sol)"><img class="face" src="img/p-sol.png" alt="Sol"><div class="ap"><i></i><i></i></div><img class="prof" src="img/i-armed.png" alt="Armed"><div class="hp"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div></div>
+  </div>
+
+  <!-- the deadline: end this crew phase on a public tile, or be exposed to the guard -->
+  <div class="sheet" style="left: 300px; top: 52px; display: flex; align-items: center; gap: 8px; border-color: var(--amber)">
+    <img src="img/p-guard.png" alt="Guard" style="width: 40px; height: 40px; image-rendering: pixelated; border-radius: 1px">
+    <img class="ic" src="img/i-hold.png" alt="Challenges">
+    <img src="img/p-mara.png" alt="Mara" style="width: 40px; height: 40px; image-rendering: pixelated; border-radius: 1px; box-shadow: 0 0 0 1px var(--mara)">
+    <span style="width: 2px; height: 30px; background: var(--line)"></span>
+    <span style="width: 22px; height: 22px; background: rgba(70,200,110,.4); border: 1px solid var(--safe); border-radius: 3px"></span>
+    <span class="num" style="font-size: 22px">1</span>
+    <span style="width: 2px; height: 30px; background: var(--line)"></span>
+    <img class="ic" src="img/i-eye.png" alt="else exposed" style="filter: drop-shadow(0 0 0 var(--red))"><span class="num" style="color: var(--red)">!</span>
+  </div>
+
+  <div class="ltools">
+    <button class="btn" aria-label="Tactical map"><img class="ic" src="img/i-map.png" alt=""></button>
+    <button class="btn" aria-label="Overlays"><img class="ic" src="img/i-layers.png" alt=""></button>
+  </div>
+  <button class="endturn" aria-label="End turn, hold"><img class="ic" src="img/i-end.png" alt=""></button>
+  <div class="actions">
+    <div class="actrow">
+      <button class="act" aria-label="Talk"><img class="ic" src="img/i-chat.png" alt=""><span class="cost"><i></i></span></button>
+      <button class="act" aria-label="Knockout"><img class="ic" src="img/i-knockout.png" alt=""><span class="cost"><i></i></span></button>
+    </div>
+    <div class="actrow">
+      <button class="act" aria-label="Dash"><img class="ic" src="img/i-dash.png" alt=""><span class="cost"><i></i><i></i></span></button>
+      <button class="act sel" aria-label="Move"><img class="ic" src="img/i-move.png" alt=""><span class="cost"><i></i></span></button>
+    </div>
+  </div>
+  <button class="panel btn undo" aria-label="Undo"><img class="ic" src="img/i-undo.png" alt=""></button>
+  <button class="confirm" aria-label="Confirm move"><img class="ic" src="img/i-move.png" alt=""><span class="cname">Move</span><span class="cost"><i></i></span></button>
+  <div class="homebar"></div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":844,"height":390}}'>
+class Component extends DCLogic {
+  renderVals() { return {}; }
+}
+</script>
+</body>
+</html>

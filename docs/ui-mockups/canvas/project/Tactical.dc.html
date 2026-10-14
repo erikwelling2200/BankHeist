@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Tactical map: the whole plot, big pins</title>
+<script src="./support.js"></script>
+<link rel="stylesheet" href="hud.css">
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=Oswald:wght@400;500;600&amp;family=Share+Tech+Mono&amp;display=swap" rel="stylesheet">
+<style>body{margin:0;background:#0b0d17}
+.pin{position:absolute;transform:translate(-50%,-100%);display:flex;flex-direction:column;align-items:center}
+.pin img.p{width:40px;height:40px;image-rendering:auto;border:2px solid var(--c);background:var(--ink)}
+.pin:after{content:"";width:0;height:0;border:6px solid transparent;border-top-color:var(--c);margin-top:-1px}
+.mark{position:absolute;transform:translate(-50%,-50%);display:flex;align-items:center;gap:2px;padding:3px 5px;border-radius:2px;background:var(--panel);border:1px solid var(--line)}
+</style>
+</helmet>
+<div class="phone">
+  <img src="img/tactical.png" alt="The whole bank plot at a glance" style="position:absolute;left:130px;top:0;width:585px;height:390px;image-rendering:auto;filter:saturate(.7) brightness(.8)">
+  <div class="notch"></div>
+
+  <!-- at this zoom a tile is too small to tap, so everything you can act on becomes a large pin; tap one to zoom in on it -->
+  <div class="pin" style="left: 282px; top: 230px; --c: var(--mara)"><img class="p" src="img/p-mara.png" alt="Mara"></div>
+  <div class="pin" style="left: 477px; top: 256px; --c: var(--jun)"><img class="p" src="img/p-jun.png" alt="Jun"></div>
+  <div class="pin" style="left: 520px; top: 336px; --c: var(--dex)"><img class="p" src="img/p-dex.png" alt="Dex, in the van"></div>
+  <div class="mark" style="left: 380px; top: 222px; border-color: var(--amber)"><img class="ic m" src="img/i-eye.png" alt="Guard"><span class="pip on" style="--c: var(--jun)"></span></div>
+  <div class="mark" style="left: 410px; top: 50px"><img class="ic m" src="img/i-loot.png" alt="Vault"><img class="ic s" src="img/i-lock.png" alt="locked"></div>
+  <div class="mark" style="left: 197px; top: 50px"><img class="ic m" src="img/i-eye.png" alt="CCTV room"><span class="num" style="font-size:16px">&#215;8</span></div>
+  <div class="mark" style="left: 276px; top: 38px"><img class="ic m" src="img/i-bell.png" alt="Alarm panel"></div>
+  <!-- off the bank but on the map: the nest across the street -->
+  <div class="mark" style="left: 740px; top: 340px; border-color: var(--sol)"><img src="img/p-sol.png" alt="Sol, sniper nest" style="width:26px;height:26px;image-rendering:pixelated;border-radius:1px"><span class="num" style="font-size:16px">&#9654;</span></div>
+
+  <div class="ltools">
+    <button class="btn on" aria-label="Tactical map, on"><img class="ic" src="img/i-map.png" alt=""></button>
+    <button class="btn" aria-label="Overlays"><img class="ic" src="img/i-layers.png" alt=""></button>
+  </div>
+  <!-- the overlay drawer, open: each layer is a picture of itself -->
+  <div class="sheet col" style="left: 44px; bottom: 66px; gap: 6px; padding: 6px">
+    <button class="btn on" aria-label="Zones"><span style="width:22px;height:22px;background:linear-gradient(90deg,#4a6058 33%,#96a0ac 33% 66%,#706e6c 66%);border:1px solid #000"></span></button>
+    <button class="btn" aria-label="All vision cones"><span style="width:0;height:0;border-left:12px solid transparent;border-right:12px solid transparent;border-bottom:20px solid rgba(240,168,40,.8)"></span></button>
+    <button class="btn on" aria-label="Cameras"><img class="ic" src="img/i-eye.png" alt=""></button>
+    <button class="btn" aria-label="Cover"><img class="ic" src="img/i-shield.png" alt=""></button>
+    <button class="btn" aria-label="Sound map"><img class="ic" src="img/i-ear.png" alt=""></button>
+  </div>
+  <button class="endturn" aria-label="End turn, hold"><img class="ic" src="img/i-end.png" alt=""></button>
+  <div class="tap" style="left: 477px; top: 236px"></div>
+  <div class="homebar"></div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":844,"height":390}}'>
+class Component extends DCLogic {
+  renderVals() { return {}; }
+}
+</script>
+</body>
+</html>

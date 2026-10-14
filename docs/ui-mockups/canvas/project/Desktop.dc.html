@@ -1,0 +1,83 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Desktop: same layout, hover and hotkeys on top</title>
+<script src="./support.js"></script>
+<link rel="stylesheet" href="hud.css">
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=Oswald:wght@400;500;600&amp;family=Share+Tech+Mono&amp;display=swap" rel="stylesheet">
+<style>body{margin:0;background:#0b0d17}
+.kc{position:absolute;min-width:16px;height:16px;padding:0 3px;border-radius:3px;background:#e2dac6;color:#0e0c14;font-size:14px;line-height:16px;text-align:center;border-bottom:2px solid #8a7f68}
+</style>
+</helmet>
+<div class="phone" style="width: 1280px; height: 720px; border-radius: 0">
+  <img src="img/desktop.png" alt="The lobby at desktop size; Jun's path to the staff door with the hatched end tile" style="position:absolute;left:0;top:0;width:1280px;height:720px;image-rendering:pixelated">
+
+  <div class="top" style="left: 100px; right: 100px">
+    <div class="panel state quiet"><img class="ic m" src="img/i-eye.png" alt=""><span class="num" style="font-size:20px">QUIET</span></div>
+    <div class="panel timeline">
+      <div class="tl-track">
+        <div class="tl-done" style="width: 20%"></div>
+        <div class="tl-ev" style="left: 17.8%"><img src="img/i-fork.png" alt="Lunch"><b>8</b></div>
+        <div class="tl-now" style="left: 20%"></div>
+        <div class="tl-ev" style="left: 26.7%"><img src="img/i-cart.png" alt="Cash run"><b>12</b></div>
+        <div class="tl-ev" style="left: 44.4%"><img src="img/i-truck.png" alt="Armoured car"><b>20</b></div>
+        <div class="tl-ev" style="left: 66.7%"><img src="img/i-police.png" alt="Patrol drive-by"><b>30</b></div>
+        <div class="tl-ev" style="left: 100%"><img src="img/i-moon.png" alt="Closing"><b>45</b></div>
+      </div>
+    </div>
+    <div class="panel turn"><span class="num">9</span></div>
+    <button class="panel ledger-btn" aria-label="Threat ledger"><img class="ic" src="img/i-bell.png" alt=""></button>
+  </div>
+  <span class="kc" style="right: 100px; top: 40px">Tab</span>
+
+  <div class="rail" style="left: 16px">
+    <div class="crew" style="--c: var(--mara)"><img class="face" src="img/p-mara.png" alt="Mara"><div class="ap"><i></i><i></i></div><img class="prof" src="img/i-clean.png" alt="Clean"><div class="hp"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div></div>
+    <div class="crew sel" style="--c: var(--jun)"><img class="face" src="img/p-jun.png" alt="Jun"><div class="ap"><i></i><i class="off" style="box-shadow:0 0 0 1px var(--jun)"></i></div><img class="prof" src="img/i-concealed.png" alt="Concealed"><div class="hp"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div></div>
+    <div class="crew dim" style="--c: var(--dex)"><img class="face" src="img/p-dex.png" alt="Dex"><div class="ap"><i></i><i></i></div><img class="prof" src="img/i-heavy.png" alt="Heavy"><img class="carry" src="img/i-car.png" alt="In the van"><div class="hp"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div></div>
+    <div class="crew dim" style="--c: var(--sol)"><img class="face" src="img/p-sol.png" alt="Sol"><div class="ap"><i></i><i></i></div><img class="prof" src="img/i-armed.png" alt="Armed"><div class="hp"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div></div>
+  </div>
+  <span class="kc" style="left: 4px; top: 10px">1</span><span class="kc" style="left: 4px; top: 78px">2</span><span class="kc" style="left: 4px; top: 146px">3</span><span class="kc" style="left: 4px; top: 214px">4</span>
+
+  <!-- hover replaces long-press: the same picture-sentence, at the cursor -->
+  <div class="sheet" style="left: 780px; top: 112px; display: flex; align-items: center; gap: 8px">
+    <img src="img/p-cleaner.png" alt="Cleaner" style="width: 40px; height: 40px; image-rendering: pixelated; border-radius: 1px">
+    <div class="col" style="gap: 2px; align-items: center"><img class="ic" src="img/i-eye.png" alt="sees"><span style="width: 22px; height: 10px; border-radius: 2px; background: repeating-linear-gradient(135deg, var(--amber) 0 3px, rgba(240,168,40,.25) 3px 6px); border: 1px solid #000"></span></div>
+    <img src="img/p-jun.png" alt="Jun" style="width: 40px; height: 40px; image-rendering: pixelated; border-radius: 1px; box-shadow: 0 0 0 1px var(--jun)">
+    <span style="font-size: 22px; color: var(--amber)">=</span>
+    <div class="chip amber" style="position: static"><img class="ic m" src="img/i-hold.png" alt="Challenge"></div>
+  </div>
+  <svg style="position:absolute;left:1040px;top:206px" width="22" height="30" viewBox="0 0 11 15" aria-hidden="true" shape-rendering="crispEdges">
+    <path d="M0 0h1v1H0zM0 1h2v1H0zM0 2h3v1H0zM0 3h4v1H0zM0 4h5v1H0zM0 5h6v1H0zM0 6h7v1H0zM0 7h8v1H0zM0 8h5v1H0zM0 9h2v1H0zM3 9h2v1H3zM0 10h1v1H0zM4 10h2v1H4zM4 11h2v1H4zM5 12h2v1H5z" fill="#e2dac6" stroke="#0e0c14" stroke-width=".3"></path>
+  </svg>
+
+  <div class="ltools" style="left: 16px"><button class="btn" aria-label="Tactical map"><img class="ic" src="img/i-map.png" alt=""></button><button class="btn" aria-label="Overlays"><img class="ic" src="img/i-layers.png" alt=""></button></div>
+  <span class="kc" style="left: 66px; bottom: 50px">O</span>
+  <button class="endturn" aria-label="End turn, hold" style="right: 16px"><img class="ic" src="img/i-end.png" alt=""></button>
+  <span class="kc" style="right: 14px; top: 54px">Space</span>
+  <div class="actions" style="right: 16px">
+    <div class="actrow">
+      <button class="act" aria-label="Interact"><img class="ic" src="img/i-interact.png" alt=""><span class="cost"><i></i></span></button>
+      <button class="act" aria-label="Knockout"><img class="ic" src="img/i-knockout.png" alt=""><span class="cost"><i></i></span></button>
+    </div>
+    <div class="actrow">
+      <button class="act" aria-label="Wait for"><img class="ic" src="img/i-wait.png" alt=""></button>
+      <button class="act sel" aria-label="Move"><img class="ic" src="img/i-move.png" alt=""><span class="cost"><i></i></span></button>
+    </div>
+  </div>
+  <button class="panel btn undo" aria-label="Undo" style="right: 188px"><img class="ic" src="img/i-undo.png" alt=""></button>
+  <span class="kc" style="right: 184px; bottom: 58px">Z</span>
+  <button class="confirm warn" aria-label="Confirm move" style="right: 16px"><img class="ic" src="img/i-move.png" alt=""><span class="cname">Move</span><span class="cost"><i></i></span></button>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1280,"height":720}}'>
+class Component extends DCLogic {
+  renderVals() { return {}; }
+}
+</script>
+</body>
+</html>

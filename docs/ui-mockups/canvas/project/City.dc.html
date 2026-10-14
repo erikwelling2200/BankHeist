@@ -1,0 +1,106 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Campaign: the city map and the Squeeze</title>
+<script src="./support.js"></script>
+<link rel="stylesheet" href="hud.css">
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=Oswald:wght@400;500;600&amp;family=Share+Tech+Mono&amp;display=swap" rel="stylesheet">
+<style>body{margin:0;background:#0b0d17}
+.sq{position:relative;flex:1;height:30px}
+.sq .tr{position:absolute;left:0;right:0;top:13px;height:4px;background:#3a3550;border-radius:2px}
+.sq .fill{position:absolute;left:0;top:13px;height:4px;background:var(--amber);border-radius:2px}
+.sq .th{position:absolute;top:0;transform:translateX(-50%);display:flex;flex-direction:column;align-items:center}
+.sq .th img{width:16px;height:16px;image-rendering:pixelated;background:var(--ink);border:1px solid var(--amber);border-radius:3px;padding:1px}
+.sq .th b{font-size:13px;font-weight:400;color:var(--dim);margin-top:-1px}
+.sq .th.raid img{border-color:var(--red)}
+.cpin{position:absolute;transform:translate(-50%,-100%);display:flex;flex-direction:column;align-items:center}
+.cpin .card{display:flex;align-items:center;gap:3px;padding:3px 5px;border-radius:2px;background:var(--panel);border:1px solid var(--line)}
+.cpin:after{content:"";border:6px solid transparent;border-top-color:var(--line)}
+.cpin.sel .card{border-color:var(--iv)}
+.cpin.sel:after{border-top-color:var(--iv)}
+.st{display:flex;gap:2px}.st i{width:6px;height:10px;background:var(--red);border:1px solid #000}.st i.off{background:#3a3550}
+.def{display:flex;align-items:center;gap:3px;height:26px}
+.def img{width:20px;height:20px;image-rendering:pixelated}
+.day{height:52px;min-width:56px;border-radius:2px;background:var(--panel);border:1px solid var(--line);display:flex;align-items:center;justify-content:center;gap:4px;color:var(--iv);font:inherit;font-size:20px;padding:0 8px}
+.day.free{border-style:dashed}
+</style>
+</helmet>
+<div class="phone" style="background:#10121c">
+  <!-- the city: blocks, streets, the river. Pins carry the decision: stakes, pay, days left, what else is inside -->
+  <svg style="position:absolute;left:0;top:0" width="844" height="390" viewBox="0 0 844 390" aria-hidden="true">
+    <rect x="0" y="0" width="844" height="390" fill="#151827"></rect>
+    <path d="M0 300 C 200 270, 360 340, 560 300 S 800 250, 844 270 L 844 330 C 760 320, 640 360, 560 352 S 220 330, 0 352 Z" fill="#17253a"></path>
+    <g fill="#222538" stroke="#2c3048" stroke-width="2">
+      <rect x="150" y="70" width="90" height="60" rx="3"></rect><rect x="250" y="70" width="70" height="60" rx="3"></rect><rect x="330" y="70" width="110" height="60" rx="3"></rect>
+      <rect x="450" y="70" width="80" height="60" rx="3"></rect><rect x="540" y="70" width="110" height="60" rx="3"></rect>
+      <rect x="150" y="140" width="60" height="70" rx="3"></rect><rect x="220" y="140" width="120" height="70" rx="3"></rect><rect x="350" y="140" width="70" height="70" rx="3"></rect>
+      <rect x="430" y="140" width="120" height="70" rx="3"></rect><rect x="560" y="140" width="90" height="70" rx="3"></rect>
+      <rect x="150" y="220" width="100" height="50" rx="3"></rect><rect x="260" y="220" width="90" height="50" rx="3"></rect><rect x="360" y="220" width="130" height="50" rx="3"></rect><rect x="500" y="220" width="150" height="50" rx="3"></rect>
+    </g>
+    <rect x="660" y="120" width="130" height="100" rx="4" fill="#2a1d24" stroke="#e84034" stroke-width="2" stroke-dasharray="6 4"></rect>
+    <rect x="80" y="240" width="56" height="44" rx="3" fill="#1e2a22" stroke="#46c86e" stroke-width="2"></rect>
+  </svg>
+  <div class="notch"></div>
+
+  <!-- top left: the dossier, every Defence and whether it is countered yet -->
+  <div class="sheet col" style="left: 44px; top: 8px; gap: 0; padding: 4px 8px">
+    <div class="def"><img src="img/i-swat.png" alt="Response team"><span class="num" style="color:var(--red);font-size:18px">&#10005;</span></div>
+    <div class="def"><img src="img/i-lock.png" alt="Vault III"><span class="num" style="color:var(--safe);font-size:18px">&#10003;</span><img src="img/i-drill.png" alt="Thermal lance" style="width:16px;height:16px"></div>
+    <div class="def"><img src="img/i-eye.png" alt="Cameras"><span class="num" style="color:var(--safe);font-size:18px">&#10003;</span></div>
+    <div class="def"><img src="img/i-police.png" alt="Police ETA 3"><span class="num" style="color:var(--red);font-size:18px">&#10005;</span></div>
+    <div class="def"><img src="img/i-heat.png" alt="Helicopter"><span class="num" style="color:var(--red);font-size:18px">&#10005;</span></div>
+  </div>
+
+  <!-- top centre: the Squeeze, each complication on the day it will land -->
+  <div class="panel row" style="position:absolute;left:150px;right:196px;top:8px;height:52px;padding:0 10px;gap:8px">
+    <div class="col" style="gap:0;align-items:center"><span class="tiny">day</span><span class="num">6</span></div>
+    <div class="sq">
+      <div class="tr"></div><div class="fill" style="width: 31%"></div>
+      <div class="th" style="left: 21%"><img src="img/i-radio.png" alt="+2 guard posts"><b>4</b></div>
+      <div class="th" style="left: 42%"><img src="img/i-police.png" alt="Police ETA -1"><b>8</b></div>
+      <div class="th" style="left: 58%"><img src="img/i-lock.png" alt="Vault upgrade"><b>11</b></div>
+      <div class="th" style="left: 68%"><img src="img/i-eye.png" alt="Security chief"><b>13</b></div>
+      <div class="th" style="left: 79%"><img src="img/i-dollar.png" alt="Fence cut"><b>15</b></div>
+      <div class="th" style="left: 89%"><img src="img/i-car.png" alt="Checkpoint"><b>17</b></div>
+      <div class="th raid" style="left: 97%"><img src="img/i-skull.png" alt="The Raid"><b>19</b></div>
+    </div>
+  </div>
+
+  <!-- top right: money (dirty / clean), contacts, crew -->
+  <div class="sheet col" style="right: 44px; top: 8px; width: 140px; gap: 2px; padding: 4px 8px">
+    <div class="row"><span class="num" style="color:var(--amber)">$</span><span class="num">310k</span><span class="tiny">+60/d</span></div>
+    <div class="row"><span class="num" style="color:var(--safe)">$</span><span class="num">145k</span></div>
+    <div class="row"><img class="ic m" src="img/i-chat.png" alt="Contacts"><span class="num">1</span><span style="flex:1"></span><img class="ic m" src="img/i-mask.png" alt="Crew"><span class="num">5</span></div>
+  </div>
+
+  <!-- contracts -->
+  <div class="cpin" style="left: 200px; top: 158px"><div class="card"><img class="ic m" src="img/i-lock.png" alt="Small branch"><span class="st"><i></i><i class="off"></i><i class="off"></i></span><span class="num" style="font-size:18px">60k</span></div></div>
+  <div class="cpin sel" style="left: 384px; top: 168px"><div class="card"><img class="ic m" src="img/i-lock.png" alt="City branch"><span class="st"><i></i><i></i><i class="off"></i></span><span class="num" style="font-size:18px">150k</span><img class="ic s" src="img/i-star.png" alt="Also holds: half the code"><span class="tiny">2d</span></div></div>
+  <div class="cpin" style="left: 590px; top: 208px"><div class="card"><img class="ic m" src="img/i-lock.png" alt="Regional HQ"><span class="st"><i></i><i></i><i></i></span><span class="num" style="font-size:18px">450k</span><img class="ic s" src="img/i-chat.png" alt="Earns a contact"></div></div>
+  <div class="cpin" style="left: 725px; top: 168px"><div class="card" style="border-color: var(--red)"><img class="ic m" src="img/i-skull.png" alt="The Big One"><span class="num" style="font-size:18px;color:var(--red)">2M</span></div></div>
+  <div class="cpin" style="left: 108px; top: 238px"><div class="card" style="border-color: var(--safe)"><img class="ic m" src="img/i-moon.png" alt="Safehouse"></div></div>
+
+  <!-- the day's action: each costs a day; recruiting and shopping don't (dashed) -->
+  <div class="row" style="position:absolute;left:150px;bottom:14px;gap:6px">
+    <button class="day" style="border-color: var(--iv)"><img class="ic" src="img/i-lock.png" alt="Take contract"><img class="ic s" src="img/i-play.png" alt=""></button>
+    <button class="day"><img class="ic" src="img/i-eye.png" alt="Case a bank"></button>
+    <button class="day"><img class="ic" src="img/i-moon.png" alt="Lay low"></button>
+    <span style="width:2px;height:40px;background:var(--line)"></span>
+    <button class="day free"><img class="ic" src="img/i-mask.png" alt="Recruit"><span class="num" style="font-size:18px">+</span></button>
+    <button class="day free"><img class="ic" src="img/i-dollar.png" alt="Black market"></button>
+  </div>
+  <div class="homebar"></div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":844,"height":390}}'>
+class Component extends DCLogic {
+  renderVals() { return {}; }
+}
+</script>
+</body>
+</html>

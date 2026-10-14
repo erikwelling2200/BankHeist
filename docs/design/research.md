@@ -18,7 +18,7 @@ The full notes for each area, each with 20–25 lessons, pitfalls, ideas, open q
 | NPCs, hostages and police (SWAT 4, Ready or Not, Splinter Cell Blacklist AI, Project Highrise, GTA) | [npcs-hostages-police.md](research/npcs-hostages-police.md) |
 | Procedural banks (Spelunky, Gungeon, Unexplored, XCOM 2 plots, real bank security) | [procedural-banks.md](research/procedural-banks.md) |
 | Touch UX and campaign structure (Into the Breach mobile, XCOM iOS, FTL, Hitman Freelancer) | [touch-ux-and-campaign.md](research/touch-ux-and-campaign.md) |
-| UI and touch interaction (show-don't-tell, accessibility, safe areas, confirm flows), October 2026 | [ui-and-touch.md](research/ui-and-touch.md) |
+| UI and touch interaction (show-don't-tell, accessibility, safe areas, confirm flows), October 2026 | [ui-and-touch.md](research/ui-and-touch.md), every claim and vote in [ui-and-touch-claims.md](research/ui-and-touch-claims.md) |
 | Critique of the original concept against all of the above | [concept-critique.md](research/concept-critique.md) |
 
 **Limits of the research.** All the researchers shared one web-search budget, and it ran out partway through. Four

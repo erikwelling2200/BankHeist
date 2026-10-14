@@ -1,0 +1,84 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Combat: aim, two-round burst</title>
+<script src="./support.js"></script>
+<link rel="stylesheet" href="hud.css">
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=Oswald:wght@400;500;600&amp;family=Share+Tech+Mono&amp;display=swap" rel="stylesheet">
+<style>body{margin:0;background:#0b0d17}
+.phase{display:flex;align-items:center;gap:2px;padding:0 6px}
+.phase span{display:flex;align-items:center;gap:2px;height:24px;padding:0 4px;border-radius:4px;color:var(--dim)}
+.phase span.on{background:var(--iv);color:var(--ink)}
+.phase img{width:18px;height:18px;image-rendering:pixelated}
+</style>
+</helmet>
+<div class="phone">
+  <img class="world" src="img/aim-tight.png" alt="With two bullets the cone is narrow and the bystander is outside it">
+  <div class="notch"></div>
+
+  <div class="top">
+    <div class="panel heat"><img class="ic m" src="img/i-heat.png" alt="Heat"><span class="num">2</span><div class="heat-bar"><i class="on"></i><i class="on"></i><i class="on"></i><i></i><i></i></div>
+      <span class="heat-next"><span class="num" style="font-size:18px">&#9654;3</span><img class="ic m" src="img/i-swat.png" alt="SWAT"><span class="num" style="font-size:18px">2</span></span></div>
+    <div class="panel phase">
+      <span><img src="img/i-shield.png" alt="Contain"></span>
+      <span class="on"><img src="img/i-phone.png" alt="Negotiate"><b class="num" style="font-size:18px">3</b></span>
+      <span><img src="img/i-charge.png" alt="Assault"></span>
+      <span><img src="img/i-car.png" alt="Regroup"></span>
+    </div>
+    <div class="panel turn" style="margin-left:auto"><span class="num">24</span></div>
+    <button class="panel ledger-btn" aria-label="Threat ledger"><img class="ic" src="img/i-bell.png" alt=""><span class="count">1</span></button>
+  </div>
+
+  <div class="rail">
+    <div class="crew sel" style="--c: var(--mara)"><img class="face" src="img/p-mara-m.png" alt="Mara, masked"><div class="ap"><i></i><i class="off" style="box-shadow:0 0 0 1px #fff"></i></div><img class="prof" src="img/i-smg.png" alt="Machine pistol"><div class="hp"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div></div>
+    <div class="crew" style="--c: var(--jun)"><img class="face" src="img/p-jun-m.png" alt="Jun, masked"><div class="ap"><i></i><i></i></div><img class="prof" src="img/i-pistol.png" alt="Pistol"><div class="hp"><i></i><i></i><i></i><i></i><i class="off"></i><i class="off"></i><i class="off"></i><i class="off"></i></div></div>
+    <div class="crew" style="--c: var(--dex)"><img class="face" src="img/p-dex-m.png" alt="Dex, masked"><div class="ap"><i></i><i></i></div><img class="prof" src="img/i-lmg.png" alt="LMG"><div class="hp"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div></div>
+    <div class="crew" style="--c: var(--sol)"><img class="face" src="img/p-sol-m.png" alt="Sol, masked"><div class="ap"><i></i><i></i></div><img class="prof" src="img/i-dmr.png" alt="DMR"><div class="hp"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div></div>
+  </div>
+
+  <!-- the loupe shows the cone's edge against the bystander, above the finger, never under it -->
+  <div class="loupe" style="left: 420px; top: 48px">
+    <img src="img/aim-tight.png" alt="" style="width: 1688px; height: 780px; left: -1000px; top: -420px">
+  </div>
+  <!-- the bystander in the cone carries the cost of hitting him -->
+
+  <div class="ltools">
+    <button class="btn" aria-label="Tactical map"><img class="ic" src="img/i-map.png" alt=""></button>
+    <button class="btn" aria-label="Overlays"><img class="ic" src="img/i-layers.png" alt=""></button>
+  </div>
+  <button class="endturn" aria-label="End turn, hold"><img class="ic" src="img/i-end.png" alt=""></button>
+
+  <!-- fire selector: fewer bullets, tighter cone -->
+  <div class="seg" style="position: absolute; right: 266px; bottom: 14px">
+    <button aria-label="1 bullet">1</button><button class="on" aria-label="2 bullets">2</button><button aria-label="3 bullets">3</button>
+    <button aria-label="4 bullets">4</button><button aria-label="5 bullets">5</button><button aria-label="6 bullets">6</button>
+  </div>
+  <div class="actions">
+    <div class="actrow">
+      <button class="act" aria-label="Reload"><img class="ic" src="img/i-reload.png" alt=""><span class="cost"><i></i></span><span class="count" style="background: var(--iv); color: var(--ink)">3</span></button>
+      <button class="act" aria-label="Swap weapon"><img class="ic" src="img/i-swap.png" alt=""></button>
+    </div>
+    <div class="actrow">
+      <button class="act" aria-label="Watch"><img class="ic" src="img/i-watch.png" alt=""><span class="cost"><i></i></span></button>
+      <button class="act sel" aria-label="Attack"><img class="ic" src="img/i-attack.png" alt=""><span class="cost"><i></i></span></button>
+    </div>
+  </div>
+  <button class="panel btn undo" aria-label="Undo"><img class="ic" src="img/i-undo.png" alt=""></button>
+  <button class="confirm" aria-label="Fire" style="background: var(--red); color: #fff"><img class="ic" src="img/i-attack.png" alt=""><span class="cname">Fire</span><span class="num">&#215;2</span></button>
+
+  <div class="tap" style="left: 414px; top: 352px"></div>
+  <div class="homebar"></div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":844,"height":390}}'>
+class Component extends DCLogic {
+  renderVals() { return {}; }
+}
+</script>
+</body>
+</html>

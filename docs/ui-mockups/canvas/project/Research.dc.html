@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Research behind the UI</title>
+<script src="./support.js"></script>
+<link rel="stylesheet" href="hud.css">
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=Oswald:wght@400;500;600&amp;family=Share+Tech+Mono&amp;display=swap" rel="stylesheet">
+<style>body{margin:0;background:#15131c}
+a{color:#8cd2ff}a:hover{color:#c9f2ff}
+.f{display:grid;grid-template-columns:30px 1fr 1fr;gap:14px;padding:10px 0;border-top:2px solid #2a2636;font-size:17px;line-height:1.3}
+.f .n{font-size:24px;color:var(--gold)}
+.f .c{color:var(--iv)}
+.f .a{color:var(--dim)}
+.f .a b{color:var(--safe);font-weight:400}
+.f small{display:block;margin-top:4px;font-size:14px}
+.gap{font-size:17px;line-height:1.35;color:var(--dim)}
+</style>
+</helmet>
+<div class="board" style="width: 1280px; box-sizing: border-box">
+  <h1>Research behind the UI</h1>
+  <h2>21 claims survived a 3-voter adversarial check; 4 were refuted. Left: the finding. Right: where it shows up on this canvas.</h2>
+
+  <div class="f"><span class="n">1</span><span class="c">Never let colour carry a state alone; add shape, pattern, icon or text, and let players pick key colours. Red against green fails for common colour blindness.<small><a href="https://learn.microsoft.com/en-us/gaming/accessibility/xbox-accessibility-guidelines/103">XAG 103</a> · <a href="https://devdocs.xbox.com/build/game-principles/accessibility/xag-deep-dives/xag-102-contrast.md">XAG 102</a> · <a href="https://accessible.games/accessible-player-experiences/access-patterns/distinguish-this-from-that/">AbleGamers APX</a></small></span>
+    <span class="a"><b>Applied:</b> every unsafe tile carries pips, an eye, a hand or a question mark; hatching keeps one meaning (next world phase); badges are glyph plus colour; a colour-blind preset swaps green and red for blue and magenta.</span></div>
+
+  <div class="f"><span class="n">2</span><span class="c">HUD text and icons need 4.5:1 contrast, measured against the busiest part of the background; offer a backing plate.<small><a href="https://devdocs.xbox.com/build/game-principles/accessibility/xag-deep-dives/xag-102-contrast.md">XAG 102</a></small></span>
+    <span class="a"><b>Applied:</b> every chip, badge and countdown sits on a dark plate with an ink outline; nothing floats bare over the pixel art.</span></div>
+
+  <div class="f"><span class="n">3</span><span class="c">Respect the safe area; let art run edge to edge; size the layout from the real viewport, even for a landscape-only game. Safari and the installed PWA report different landscape insets.<small><a href="https://developer.apple.com/design/human-interface-guidelines/layout">Apple HIG: Layout</a></small></span>
+    <span class="a"><b>Applied:</b> controls sit inside max(8px, env(safe-area-inset-*)); the notch side and home bar are drawn on every frame; the world image is full bleed.</span></div>
+
+  <div class="f"><span class="n">4</span><span class="c">Pixel art stays crisp only at whole-number scales in device pixels; fractional devicePixelRatio makes some art pixels bigger. Text belongs in HTML.<small><a href="https://developer.mozilla.org/en-US/docs/Games/Techniques/Crisp_pixel_art_look">MDN</a> · <a href="https://github.com/skhoroshavin/phaser-pixui">phaser-pixui</a></small></span>
+    <span class="a"><b>Applied:</b> every frame is the 1x render scaled 2x with nearest neighbour; zoom moves in whole steps; all numbers and labels are HTML.</span></div>
+
+  <div class="f"><span class="n">5</span><span class="c">Mark of the Ninja draws each noise as a ring whose radius is exactly how far it carries: unobtrusive but exact, so players learn the system without failing.<small><a href="https://www.gamedeveloper.com/design/reinventing-stealth-in-2d-with-i-mark-of-the-ninja-i-">Game Developer, Nels Anderson</a></small></span>
+    <span class="a"><b>Applied:</b> noise rings are the exact flood-filled tiles, a thin outline with a faint fill, with a labelled ear badge on everyone inside and nothing on anyone outside.</span></div>
+
+  <div class="f"><span class="n">6</span><span class="c">Into the Breach shows every enemy action a turn ahead, in the world, with no hit percentages.<small><a href="https://pcgamer.com/into-the-breach-preview">PC Gamer</a></small></span>
+    <span class="a"><b>Applied:</b> intent arrows, countdown badges and hatched next-phase tiles; in a firefight only breaches, landed grenades, wedges and sniper lines are shown, matching §13.6.</span></div>
+
+  <div class="f"><span class="n">7</span><span class="c">XCOM on iOS: tap to preview, then double-tap or a button to confirm. A finger drifting across the map on the way to Confirm changed the destination.<small><a href="https://www.shacknews.com/article/79824/mobile-review-xcom-enemy-unknown">Shacknews</a></small></span>
+    <span class="a"><b>Applied:</b> Confirm is fixed bottom-right off the map; a drag that doesn't start on the selected crew member only pans; changing the preview takes a clean tap.</span></div>
+
+  <div class="f"><span class="n">8</span><span class="c">Into the Breach's mobile release redesigned its touch interface for phones; XCOM 2's touch controls were judged better than its console ones. Tapping a unit and then its destination works well on crowded boards.<small><a href="https://www.androidpolice.com/into-the-breach-android-netflix-games/">Android Police</a> · <a href="https://toucharcade.com/2020/11/09/xcom-2-collection-ios-review-ipad-pro-iphone-comparison-ps4-dlc-download-controls/">TouchArcade</a></small></span>
+    <span class="a"><b>Applied:</b> the phone layout is the base; desktop adds hover in place of long-press and key caps.</span></div>
+
+  <div class="f"><span class="n">9</span><span class="c">XCOM 2's Geoscape gives persistent state fixed regions: objectives top left, the doom clock top centre, resources top right.<small><a href="https://xcom.fandom.com/wiki/Geoscape_(XCOM_2)">XCOM wiki</a></small></span>
+    <span class="a"><b>Applied:</b> city map: dossier top left, the Squeeze top centre with each complication on its day, money and crew top right.</span></div>
+
+  <div class="f"><span class="n">+</span><span class="c">Touch targets: Apple 44pt, Material 48dp, WCAG 2.2 24px minimum (44 enhanced). Secondary sources only.<small><a href="https://specification.website/spec/accessibility/touch-target-size/">touch-target-size summary</a></small></span>
+    <span class="a"><b>Applied:</b> every control is at least 44px; Confirm is 120×60. A 16px tile is about 32px at Act zoom, so tiles are never the only way to hit something: taps snap, the tactical map uses big pins, aiming has a loupe.</span></div>
+
+  <h2 style="margin-top: 18px">Not covered by any verified source: design judgement on this canvas</h2>
+  <div class="gap">Pan versus path versus pinch (here: a drag from the selected crew member is a path, any other drag pans, two fingers zoom). Overlay budget (here: one active preview at full strength, the rest from the overlay drawer). Loupe and long-press conventions, timeline, threat-ledger and recap layout, type (Pixelify Sans was dropped because its 2 and 5 read as S and 8; the HUD now uses Oswald for labels and numbers and Share Tech Mono for small data), playback speed, planning screens. These should be checked in phone playtests, starting with M1.</div>
+  <h2 style="margin-top: 18px">Revision: UI at twice the art resolution</h2>
+  <div class="gap">World UI is now drawn at 640×360 over the 320×180 art (one UI pixel is half an art pixel): glyphs on an 11–13px grid instead of 5–7px, hairline strokes, muted signal colours and dark plates with thin borders in place of filled stickers. HUD icons moved from a 12px to a 24px grid shown 1:1, and portraits from 24px to 48px with hard side light and four distinct masks. In Phaser this is a second camera, or UI sprites at 0.5 scale on a canvas rendered at 2× the art.</div>
+  <h2 style="margin-top: 14px">Refuted</h2>
+  <div class="gap">"XCOM iOS moves units by dragging a path" (0–3). "XCOM felt cramped even on iPad" (0–3). "XCOM 2's phone touch targets take getting used to" (1–2).</div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1280,"height":1300}}'>
+class Component extends DCLogic {
+  renderVals() { return {}; }
+}
+</script>
+</body>
+</html>

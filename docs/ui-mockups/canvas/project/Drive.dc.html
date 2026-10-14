@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Vehicles: where the van can end up</title>
+<script src="./support.js"></script>
+<link rel="stylesheet" href="hud.css">
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=Oswald:wght@400;500;600&amp;family=Share+Tech+Mono&amp;display=swap" rel="stylesheet">
+<style>body{margin:0;background:#0b0d17}
+.phase{display:flex;align-items:center;gap:2px;padding:0 6px}
+.phase span{display:flex;align-items:center;gap:2px;height:24px;padding:0 4px;border-radius:4px;color:var(--dim)}
+.phase span.on{background:var(--iv);color:var(--ink)}
+.phase img{width:18px;height:18px;image-rendering:pixelated}
+.vcard{position:relative;width:62px;height:62px;border-radius:2px;background:var(--panel);border:1px solid var(--iv);box-shadow:0 0 0 1px var(--iv)}
+</style>
+</helmet>
+<div class="phone">
+  <img class="world" src="img/vehicle.png" alt="The van on the street; every footprint it can reach is tinted green, the chosen end spot is bracketed and its swept path drawn">
+  <div class="notch"></div>
+
+  <div class="top">
+    <div class="panel heat"><img class="ic m" src="img/i-heat.png" alt="Heat"><span class="num">4</span><div class="heat-bar"><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i></div>
+      <span class="heat-next"><span class="num" style="font-size:18px">&#9654;5</span><img class="ic m" src="img/i-car.png" alt="Roadblock"><span class="num" style="font-size:18px">1</span></span></div>
+    <div class="panel phase">
+      <span><img src="img/i-shield.png" alt="Contain"></span>
+      <span><img src="img/i-phone.png" alt="Negotiate"></span>
+      <span><img src="img/i-charge.png" alt="Assault"></span>
+      <span class="on"><img src="img/i-car.png" alt="Regroup"><b class="num" style="font-size:18px">1</b></span>
+    </div>
+    <div class="panel row" style="padding: 0 8px; margin-left: auto"><img class="ic m" src="img/i-loot.png" alt="Loot in the van"><span class="num" style="color: var(--safe)">212</span><span class="tiny">/150k</span></div>
+    <button class="panel ledger-btn" aria-label="Threat ledger"><img class="ic" src="img/i-bell.png" alt=""></button>
+  </div>
+
+  <!-- the van is selected like a crew member, with its driver and passengers -->
+  <div class="rail">
+    <div class="vcard"><img class="ic l" src="img/i-car.png" alt="Van" style="position:absolute;left:11px;top:6px"><img src="img/p-mara-m.png" alt="Driver: Mara" style="position:absolute;left:4px;bottom:4px;width:26px;height:26px;image-rendering:pixelated;border-radius:1px;box-shadow:0 0 0 1px var(--mara)"><span class="num" style="position:absolute;right:6px;bottom:6px;font-size:18px">+2</span></div>
+    <div class="crew" style="--c: var(--jun)"><img class="face" src="img/p-jun-m.png" alt="Jun, masked"><div class="ap"><i></i><i></i></div><img class="prof" src="img/i-pistol.png" alt=""><div class="hp hurt"><i></i><i></i><i></i><i></i><i class="off"></i><i class="off"></i><i class="off"></i><i class="off"></i></div></div>
+    <div class="crew dim" style="--c: var(--dex)"><img class="face" src="img/p-dex-m.png" alt="Dex, in the van"><div class="ap"><i></i><i></i></div><img class="prof" src="img/i-lmg.png" alt=""><img class="carry" src="img/i-car.png" alt="In the van"><div class="hp"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div></div>
+    <div class="crew dim" style="--c: var(--sol)"><img class="face" src="img/p-sol-m.png" alt="Sol, in the van"><div class="ap"><i></i><i></i></div><img class="prof" src="img/i-dmr.png" alt=""><img class="carry" src="img/i-car.png" alt="In the van"><div class="hp"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div></div>
+  </div>
+
+  <!-- Jun is still on the pavement: leaving now leaves him behind -->
+  <div class="chip red" style="left: 330px; top: 140px"><img class="p" src="img/p-jun-m.png" alt="Jun"><span class="num" style="color: var(--red)">&#10005;</span><img class="ic m" src="img/i-car.png" alt="not aboard"></div>
+
+  <div class="ltools">
+    <button class="btn" aria-label="Tactical map"><img class="ic" src="img/i-map.png" alt=""></button>
+    <button class="btn" aria-label="Overlays"><img class="ic" src="img/i-layers.png" alt=""></button>
+  </div>
+  <button class="endturn" aria-label="End turn, hold"><img class="ic" src="img/i-end.png" alt=""></button>
+  <div class="actions">
+    <div class="actrow">
+      <button class="act" aria-label="Turn left"><img class="ic" src="img/i-rotl.png" alt=""></button>
+      <button class="act" aria-label="Turn right"><img class="ic" src="img/i-rotr.png" alt=""></button>
+    </div>
+    <div class="actrow">
+      <button class="act" aria-label="Ram"><img class="ic" src="img/i-charge.png" alt=""><span class="cost"><i></i></span></button>
+      <button class="act sel" aria-label="Drive"><img class="ic" src="img/i-car.png" alt=""><span class="cost"><i></i></span></button>
+    </div>
+  </div>
+  <button class="panel btn undo" aria-label="Undo"><img class="ic" src="img/i-undo.png" alt=""></button>
+  <button class="confirm" aria-label="Drive"><img class="ic" src="img/i-car.png" alt=""><span class="cname">Drive</span><span class="cost"><i></i></span></button>
+  <div class="tap" style="left: 624px; top: 296px"></div>
+  <div class="homebar"></div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":844,"height":390}}'>
+class Component extends DCLogic {
+  renderVals() { return {}; }
+}
+</script>
+</body>
+</html>

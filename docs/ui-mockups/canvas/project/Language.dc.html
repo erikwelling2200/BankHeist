@@ -1,0 +1,94 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Visual language</title>
+<script src="./support.js"></script>
+<link rel="stylesheet" href="hud.css">
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=Oswald:wght@400;500;600&amp;family=Share+Tech+Mono&amp;display=swap" rel="stylesheet">
+<style>body{margin:0;background:#15131c}
+.lab{display:grid;gap:0;text-align:center;font-size:17px;color:var(--dim)}
+.sec{display:flex;flex-direction:column;gap:6px}
+.sec h3{margin:0;font-size:22px;font-weight:400;color:var(--iv)}
+.sw{display:flex;align-items:center;gap:8px;font-size:17px;color:var(--dim)}
+.sw i{display:block;width:30px;height:30px;border-radius:5px;border:1px solid #000}
+.ico{display:flex;flex-direction:column;align-items:center;gap:2px;width:60px;font-size:15px;color:var(--dim);text-align:center}
+.ico img{width:36px;height:36px;image-rendering:pixelated}
+</style>
+</helmet>
+<div class="board" style="width: 1280px; height: 960px; display: flex; flex-direction: column; gap: 20px">
+  <h1>Visual language</h1>
+
+  <div class="sec">
+    <h3>Safe floor: colour plus a second channel on every tile</h3>
+    <img src="img/legend-tiles.png" alt="Ten tile states" style="width: 960px; height: 96px; image-rendering: pixelated">
+    <div class="lab" style="grid-template-columns: repeat(10, 96px)">
+      <span>safe</span><span>+1 pip</span><span>+2 pips</span><span>challenge</span><span>exposed</span><span>+1 next phase</span><span>exposed next phase</span><span>camera</span><span>unscouted</span><span>unknown risk</span>
+    </div>
+  </div>
+
+  <div class="sec">
+    <h3>Over heads: a plate, a glyph, a countdown</h3>
+    <img src="img/legend-badges.png" alt="Thirteen NPC state badges" style="width: 1248px; height: 128px; image-rendering: pixelated">
+    <div class="lab" style="grid-template-columns: repeat(13, 96px)">
+      <span>curious</span><span>alerted</span><span>alarm in 2</span><span>radio in 2</span><span>escapes in 3</span><span>phone in 2</span><span>draws</span><span>panicked</span><span>commanded</span><span>tied</span><span>surprised</span><span>hears: alerted</span><span>hostile</span>
+    </div>
+  </div>
+
+  <div style="display: flex; gap: 40px">
+    <div class="sec">
+      <h3>Pips, cone markers, cover</h3>
+      <img src="img/legend-pips.png" alt="Suspicion pips in crew colours, command pips, the hostile, civilian and crew markers, and half cover covered and flanked" style="width: 864px; height: 96px; image-rendering: pixelated">
+      <div class="lab" style="grid-template-columns: repeat(9, 96px)">
+        <span>1 on Mara</span><span>2 on Jun</span><span>3 on Dex</span><span>command</span><span>hostile</span><span>civilian</span><span>crew</span><span>half cover</span><span>flanked</span>
+      </div>
+    </div>
+    <div class="sec">
+      <h3>Crew</h3>
+      <div class="row" style="gap: 10px">
+        <img src="img/p-mara-m.png" alt="Mara" style="width:56px;height:56px;image-rendering:pixelated;border-radius:1px;box-shadow:0 0 0 3px var(--mara)">
+        <img src="img/p-jun-m.png" alt="Jun" style="width:56px;height:56px;image-rendering:pixelated;border-radius:1px;box-shadow:0 0 0 3px var(--jun)">
+        <img src="img/p-dex-m.png" alt="Dex" style="width:56px;height:56px;image-rendering:pixelated;border-radius:1px;box-shadow:0 0 0 3px var(--dex)">
+        <img src="img/p-sol-m.png" alt="Sol" style="width:56px;height:56px;image-rendering:pixelated;border-radius:1px;box-shadow:0 0 0 3px var(--sol)">
+      </div>
+      <div class="tiny" style="font-size:16px">Each crew colour stays off the signal palette, and shows on the mask, the ground ring and the pips they cause.</div>
+    </div>
+  </div>
+
+  <div style="display: flex; gap: 40px">
+    <div class="sec">
+      <h3>Signal palette and the colour-blind preset</h3>
+      <div class="row" style="gap: 18px">
+        <div class="col" style="gap:4px"><div class="sw"><i style="background:#80be8a"></i>safe</div><div class="sw"><i style="background:#e2a240"></i>suspicion</div><div class="sw"><i style="background:#d44638"></i>exposed</div><div class="sw"><i style="background:#8ab6d6"></i>command</div></div>
+        <div class="col" style="gap:4px"><div class="sw"><i style="background:#6a9fd0"></i>safe</div><div class="sw"><i style="background:#d8c060"></i>suspicion</div><div class="sw"><i style="background:#c8508a"></i>exposed</div><div class="sw"><i style="background:#b8d8e8"></i>command</div></div>
+      </div>
+    </div>
+    <div class="sec">
+      <h3>Profile, from least to most conspicuous</h3>
+      <div class="row" style="gap: 6px">
+        <div class="ico"><img src="img/i-clean.png" alt="">Clean</div><div class="ico"><img src="img/i-concealed.png" alt="">Concealed</div>
+        <div class="ico"><img src="img/i-armed.png" alt="">Armed</div><div class="ico"><img src="img/i-heavy.png" alt="">Heavy</div>
+      </div>
+    </div>
+    <div class="sec">
+      <h3>Actions</h3>
+      <div class="row" style="gap: 2px; flex-wrap: wrap; width: 430px">
+        <div class="ico"><img src="img/i-move.png" alt="">move</div><div class="ico"><img src="img/i-dash.png" alt="">dash</div><div class="ico"><img src="img/i-command.png" alt="">command</div><div class="ico"><img src="img/i-hold.png" alt="">hold</div>
+        <div class="ico"><img src="img/i-watch.png" alt="">watch</div><div class="ico"><img src="img/i-ziptie.png" alt="">zip-tie</div><div class="ico"><img src="img/i-knockout.png" alt="">knockout</div><div class="ico"><img src="img/i-attack.png" alt="">attack</div>
+        <div class="ico"><img src="img/i-suppress.png" alt="">suppress</div><div class="ico"><img src="img/i-hack.png" alt="">hack</div><div class="ico"><img src="img/i-throw.png" alt="">throw</div><div class="ico"><img src="img/i-wait.png" alt="">wait for</div><div class="ico"><img src="img/i-mask.png" alt="">GO</div><div class="ico"><img src="img/i-reload.png" alt="">reload</div>
+      </div>
+    </div>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1280,"height":960}}'>
+class Component extends DCLogic {
+  renderVals() { return {}; }
+}
+</script>
+</body>
+</html>

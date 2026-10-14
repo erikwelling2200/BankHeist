@@ -1,0 +1,73 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Debrief: what the job paid and cost</title>
+<script src="./support.js"></script>
+<link rel="stylesheet" href="hud.css">
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=Oswald:wght@400;500;600&amp;family=Share+Tech+Mono&amp;display=swap" rel="stylesheet">
+<style>body{margin:0;background:#0b0d17}
+.style{display:flex;flex-direction:column;align-items:center;gap:2px;width:84px;padding:6px 2px;border-radius:2px;background:rgba(226,218,198,.05);border:1px solid var(--gold)}
+.style img{width:30px;height:30px;image-rendering:pixelated}
+.style b{font-weight:400;font-size:16px}
+.style.miss{border-color:var(--line);opacity:.35}
+.cm{display:flex;align-items:center;gap:6px;height:48px}
+.cm img.p{width:40px;height:40px;image-rendering:pixelated;border-radius:1px}
+.bar{display:flex;height:22px;border-radius:4px;overflow:hidden;border:1px solid #000}
+</style>
+</helmet>
+<div class="phone" style="background:#15131c">
+  <img class="world dimmed" src="img/vehicle.png" alt="">
+  <div class="notch"></div>
+
+  <!-- payout as a bar you can read at a glance: what left the map, minus shares, plus styles -->
+  <div class="sheet" style="left: 44px; right: 44px; top: 12px; display: flex; align-items: center; gap: 10px">
+    <img class="ic l" src="img/i-loot.png" alt="Payout">
+    <div class="bar" style="flex: 1">
+      <span style="width: 58%; background: var(--amber)"></span>
+      <span style="width: 12%; background: repeating-linear-gradient(135deg, #7a6a50 0 4px, #4a4030 4px 8px)"></span>
+      <span style="width: 12%; background: var(--gold)"></span>
+      <span style="flex: 1; background: #2a2636"></span>
+    </div>
+    <span class="big">$212k</span>
+    <span class="row" style="gap: 2px"><img class="ic m" src="img/i-loot.png" alt="Target"><span class="num" style="color: var(--safe)">&#10003;</span></span>
+  </div>
+
+  <!-- styles earned, and the ones missed, as badges -->
+  <div class="row" style="position: absolute; left: 44px; top: 76px; gap: 6px">
+    <div class="style"><img src="img/i-hack.png" alt=""><b>Inside Job</b></div>
+    <div class="style"><img src="img/i-hold.png" alt=""><b>Clean Hands</b></div>
+    <div class="style miss"><img src="img/i-eye.png" alt=""><b>Ghost</b></div>
+    <div class="style miss"><img src="img/i-car.png" alt=""><b>Cowboys</b></div>
+    <div class="style miss"><img src="img/i-dmr.png" alt=""><b>Overwatch</b></div>
+    <div class="style miss"><img src="img/i-loot.png" alt=""><b>Greedy</b></div>
+  </div>
+
+  <!-- per crew: share, notoriety pips (masked = no new pip), injuries -->
+  <div class="sheet col" style="left: 44px; top: 170px; width: 420px; gap: 2px; padding: 6px 10px">
+    <div class="cm"><img class="p" src="img/p-mara.png" alt="Mara"><span class="num" style="width:56px">$21k</span><img class="ic m" src="img/i-eye.png" alt="Notoriety"><span class="pip on" style="--c:var(--amber)"></span><span class="pip"></span><span class="pip"></span><span class="pip"></span><span class="pip"></span></div>
+    <div class="cm"><img class="p" src="img/p-jun.png" alt="Jun"><span class="num" style="width:56px">$25k</span><img class="ic m" src="img/i-eye.png" alt="Notoriety"><span class="pip"></span><span class="pip"></span><span class="pip"></span><span class="pip"></span><span class="pip"></span><span style="flex:1"></span><img class="ic m" src="img/i-revive.png" alt="Injured"><span class="num" style="color:var(--amber)">2d</span></div>
+    <div class="cm"><img class="p" src="img/p-dex.png" alt="Dex"><span class="num" style="width:56px">$32k</span><img class="ic m" src="img/i-eye.png" alt="Notoriety"><span class="pip on" style="--c:var(--amber)"></span><span class="pip on" style="--c:var(--amber)"></span><span class="pip"></span><span class="pip"></span><span class="pip"></span></div>
+    <div class="cm"><img class="p" src="img/p-sol.png" alt="Sol"><span class="num" style="width:56px">$17k</span><img class="ic m" src="img/i-eye.png" alt="Notoriety"><span class="pip"></span><span class="pip"></span><span class="pip"></span><span class="pip"></span><span class="pip"></span></div>
+  </div>
+
+  <!-- the campaign clock moves: by how much, and what it brought closer -->
+  <div class="sheet col" style="right: 44px; top: 170px; width: 280px; gap: 8px; padding: 10px">
+    <div class="row"><img class="ic" src="img/i-skull.png" alt="Squeeze"><span class="num" style="color: var(--amber)">+2</span><span style="flex:1"></span><img class="ic m" src="img/i-police.png" alt="Next: police ETA -1"><span class="num">day 8</span></div>
+    <div class="row"><img class="ic" src="img/i-chat.png" alt="Contact"><span class="num">+0</span><span style="flex:1"></span><img class="ic" src="img/i-star.png" alt="Side objective"><span class="num" style="color: var(--safe)">&#10003;</span></div>
+  </div>
+  <button class="confirm" aria-label="Back to the city" style="right: 44px; bottom: 14px"><img class="ic" src="img/i-map.png" alt=""><span class="cname">City</span></button>
+  <div class="homebar"></div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":844,"height":390}}'>
+class Component extends DCLogic {
+  renderVals() { return {}; }
+}
+</script>
+</body>
+</html>

@@ -1,0 +1,90 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Stealth: multi-turn route and Wait for</title>
+<script src="./support.js"></script>
+<link rel="stylesheet" href="hud.css">
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=Oswald:wght@400;500;600&amp;family=Share+Tech+Mono&amp;display=swap" rel="stylesheet">
+<style>body{margin:0;background:#0b0d17}
+.wf{height:56px;min-width:56px;border-radius:2px;background:var(--panel);border:1px solid var(--line);display:flex;align-items:center;justify-content:center;gap:4px;padding:0 8px;color:var(--iv);font:inherit;font-weight:700;font-size:16px}
+.wf img{image-rendering:pixelated}
+</style>
+</helmet>
+<div class="phone">
+  <img class="world" src="img/route.png" alt="Mara's three-turn route across the lobby, turn ends numbered; a guard on a known routine is drawn as a dashed predicted marker">
+  <div class="notch"></div>
+
+  <div class="top">
+    <div class="panel state quiet"><img class="ic m" src="img/i-eye.png" alt=""><span class="num" style="font-size:15px">QUIET</span></div>
+    <div class="panel timeline">
+      <div class="tl-track">
+        <div class="tl-done" style="width: 20%"></div>
+        <div class="tl-ev" style="left: 17.8%"><img src="img/i-fork.png" alt="Lunch"><b>8</b></div>
+        <div class="tl-now" style="left: 20%"></div>
+        <div class="tl-ev" style="left: 26.7%"><img src="img/i-cart.png" alt="Cash run"><b>12</b></div>
+        <div class="tl-ev" style="left: 44.4%"><img src="img/i-truck.png" alt="Armoured car"><b>20</b></div>
+        <div class="tl-ev" style="left: 66.7%"><img src="img/i-police.png" alt="Patrol drive-by"><b>30</b></div>
+        <div class="tl-ev" style="left: 100%"><img src="img/i-moon.png" alt="Closing"><b>45</b></div>
+      </div>
+    </div>
+    <div class="panel turn"><span class="num">9</span></div>
+    <button class="panel ledger-btn" aria-label="Threat ledger"><img class="ic" src="img/i-bell.png" alt=""></button>
+  </div>
+
+  <div class="rail">
+    <div class="crew sel" style="--c: var(--mara)"><img class="face" src="img/p-mara.png" alt="Mara"><div class="ap"><i></i><i></i></div><img class="prof" src="img/i-clean.png" alt="Clean"><div class="hp"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div></div>
+    <div class="crew" style="--c: var(--jun)"><img class="face" src="img/p-jun.png" alt="Jun"><div class="ap"><i></i><i></i></div><img class="prof" src="img/i-concealed.png" alt="Concealed"><div class="hp"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div></div>
+    <div class="crew dim" style="--c: var(--dex)"><img class="face" src="img/p-dex.png" alt="Dex"><div class="ap"><i></i><i></i></div><img class="prof" src="img/i-heavy.png" alt="Heavy"><img class="carry" src="img/i-car.png" alt="In the van"><div class="hp"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div></div>
+    <div class="crew dim" style="--c: var(--sol)"><img class="face" src="img/p-sol.png" alt="Sol"><div class="ap"><i></i><i></i></div><img class="prof" src="img/i-armed.png" alt="Armed"><div class="hp"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div></div>
+  </div>
+
+  <!-- auto-advance: the route runs on its own until one of these happens -->
+  <div class="chip" style="left: 300px; top: 48px; border-color: var(--iv)">
+    <img class="ic m" src="img/i-ff.png" alt="Auto-advance"><span class="num">3</span>
+    <span style="width: 2px; height: 18px; background: var(--line); margin: 0 4px"></span>
+    <span style="display:flex;gap:2px"><i style="width:4px;height:14px;background:var(--iv)"></i><i style="width:4px;height:14px;background:var(--iv)"></i></span>
+    <img class="ic s" src="img/i-eye.png" alt="new NPC"><img class="ic s" src="img/i-chat.png" alt="intent change"><img class="ic s" src="img/i-bell.png" alt="carrier"><img class="ic s" src="img/i-truck.png" alt="schedule event">
+  </div>
+
+  <!-- Wait for: pick the event, the game ends turns until it happens -->
+  <div class="sheet" style="left: 120px; bottom: 82px; display: flex; gap: 6px; align-items: center">
+    <img class="ic" src="img/i-wait.png" alt="Wait for">
+    <button class="wf"><img src="img/p-guard.png" alt="" style="width:30px;height:30px;border-radius:3px"><img class="ic m" src="img/i-run.png" alt="passes"></button>
+    <button class="wf"><img src="img/p-manager.png" alt="" style="width:30px;height:30px;border-radius:3px"><img class="ic m" src="img/i-fork.png" alt="leaves"></button>
+    <button class="wf"><img class="ic" src="img/i-cart.png" alt="Cash run"><span>12</span></button>
+    <button class="wf"><img class="ic" src="img/i-truck.png" alt="Armoured car"><span>20</span></button>
+    <button class="wf"><img class="ic" src="img/i-skip.png" alt="Next event"></button>
+  </div>
+
+  <div class="ltools">
+    <button class="btn" aria-label="Tactical map"><img class="ic" src="img/i-map.png" alt=""></button>
+    <button class="btn" aria-label="Overlays"><img class="ic" src="img/i-layers.png" alt=""></button>
+  </div>
+  <button class="endturn" aria-label="End turn, hold"><img class="ic" src="img/i-end.png" alt=""></button>
+  <div class="actions">
+    <div class="actrow">
+      <button class="act" aria-label="Interact"><img class="ic" src="img/i-interact.png" alt=""><span class="cost"><i></i></span></button>
+      <button class="act" aria-label="Command"><img class="ic" src="img/i-command.png" alt=""><span class="cost"><i></i></span></button>
+    </div>
+    <div class="actrow">
+      <button class="act sel" aria-label="Wait for"><img class="ic" src="img/i-wait.png" alt=""></button>
+      <button class="act" aria-label="Move"><img class="ic" src="img/i-move.png" alt=""><span class="cost"><i></i></span></button>
+    </div>
+  </div>
+  <button class="panel btn undo" aria-label="Undo"><img class="ic" src="img/i-undo.png" alt=""></button>
+  <button class="confirm" aria-label="Start route"><img class="ic" src="img/i-ff.png" alt=""><span class="cname">Run 3 turns</span></button>
+  <div class="homebar"></div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":844,"height":390}}'>
+class Component extends DCLogic {
+  renderVals() { return {}; }
+}
+</script>
+</body>
+</html>
