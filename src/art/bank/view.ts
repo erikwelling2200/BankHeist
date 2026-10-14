@@ -54,6 +54,34 @@ export function roundBands(ramp: readonly number[], s: number, highlight = true)
 }
 
 /**
+ * A soft body, round in plan (a coat on a hook, a slumped sack), standing on view footprint point (cx, cy) from height
+ * z: its row k (0 at the bottom, `h` rows) is an ellipse `radii(k)` across the view and into it. Each row shows its front
+ * surface, and where the rows above are narrower, its top (a shoulder); normals follow the curve, so it shades round.
+ * `paint` colours a pixel by where it is across the body (s, from -1 at the left edge to 1 at the right), its row, and
+ * whether it is on a top; null leaves it out.
+ */
+export function softBody(
+    view: View, cx: number, cy: number, z: number, h: number, radii: (k: number) => [number, number], paint: (s: number, k: number, top: boolean) => number | null
+): void {
+    for (let k = 0; k < h; k++) {
+        const [rx, ry] = radii(k);
+        if (rx <= 0 || ry <= 0) continue;
+        for (let y = Math.floor(cy - ry); y < Math.ceil(cy + ry); y++) for (let x = Math.floor(cx - rx); x < Math.ceil(cx + rx); x++) {
+            const s = (x + 0.5 - cx) / rx, t = (y + 0.5 - cy) / ry;
+            if (s * s + t * t > 1) continue;
+            const colour = paint(s, k, true);
+            if (colour !== null) view.top(x, y, z + k + 1, colour, norm(s * 0.5, -0.55 + 0.25 * t, 0.8));
+        }
+        for (let x = Math.floor(cx - rx); x < Math.ceil(cx + rx); x++) {
+            const s = (x + 0.5 - cx) / rx;
+            if (Math.abs(s) > 1) continue;
+            const c = Math.sqrt(1 - s * s), colour = paint(s, k, false);
+            if (colour !== null) view.face(x, z + k + 1, colour, cy + c * ry, norm(s * 0.9, 0.45 * c, 0.9 * c + 0.2));
+        }
+    }
+}
+
+/**
  * A canvas for drawing one view of a prop by hand, in the projection the world uses. The view covers the prop's turned
  * footprint (`w` across the screen, `d` into it) and height `h`. Depth is foreshortened to `depthScale` of itself (by
  * default the world's `TOP_DEPTH`) measured back from the front edge, so the bottom edge is the footprint's south edge at
@@ -242,6 +270,16 @@ export class Turn {
         }
     }
 
+    /** The own-frame direction of view direction (dx, dy): the inverse of `point`'s turn, without its offset. */
+    direction(dx: number, dy: number): [number, number] {
+        switch (this.facing) {
+            case 'south': return [dx, dy];
+            case 'north': return [-dx, -dy];
+            case 'east': return [-dy, dx];
+            case 'west': return [dy, -dx];
+        }
+    }
+
     /** A part of the own frame as a box of the view's footprint. */
     box(p: Part): Part {
         const [ax, ay] = this.point(p.x, p.y), [bx, by] = this.point(p.x + p.w, p.y + p.d);
@@ -302,7 +340,8 @@ function paintersOrder<T extends { b: Part }>(items: T[]): T[] {
     return out;
 }
 
-const norm = (x: number, y: number, z: number): Vec3Like => {
+/** A unit vector along (x, y, z). */
+export const norm = (x: number, y: number, z: number): Vec3Like => {
     const l = Math.hypot(x, y, z);
     return [x / l, y / l, z / l];
 };

@@ -1,5 +1,5 @@
 import type { Facing, Size } from '../../level/space';
-import { PAL } from '../palette';
+import { PAL, mix } from '../palette';
 import { rows, Turn, View, type PropArt } from './view';
 
 /*
@@ -152,4 +152,21 @@ export function camera(s: Size, facing: Facing): PropArt {
     view.glowTop(x, y, s.h, PAL.emissive.ledRed);
     view.outline(0.3);
     return view.art();
+}
+
+export function whiteboard(s: Size, facing: Facing): PropArt {
+    // A whiteboard in an aluminium frame: a heading and notes in blue marker, a bar chart with a red trend line, and
+    // the markers lying in the tray along its bottom.
+    const S = PAL.steel, C = PAL.cloth.white, blue = PAL.cloth.navy[3]!, red = PAL.carpet[4], tray = s.h - 1;
+    const trend = (u: number, v: number) => u >= 9 && u <= 13 && v === Math.round(5 - (u - 9) * 0.9);
+    return hung(s, facing, (u, v) => {
+        if (v === tray) return { c: u === 3 ? red : u === 4 ? blue : u === 6 ? PAL.ink : S[2] };
+        if (u === 0 || v === 0 || u === s.w - 1 || v === tray - 1) return { c: v === 0 ? S[5] : S[3] };
+        if (v === 2 && u >= 2 && u <= 6 && u % 3 !== 1) return { c: blue };
+        if ((v === 4 && u >= 2 && u <= 5) || (v === 6 && u >= 2 && u <= 6 && u !== 4)) return { c: mix(blue, C[3]!, 0.3) };
+        if (trend(u, v)) return { c: red };
+        if ((u === 8 && v >= 2 && v <= 7) || (v === 7 && u >= 8 && u <= 13)) return { c: S[1] };
+        if ((u === 10 && v >= 6) || (u === 12 && v >= 5)) return { c: blue };
+        return { c: (u + v * 2) % 13 === 0 ? PAL.paper[3] : C[3]! };
+    }, S[1], S[4]);
 }

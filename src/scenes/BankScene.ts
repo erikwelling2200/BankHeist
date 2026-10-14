@@ -9,10 +9,10 @@ import { deepen, mix, PAL } from '../art/palette';
 import { PixelBitmap, toCanvas } from '../art/PixelBitmap';
 import { bayer4, mulberry32, valueNoise } from '../art/random';
 import type { BankData } from '../level/bankData';
-import { propBox, propSize } from '../level/catalog';
+import { isOnTop, propBox, propSize } from '../level/catalog';
 import { TILE } from '../level/level';
 import { floorHeight, isOffMap, isOutdoors, type Level, type LevelPerson, type LevelProp, type PersonFacing as Facing } from '../level/plan';
-import { baseLine, PERSON_SIZE, px, WALL_STEPS, type Box } from '../level/space';
+import { baseLine, drawLine, frontRow, GLOW_DEPTH, PERSON_SIZE, px, supportOf, WALL_STEPS, type Box } from '../level/space';
 import { wallFootprint, type Footprint, type Wall } from '../level/walls';
 import { mapZoom, nearestStep, zoomSteps } from '../logic/zoom';
 import { CameraControls } from '../ui/CameraControls';
@@ -76,8 +76,8 @@ interface PersonSprite {
     patrol?: { points: [number, number][]; leg: number; t: number; dir: 1 | -1; wait: number };
 }
 
-/** A prop placed in the level, with its art for the way it faces. */
-interface PlacedProp { p: LevelProp; box: Box; art: PropArt; left: number; top: number }
+/** A prop placed in the level, with its art for the way it faces and, for one standing on another prop, that prop's box. */
+interface PlacedProp { p: LevelProp; box: Box; art: PropArt; left: number; top: number; under?: Box }
 
 /** A wall segment on screen: the step it is drawn at, the step it is heading for, and what hangs on it. */
 interface WallSprite {
@@ -172,9 +172,10 @@ export class BankScene extends Phaser.Scene {
         this.mapWidth = this.level.tiles[0]!.length * TILE;
         this.mapHeight = this.level.tiles.length * TILE;
 
-        const props = this.bank.props.map((p): PlacedProp => {
-            const box = propBox(p, this.level.walls), art = propArt(p, propSize(p), box.facing);
-            return { p, box, art, left: box.x - art.originX, top: baseLine(box) - box.z - art.lit.height };
+        const boxes = this.bank.props.map(p => propBox(p, this.level.walls));
+        const props = this.bank.props.map((p, i): PlacedProp => {
+            const box = boxes[i]!, art = propArt(p, propSize(p), box.facing), under = isOnTop(p.kind) ? supportOf(box, boxes) : undefined;
+            return { p, box, art, under, left: box.x - art.originX, top: frontRow(box, under) - art.lit.height };
         });
         const far = farFront(this.level);
         this.lamps = [
@@ -581,23 +582,24 @@ export class BankScene extends Phaser.Scene {
 
     /**
      * Places every standing prop by its box (catalog size, level placement): its bitmap's bottom edge on the box's front
-     * edge at the box's elevation, drawn in order of that front edge, lit by the lamps that reach its footprint and
-     * exposed for where it stands. Returns the floor footprints that shade and block the sun.
+     * edge at the box's elevation, drawn in order of that front edge (one on another prop's top just after that prop, on
+     * the top as drawn), lit by the lamps that reach its footprint and exposed for where it stands. Returns the floor
+     * footprints that shade and block the sun.
      */
     private buildProps(props: PlacedProp[]): Occluder[] {
         const occluders: Occluder[] = [];
-        props.forEach(({ p, box, art, left, top }, i) => {
-            const key = `bank-prop-${i}`, depth = DEPTH.standing + baseLine(box);
+        props.forEach(({ p, box, art, left, top, under }, i) => {
+            const key = `bank-prop-${i}`, depth = DEPTH.standing + drawLine(box, under);
             const images = [this.addBaked(key, art.lit, left, top, this.reachingAny(footprintPoints(box)), this.standingAt(box.x + box.w / 2, box.y + box.d / 2)).setDepth(depth)];
             this.casters.push(caster(art.lit, left, top, baseLine(box)));
             if (hasPixels(art.glow)) {
                 if (!this.textures.exists(`${key}-glow`)) art.glow.addTo(this.textures, `${key}-glow`);
-                images.push(this.add.image(left, top, `${key}-glow`).setOrigin(0, 0).setDepth(depth + 0.5));
+                images.push(this.add.image(left, top, `${key}-glow`).setOrigin(0, 0).setDepth(depth + GLOW_DEPTH));
                 // A second, additive pass makes screens and lamps glow into the bloom.
                 images.push(this.add.image(left, top, `${key}-glow`).setOrigin(0, 0).setDepth(DEPTH.emissive).setBlendMode(Phaser.BlendModes.ADD).setAlpha(0.45));
             }
             if (box.z === 0) occluders.push(floorOccluder(box));
-            if (box.z > 0 && !ALWAYS_SHOWN.includes(p.kind)) this.hangOnWall(box, images);
+            if (box.z > 0 && !isOnTop(p.kind) && !ALWAYS_SHOWN.includes(p.kind)) this.hangOnWall(box, images);
         });
         return occluders;
     }

@@ -1,11 +1,13 @@
 import type { LevelProp } from '../../level/plan';
 import type { Facing, Size } from '../../level/space';
-import { atmScreen, camera, clock, crest, exitSign, keycardLed, noticeBoard, painting } from './dressing';
+import { atmScreen, camera, clock, crest, exitSign, keycardLed, noticeBoard, painting, whiteboard } from './dressing';
 import { backCounter, bin, brochureRack, coffeeTable, counter, filingCabinet, mat, plant, printer, queueRail, sofa, waterCooler, writingDesk } from './furniture';
 import { bench, cafeCounter, cafeTable, dumpster, generator, menuBoard, rifleCase, tree, wallLadder } from './outside';
 import { floorGrate, metalDetector, motionSensor, pillar, roofHatch, skylight, tubeTerminal, ventGrille } from './routes';
 import { alarmPanel, atmBack, bookshelf, boxes, breakerPanel, cashCart, cashShelf, cctvDesk, chair, depositBoxes, desk, diningTable, fridge, kitchenCounter, lockers, mopBucket, officeChair, serverRack, shelving, toilet, vaultConsole, washbasin } from './rooms';
+import { cashBags, cleaningTrolley, coatStand, meetingTable, wetFloorSign } from './stories';
 import { bollard, hydrant, manhole, newsBox, streetBin, streetLamp } from './street';
+import { cake, cashCounter, deskLamp, microwave, monitor, mug, paperStack, photoFrame } from './tabletop';
 import { vanArt } from './van';
 import type { PropArt } from './view';
 
@@ -82,5 +84,20 @@ export function propArt(p: LevelProp, s: Size, facing: Facing): PropArt {
         case 'pillar': return pillar(s, facing, 1 + (p.tx % 9));
         case 'tubeTerminal': return tubeTerminal(s, facing);
         case 'skylight': return skylight(s, facing);
+        case 'meetingTable': return meetingTable(s, facing);
+        case 'coatStand': return coatStand(s, facing);
+        case 'whiteboard': return whiteboard(s, facing);
+        case 'cashBags': return cashBags(s, facing);
+        case 'cleaningTrolley': return cleaningTrolley(s, facing);
+        case 'wetFloorSign': return wetFloorSign(s, facing);
+        case 'monitor': return monitor(s, facing);
+        case 'deskLamp': return deskLamp(s, facing);
+        case 'paperStack': return paperStack(s, facing);
+        // A mug's colour follows where it stands, so the mugs in a room differ.
+        case 'mug': return mug(s, facing, p.tx * 7 + p.ty * 3 + (p.elevation ?? 0));
+        case 'photoFrame': return photoFrame(s, facing);
+        case 'cashCounter': return cashCounter(s, facing);
+        case 'microwave': return microwave(s, facing);
+        case 'cake': return cake(s, facing);
     }
 }

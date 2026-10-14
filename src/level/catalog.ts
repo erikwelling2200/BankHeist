@@ -9,7 +9,16 @@ import { wallInsets, type Wall } from './walls';
  * Size and span are in the object's own frame (across its front, back to front, up); `facing` turns both. A level
  * entry can override the facing, alignment or span; the size is the object's own.
  */
-interface ItemSpec { size: (p: LevelProp) => Size; facing?: Facing; alignX?: AlignX; alignY?: AlignY; span?: (p: LevelProp) => [number, number]; elevation?: number }
+interface ItemSpec {
+    size: (p: LevelProp) => Size;
+    facing?: Facing;
+    alignX?: AlignX;
+    alignY?: AlignY;
+    span?: (p: LevelProp) => [number, number];
+    elevation?: number;
+    /** Stands on another prop's top (a desk, a counter, a table), so its level entry must say how high that top is. */
+    onTop?: boolean;
+}
 
 const fixed = (w: number, d: number, h: number) => () => ({ w: px(w), d: px(d), h: px(h) });
 const widthOf = (p: LevelProp) => ('width' in p ? p.width : 1);
@@ -109,8 +118,31 @@ export const CATALOG: Record<LevelProp['kind'], ItemSpec> = {
     // A drive-through's pneumatic-tube terminal on its post, at a car window's height.
     tubeTerminal: { size: fixed(0.5, 0.4, 1.3) },
     // Daylight through a roof light, lying on the floor under it (the skylight route's inside end).
-    skylight: { size: fixed(2.4, 2.4, 0), span: () => [2, 2] }
+    skylight: { size: fixed(2.4, 2.4, 0), span: () => [2, 2] },
+    // Rooms with a story: a conference room's long table, a coat stand, a whiteboard where the notice board would hang,
+    // canvas cash bags waiting to be counted, a cleaner's trolley and the sign they put out.
+    meetingTable: { size: fixed(3.6, 1.1, 0.75), span: () => [3, 1] },
+    coatStand: { size: fixed(0.5, 0.5, 1.8) },
+    whiteboard: { size: fixed(1.2, 0.08, 0.8), alignY: 'north', elevation: px(0.95) },
+    cashBags: { size: fixed(0.9, 0.65, 0.5) },
+    cleaningTrolley: { size: fixed(1.0, 0.5, 1.3) },
+    wetFloorSign: { size: fixed(0.3, 0.25, 0.6) },
+
+    // The second tier: things standing on a desk (0.75m), a table (0.75m), a kitchen or back counter (0.9m) or the
+    // teller counter (1.2m). A flat screen on its foot, an arched desk lamp, papers on a folder, a mug, a framed photo,
+    // a note counter, a microwave and a round cake.
+    monitor: { size: fixed(0.55, 0.2, 0.45), onTop: true },
+    deskLamp: { size: fixed(0.3, 0.4, 0.45), onTop: true },
+    paperStack: { size: fixed(0.45, 0.3, 0.12), onTop: true },
+    mug: { size: fixed(0.12, 0.12, 0.12), onTop: true },
+    photoFrame: { size: fixed(0.3, 0.12, 0.22), onTop: true },
+    cashCounter: { size: fixed(0.3, 0.3, 0.25), onTop: true },
+    microwave: { size: fixed(0.5, 0.35, 0.3), onTop: true },
+    cake: { size: fixed(0.36, 0.36, 0.12), onTop: true }
 };
+
+/** True for a kind that stands on another prop rather than on the floor or a wall. */
+export const isOnTop = (kind: LevelProp['kind']): boolean => CATALOG[kind].onTop === true;
 
 /** A prop's size in its own frame. */
 export const propSize = (p: LevelProp): Size => CATALOG[p.kind].size(p);
@@ -122,6 +154,8 @@ export const propSize = (p: LevelProp): Size => CATALOG[p.kind].size(p);
 export function propBox(p: LevelProp, walls: readonly Wall[]): Box {
     const spec = CATALOG[p.kind];
     const size = spec.size(p);
+    const elevation = p.elevation ?? spec.elevation;
+    if (spec.onTop && elevation === undefined) throw new Error(`A ${p.kind} at (${p.tx}, ${p.ty}) stands on another prop: give it the elevation of that prop's top`);
     const placement = {
         facing: p.facing ?? spec.facing,
         tx: p.tx,
@@ -129,7 +163,7 @@ export function propBox(p: LevelProp, walls: readonly Wall[]): Box {
         span: p.span ?? spec.span?.(p),
         alignX: p.alignX ?? spec.alignX,
         alignY: p.alignY ?? spec.alignY,
-        elevation: spec.elevation
+        elevation
     };
     const span = spanOf(placement, size);
     return place(placement, size, wallInsets(walls, span.tx, span.ty, span.w, span.d));
