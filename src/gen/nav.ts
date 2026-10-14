@@ -1,5 +1,5 @@
+import { propTileGrids, type TileGrids } from '../level/tileProps';
 import type { WallKind } from '../level/walls';
-import type { Furnisher } from './furnish';
 import type { Door, GenRoom } from './model';
 import { edgeBetween, edgeKey, MAX_STEP, type Site } from './site';
 
@@ -13,7 +13,7 @@ import { edgeBetween, edgeKey, MAX_STEP, type Site } from './site';
 export interface P { x: number; y: number }
 
 /** What sight passes through (§8.3): glass, railings, a chain-link fence; closed doors and walls block it. */
-const SEE_THROUGH: readonly WallKind[] = ['window', 'doorGlass', 'curtain', 'doorTower', 'rail', 'fence', 'tellerWindow'];
+export const SEE_THROUGH: readonly WallKind[] = ['window', 'doorGlass', 'curtain', 'doorTower', 'rail', 'fence', 'tellerWindow'];
 
 /** A binary min-heap of tiles by key, for the door-counting search; stale entries are skipped by the caller. */
 class Heap {
@@ -59,15 +59,21 @@ class Heap {
     }
 }
 
+/** What the props on the site do to its tiles now (`src/level/tileProps.ts`): blocked, tall, half cover. */
+export function siteGrids(site: Site): TileGrids {
+    return propTileGrids(site.width, site.height, site.props, e => site.wallAt(e));
+}
+
 export class Nav {
     private readonly blockedTiles: Uint8Array;
     private readonly doorAt = new Map<string, Door>();
 
-    constructor(readonly site: Site, furnish: Furnisher) {
+    /** `grids` says what the furniture blocks (`siteGrids`, the same grids the rules' World is built from). */
+    constructor(readonly site: Site, grids: TileGrids) {
         const { width, height } = site;
         this.blockedTiles = new Uint8Array(width * height);
         for (let y = 0; y < height; y++) for (let x = 0; x < width; x++) {
-            if (site.owner[y]![x]! < 0 || furnish.blocked(x, y)) this.blockedTiles[y * width + x] = 1;
+            if (site.owner[y]![x]! < 0 || grids.blocked[y * width + x]) this.blockedTiles[y * width + x] = 1;
         }
         for (const d of site.doors) this.doorAt.set(edgeKey(d), d);
     }
@@ -94,7 +100,7 @@ export class Nav {
      * Distances from `starts`, and the doors crossed on the way. With a `doorCost` the fewest doors come first and the
      * fewest steps second; without, plain breadth-first steps.
      */
-    distances(starts: P[], opts: { through?: (d: Door) => boolean; doorCost?: number } = {}): { dist: Int32Array; doors: Int32Array } {
+    distances(starts: P[], opts: { through?: ((d: Door) => boolean) | undefined; doorCost?: number } = {}): { dist: Int32Array; doors: Int32Array } {
         const { width, height } = this.site, through = opts.through ?? (() => true), n = width * height;
         const dist = new Int32Array(n).fill(-1), doors = new Int32Array(n).fill(-1);
         const byDoors = (opts.doorCost ?? 0) > 0;

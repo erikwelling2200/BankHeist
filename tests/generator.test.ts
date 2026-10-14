@@ -8,6 +8,7 @@ import { archetypesFor, buildShell, generateBank, parseSeed, rollShape, seedText
 import { REPEATABLE } from '../src/gen/layout';
 import { ARCHETYPES, PLOTS, TIERS, type GeneratedBank, type GenRoom, type RoomType, type Tier, type Archetype, type PlotKind } from '../src/gen/model';
 import { Nav } from '../src/gen/nav';
+import { tileGrids } from '../src/level/tileProps';
 import { GALLERY_TYPES, GALLERY_VARIANTS, roomGallery } from '../src/gen/gallery';
 import { emptyFurnished, PARCELS } from '../src/gen/parcels';
 import { Rng } from '../src/gen/rng';
@@ -312,7 +313,7 @@ describe('interiors', () => {
                 s.site.doors.splice(s.site.doors.indexOf(d), 1);
                 s.site.setWall(d, 'plaster');
             }
-            const nav = new Nav(s.site, new Furnisher(s.site));
+            const nav = new Nav(s.site, tileGrids(s.site.width, s.site.height, []));
             for (const d of cuts) {
                 const [p, q] = tilesOf(d), steps = nav.distances([p]).dist[q.y * s.site.width + q.x]!;
                 expect(d.detour!, `${name(s)} ${d.a}-${d.b}`).toBeGreaterThanOrEqual(SHORTCUT_DETOUR);

@@ -1,7 +1,7 @@
 import type { PersonFacing } from '../level/plan';
 import type { Facing } from '../level/space';
 import type { Furnisher } from './furnish';
-import type { GenCamera, GenRoom } from './model';
+import type { Compass, GenCamera, GenRoom } from './model';
 import type { Nav, P } from './nav';
 import type { CameraSlot } from './parcels';
 import type { Rng } from './rng';
@@ -56,6 +56,9 @@ export function trafficTiles(site: Site, nav: Nav, bank: GenRoom[]): Set<string>
 /** Which rooms want cameras most: the takeover floor, the core, the corridors. */
 const CAMERA_PRIORITY = ['lobby', 'tellerLine', 'antechamber', 'staffCorridor', 'depositBoxes', 'loadingBay', 'atmRoom', 'mantrap', 'breakRoom'];
 
+/** The two facings a panning camera alternates between: its facing turned 45° anticlockwise, then clockwise (§6.18 of the plan). */
+export const PAN: Readonly<Record<GenCamera['facing'], [Compass, Compass]>> = { north: ['nw', 'ne'], east: ['ne', 'se'], south: ['se', 'sw'], west: ['sw', 'nw'] };
+
 /**
  * Hangs `count` cameras: each in a free slot, covering traffic tiles no camera covers yet, highest-priority rooms
  * first. Panning cameras alternate between two facings (§8.3); here a third pan.
@@ -73,7 +76,8 @@ export function placeCameras(site: Site, furnish: Furnisher, nav: Nav, slots: Ca
             .sort((a, b) => b.gain - a.gain)[0];
         if (!best) break;
         if (furnish.try(best.s.prop)) {
-            cameras.push({ id: `camera-${cameras.length}`, tx: best.s.tx, ty: best.s.ty, facing: best.s.facing as GenCamera['facing'], panning: rng.chance(0.33), room: best.s.room });
+            const facing = best.s.facing as GenCamera['facing'], panning = rng.chance(0.33);
+            cameras.push({ id: `camera-${cameras.length}`, tx: best.s.tx, ty: best.s.ty, facing, panning, room: best.s.room, ...(panning ? { pan: PAN[facing] } : {}) });
             for (const k of best.sees) covered.add(k);
         }
         ranked.splice(ranked.indexOf(ranked.find(c => c.s === best.s)!), 1);

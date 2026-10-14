@@ -61,12 +61,12 @@ export type AlignY = 'north' | 'center' | 'south';
 export interface Placement {
     tx: number;
     ty: number;
-    span?: [number, number];
-    alignX?: AlignX;
-    alignY?: AlignY;
-    elevation?: number;
-    facing?: Facing;
-    offset?: [number, number];
+    span?: [number, number] | undefined;
+    alignX?: AlignX | undefined;
+    alignY?: AlignY | undefined;
+    elevation?: number | undefined;
+    facing?: Facing | undefined;
+    offset?: [number, number] | undefined;
 }
 
 /** How far walls reach into a span of tiles from each side; something pushed against a side stands against the wall's face. */

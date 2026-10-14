@@ -115,7 +115,12 @@ describe('the save format', () => {
             genVersion: 'fixture',
             world: {
                 ...world,
-                objects: [{ id: 'panel', kind: 'alarmPanel', pos: { x: 0, y: 0 }, facing: 's' }],
+                objects: [
+                    { id: 'panel', kind: 'alarmPanel', pos: { x: 0, y: 0 }, facing: 's' },
+                    { id: 'desk', kind: 'cctvDesk', pos: { x: 0, y: 0 }, facing: 's', name: 'CCTV desk', room: 'lobby', monitors: 4 },
+                    { id: 'cash', kind: 'loot', pos: { x: 0, y: 0 }, facing: 's', loot: { value: 5000, weight: 'light' } }
+                ],
+                edges: { ...world.edges, 'eastWest 9 9': { run: 'eastWest', tx: 9, ty: 9, material: 'boundary', blocksSight: false, blocksMove: true, halfCover: true, door: 'd' } },
                 cameras: [{ id: 'cam', pos: { x: 0, y: 0 }, facings: ['s', 'e'], room: 'lobby' }],
                 people: world.people.map(p => ({ ...p, schedule: [{ from: 1, activity: 'work', room: 'lobby' }] })),
                 tiles: world.tiles.map((t, i) => (i ? t : { ...t, room: 'lobby' }))

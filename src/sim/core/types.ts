@@ -49,6 +49,8 @@ export interface Tile {
     zone: Zone;
     /** A raised tile (a mezzanine, a landing): its observers see over low objects (§14.7). */
     raised: boolean;
+    /** How high the floor is, in art pixels: 0 on the ground, a storey when raised, between on stairs (§14.7 step limit). */
+    floor: number;
     /** Lit at the start; darkness halves vision (§8.3). */
     lit: boolean;
     /** Something stands on it that nobody walks through (a desk, a counter, a column). */
@@ -81,6 +83,8 @@ export interface EdgeProps {
 export interface WallEdge extends Edge, EdgeProps {
     /** The door that stands in this segment, if any. */
     door?: string;
+    /** A low segment someone can crouch behind (a railing): half cover (§11.4). Absent for any other. */
+    halfCover?: true;
 }
 
 /** How a door starts the heist. */
@@ -103,6 +107,14 @@ export interface WorldObject {
     kind: string;
     pos: Pos;
     facing: Facing;
+    /** What the player calls it ("Teller window alarm button"), where that isn't just its kind. */
+    name?: string;
+    /** The room it stands in. */
+    room?: string;
+    /** Loot (§15.1): what it is worth and how heavy it is to carry. */
+    loot?: { value: number; weight: 'light' | 'heavy' | 'very heavy' };
+    /** A CCTV desk: how many feeds its operator watches at once (§8.12). */
+    monitors?: number;
 }
 
 /** What someone does from a turn on (§16.3), as the generator writes schedules. */

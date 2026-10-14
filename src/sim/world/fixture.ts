@@ -54,7 +54,7 @@ export function fixtureWorld(map: readonly string[], options: FixtureOptions = {
             const z = zones ? zones[y]![x]! : c in ZONES ? c : '.';
             const zone = ZONES[z];
             if (!zone) throw new Error(`Unknown zone '${z}' at (${x}, ${y}): zones are '.', 's' and 'x'`);
-            tiles.push({ zone, raised: false, lit: true, blocksMove: OBJECTS.has(c), tall: c === 'T', halfCover: c === '#', room: null });
+            tiles.push({ zone, raised: false, floor: 0, lit: true, blocksMove: OBJECTS.has(c), tall: c === 'T', halfCover: c === '#', room: null });
         });
     });
     for (const p of options.dark ?? []) {
