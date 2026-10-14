@@ -49,9 +49,15 @@ export class People {
             const shadow = personShadow();
             this.baker.addPixels(KEY.shadow, shadow.colors, shadow.width, shadow.height);
         }
+        if (people.some(p => p.pose) && !textures.exists(KEY.lyingShadow)) {
+            const shadow = lyingShadow();
+            this.baker.addPixels(KEY.lyingShadow, shadow.colors, shadow.width, shadow.height);
+        }
         people.forEach((p, i) => {
-            const spec = LOOKS[p.look];
-            if (!spec) throw new Error(`No look named '${p.look}'`);
+            const look = LOOKS[p.look];
+            if (!look) throw new Error(`No look named '${p.look}'`);
+            // A mask or a pose set on the person is drawn over their look.
+            const spec = { ...look, mask: p.mask ?? look.mask, pose: p.pose ?? look.pose };
             const view = (facing: Facing) => {
                 const bitmap = person(spec, facing);
                 return { bitmap, normals: bitmap.normalMap() };
@@ -64,7 +70,7 @@ export class People {
             this.sprites.push({
                 person: p, views, texture, x, y, facing: p.facing, light: 0,
                 image: add.image(0, 0, key).setOrigin(0, 0),
-                shadow: add.image(0, 0, KEY.shadow).setDepth(DEPTH.shadows).setAlpha(0.55),
+                shadow: add.image(0, 0, p.pose ? KEY.lyingShadow : KEY.shadow).setDepth(DEPTH.shadows).setAlpha(0.55),
                 patrol: patrolOf(p, x, y)
             });
             this.move(i, x, y);
@@ -89,7 +95,7 @@ export class People {
         p.texture.context.putImageData(new ImageData(new Uint8ClampedArray(lit), bitmap.width, bitmap.height), 0, 0);
         p.texture.refresh();
         p.image.setPosition(left, top).setDepth(DEPTH.standing + baseLine(box));
-        p.shadow.setPosition(box.x + box.w / 2, box.y + box.d / 2);
+        p.shadow.setPosition(box.x + box.w / 2, box.y + box.d / 2 - (p.person.pose ? LYING_SHADOW_RISE : 0));
         p.light = meanBrightness(lit);
         this.showIfSeen(p);
     }
@@ -166,5 +172,15 @@ function meanBrightness(rgba: Uint8ClampedArray): number {
 function personShadow(): PixelBitmap {
     const b = new PixelBitmap(12, 5);
     b.ellipse(6, 2.5, 6, 2.5, 0x0d0c14, 0);
+    return b;
+}
+
+/** How far up from their footprint's middle the shadow of someone lying down sits: under the middle of the body. */
+const LYING_SHADOW_RISE = 5;
+
+/** Someone lying down shades the floor along the whole body, not in a pool at the feet. */
+function lyingShadow(): PixelBitmap {
+    const b = new PixelBitmap(12, 15);
+    b.ellipse(6, 7.5, 6, 7.5, 0x0d0c14, 0);
     return b;
 }

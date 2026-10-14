@@ -205,14 +205,14 @@ def sGoPreview():
 HOSTAGES = [('customerSuit', 23, 17), ('customerCoat', 27, 17), ('customerDress', 34, 17), ('customerCasual', 30, 19), ('customerOld', 25, 21)]
 
 def sGoAfter():
-    s = Scene(16, 12)
+    s = Scene(16, 12, dy=8)
     for look, x in TELLERS: s.prone(look, x, 14); u.pips(s.over, x, 14, 2, CMD, total=2, dy=-12)
     for look, x, y in HOSTAGES: s.prone(look, x, y); u.pips(s.over, x, y, 2, CMD, total=2, dy=-12)
     s.prone('guard', 33, 22, tied=True); u.badge(s.over, 33, 22, 'knot', BONE, lying=True)
     s.crew('dex', 30, 23, masked=True); u.badge(s.over, 30, 23, 'lock', CMD)
     u.ring(s.under, losTiles((30, 23), 6), CMD)
     s.crew('mara', 36, 21, 180, masked=True, sel=True); s.crew('jun', 22, 24, 0, masked=True)
-    s.add('customerHoodie', 17, 24, 0); u.badge(s.over, 17, 24, 'phone', RED, n=2)
+    s.add('customerHoodie', 46, 16, 0); u.badge(s.over, 46, 16, 'phone', RED, n=2)
     return s
 
 def sLapse():
@@ -230,34 +230,33 @@ def sLapse():
 # =============================================================== loud
 def sAim(bullets=6):
     s = Scene(18, 13)
-    shooter, target, bystander = (28, 25), (36, 18), (36, 20)
-    s.add('customerCasual', *bystander, 180); s.prone('customerOld', 31, 22)
+    shooter, target, bystander = (24, 22), (36, 18), (37, 20)
+    s.add('customerCasual', *bystander, 180); s.prone('customerOld', 29, 21)
     sx, sy, tx, ty = cx(shooter[0]), cx(shooter[1]), cx(target[0]), cx(target[1])
-    u.arcs(s.under, sight, sx, sy, math.degrees(math.atan2(ty - sy, tx - sx)), 14, 3, bullets, 9)
+    u.arcs(s.under, sight, sx, sy, math.degrees(math.atan2(ty - sy, tx - sx)), 14, 3, bullets, 14)
     s.add('guard', *target, 135)
     s.add('headTeller', 35, 14, 90); s.add('tellerB', 27, 14, 90)
     s.crew('mara', *shooter, -40, masked=True, sel=True)
     u.cover_edge(s.over, target[0], target[1], 's')
-    if bullets > 2: u.cover_edge(s.over, bystander[0], bystander[1], 'n', flanked=True)
     u.marker(s.over, target[0], target[1], 'hostile')
     if bullets > 2: u.marker(s.over, bystander[0], bystander[1], 'civ')
     return s
 
 def sWatch():
     s = Scene(16, 14)
-    u.cone(s.under, sight, 30, 27, -90, 8, 22, RED, 40)
-    s.add('police', 30, 27, -90)
-    u.cone(s.under, sight, 35, 20, 150, 8, 30, CMD, 44)
-    s.crew('dex', 35, 20, 150, masked=True, sel=True); s.crew('mara', 25, 18, 0, masked=True)
+    u.cone(s.under, sight, 30, 25, -90, 8, 22, RED, 40)
+    s.add('police', 30, 25, -90)
+    u.cone(s.under, sight, 35, 20, 180, 8, 30, CMD, 44)
+    s.crew('dex', 35, 20, 180, masked=True, sel=True); s.crew('mara', 25, 18, 0, masked=True)
     for look, x, y in HOSTAGES[:4]: s.prone(look, x, y)
     return s
 
 def sPolice():
-    s = Scene(15, 18, dy=8)
-    for x, y in ((25, 30), (27, 31)): s.add('police', x, y, -90)
-    u.cone(s.under, sight, 27, 31, -80, 8, 22, RED, 34)
+    s = Scene(15, 20)
+    for x, y in ((25, 29), (27, 29)): s.add('police', x, y, -90)
+    u.cone(s.under, sight, 27, 29, -80, 8, 22, RED, 34)
     u.bracket(s.over, 22, 28, RED); u.badge(s.over, 22, 28, 'bolt', RED, n=1)
-    gx, gy = 31, 22
+    gx, gy = 31, 24
     blast = losTiles((gx, gy), 2)
     for (x, y) in blast:
         for py in range(TS):
@@ -266,23 +265,23 @@ def sPolice():
     u.ring(s.under, blast, BONE, dotted=False)
     u.rect(s.over, cx(gx) - 3, cx(gy) - 3, cx(gx) + 2, cx(gy) + 2, (50, 60, 48)); u.rect(s.over, cx(gx) - 2, cx(gy) - 2, cx(gx) - 1, cx(gy) - 1, (120, 140, 110))
     u.plate(s.over, cx(gx) + 6, cx(gy) - 16, 10, 12, BONE); u.num(s.over, 1, cx(gx) + 9, cx(gy) - 13, BONE, shadow=False)
-    u.line(s.over, 44 * TS, 36 * TS, cx(35), cx(20) - 14, RED, 230, 3, 3)
-    u.rect(s.over, cx(35) - 1, cx(20) - 15, cx(35) + 1, cx(20) - 13, RED)
-    s.add('police', 20, 30, 0, ghost=True)
-    u.plate(s.over, cx(20) - 5, 30 * TS - 13 - u.HEAD, 10, 12, DIM); u.num(s.over, 1, cx(20) - 2, 30 * TS - 10 - u.HEAD, DIM, shadow=False)
-    s.crew('dex', 28, 20, 90, masked=True); s.crew('mara', 35, 20, 90, masked=True, sel=True); s.crew('jun', 22, 21, 90, masked=True)
-    for look, x, y in (('customerSuit', 25, 22), ('customerCoat', 27, 22), ('customerCasual', 33, 23), ('customerOld', 30, 24)): s.prone(look, x, y)
+    u.line(s.over, 44 * TS, 38 * TS, cx(35), cx(22) - 14, RED, 230, 3, 3)
+    u.rect(s.over, cx(35) - 1, cx(22) - 15, cx(35) + 1, cx(22) - 13, RED)
+    s.add('police', 20, 29, 0, ghost=True)
+    u.plate(s.over, cx(20) - 5, 29 * TS - 13 - u.HEAD, 10, 12, DIM); u.num(s.over, 1, cx(20) - 2, 29 * TS - 10 - u.HEAD, DIM, shadow=False)
+    s.crew('dex', 28, 22, 90, masked=True); s.crew('mara', 35, 22, 90, masked=True, sel=True); s.crew('jun', 22, 23, 90, masked=True)
+    for look, x, y in (('customerSuit', 25, 24), ('customerCoat', 27, 24), ('customerCasual', 34, 25), ('customerOld', 29, 26)): s.prone(look, x, y)
     return s
 
 def sTracers():
-    s = Scene(16, 14)
+    s = Scene(16, 15)
     s.crew('dex', 30, 19, 90, masked=True)
-    s.add('swat', 29, 26, -90); s.add('swat', 32, 26, -90)
-    for (x0, y0, x1, y1) in ((cx(29), cx(26) - 18, cx(30) - 6, cx(19) - 8), (cx(29) + 2, cx(26) - 18, cx(30) + 10, cx(19) - 20)):
+    s.add('swat', 29, 24, -90); s.add('swat', 32, 24, -90)
+    for (x0, y0, x1, y1) in ((cx(29), cx(24) - 18, cx(30) - 6, cx(19) - 8), (cx(29) + 2, cx(24) - 18, cx(30) + 10, cx(19) - 20)):
         u.line(s.over, x0, y0, x1, y1, (244, 226, 170), 230, 6, 5)
     for k in range(8): u.put(s.over, cx(29) + (k * 5) % 13 - 6, cx(19) + (k * 7) % 9 - 12, (240, 236, 220))
     for look, x, y in (('customerSuit', 25, 22), ('customerCoat', 27, 22), ('customerCasual', 34, 21)): s.prone(look, x, y)
-    u.bracket(s.over, 29, 26, RED)
+    u.bracket(s.over, 29, 24, RED)
     return s
 
 def sVehicle():
@@ -294,9 +293,9 @@ def sVehicle():
             if abs(dy) * 2 > abs(dx) or dx == 0: continue
             reach |= {(x, y) for x in range(van[0] + dx, van[0] + dx + 4) for y in range(van[1] + dy, van[1] + dy + 2)}
     u.tints(s.under, {t: 'safe' for t in reach if 30 <= t[1] <= 34 and 0 <= t[0] < W})
-    u.rect(s.under, 22 * TS + 4, 32 * TS + 4, 26 * TS - 5, 34 * TS - 5, (32, 36, 42), 130)
-    u.footprint(s.over, 22, 32, 4, 2, BONE, solid=True)
-    u.path(s.over, [(16, 31), (19, 31), (20, 32), (23, 32)], BONE, end=False)
+    u.rect(s.under, 19 * TS + 4, 32 * TS + 4, 23 * TS - 5, 34 * TS - 5, (32, 36, 42), 130)
+    u.footprint(s.over, 19, 32, 4, 2, BONE, solid=True)
+    u.path(s.over, [(16, 31), (17, 31), (18, 32), (20, 32)], BONE, end=False)
     s.add('passerby', 26, 29, 180)
     s.crew('jun', 12, 29, 0, masked=True)
     return s
@@ -304,14 +303,14 @@ def sVehicle():
 def sThrow():
     s = Scene(19, 20, moveProps=[{'kind': 'van', 'tx': 29, 'ty': 31}])
     u.tints(s.under, {(31, 29): 'safe', (32, 29): 'safe', (30, 29): 'safe', (31, 30): 'safe', (32, 30): 'safe'})
-    s.crew('dex', 30, 27, 90, masked=True, sel=True)
+    s.crew('dex', 30, 26, 90, masked=True, sel=True)
     s.crew('jun', 32, 29, -90, masked=True)
-    x0, y0, x1, y1 = cx(30), cx(27) - 20, cx(32), cx(29) - 20
+    x0, y0, x1, y1 = cx(30), cx(26) - 20, cx(32), cx(29) - 20
     for k in range(0, 31):
         t = k / 30
         if k % 2 == 0:
             px, py = round(x0 + (x1 - x0) * t), round(y0 + (y1 - y0) * t - math.sin(math.pi * t) * 26)
-            u.rect(s.over, px, py, px, py, BONE)
+            u.rect(s.over, px - 1, py - 1, px + 1, py + 1, BONE); u.put(s.over, px + 2, py + 2, INK, 160)
     u.bracket(s.over, 32, 29, BONE)
     return s
 
@@ -344,7 +343,7 @@ def sCause():
     return s
 
 def sWall():
-    s = Scene(4, 6)
+    s = Scene(4, 4)
     for x in range(16, 20):
         for py in range(-10, 10):
             for px in range(TS):

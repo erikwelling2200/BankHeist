@@ -63,6 +63,8 @@ export const PAL = {
         mustard: [0x4a3818, 0x7a5c22, 0x9c7a32, 0xbc9a4a],
         /** An armoured-car crew's mid-grey work uniform. */
         grey: [0x25262e, 0x3b3c44, 0x55565b, 0x6f6e70],
+        /** Dark brown cotton duck: a worn work jacket. */
+        duck: [0x1c1518, 0x2d221f, 0x413128, 0x564233],
         black: [0x0f0e14, 0x18161e, 0x221f28, 0x2e2a34]
     },
 

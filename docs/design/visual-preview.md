@@ -125,7 +125,7 @@ alley, the plazas and the nest), `street.ts` and `van.ts` (props, each with an u
 | Back of house | deposit boxes, cash shelves and cart, vault console, server racks, alarm and breaker panels, CCTV desk, desks and chairs, bookshelf, lockers, shelving, mop bucket, the ATM's back, boxes, dining table, fridge, kitchen counter, toilets, washbasins | |
 | Neighbours and alley | café tables, café counter, menu board, dumpster, generator, roof ladder, street trees, benches, the sniper's rifle case | |
 | Street | street lamp, hydrant, news box, bin, bollard, manhole, panel van | police car, cones, barrier, scaffolding |
-| People | 18 looks, front and back: tellers, guards, manager, operator, cleaner, barista, customers, passer-by, three crew (Sol in the nest) | side views, walk cycles, IT tech, police and SWAT, masked crew, downed and tied poses |
+| People | 25 looks, front and back: tellers, guards, manager, operator, cleaner, barista, IT tech, customers, passer-by, four crew (Sol in the nest, Dex the Heavy), police and SWAT; masks for anyone (balaclava, hockey mask, skull bandana, respirator); lying face down, hands on the head or zip-tied | side views, walk cycles |
 
 ## Lighting model
 

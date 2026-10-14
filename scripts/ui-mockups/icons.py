@@ -246,11 +246,11 @@ def hexc(v): return ((v >> 16) & 255, (v >> 8) & 255, v & 255)
 SKIN = {'pale': hexc(0xc89a80), 'tan': hexc(0xb07e60), 'brown': hexc(0x84553f), 'dark': hexc(0x583630)}
 HAIR = {'black': hexc(0x2c2630), 'brown': hexc(0x5c3e30), 'auburn': hexc(0x80402e), 'grey': hexc(0xa3a0a2), 'blond': hexc(0xbca06a)}
 CLOTH = {'olive': hexc(0x3d4e36), 'black': hexc(0x2e2a34), 'charcoal': hexc(0x302e37), 'guard': hexc(0x2d3a56), 'skyShirt': hexc(0x86a0b6),
-         'navy': hexc(0x29324c), 'teal': hexc(0x2a5254), 'beige': hexc(0x9c8160), 'grey': hexc(0x55565b)}
+         'navy': hexc(0x29324c), 'teal': hexc(0x2a5254), 'beige': hexc(0x9c8160), 'grey': hexc(0x55565b), 'duck': hexc(0x413128)}
 LOOK = {
     'mara': (1, SKIN['pale'], HAIR['auburn'], CLOTH['olive'], 'ponytail', {}),
     'jun': (2, SKIN['tan'], HAIR['black'], CLOTH['black'], 'short', {}),
-    'dex': (3, SKIN['pale'], HAIR['brown'], CLOTH['charcoal'], 'buzz', {'stubble': True, 'scar': True}),
+    'dex': (3, SKIN['pale'], HAIR['blond'], CLOTH['duck'], 'buzz', {'stubble': True, 'scar': True}),
     'sol': (4, SKIN['brown'], HAIR['black'], CLOTH['olive'], 'buzz', {'stubble': True}),
 }
 MASK = {'mara': 'balaclava', 'jun': 'hockey', 'dex': 'skull', 'sol': 'gas'}

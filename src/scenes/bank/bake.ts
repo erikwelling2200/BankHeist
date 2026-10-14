@@ -113,11 +113,11 @@ export class Baker {
 
 /**
  * A restarted scene draws another bank (the generator bar regenerates in the page), so the textures baked for the last
- * one go; what doesn't depend on the bank (a dust mote, a person's drop shadow) stays. Its images were destroyed when
+ * one go; what doesn't depend on the bank (a dust mote, a person's drop shadows) stays. Its images were destroyed when
  * the scene shut down.
  */
 export function forgetLastBank(textures: Phaser.Textures.TextureManager): void {
-    const keep: string[] = [KEY.mote, KEY.shadow];
+    const keep: string[] = [KEY.mote, KEY.shadow, KEY.lyingShadow];
     for (const key of textures.getTextureKeys()) if ((key.startsWith('bank-') || key.startsWith('person-')) && !keep.includes(key)) textures.remove(key);
 }
 

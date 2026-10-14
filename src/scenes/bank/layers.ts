@@ -1,6 +1,7 @@
 /** Textures the bank scene makes. Those under `bank-` and `person-` belong to one bank and go when another is drawn. */
 export const KEY = {
-    floor: 'bank-floor', walls: 'bank-walls', shade: 'bank-shade', glow: 'bank-glow', clouds: 'bank-clouds', mote: 'bank-mote', shadow: 'person-shadow'
+    floor: 'bank-floor', walls: 'bank-walls', shade: 'bank-shade', glow: 'bank-glow', clouds: 'bank-clouds', mote: 'bank-mote', shadow: 'person-shadow',
+    lyingShadow: 'person-shadow-lying'
 } as const;
 
 /** Draw depths. Walls, props and people standing on the floor are ordered from `standing` up by their base line. */

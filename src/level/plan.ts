@@ -137,10 +137,17 @@ export type LevelProp = Placed & (
 
 export type PersonFacing = 'front' | 'back';
 
+/** What a person wears over their face: the crew's masks (a skull-print bandana is `skull`). */
+export type PersonMask = 'balaclava' | 'hockey' | 'skull' | 'respirator';
+
+/** A person lying face down, head to the north: hands clasped on the head (`prone`), or wrists zip-tied behind the back. */
+export type PersonPose = 'prone' | 'tied';
+
 /**
  * People stand in the middle of their tile (`PERSON_SIZE`) and are named after the archetype they are drawn as. A
  * person with a `patrol` walks in a straight line to that tile and back, pausing at each end; one with a `route` walks
- * from tile to tile along it (each leg straight along a row or a column) and back again.
+ * from tile to tile along it (each leg straight along a row or a column) and back again. A `mask` or a `pose` changes
+ * how their look is drawn; someone lying down shouldn't be given a patrol.
  */
 export interface LevelPerson {
     look: string;
@@ -149,6 +156,8 @@ export interface LevelPerson {
     facing: PersonFacing;
     patrol?: { tx: number; ty: number };
     route?: { tx: number; ty: number }[];
+    mask?: PersonMask;
+    pose?: PersonPose;
 }
 
 /** Writes a level back out as a plan (the inverse of `parsePlan`), for tests and for reading a generated level. */
