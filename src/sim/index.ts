@@ -15,6 +15,7 @@ import './geo/move';
 import './geo/sound';
 import './rules/carriers';
 import './rules/doors';
+import './rules/knowledge';
 import './rules/npc/act';
 import './rules/npc/behaviour';
 import './rules/npc/intent';
@@ -30,8 +31,8 @@ export * from './core/types';
 export * from './core/grid';
 export { Dice, DICE_WINDOW, OddsStop, PreviewRollError, type Mode, type PendingOdds } from './core/rng';
 export {
-    commit, preview, COMBAT_STATUSES, IllegalCommand, InvariantError, registerCommand, registerWorldHook, worldHooks, WORLD_STEPS,
-    type Ctx, type CommitResult, type PreviewResult, type Reducer, type RegisterOptions, type WorldHook, type WorldPhase, type WorldStep
+    commit, preview, COMBAT_STATUSES, IllegalCommand, InvariantError, registerCommand, registerCommandHook, registerWorldHook, worldHooks, WORLD_STEPS,
+    type CommandHook, type Ctx, type CommitResult, type PreviewResult, type Reducer, type RegisterOptions, type WorldHook, type WorldPhase, type WorldStep
 } from './core/engine';
 export { registerEvents, eventClass, recordUndo, popUndo, type EventClass, type UndoStack } from './core/undo';
 export {
@@ -57,7 +58,8 @@ export {
     validatePath, type MoveOptions, type Occupant, type PathCheck, type Reach, type ReachTile
 } from './geo/move';
 export {
-    DEAF_STATUSES, inRing, makeNoise, noiseRadius, npcsInside, soundBudget, soundEdgeCost, soundRing, type Ring, type SoundTile
+    DEAF_STATUSES, inRing, makeNoise, noiseRadius, npcsInside, registerNoiseHook, soundBudget, soundEdgeCost, soundRing, type NoiseHook, type Ring,
+    type SoundTile
 } from './geo/sound';
 export * from './data/movement';
 export * from './data/noise';
@@ -92,6 +94,12 @@ export {
     topWant, type Goal, type GoalKind, type Reaction as NpcReaction, type ReactionPlan, type RouteProgress, type Search
 } from './rules/npc/behaviour';
 export { committedEnd, reconsider } from './rules/npc/intent';
+export {
+    blueprint, crewPicture, floorKnowledge, isKnownNow, isUnknownRisk, knownBlockers, knownNpcIds, knownView, markerKind, onRoutine, projectEvents, unknownReach,
+    updateKnowledge, type Blueprint, type FloorKnowledge, type Intel, type Knowledge, type KnownCamera, type KnownView, type MarkerKind, type NpcKnowledge, type NpcMarker,
+    type Ping
+} from './rules/knowledge';
+export { bitsCount, decodeBits, encodeBits } from './rules/knowledgeBits';
 export { npcActSightings } from './rules/npc/act';
 export {
     crewTiles, intentEnd, isPresent, npcCanPass, npcMoveOptions, othersTiles, paceBudget, personOf, planWalk, resolveWalks, walksIntent,

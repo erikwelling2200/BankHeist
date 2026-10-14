@@ -68,6 +68,21 @@ function supersedes(kind: string, name: string, existing: { placeholder: boolean
 
 const COMMANDS = new Map<string, CommandEntry>();
 
+/**
+ * Runs after every command's reducer (the world phase included, since `endTurn` is a command), in preview and commit
+ * alike, with the events emitted so far: for systems that follow whatever any command did, such as what the crew
+ * knows (rules/knowledge.ts). Its events count toward undo like the reducer's. Not run when a preview stopped at a roll.
+ */
+export type CommandHook = (ctx: Ctx, cmd: DeepReadonly<Command>, events: readonly SimEvent[]) => void;
+
+const COMMAND_HOOKS = new Map<string, CommandHook>();
+
+/** Adds a named hook run after every command (see `CommandHook`). Hooks run by name. */
+export function registerCommandHook(name: string, hook: CommandHook, options: { replace?: boolean } = {}): void {
+    if (COMMAND_HOOKS.has(name) && !options.replace) throw new Error(`Command hook '${name}' already exists; pass replace: true to change it`);
+    COMMAND_HOOKS.set(name, hook);
+}
+
 /** Registers the reducer of a command type (see `RegisterOptions`). */
 export function registerCommand<K extends CommandType>(type: K, reduce: Reducer<K>, options: RegisterOptions & { final?: boolean } = {}): void {
     if (!supersedes('Command', type, COMMANDS.get(type), options)) return;
@@ -183,6 +198,17 @@ function run(world: ReadonlyWorld, state: State, cmd: Command, mode: Mode): Prev
             throw e;
         }
         stopped = true;
+    }
+    if (!stopped) {
+        for (const name of [...COMMAND_HOOKS.keys()].sort()) {
+            try {
+                COMMAND_HOOKS.get(name)!(ctx, command, events);
+            } catch (e) {
+                if (dice.refused) throw dice.refused;
+                if (e instanceof IllegalCommand) throw new InvariantError(`Command hook '${name}' refused: ${e.message}`);
+                throw e;
+            }
+        }
     }
     if (dice.refused) throw dice.refused;
     if (dice.stop && !stopped) throw caughtStop(cmd, dice.stop);

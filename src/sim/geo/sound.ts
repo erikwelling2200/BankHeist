@@ -151,6 +151,17 @@ export function noiseRadius(what: NoiseSource, radius?: number): number {
     return r;
 }
 
+/** Something that follows every noise made (what the crew hears, rules/knowledge.ts), with its ring. */
+export type NoiseHook = (ctx: Ctx, ring: Ring, kind: NoiseKind, cause: string) => void;
+
+const NOISE_HOOKS = new Map<string, NoiseHook>();
+
+/** Adds a named hook to every `makeNoise`, run by name after its events. */
+export function registerNoiseHook(name: string, hook: NoiseHook, options: { replace?: boolean } = {}): void {
+    if (NOISE_HOOKS.has(name) && !options.replace) throw new Error(`Noise hook '${name}' already exists; pass replace: true to change it`);
+    NOISE_HOOKS.set(name, hook);
+}
+
 /**
  * Makes a noise from the table on `sources` and emits it with who heard it; when anyone did, a `heard` event follows,
  * which blocks undo. Reactions belong to perception (M1-05), which reads the events. Returns the ring.
@@ -161,6 +172,7 @@ export function makeNoise(ctx: Ctx, what: NoiseSource, sources: Pos | readonly P
     const heard = npcsInside(ctx.state, ring);
     ctx.emit({ type: 'noise', sources: ring.sources, radius: r, kind, cause, heard });
     if (heard.length) ctx.emit({ type: 'heard', cause, kind, npcs: heard });
+    for (const name of [...NOISE_HOOKS.keys()].sort()) NOISE_HOOKS.get(name)!(ctx, ring, kind, cause);
     return ring;
 }
 

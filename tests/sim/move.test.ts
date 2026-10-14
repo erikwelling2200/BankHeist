@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { scouted } from './helpers';
 import {
     commit, fixtureWorld, HEAVY_ARMOUR_ITEM, IllegalCommand, initialState, moveBudget, pathTo, preview, reachable, reachAt,
     stepCost, validatePath, type FixtureWall, type PersonDef, type Pos, type ReadonlyWorld, type State
@@ -10,7 +11,8 @@ const open = (w: number, h: number): string[] => Array.from({ length: h }, () =>
 
 function setup(map: readonly string[], walls: FixtureWall[] = [], crew: { id: string; pos: Pos; items?: string[] }[] = [{ id: 'jun', pos: P(0, 0) }], people: PersonDef[] = []): { world: ReadonlyWorld; state: State } {
     const world = fixtureWorld(map, { walls, people });
-    return { world, state: initialState(world, { seed: 1, crew }) };
+    // Scouted, so a move that reveals nothing stays undoable (what the crew learns is rules/knowledge.ts's, tested there).
+    return { world, state: scouted(world, initialState(world, { seed: 1, crew })) };
 }
 
 /** Octile distance in half-steps: what an open floor should cost. */

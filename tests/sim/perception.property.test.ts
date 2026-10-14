@@ -159,7 +159,9 @@ describe('perception previews (property)', () => {
                     if (!quiet) acting++;
                     const got = effectOf(result.state, member.id);
                     if (JSON.stringify(got) !== JSON.stringify(expected)) failures.push(`world ${w} move ${JSON.stringify(path)}: expected ${JSON.stringify(expected)}, got ${JSON.stringify(got)}`);
-                    if (quiet !== result.undoable) failures.push(`world ${w} move ${JSON.stringify(path)}: undoable ${result.undoable}, predicted ${quiet}`);
+                    // Seeing something new (rules/knowledge.ts) makes a quiet move final too.
+                    const revealed = result.events.some(e => e.type === 'revealed');
+                    if ((quiet && !revealed) !== result.undoable) failures.push(`world ${w} move ${JSON.stringify(path)}: undoable ${result.undoable}, predicted ${quiet && !revealed}`);
                     state = result.state;
                 }
                 const sight = sightMap(world, state);

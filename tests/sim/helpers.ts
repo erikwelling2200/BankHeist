@@ -1,5 +1,5 @@
 import {
-    assertPlainJson, commit, fixtureWorld, initialState, registerCommand, registerEvents, setDevChecks, type Command,
+    assertPlainJson, clonePlain, commit, encodeBits, fixtureWorld, initialState, registerCommand, registerEvents, setDevChecks, type Command,
     type CommandType, type CommitResult, type Ctx, type EventClass, type ReadonlyWorld, type Reducer, type SimEvent, type State
 } from '../../src/sim';
 
@@ -72,4 +72,17 @@ export function step(world: ReadonlyWorld, state: State, cmd: Command): CommitRe
 
 export function play(world: ReadonlyWorld, state: State, commands: readonly Command[]): State {
     return commands.reduce((s, cmd) => step(world, s, cmd).state, state);
+}
+
+/**
+ * The state with the whole map already scouted and every NPC's routine known (rules/knowledge.ts), for tests about
+ * something else: a move through it reveals nothing, so it stays undoable unless its own rules say otherwise.
+ */
+export function scouted(world: ReadonlyWorld, state: State): State {
+    const s = clonePlain(state);
+    s.knowledge.seen = encodeBits(new Uint8Array(world.width * world.height).fill(1));
+    for (const n of s.npcs) {
+        s.knowledge.npcs[n.id] = { at: { ...n.pos }, facing: n.facing, turn: s.turn, live: false, routine: true, watched: 3, watchedTurn: s.turn };
+    }
+    return s;
 }
