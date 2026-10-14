@@ -256,7 +256,9 @@ export function bankDoors(site: Site, plot: Plot, layout: Layout, rooms: GenRoom
     let lonely = unreachable(site, rooms);
     while (lonely.length) {
         const linked = lonely.some(room => {
-            const reached = site.neighbours(room).filter(r => bank.has(r) && !lonely.includes(r));
+            // Only a door the rules allow either way round, and never into a secure room: their doors are hard locks.
+            const allowed = (r: GenRoom) => ROOM_RULES[room.type].opensOnto.includes(r.type) || ROOM_RULES[r.type].opensOnto.includes(room.type);
+            const reached = site.neighbours(room).filter(r => bank.has(r) && !lonely.includes(r) && r.zone !== 'secure' && room.zone !== 'secure' && allowed(r));
             return reached.some(r => connect(site, room, r, ROOM_RULES[room.type].lock, rng));
         });
         if (!linked) break;

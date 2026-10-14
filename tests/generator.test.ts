@@ -357,6 +357,19 @@ describe('regressions found by adversarial review', () => {
         }
     }, 120000);
 
+    it('opens secure rooms only through hard locks, repair doors included', () => {
+        // The reachability repair once gave the CCTV room a plain wooden door from a sealed conference room.
+        const pins = [{ layout: 32676, population: 4, tier: 'city', archetype: 'atrium', plot: 'midBlock' } as const];
+        let n = 0;
+        const banks = [...pins.map(pin => bank(pin.layout, pin.population, pin))];
+        for (const tier of TIERS) for (const archetype of archetypesFor(tier)) for (const plot of PLOTS) banks.push(bank(3000 + n++, 1, { tier, archetype, plot }));
+        for (const b of banks) {
+            const secure = new Set(b.rooms.filter(r => r.bank && r.zone === 'secure').map(r => r.id));
+            const soft = b.doors.filter(d => secure.has(d.a) !== secure.has(d.b) && !['keycard', 'vault'].includes(d.lock));
+            expect(soft.map(d => `${d.id} ${d.a}-${d.b} ${d.lock}`), `${b.tier} ${b.archetype} ${b.plot} ${b.seed.layout}`).toEqual([]);
+        }
+    }, 300000);
+
     it('makes the note on a desk part of how this vault opens', () => {
         const b = bank(1, 1, { tier: 'city', archetype: 'threeKeys' });
         const note = b.opportunities.find(o => o.id === 'sticky-note');
