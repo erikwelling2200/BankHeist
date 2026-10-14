@@ -27,6 +27,8 @@ export interface FixtureOptions {
     zones?: readonly string[];
     /** Unlit tiles, by position. */
     dark?: readonly Pos[];
+    /** Raised tiles (a mezzanine, a landing), by position. */
+    raised?: readonly Pos[];
     people?: readonly PersonDef[];
     cameras?: readonly CameraDef[];
     objects?: readonly WorldObject[];
@@ -60,6 +62,10 @@ export function fixtureWorld(map: readonly string[], options: FixtureOptions = {
     for (const p of options.dark ?? []) {
         if (p.x < 0 || p.y < 0 || p.x >= width || p.y >= height) throw new Error(`Dark tile (${p.x}, ${p.y}) is off the map`);
         tiles[p.y * width + p.x]!.lit = false;
+    }
+    for (const p of options.raised ?? []) {
+        if (p.x < 0 || p.y < 0 || p.x >= width || p.y >= height) throw new Error(`Raised tile (${p.x}, ${p.y}) is off the map`);
+        tiles[p.y * width + p.x]!.raised = true;
     }
 
     const edges: Record<string, WallEdge> = {}, doors: Record<string, DoorDef> = {};
