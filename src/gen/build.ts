@@ -1,11 +1,11 @@
 import type { FloorTile } from '../level/plan';
 import type { WallKind } from '../level/walls';
-import type { Layout } from './layout';
+import { partsOf, type Layout } from './layout';
 import type { GenRoom, Lock, Rect, RoomType } from './model';
 import type { Plot } from './plot';
 import type { Rng } from './rng';
-import { ROOM_RULES } from './rooms';
-import { edgeBetween, MAX_STEP, tilesOf, type Edge, type Site } from './site';
+import { isOpenPair, ROOM_RULES } from './rooms';
+import { edgeBetween, edgeKey, MAX_STEP, tilesOf, type Edge, type Site } from './site';
 
 /*
  * Turns a layout into rooms, walls and doors on the site (§17.2 steps 3 and 5). Walls go wherever two rooms meet, in a
@@ -30,18 +30,13 @@ const RAISED: Partial<Record<string, FloorTile>> = { ',': 'j', q: 'h', '.': 'j' 
 /** Places the layout's rooms in the plot's bank lot. Returns them in the layout's order. */
 export function placeBank(site: Site, plot: Plot, layout: Layout): GenRoom[] {
     return layout.pieces.map(p => {
-        const rect = { x: plot.lot.x + p.x, y: plot.lot.y + p.y, w: p.w, h: p.h };
+        const parts = partsOf(p).map(r => ({ x: plot.lot.x + r.x, y: plot.lot.y + r.y, w: r.w, h: r.h }));
         const floor = ROOM_RULES[p.type].floor as FloorTile;
-        const room = site.addRoom(p.type, rect, { wing: p.wing, bank: true, floor: p.raised ? RAISED[floor] ?? 'j' : floor });
+        const room = site.addRoom(p.type, parts, { wing: p.wing, bank: true, floor: p.raised ? RAISED[floor] ?? 'j' : floor });
         if (p.stairs) site.paint({ x: plot.lot.x + p.stairs.x, y: plot.lot.y + p.stairs.y, w: p.stairs.w, h: p.stairs.h }, 'z');
         return room;
     });
 }
-
-/** Pairs of bank rooms that meet without a wall: the counter, the stairs and the mezzanine stand open to the floor. */
-const OPEN: [RoomType, RoomType][] = [['lobby', 'tellerLine'], ['lobby', 'stairwell'], ['lobby', 'mezzanine'], ['stairwell', 'mezzanine'], ['stairwell', 'tellerLine'], ['lobby', 'lobby'], ['staffCorridor', 'staffCorridor']];
-
-const isOpenPair = (a: RoomType, b: RoomType) => OPEN.some(([p, q]) => (p === a && q === b) || (p === b && q === a));
 
 /**
  * The wall every edge between two rooms gets by default. Undefined: no wall (inside one room, open ground, or an open
@@ -104,32 +99,45 @@ function wallBetween(a: GenRoom | undefined, b: GenRoom | undefined, opts: BankO
  */
 export function bankFront(site: Site, plot: Plot, rooms: GenRoom[], rng: Rng): { door: number } {
     const y = plot.lot.y + plot.lot.h, x0 = plot.lot.x, x1 = plot.lot.x + plot.lot.w;
-    const lobby = rooms.filter(r => r.type === 'lobby' && r.y + r.h === y).sort((a, b) => b.w - a.w)[0];
+    const lobby = rooms.filter(r => r.type === 'lobby' && r.y + r.h === y).map(r => ({ r, row: frontRow(site, r) })).sort((a, b) => b.row.w - a.row.w)[0];
     if (!lobby) throw new Error('The lobby has to reach the street');
-    const door = lobby.x + Math.floor(lobby.w / 2) - 1;
+    const door = lobby.row.x + Math.floor(lobby.row.w / 2) - 1;
     for (let x = x0; x < x1; x++) {
         const room = site.roomAt(x, y - 1)!, e: Edge = { run: 'eastWest', tx: x, ty: y };
         let kind: WallKind = 'pier';
-        if (room.type === 'lobby') kind = x === door || x === door + 1 ? 'doorGlass' : (x - lobby.x) % 4 === 0 || x === lobby.x + lobby.w - 1 ? 'pier' : 'window';
-        else if (room.type === 'atmRoom') kind = x === room.x + Math.floor(room.w / 2) ? 'atm' : 'pier';
+        if (room === lobby.r) kind = x === door || x === door + 1 ? 'doorGlass' : (x - lobby.row.x) % 4 === 0 || x === lobby.row.x + lobby.row.w - 1 ? 'pier' : 'window';
+        else if (room.type === 'lobby') kind = 'window';
+        else if (room.type === 'atmRoom') kind = x === frontRow(site, room).x + Math.floor(frontRow(site, room).w / 2) ? 'atm' : 'pier';
         else if (room.zone === 'staff' && room.type !== 'loadingBay') kind = (x - room.x) % 3 === 1 && x !== x0 && x !== x1 - 1 ? 'window' : 'pier';
         else if (room.zone === 'secure') kind = 'concrete';
         if (x === x0 || x === x1 - 1) kind = 'pier';
         site.setWall(e, kind);
     }
-    const lobbyRoom = lobby;
-    site.addDoor(lobbyRoom, site.roomAt(door, y)!, { run: 'eastWest', tx: door, ty: y }, 'none', 'doorGlass');
+    site.addDoor(lobby.r, site.roomAt(door, y)!, { run: 'eastWest', tx: door, ty: y }, 'none', 'doorGlass');
     // The red runner from the doors to the counter.
-    for (let ry = lobby.y; ry < lobby.y + lobby.h; ry++) for (const rx of [door, door + 1]) if (site.tiles[ry]![rx] === '.') site.tiles[ry]![rx] = '=';
+    for (let ry = lobby.r.y; ry < lobby.r.y + lobby.r.h; ry++) for (const rx of [door, door + 1]) if (site.tiles[ry]![rx] === '.' && site.roomAt(rx, ry) === lobby.r) site.tiles[ry]![rx] = '=';
     void rng;
     return { door };
 }
 
-/** Whether a door can stand on this edge: both sides walkable at heights a person can step between. */
+/** The run of a room's tiles along its bottom edge, where it meets the street: x and width. */
+export function frontRow(site: Site, room: GenRoom): { x: number; w: number } {
+    const y = room.y + room.h - 1, xs = site.tilesOfRoom(room).filter(t => t.y === y).map(t => t.x);
+    return { x: Math.min(...xs), w: Math.max(...xs) - Math.min(...xs) + 1 };
+}
+
+/**
+ * Whether a door can stand on this edge: both sides walkable at heights a person can step between, and neither in the
+ * teller line's front row, where the counter runs its whole length (its gate is placed on its own, `counterGate`).
+ */
 function doorable(site: Site, e: Edge): boolean {
     const [p, q] = tilesOf(e);
+    const counterRow = (t: { x: number; y: number }) => {
+        const room = site.roomAt(t.x, t.y);
+        return room?.type === 'tellerLine' && t.y === room.y + room.h - 1;
+    };
     return site.inside(p.x, p.y) && site.inside(q.x, q.y) && Math.abs(site.heightAt(p.x, p.y) - site.heightAt(q.x, q.y)) <= MAX_STEP
-        && site.tiles[p.y]![p.x] !== 'z' && site.tiles[q.y]![q.x] !== 'z';
+        && site.tiles[p.y]![p.x] !== 'z' && site.tiles[q.y]![q.x] !== 'z' && !counterRow(p) && !counterRow(q);
 }
 
 /** Picks the edge for a door among `edges`: away from the ends of the wall where possible, near its middle. */
@@ -175,17 +183,6 @@ export function connect(site: Site, a: GenRoom, b: GenRoom, lock: Lock, rng: Rng
     return true;
 }
 
-/** Rooms adjacent to `room` (sharing at least one edge), with the edges. */
-function neighboursOf(site: Site, room: GenRoom): GenRoom[] {
-    const seen = new Set<GenRoom>();
-    for (let y = room.y - 1; y <= room.y + room.h; y++) for (let x = room.x - 1; x <= room.x + room.w; x++) {
-        const inRoom = x >= room.x && x < room.x + room.w && y >= room.y && y < room.y + room.h;
-        const r = site.roomAt(x, y);
-        if (!inRoom && r && r !== room && (x >= room.x && x < room.x + room.w || y >= room.y && y < room.y + room.h)) seen.add(r);
-    }
-    return [...seen];
-}
-
 /**
  * The bank's doors: every room to the first room it may open onto (its type's rules), the archetype's links, the vault
  * door, the counter gate, the back door and the loading bay's shutter. Fails when a room can't be reached.
@@ -198,7 +195,7 @@ export function bankDoors(site: Site, plot: Plot, layout: Layout, rooms: GenRoom
     for (const room of rooms) {
         const rule = ROOM_RULES[room.type];
         if (!rule.opensOnto.length) continue;
-        const around = neighboursOf(site, room).filter(r => bank.has(r));
+        const around = site.neighbours(room).filter(r => bank.has(r));
         let done = false;
         for (const type of rule.opensOnto) {
             for (const other of around.filter(r => r.type === type)) {
@@ -224,13 +221,13 @@ export function bankDoors(site: Site, plot: Plot, layout: Layout, rooms: GenRoom
     }).length;
     if (crossings() < 1) {
         for (const lobby of rooms.filter(r => r.type === 'lobby')) {
-            const next = neighboursOf(site, lobby).filter(r => bank.has(r) && !isPublic(r) && !isOpenPair('lobby', r.type))
+            const next = site.neighbours(lobby).filter(r => bank.has(r) && !isPublic(r) && !isOpenPair('lobby', r.type))
                 .sort((a, b) => STAFF_DOOR.indexOf(a.type) - STAFF_DOOR.indexOf(b.type)).find(r => STAFF_DOOR.includes(r.type));
             if (next && connect(site, lobby, next, 'keycard', rng)) break;
         }
     }
     // Open pairs meet without a wall; record one opening between each so the room graph knows they connect.
-    for (const room of rooms) for (const other of neighboursOf(site, room).filter(r => bank.has(r) && isOpenPair(room.type, r.type))) {
+    for (const room of rooms) for (const other of site.neighbours(room).filter(r => bank.has(r) && isOpenPair(room.type, r.type))) {
         // The counter's only way through is its gate (`counterGate`).
         if ([room.type, other.type].includes('lobby') && [room.type, other.type].includes('tellerLine')) continue;
         if (rooms.indexOf(other) < rooms.indexOf(room)) continue;
@@ -259,6 +256,59 @@ export function bankDoors(site: Site, plot: Plot, layout: Layout, rooms: GenRoom
     const lonely = rooms.filter(r => !linked.has(r.id));
     if (lonely.length) doorFailure = `unreachable: ${lonely.map(r => r.type).join(', ')}`;
     return !lonely.length;
+}
+
+/** Rooms a shortcut never leads into: the core, rooms behind a hard lock (their one door is the lock), the public floor, the counter and the stairs. */
+const NO_SHORTCUT: RoomType[] = ['vault', 'antechamber', 'mantrap', 'cctvRoom', 'countingRoom', 'lobby', 'restroom', 'tellerLine', 'stairwell', 'mezzanine'];
+
+/** How many steps the walk between two rooms that share a wall must take before a door between them is worth it. */
+export const SHORTCUT_DETOUR = 20;
+/** The most shortcuts a bank gets. */
+const SHORTCUTS = 2;
+
+/** Steps from tile `from` to tile `to` through the doors and openings there are (stairs included), or -1. */
+function walk(site: Site, from: { x: number; y: number }, to: { x: number; y: number }): number {
+    const doors = new Set(site.doors.map(d => edgeKey(d))), dist = new Int32Array(site.width * site.height).fill(-1);
+    const queue = [from.y * site.width + from.x];
+    dist[queue[0]!] = 0;
+    for (let head = 0; head < queue.length; head++) {
+        const i = queue[head]!, x = i % site.width, y = Math.floor(i / site.width);
+        if (x === to.x && y === to.y) return dist[i]!;
+        for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]] as const) {
+            const nx = x + dx, ny = y + dy, j = ny * site.width + nx;
+            if (!site.inside(nx, ny) || dist[j] !== -1 || site.owner[ny]![nx]! < 0) continue;
+            const e = edgeBetween({ x, y }, { x: nx, y: ny });
+            if ((site.wallAt(e) && !doors.has(edgeKey(e))) || Math.abs(site.heightAt(x, y) - site.heightAt(nx, ny)) > MAX_STEP) continue;
+            dist[j] = dist[i]! + 1;
+            queue.push(j);
+        }
+    }
+    return -1;
+}
+
+/**
+ * Locked shortcuts (research/procedural-interiors.md, lesson 12): where two rooms of the bank share a wall but the walk
+ * between them through the doors they have is long, a door in that wall (a keycard door into a secure room, a lock
+ * otherwise) closes another loop; never between rooms already close. The longest walk first, measured again after
+ * each door. A shortcut records the walk it saves as its `detour`.
+ */
+export function shortcuts(site: Site, rooms: GenRoom[], rng: Rng): void {
+    for (let n = 0; n < SHORTCUTS; n++) {
+        let best: { a: GenRoom; b: GenRoom; edge: Edge; steps: number } | undefined;
+        for (const [i, a] of rooms.entries()) for (const b of rooms.slice(i + 1)) {
+            if (NO_SHORTCUT.includes(a.type) || NO_SHORTCUT.includes(b.type) || isOpenPair(a.type, b.type)) continue;
+            if (site.doors.some(d => (d.a === a.id && d.b === b.id) || (d.a === b.id && d.b === a.id))) continue;
+            const edges = site.sharedEdges(a, b);
+            const edge = edges.length >= 3 ? doorEdge(site, edges, rng)?.[0] : undefined;
+            if (!edge) continue;
+            const [p, q] = tilesOf(edge), steps = walk(site, p, q);
+            if (steps >= SHORTCUT_DETOUR && (!best || steps > best.steps)) best = { a, b, edge, steps };
+        }
+        if (!best) return;
+        const lock: Lock = best.a.zone === 'secure' || best.b.zone === 'secure' ? 'keycard' : 'mechanical';
+        site.setWall(best.edge, DOOR_KIND[lock]);
+        site.addDoor(best.a, best.b, best.edge, lock, DOOR_KIND[lock]).detour = best.steps;
+    }
 }
 
 /** The counter gate: the opening in the counter from the lobby into the teller line, at one end of it. */

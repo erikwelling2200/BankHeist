@@ -1,8 +1,15 @@
 import { describe, expect, it } from 'vitest';
-import { archetypesFor, generateBank, parseSeed, seedText } from '../src/gen/generate';
-import { ARCHETYPES, PLOTS, TIERS, type GeneratedBank } from '../src/gen/model';
+import { roomLamps } from '../src/art/bank/lamps';
+import { SHORTCUT_DETOUR } from '../src/gen/build';
+import { Furnisher } from '../src/gen/furnish';
+import { archetypesFor, buildShell, generateBank, parseSeed, rollShape, seedText, type Shell } from '../src/gen/generate';
+import { REPEATABLE } from '../src/gen/layout';
+import { ARCHETYPES, PLOTS, TIERS, type GeneratedBank, type GenRoom, type RoomType, type Tier, type Archetype, type PlotKind } from '../src/gen/model';
+import { Nav } from '../src/gen/nav';
 import { PARCELS } from '../src/gen/parcels';
+import { Rng } from '../src/gen/rng';
 import { ROOM_RULES } from '../src/gen/rooms';
+import { tilesOf } from '../src/gen/site';
 import { TIER_SPECS } from '../src/gen/tiers';
 import { TILE } from '../src/level/level';
 import { propBox } from '../src/level/catalog';
@@ -136,10 +143,17 @@ describe('a generated bank', () => {
         }
     });
 
-    it('has one of each staff and secure room, so no wing doubles another', () => {
+    it('has one of each staff and secure room, so no wing doubles another (offices, records and meetings may repeat)', () => {
         for (const b of samples) {
             const types = b.rooms.filter(r => r.bank && !['lobby', 'staffCorridor', 'restroom'].includes(r.type)).map(r => r.type);
-            expect(types.filter((t, i) => types.indexOf(t) !== i), `${b.tier} ${b.archetype}`).toEqual([]);
+            for (const t of new Set(types)) expect(types.filter(x => x === t).length, `${b.tier} ${b.archetype} ${t}`).toBeLessThanOrEqual(REPEATABLE[t] ?? 1);
+        }
+    });
+
+    it('hangs every ceiling lamp over its own room', () => {
+        for (const b of samples) for (const room of b.rooms.filter(r => r.bank)) for (const lamp of roomLamps([room])) {
+            const tx = Math.floor(lamp.x / TILE), ty = Math.floor(lamp.y / TILE);
+            expect(room.parts.some(p => tx >= p.x && tx < p.x + p.w && ty >= p.y && ty < p.y + p.h), `${room.id} lamp at ${tx},${ty}`).toBe(true);
         }
     });
 
@@ -189,5 +203,119 @@ describe('room parcels (§17.1)', () => {
         for (const [type, parcels] of Object.entries(PARCELS)) expect(parcels!.length, type).toBeGreaterThanOrEqual(3);
         expect(Object.keys(ROOM_RULES).length).toBeGreaterThan(Object.keys(PARCELS).length);
         expect(ARCHETYPES.length).toBe(5);
+    });
+});
+
+/*
+ * Interiors (generator.md, Interiors step 1): rooms are unions of rectangles, each wing a program of rooms with jobs
+ * rather than one stretched hall, shape moves between neighbours, and locked shortcuts where a walk goes the long way.
+ * Checked on the shells (rooms, walls and doors) of every tier, archetype and plot over several seeds.
+ */
+describe('interiors', () => {
+    const shell = (layout: number, tier: Tier, archetype: Archetype, plot: PlotKind): Shell => {
+        const rng = new Rng(layout), shape = rollShape(rng, { layout, population: 1, tier, archetype, plot });
+        for (let attempt = 0; attempt < 20; attempt++) {
+            const built = buildShell(rng.fork(`attempt-${attempt}`), shape);
+            if (built) return built;
+        }
+        throw new Error(`No shell for ${layout} ${tier} ${archetype} ${plot}`);
+    };
+    const shells: Shell[] = [];
+    let n = 0;
+    for (const tier of TIERS) for (const archetype of archetypesFor(tier)) for (const plot of PLOTS) for (let seed = 0; seed < 3; seed++) shells.push(shell(3000 + 101 * n++, tier, archetype, plot));
+    const name = (s: Shell) => `${s.tier} ${s.archetype} ${s.plotKind}`;
+    /** The rooms that keep their rectangle (§17.2), and those big by design. */
+    const FIXED: RoomType[] = ['vault', 'antechamber', 'mantrap', 'tellerLine', 'stairwell', 'mezzanine'];
+    const STAFF = (r: GenRoom) => r.bank && r.zone !== 'public' && r.type !== 'staffCorridor' && !FIXED.includes(r.type);
+
+    it('gives every room parts that match the owner grid: one piece, no U, nothing narrower than two tiles', () => {
+        const bad: string[] = [];
+        for (const s of shells) for (const room of s.bank) {
+            const index = s.site.rooms.indexOf(room), tiles = s.site.tilesOfRoom(room), area = room.parts.reduce((t, p) => t + p.w * p.h, 0);
+            const inParts = (x: number, y: number) => room.parts.some(p => x >= p.x && x < p.x + p.w && y >= p.y && y < p.y + p.h);
+            if (tiles.length !== area || !tiles.every(t => inParts(t.x, t.y))) bad.push(`${name(s)} ${room.id}: parts don't match the grid`);
+            for (const p of room.parts) for (let y = p.y; y < p.y + p.h; y++) for (let x = p.x; x < p.x + p.w; x++) if (s.site.owner[y]![x] !== index) bad.push(`${name(s)} ${room.id}: ${x},${y} not its own`);
+            if (FIXED.includes(room.type) && room.parts.length !== 1) bad.push(`${name(s)} ${room.id} isn't a rectangle`);
+            const mine = (x: number, y: number) => s.site.roomAt(x, y) === room;
+            // One piece.
+            const seen = new Set([`${tiles[0]!.x},${tiles[0]!.y}`]), queue = [tiles[0]!];
+            while (queue.length) {
+                const t = queue.pop()!;
+                for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) if (mine(t.x + dx!, t.y + dy!) && !seen.has(`${t.x + dx!},${t.y + dy!}`)) { seen.add(`${t.x + dx!},${t.y + dy!}`); queue.push({ x: t.x + dx!, y: t.y + dy! }); }
+            }
+            if (seen.size !== tiles.length) bad.push(`${name(s)} ${room.id} is in pieces`);
+            // Two tiles wide: every tile in a 2×2 square of the room.
+            const square = (x: number, y: number) => mine(x, y) && mine(x + 1, y) && mine(x, y + 1) && mine(x + 1, y + 1);
+            if (room.type !== 'staffCorridor' || room.parts.length > 1) {
+                for (const t of tiles) if (![[0, 0], [-1, 0], [0, -1], [-1, -1]].some(([dx, dy]) => square(t.x + dx!, t.y + dy!))) bad.push(`${name(s)} ${room.id}: a sliver at ${t.x},${t.y}`);
+            }
+            // No U: every gap in the bounding box reaches one of its corners.
+            const gap = new Set<string>();
+            for (let y = room.y; y < room.y + room.h; y++) for (let x = room.x; x < room.x + room.w; x++) {
+                if (mine(x, y) || gap.has(`${x},${y}`)) continue;
+                let corner = false;
+                const fill = [{ x, y }];
+                gap.add(`${x},${y}`);
+                while (fill.length) {
+                    const t = fill.pop()!;
+                    if ((t.x === room.x || t.x === room.x + room.w - 1) && (t.y === room.y || t.y === room.y + room.h - 1)) corner = true;
+                    for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+                        const u = { x: t.x + dx!, y: t.y + dy! };
+                        if (u.x < room.x || u.y < room.y || u.x >= room.x + room.w || u.y >= room.y + room.h || mine(u.x, u.y) || gap.has(`${u.x},${u.y}`)) continue;
+                        gap.add(`${u.x},${u.y}`);
+                        fill.push(u);
+                    }
+                }
+                if (!corner) bad.push(`${name(s)} ${room.id} is a U (or has a hole)`);
+            }
+        }
+        expect(bad).toEqual([]);
+    });
+
+    it('shapes some of the staff rooms, about one in three, and keeps the rest rectangles', () => {
+        const staff = shells.flatMap(s => s.bank.filter(STAFF)), shaped = staff.filter(r => r.parts.length > 1);
+        expect(shaped.length / staff.length).toBeGreaterThan(0.2);
+        expect(shaped.length / staff.length).toBeLessThan(0.5);
+    });
+
+    it('keeps every staff and secure room within its most area: spare space becomes more rooms, not bigger ones', () => {
+        const over: string[] = [];
+        for (const s of shells) for (const room of s.bank) {
+            const most = ROOM_RULES[room.type].area?.max, area = s.site.tilesOfRoom(room).length;
+            if (most !== undefined && area > most) over.push(`${name(s)} ${room.id}: ${area} > ${most}`);
+            if (!most && STAFF(room) && room.type !== 'loadingBay') over.push(`${name(s)} ${room.type} has no most area`);
+        }
+        expect(over).toEqual([]);
+    });
+
+    it('builds the new rooms with jobs, each with a door', () => {
+        const rooms = shells.flatMap(s => s.bank.map(room => ({ s, room })));
+        for (const type of ['countingRoom', 'recordsRoom', 'staffOffice', 'conferenceRoom'] as const) {
+            const found = rooms.filter(({ room }) => room.type === type);
+            expect(found.length, type).toBeGreaterThan(0);
+            for (const { s, room } of found) expect(s.site.doors.some(d => d.a === room.id || d.b === room.id), `${name(s)} ${room.id}`).toBe(true);
+        }
+    });
+
+    it('opens locked shortcuts only between rooms that were a long walk apart', () => {
+        let count = 0;
+        for (const s of shells) {
+            const cuts = s.site.doors.filter(d => d.detour !== undefined);
+            if (!cuts.length) continue;
+            count += cuts.length;
+            // Wall the shortcuts up again and walk between their two sides.
+            for (const d of cuts) {
+                expect(d.lock === 'keycard' || d.lock === 'mechanical').toBe(true);
+                s.site.doors.splice(s.site.doors.indexOf(d), 1);
+                s.site.setWall(d, 'plaster');
+            }
+            const nav = new Nav(s.site, new Furnisher(s.site));
+            for (const d of cuts) {
+                const [p, q] = tilesOf(d), steps = nav.distances([p]).dist[q.y * s.site.width + q.x]!;
+                expect(d.detour!, `${name(s)} ${d.a}-${d.b}`).toBeGreaterThanOrEqual(SHORTCUT_DETOUR);
+                expect(steps, `${name(s)} ${d.a}-${d.b}`).toBeGreaterThanOrEqual(SHORTCUT_DETOUR);
+            }
+        }
+        expect(count).toBeGreaterThan(0);
     });
 });

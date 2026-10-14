@@ -1,4 +1,4 @@
-import { bankDoors, bankFront, counterGate, defaultWalls, placeBank, railings } from './build';
+import { bankDoors, bankFront, counterGate, defaultWalls, placeBank, railings, shortcuts } from './build';
 import { buildFeatures } from './features';
 import { Furnisher } from './furnish';
 import { layoutBank } from './layout';
@@ -65,11 +65,16 @@ export function rollShape(rng: Rng, opts: GenerateOptions): { tier: Tier; archet
     return { tier, archetype, plotKind, headlines };
 }
 
+/** How many layouts of one lot to roll before giving up on it. */
+const LAYOUT_ROLLS = 12;
+
 /** Builds the shell: plot, bank rooms, walls, fronts and doors, neighbours. Undefined when this roll can't be built. */
 export function buildShell(rng: Rng, shape: ReturnType<typeof rollShape>): Shell | undefined {
     const { tier, archetype, plotKind, headlines } = shape, spec = TIER_SPECS[tier];
     const W = rng.int(...spec.width), D = rng.int(...spec.depth);
-    const layout = layoutBank(rng.fork('layout'), tier, archetype, W, D, headlines.includes('oldBank'));
+    // A program that doesn't fit is cheap to roll again; the whole attempt is only spent when the lot can't be laid out.
+    let layout: ReturnType<typeof layoutBank>;
+    for (let k = 0; k < LAYOUT_ROLLS && !layout; k++) layout = layoutBank(rng.fork(k ? `layout-${k}` : 'layout'), tier, archetype, W, D, headlines.includes('oldBank'));
     if (!layout) return undefined;
     const plot = composePlot(rng.fork('plot'), plotKind, tier, W, D, { site: headlines.includes('scaffoldingNextDoor'), across: plotKind !== 'stripMallEnd' || rng.chance(0.5) });
     const site = plot.site;
@@ -81,6 +86,7 @@ export function buildShell(rng: Rng, shape: ReturnType<typeof rollShape>): Shell
     const { door } = bankFront(site, plot, bank, rng.fork('front'));
     if (!bankDoors(site, plot, layout, bank, rng.fork('doors'))) return undefined;
     const { gateX } = counterGate(site, bank, rng.fork('gate'));
+    shortcuts(site, bank, rng.fork('shortcuts'));
     const furnish = new Furnisher(site);
     const { window: driveWindow } = buildFeatures(site, plot, bank, headlines, rng.fork('features'), door, furnish);
     for (const n of neighbours) finishNeighbour(site, n, furnish, rng.fork(`finish-${n.slot.side}`));

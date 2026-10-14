@@ -1668,6 +1668,10 @@ Every map is one level; height is a tile property and roofs and sewers are off-m
 | Vault antechamber, vault | Secure | Console, sensors' wiring box, loot |
 | Deposit-box room | Secure | Optional loot, intel box |
 | Loading bay | Staff | Vehicle access, armoured-car event, rolling shutter (rammable) |
+| Counting room | Secure | Cash being counted (loot), a keycard door with its own keys |
+| Records room | Staff | Files: the branch records as intel, tall shelving to hide behind |
+| Staff office | Staff | The loan officers' desks; staff who notice strangers |
+| Conference room | Staff | Meetings; a long table as low cover |
 | Generator | Back lot | Backup power |
 
 ### 17.5 Neighbours and approaches

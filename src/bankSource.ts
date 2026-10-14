@@ -29,6 +29,6 @@ export function bankFromAddress(): { data: BankData; generated?: GeneratedBank }
     history.replaceState(null, '', `${location.pathname}?${params}`);
     const lobby = generated.rooms.find(r => r.type === 'lobby')!;
     const focus = { tx: lobby.x + Math.floor(lobby.w / 2), ty: lobby.y };
-    const outlines = generated.rooms.filter(r => r.known === 'outline').map(r => ({ x: r.x, y: r.y, w: r.w, h: r.h, name: r.name }));
+    const outlines = generated.rooms.filter(r => r.known === 'outline').map(r => ({ x: r.x, y: r.y, w: r.w, h: r.h, name: r.name, parts: r.parts }));
     return { data: { level: generated.level, rooms: generated.rooms, props: generated.props, people: generated.people, focus, outlines }, generated };
 }

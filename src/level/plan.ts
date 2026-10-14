@@ -87,8 +87,8 @@ export function floorHeight(tiles: readonly (readonly FloorTile[])[], tx: number
 }
 
 /**
- * A room: a rectangle of tiles, its zone (§8.1) and how it is lit. Lamps are hung from the rooms (`roomLamps`); rooms
- * also name the plan's parts for the reader and the tests.
+ * A room: a rectangle of tiles, or a union of rectangles (`parts`) inside that rectangle; its zone (§8.1) and how it
+ * is lit. Lamps are hung from the rooms (`roomLamps`); rooms also name the plan's parts for the reader and the tests.
  */
 export interface Room {
     name: string;
@@ -97,6 +97,8 @@ export interface Room {
     y: number;
     w: number;
     h: number;
+    /** The rectangles the room is made of, largest first, when it isn't the whole of x, y, w, h (an L, a notch). */
+    parts?: { x: number; y: number; w: number; h: number }[];
     /** Warm ceiling lamps, bright ones (the teller line), cool strip lights, a single dim bulb, or none (outdoors by day). */
     light: 'warm' | 'bright' | 'cool' | 'dim' | 'none';
 }

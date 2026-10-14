@@ -19,6 +19,13 @@ export function tilesOf(e: Edge): [{ x: number; y: number }, { x: number; y: num
     return e.run === 'eastWest' ? [{ x: e.tx, y: e.ty - 1 }, { x: e.tx, y: e.ty }] : [{ x: e.tx - 1, y: e.ty }, { x: e.tx, y: e.ty }];
 }
 
+/** The smallest rectangle round `parts`. */
+export function boundingBox(parts: readonly Rect[]): Rect {
+    if (!parts.length) throw new Error('A shape needs at least one part');
+    const x = Math.min(...parts.map(p => p.x)), y = Math.min(...parts.map(p => p.y));
+    return { x, y, w: Math.max(...parts.map(p => p.x + p.w)) - x, h: Math.max(...parts.map(p => p.y + p.h)) - y };
+}
+
 /** The most a person climbs between neighbouring tiles without stairs: a step of a flight. */
 export const MAX_STEP = RAISED_HEIGHT / 3;
 
@@ -40,16 +47,36 @@ export class Site {
         this.owner = Array.from({ length: height }, () => Array.from({ length: width }, () => -1));
     }
 
-    /** Adds a room over `rect`, painting its floor with its type's floor (or `floor`). */
-    addRoom(type: RoomType, rect: Rect, opts: { wing?: Wing; bank?: boolean; floor?: FloorTile; name?: string; known?: GenRoom['known'] } = {}): GenRoom {
-        const rule = ROOM_RULES[type], index = this.rooms.length;
+    /**
+     * Adds a room over `shape` (a rectangle, or the rectangles of an L or a notch, largest first), painting its floor
+     * with its type's floor (or `floor`).
+     */
+    addRoom(type: RoomType, shape: Rect | Rect[], opts: { wing?: Wing; bank?: boolean; floor?: FloorTile; name?: string; known?: GenRoom['known'] } = {}): GenRoom {
+        const rule = ROOM_RULES[type], index = this.rooms.length, parts = Array.isArray(shape) ? shape.map(p => ({ ...p })) : [{ ...shape }];
         const room: GenRoom = {
-            id: `${type}-${index}`, type, name: opts.name ?? rule.name, zone: rule.zone, light: rule.light, ...rect, wing: opts.wing ?? 'outside',
+            id: `${type}-${index}`, type, name: opts.name ?? rule.name, zone: rule.zone, light: rule.light, ...boundingBox(parts), parts, wing: opts.wing ?? 'outside',
             bank: opts.bank ?? false, known: opts.known ?? (rule.zone === 'public' || rule.zone === 'outdoors' || !opts.bank ? 'blueprint' : 'outline')
         };
         this.rooms.push(room);
-        this.paint(rect, opts.floor ?? (rule.floor as FloorTile), index);
+        for (const part of parts) this.paint(part, opts.floor ?? (rule.floor as FloorTile), index);
         return room;
+    }
+
+    /** The tiles of a room, row by row. */
+    tilesOfRoom(room: GenRoom): { x: number; y: number }[] {
+        const out: { x: number; y: number }[] = [], index = this.rooms.indexOf(room);
+        for (let y = room.y; y < room.y + room.h; y++) for (let x = room.x; x < room.x + room.w; x++) if (this.owner[y]![x] === index) out.push({ x, y });
+        return out;
+    }
+
+    /** The rooms that share at least one edge with `room`. */
+    neighbours(room: GenRoom): GenRoom[] {
+        const seen = new Set<GenRoom>();
+        for (const t of this.tilesOfRoom(room)) for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]] as const) {
+            const other = this.roomAt(t.x + dx, t.y + dy);
+            if (other && other !== room) seen.add(other);
+        }
+        return [...seen];
     }
 
     /** Paints a floor over `rect`, optionally handing the tiles to room `index`. */

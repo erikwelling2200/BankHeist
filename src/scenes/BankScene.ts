@@ -662,10 +662,18 @@ export class BankScene extends Phaser.Scene {
         if (full) return;
         const g = this.add.graphics().setDepth(DEPTH.knowledge);
         for (const r of this.bank.outlines ?? []) {
-            g.fillStyle(0x1b1d27, 0.94).fillRect(r.x * TILE, r.y * TILE, r.w * TILE, r.h * TILE);
-            g.lineStyle(1, 0x8f866f, 0.9).strokeRect(r.x * TILE + 0.5, r.y * TILE + 0.5, r.w * TILE - 1, r.h * TILE - 1);
-            // A pixel question mark in the middle of the room.
-            const cx = Math.floor((r.x + r.w / 2) * TILE) - 5, cy = Math.floor((r.y + r.h / 2) * TILE) - 7;
+            const inside = (x: number, y: number) => r.parts.some(p => x >= p.x && x < p.x + p.w && y >= p.y && y < p.y + p.h);
+            for (const p of r.parts) g.fillStyle(0x1b1d27, 0.94).fillRect(p.x * TILE, p.y * TILE, p.w * TILE, p.h * TILE);
+            // The outline follows the room's shape: a pixel line inside every edge of a tile with no room beyond it.
+            g.fillStyle(0x8f866f, 0.9);
+            for (const p of r.parts) for (let y = p.y; y < p.y + p.h; y++) for (let x = p.x; x < p.x + p.w; x++) {
+                if (!inside(x, y - 1)) g.fillRect(x * TILE, y * TILE, TILE, 1);
+                if (!inside(x, y + 1)) g.fillRect(x * TILE, (y + 1) * TILE - 1, TILE, 1);
+                if (!inside(x - 1, y)) g.fillRect(x * TILE, y * TILE, 1, TILE);
+                if (!inside(x + 1, y)) g.fillRect((x + 1) * TILE - 1, y * TILE, 1, TILE);
+            }
+            // A pixel question mark in the middle of the room's largest rectangle.
+            const main = r.parts[0]!, cx = Math.floor((main.x + main.w / 2) * TILE) - 5, cy = Math.floor((main.y + main.h / 2) * TILE) - 7;
             g.fillStyle(0x8f866f, 1);
             QUESTION.forEach((row, y) => [...row].forEach((c, x) => c === '#' && g.fillRect(cx + x * 2, cy + y * 2, 2, 2)));
         }
@@ -675,7 +683,7 @@ export class BankScene extends Phaser.Scene {
     /** Hides a person standing in a room the blueprint only outlines while only the blueprint shows; called whenever they move. */
     private showIfKnown(p: PersonSprite): void {
         const inside = (r: { x: number; y: number; w: number; h: number }) => p.x >= r.x * TILE && p.x < (r.x + r.w) * TILE && p.y >= r.y * TILE && p.y < (r.y + r.h) * TILE;
-        const hidden = this.blueprintOnly && (this.bank.outlines ?? []).some(inside);
+        const hidden = this.blueprintOnly && (this.bank.outlines ?? []).some(r => r.parts.some(inside));
         p.image.setVisible(!hidden);
         p.shadow.setVisible(!hidden);
     }

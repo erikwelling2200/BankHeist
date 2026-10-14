@@ -8,8 +8,8 @@ export interface BankData {
     props: LevelProp[];
     people: LevelPerson[];
     focus: { tx: number; ty: number };
-    /** Rooms the blueprint shows only as outlines before casing (§17.8). */
-    outlines?: { x: number; y: number; w: number; h: number; name: string }[];
+    /** Rooms the blueprint shows only as outlines before casing (§17.8): their bounding box and the rectangles they are made of. */
+    outlines?: { x: number; y: number; w: number; h: number; name: string; parts: { x: number; y: number; w: number; h: number }[] }[];
 }
 
 /** The hand-made example bank (`bank.ts`). */
