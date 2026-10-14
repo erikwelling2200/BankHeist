@@ -7,14 +7,21 @@ import { describe, expect, it } from 'vitest';
  * The rules engine stays pure and deterministic (§6, implementation plan §2.3). `tsconfig.sim.json` type-checks
  * src/sim with only the ES2022 library, so no browser or Node API even has a type there; this test reads the syntax
  * (comments and strings don't count) for what that library still offers: the clock, unseeded randomness, functions
- * that may round differently between engines, and ways round the checks. It also walks the imports from
- * src/sim/index.ts, which may reach only src/sim, src/level and src/gen, and must reach every file of src/sim (a file
- * that isn't imported never registers its commands).
+ * that may round differently between engines or depend on the locale, and ways round the checks (ambient
+ * declarations, reference directives). It walks the imports from src/sim/index.ts, which may reach only src/sim,
+ * src/level and src/gen, must reach every file of src/sim (a file that isn't imported never registers its commands),
+ * and holds every file it reaches to the same rules, wherever it lives.
  */
 
 const ROOT = resolve(__dirname, '../..');
 const SIM = join(ROOT, 'src/sim');
 const ALLOWED = ['src/sim/', 'src/level/', 'src/gen/'];
+
+/**
+ * Files the walk may reach that break the rules on purpose, each with its reason. They may only be used to build the
+ * World, never by a rule during play. Empty: src/sim imports nothing outside itself yet.
+ */
+const BUILD_ONLY: Readonly<Record<string, string>> = {};
 
 /** Globals the rules may not name. */
 const BANNED_GLOBALS = new Set(['Date', 'globalThis', 'performance', 'crypto', 'window', 'document', 'self', 'navigator', 'process', 'eval', 'Function', 'Intl']);
@@ -44,6 +51,12 @@ function isReference(node: ts.Identifier): boolean {
     return true;
 }
 
+/** `declare module './types' { interface CommandMap { … } }`: how packages extend the open sets; types only. */
+function isAugmentation(node: ts.Node): boolean {
+    return ts.isModuleDeclaration(node) && ts.isStringLiteral(node.name) && node.name.text.startsWith('.')
+        && !!node.body && ts.isModuleBlock(node.body) && node.body.statements.every(ts.isInterfaceDeclaration);
+}
+
 function problems(source: ts.SourceFile): string[] {
     const found: string[] = [];
     const at = (node: ts.Node, what: string): void => {
@@ -60,11 +73,20 @@ function problems(source: ts.SourceFile): string[] {
                 } else at(node, ts.isElementAccessExpression(p) ? 'computed Math access' : 'Math used as a value');
             }
         }
+        if (ts.isPropertyAccessExpression(node) && (node.name.text === 'localeCompare' || node.name.text.startsWith('toLocale'))) {
+            at(node, `${node.name.text} (locale-dependent)`);
+        }
+        const declared = ts.canHaveModifiers(node) && ts.getModifiers(node)?.some(m => m.kind === ts.SyntaxKind.DeclareKeyword);
+        if (ts.isModuleDeclaration(node) && node.flags & ts.NodeFlags.GlobalAugmentation) at(node, 'declare global');
+        else if (declared && !ts.isInterfaceDeclaration(node) && !ts.isTypeAliasDeclaration(node) && !isAugmentation(node)) at(node, 'ambient declare');
         if (ts.isBinaryExpression(node) && (node.operatorToken.kind === ts.SyntaxKind.AsteriskAsteriskToken
             || node.operatorToken.kind === ts.SyntaxKind.AsteriskAsteriskEqualsToken)) at(node, '** (Math.pow)');
         ts.forEachChild(node, visit);
     };
     visit(source);
+    for (const ref of [...source.referencedFiles, ...source.typeReferenceDirectives, ...source.libReferenceDirectives]) {
+        found.push(`${relative(ROOT, source.fileName)}: /// reference to ${ref.fileName}`);
+    }
     return found;
 }
 
@@ -95,9 +117,11 @@ function resolveImport(from: string, spec: string): string | undefined {
 describe('src/sim', () => {
     const all = files(SIM).filter(f => f.endsWith('.ts'));
 
-    it('names no clock, no unseeded randomness and no engine-dependent maths', () => {
+    it('names no clock, no unseeded randomness and no engine-dependent maths, nor does anything it imports', () => {
         expect(all.length).toBeGreaterThan(5);
-        expect(all.flatMap(f => problems(parse(f)))).toEqual([]);
+        const reached = [...walkImports().seen].filter(f => !(relative(ROOT, f).split('\\').join('/') in BUILD_ONLY));
+        for (const f of all) expect(reached).toContain(f);
+        expect(reached.flatMap(f => problems(parse(f)))).toEqual([]);
     });
 
     it('catches what it is meant to, and only in code', () => {
@@ -105,31 +129,45 @@ describe('src/sim', () => {
             '// Date.now() and Math.random() in a comment are fine, and so is a teller window.',
             "const s = 'Math.sin in a string, the window';",
             'const a = Date.now(), b = Math.random(), c = Math.atan2(1, 2), d = Math["floor"](1), e = globalThis;',
-            'const f = performance.now(), g = 2 ** 3, M = Math, ok = Math.floor(Math.sqrt(2)), o = { Date: 1 }.Date;'
+            'const f = performance.now(), g = 2 ** 3, M = Math, ok = Math.floor(Math.sqrt(2)), o = { Date: 1 }.Date;',
+            "const h = 'a'.localeCompare('b'), i = (1).toLocaleString();",
+            'declare const clock: number;',
+            'declare global { interface Foo { x: number } }',
+            'declare module "./x" { interface CommandMap { y: number } }',
+            'declare module "./y" { const z: number; }',
+            '/// <reference types="node" />'
         ].join('\n'), ts.ScriptTarget.ES2022, true);
         expect(problems(probe).map(p => p.replace(/^.*: /, ''))).toEqual([
-            'Date', 'Math.random', 'Math.atan2', 'computed Math access', 'globalThis', 'performance', '** (Math.pow)', 'Math used as a value'
+            'Date', 'Math.random', 'Math.atan2', 'computed Math access', 'globalThis', 'performance', '** (Math.pow)', 'Math used as a value',
+            'localeCompare (locale-dependent)', 'toLocaleString (locale-dependent)', 'ambient declare', 'declare global', 'ambient declare'
         ]);
+        // The second 'ambient declare' is the module that declares a value; the one that adds an interface is allowed.
     });
 
     it('imports only the pure parts of the game, and every file of the engine is loaded', () => {
-        const seen = new Set<string>(), bad: string[] = [];
-        const walk = (path: string): void => {
-            if (seen.has(path)) return;
-            seen.add(path);
-            for (const spec of imports(parse(path))) {
-                if (!spec.startsWith('.')) {
-                    bad.push(`${relative(ROOT, path)} imports the package '${spec}'`);
-                    continue;
-                }
-                const target = resolveImport(path, spec);
-                const rel = target && relative(ROOT, target).split('\\').join('/');
-                if (!target || !rel || !ALLOWED.some(dir => rel.startsWith(dir))) bad.push(`${relative(ROOT, path)} imports '${spec}'`);
-                else walk(target);
-            }
-        };
-        walk(join(SIM, 'index.ts'));
+        const { seen, bad } = walkImports();
         expect(bad).toEqual([]);
         expect(all.filter(f => !seen.has(f)).map(f => relative(ROOT, f))).toEqual([]);
     });
 });
+
+/** Every file reachable from src/sim/index.ts, and the imports that leave the allowed directories. */
+function walkImports(): { seen: Set<string>; bad: string[] } {
+    const seen = new Set<string>(), bad: string[] = [];
+    const walk = (path: string): void => {
+        if (seen.has(path)) return;
+        seen.add(path);
+        for (const spec of imports(parse(path))) {
+            if (!spec.startsWith('.')) {
+                bad.push(`${relative(ROOT, path)} imports the package '${spec}'`);
+                continue;
+            }
+            const target = resolveImport(path, spec);
+            const rel = target && relative(ROOT, target).split('\\').join('/');
+            if (!target || !rel || !ALLOWED.some(dir => rel.startsWith(dir))) bad.push(`${relative(ROOT, path)} imports '${spec}'`);
+            else walk(target);
+        }
+    };
+    walk(join(SIM, 'index.ts'));
+    return { seen, bad };
+}

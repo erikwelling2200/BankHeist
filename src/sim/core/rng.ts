@@ -1,4 +1,4 @@
-import type { State } from './types';
+import type { DiceRoll, State } from './types';
 
 /*
  * The heist's dice. Every random thing rolls on a named stream ('combat', 'panic', 'resist', …) whose position lives in
@@ -46,18 +46,15 @@ function streamSeed(seed: number, name: string): number {
 
 /** The dice of one command, on the copy of the state that command is making. */
 export class Dice {
-    private count = 0;
     /** The roll a preview refused, if any; the engine throws it even if a reducer caught it. */
     refused: PreviewRollError | undefined;
-    /** The roll a preview stopped at, if any. */
+    /** The roll a preview stopped at, if any, and the stop that was thrown for it. */
     pending: PendingOdds | undefined;
+    stop: OddsStop | undefined;
+    /** This command's rolls, all of them (`State.dice` keeps only a window). */
+    readonly rolled: DiceRoll[] = [];
 
     constructor(private readonly state: State, private readonly mode: Mode) {}
-
-    /** How many times this command rolled. */
-    get rolls(): number {
-        return this.count;
-    }
 
     /** A float in [0, 1) from the named stream (mulberry32, as `src/gen/rng.ts`). */
     next(stream: string, reason: string): number {
@@ -75,11 +72,16 @@ export class Dice {
         return this.log(stream, reason, this.draw(stream, reason)) < p;
     }
 
-    /** A roll whose odds a preview shows: in a preview it stops the reducer there; in a commit it is `chance`. */
+    /**
+     * A roll whose odds a preview shows: in a preview it stops the reducer there; in a commit it is `chance`. A preview
+     * stops once: reaching a second roll means the reducer caught the first stop, and is refused like any roll.
+     */
     odds(stream: string, p: number, reason: string): boolean {
+        if (!Number.isFinite(p) || p < 0 || p > 1) throw new Error(`Odds of ${p} for '${reason}': a chance is between 0 and 1`);
         if (this.mode === 'preview') {
+            if (this.stop) throw (this.refused ??= new PreviewRollError(stream, reason));
             this.pending = { stream, p, reason };
-            throw new OddsStop(this.pending);
+            throw (this.stop = new OddsStop(this.pending));
         }
         return this.chance(stream, p, reason);
     }
@@ -94,9 +96,9 @@ export class Dice {
     }
 
     private log(stream: string, reason: string, value: number): number {
-        this.count++;
-        const dice = this.state.dice;
-        dice.push({ turn: this.state.turn, stream, reason, value });
+        const roll = { turn: this.state.turn, stream, reason, value }, dice = this.state.dice;
+        this.rolled.push(roll);
+        dice.push({ ...roll });
         if (dice.length > DICE_WINDOW) dice.splice(0, dice.length - DICE_WINDOW);
         return value;
     }

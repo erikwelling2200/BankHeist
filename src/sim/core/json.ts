@@ -27,7 +27,10 @@ export function assertPlainJson(value: unknown, path = '$'): void {
                 return;
             }
             if (!isPlainObject(value)) throw new TypeError(`${path} is a ${value.constructor?.name ?? 'non-plain object'}, not plain data`);
-            for (const [k, v] of Object.entries(value)) assertPlainJson(v, `${path}.${k}`);
+            for (const [k, v] of Object.entries(value)) {
+                if (k === '__proto__') throw new TypeError(`${path} has a '__proto__' key`);
+                assertPlainJson(v, `${path}.${k}`);
+            }
             return;
         default:
             throw new TypeError(`${path} is ${typeof value}, which JSON can't hold`);
@@ -39,7 +42,10 @@ export function clonePlain<T>(value: T): T {
     if (value === null || typeof value !== 'object') return value;
     if (Array.isArray(value)) return value.map(clonePlain) as T;
     const out: Record<string, unknown> = {};
-    for (const k in value) out[k] = clonePlain((value as Record<string, unknown>)[k]);
+    for (const k of Object.keys(value)) {
+        if (k === '__proto__') throw new TypeError("A '__proto__' key can't be copied as data");
+        out[k] = clonePlain((value as Record<string, unknown>)[k]);
+    }
     return out as T;
 }
 
@@ -73,9 +79,9 @@ export function hashOf(value: unknown): string {
     return (a >>> 0).toString(16).padStart(8, '0') + (b >>> 0).toString(16).padStart(8, '0');
 }
 
-/** Freezes plain data all the way down, and returns it typed read-only. */
+/** Freezes plain data all the way down (even under an object that is already frozen) and returns it. */
 export function deepFreeze<T>(value: T): T {
-    if (value && typeof value === 'object' && !Object.isFrozen(value)) {
+    if (value && typeof value === 'object') {
         for (const v of Object.values(value)) deepFreeze(v);
         Object.freeze(value);
     }

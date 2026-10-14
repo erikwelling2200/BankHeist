@@ -7,7 +7,6 @@ import type { ReadonlyWorld, World } from '../core/types';
  */
 
 export function freezeWorld(world: World | ReadonlyWorld): ReadonlyWorld {
-    if (Object.isFrozen(world)) return world as ReadonlyWorld;
     assertPlainJson(world, 'world');
     if (world.tiles.length !== world.width * world.height) {
         throw new Error(`The world is ${world.width}x${world.height} but has ${world.tiles.length} tiles`);

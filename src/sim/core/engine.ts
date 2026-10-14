@@ -1,7 +1,7 @@
-import { clonePlain, deepFreeze } from './json';
-import { Dice, OddsStop, type Mode, type PendingOdds } from './rng';
+import { assertPlainJson, clonePlain, deepFreeze } from './json';
+import { Dice, type Mode, type OddsStop, type PendingOdds } from './rng';
 import { eventClass, registerEvents } from './undo';
-import type { Command, CommandOf, CommandType, DeepReadonly, Intent, ReadonlyWorld, SimEvent, State } from './types';
+import type { Command, CommandOf, CommandType, DeepReadonly, DiceRoll, Intent, NpcStatus, ReadonlyWorld, SimEvent, State } from './types';
 
 /*
  * The rules engine (§6): a command goes in, a new state and the events that explain it come out. Nothing here knows
@@ -29,6 +29,14 @@ export class IllegalCommand extends Error {
     }
 }
 
+/** A rule broke one of the engine's promises: a bug in the rules, never something the player did. */
+export class InvariantError extends Error {
+    constructor(message: string) {
+        super(message);
+        this.name = 'InvariantError';
+    }
+}
+
 export type Reducer<K extends CommandType> = (ctx: Ctx, cmd: CommandOf<K>) => void;
 
 interface CommandEntry {
@@ -53,14 +61,24 @@ export function registerCommand<K extends CommandType>(type: K, reduce: Reducer<
 export const WORLD_STEPS = ['passiveNpcs', 'combatNpcs', 'devices', 'commitIntents', 'crewPhase'] as const;
 export type WorldStep = (typeof WORLD_STEPS)[number];
 
+/** The statuses that put an NPC in combat (§6.1: anyone Hostile acts one at a time). A package may add to it. */
+export const COMBAT_STATUSES = new Set<NpcStatus>(['hostile']);
+
 /**
- * What a world phase's steps share. `intents` is every NPC's intent as the last `commitIntents` left it, frozen at the
- * start of the phase: the act steps carry out these and nothing decided since (§6.2), even if a step rewrites
- * `npc.intent` on the way.
+ * What a world phase's steps share, frozen at the start of the phase (§6.2):
+ * - `intents`: every NPC's intent as the last `commitIntents` left it. Telegraphed actions (raising the alarm, drawing a
+ *   weapon, a radio call, a breach, a grenade) are carried out only from here, never from anything decided since, even
+ *   if a step rewrites `npc.intent` on the way. Movement and shots in combat may be decided when the NPC acts (§13.6).
+ * - `status`, `passive` and `combat`: each NPC's status, and who acts with the passive group or alone, in resolution
+ *   order. The act steps take membership from here, so an NPC that turns Hostile mid-phase acts as a combatant only
+ *   from the next phase.
  */
 export interface WorldPhase {
     readonly turn: number;
     readonly intents: Readonly<Record<string, DeepReadonly<Intent>>>;
+    readonly status: Readonly<Record<string, NpcStatus>>;
+    readonly passive: readonly string[];
+    readonly combat: readonly string[];
 }
 
 export type WorldHook = (ctx: Ctx, phase: WorldPhase) => void;
@@ -93,6 +111,8 @@ export function worldHooks(): Record<WorldStep, string[]> {
 export interface CommitResult {
     state: State;
     events: SimEvent[];
+    /** Every roll this command made, in order (the state keeps only the last `DICE_WINDOW`). */
+    rolls: DiceRoll[];
     /** Whether the action can be taken back (§6.6): nothing revealed, no perception check, no dice, not final. */
     undoable: boolean;
 }
@@ -101,6 +121,9 @@ export interface PreviewResult extends CommitResult {
     /** Set when the command stopped at a roll: its odds. `state` and `events` are then as far as it got. */
     pending?: PendingOdds;
 }
+
+const caughtStop = (cmd: Command, stop: OddsStop): Error =>
+    new InvariantError(`Command '${cmd.type}' caught the preview's stop at '${stop.odds.reason}' and carried on`);
 
 function run(world: ReadonlyWorld, state: State, cmd: Command, mode: Mode): PreviewResult {
     const entry = COMMANDS.get(cmd.type);
@@ -120,16 +143,21 @@ function run(world: ReadonlyWorld, state: State, cmd: Command, mode: Mode): Prev
     try {
         entry.reduce(ctx, cmd);
     } catch (e) {
+        // A reducer that caught the dice's refusal or stop and carried on (to another roll, an error or the end) would
+        // make the preview differ from the commit; only the very stop the dice threw may end a preview early.
         if (dice.refused) throw dice.refused;
-        if (!(e instanceof OddsStop && dice.pending)) throw e;
+        if (dice.stop && e !== dice.stop) throw caughtStop(cmd, dice.stop);
+        if (!dice.stop) throw e;
         stopped = true;
     }
-    // A reducer that caught the dice's refusal or stop and carried on would make the preview differ from the commit.
     if (dice.refused) throw dice.refused;
+    if (dice.stop && !stopped) throw caughtStop(cmd, dice.stop);
+    assertPlainJson(draft, 'state');
+    assertPlainJson(events, 'events');
     const pending = dice.pending;
-    if (pending && !stopped) throw new Error(`Command '${cmd.type}' caught the preview's stop at '${pending.reason}' and carried on`);
-    const undoable = !entry.final && !pending && dice.rolls === 0 && !events.some(e => eventClass(e.type).undoBlocking);
-    return pending ? { state: draft, events, undoable, pending } : { state: draft, events, undoable };
+    const rolls = dice.rolled;
+    const undoable = !entry.final && !pending && !rolls.length && !events.some(e => eventClass(e.type).undoBlocking);
+    return pending ? { state: draft, events, rolls, undoable, pending } : { state: draft, events, rolls, undoable };
 }
 
 /** Plays a command for real. The input state is left as it was. */
@@ -151,9 +179,18 @@ registerCommand('endTurn', ctx => {
     const { state } = ctx;
     state.phase = 'world';
     ctx.emit({ type: 'phaseStarted', phase: 'world', turn: state.turn });
-    const intents: Record<string, Intent> = {};
-    for (const npc of state.npcs) intents[npc.id] = clonePlain(npc.intent);
-    const phase: WorldPhase = { turn: state.turn, intents: deepFreeze(intents) };
+    const intents: Record<string, Intent> = {}, status: Record<string, NpcStatus> = {};
+    for (const npc of state.npcs) {
+        intents[npc.id] = clonePlain(npc.intent);
+        status[npc.id] = npc.status;
+    }
+    const phase: WorldPhase = deepFreeze({
+        turn: state.turn,
+        intents,
+        status,
+        passive: state.npcs.filter(n => !COMBAT_STATUSES.has(n.status)).map(n => n.id),
+        combat: state.npcs.filter(n => COMBAT_STATUSES.has(n.status)).map(n => n.id)
+    });
     for (const step of WORLD_STEPS) {
         if (step === 'crewPhase') {
             state.turn++;

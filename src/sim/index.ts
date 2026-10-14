@@ -12,7 +12,7 @@ export * from './core/types';
 export * from './core/grid';
 export { Dice, DICE_WINDOW, OddsStop, PreviewRollError, type Mode, type PendingOdds } from './core/rng';
 export {
-    commit, preview, IllegalCommand, registerCommand, registerWorldHook, worldHooks, WORLD_STEPS,
+    commit, preview, COMBAT_STATUSES, IllegalCommand, InvariantError, registerCommand, registerWorldHook, worldHooks, WORLD_STEPS,
     type Ctx, type CommitResult, type PreviewResult, type Reducer, type WorldHook, type WorldPhase, type WorldStep
 } from './core/engine';
 export { registerEvents, eventClass, recordUndo, popUndo, type EventClass, type UndoStack } from './core/undo';

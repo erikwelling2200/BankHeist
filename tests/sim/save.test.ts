@@ -57,6 +57,8 @@ describe('saving', () => {
 /*
  * The save's shape: every field name and type of a fully populated save, records collapsed to one entry. If this
  * changes, World, State or Save changed shape: bump SAVE_FORMAT, then record the new hash under the new format.
+ * The test only sees fields its sample save fills in: a package that augments IntentActionMap, ObjectState,
+ * NpcStatusMap, CarrierKindMap or adds a field must also fill it in below, or a change of shape goes unnoticed.
  */
 const SHAPE_HASHES: Record<number, string> = {
     1: '560656ed11263e39'

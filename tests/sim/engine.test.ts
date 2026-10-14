@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
-    deepFreeze, Dice, DICE_WINDOW, hashOf, IllegalCommand, popUndo, preview, PreviewRollError, recordUndo,
+    deepFreeze, Dice, DICE_WINDOW, hashOf, IllegalCommand, InvariantError, popUndo, preview, PreviewRollError, recordUndo,
     registerCommand, registerEvents, registerWorldHook, worldHooks, WORLD_STEPS, type State, type UndoStack
 } from '../../src/sim';
 import { play, SCRIPT, smallBank, step } from './helpers';
@@ -9,6 +9,8 @@ declare module '../../src/sim/core/types' {
     interface CommandMap {
         testSwallow: { crew: string };
         testOdds: { crew: string };
+        testOddsTwice: { crew: string };
+        testOddsThenIllegal: { crew: string };
     }
     interface EventMap { testTried: { crew: string } }
 }
@@ -33,6 +35,21 @@ registerCommand('testOdds', (ctx, cmd) => {
     if (ctx.dice.odds('resist', 0.25, 'resist')) ctx.state.crew.find(c => c.id === cmd.crew)!.actionsLeft = 0;
 });
 registerEvents({ testTried: { undoBlocking: false } });
+
+// Reducers that catch the preview's stop and carry on: to a second roll, or to an error the commit wouldn't raise.
+registerCommand('testOddsTwice', ctx => {
+    try {
+        ctx.dice.odds('resist', 0.5, 'first');
+    } catch { /* hiding the stop */ }
+    ctx.dice.odds('resist', 0.5, 'second');
+});
+registerCommand('testOddsThenIllegal', ctx => {
+    try {
+        ctx.dice.odds('resist', 0.5, 'first');
+    } catch {
+        throw new IllegalCommand('not allowed');
+    }
+});
 
 describe('the rules engine', () => {
     it('plays the same commands to the same state', () => {
@@ -98,7 +115,20 @@ describe('the rules engine', () => {
         expect(seen.undoable).toBe(false);
         const done = step(world, state, { type: 'testOdds', crew: 'jun' });
         expect(done.state.dice).toHaveLength(1);
+        expect(done.rolls).toEqual(done.state.dice);
         expect(done.undoable).toBe(false);
+        expect(() => preview(world, state, { type: 'testOddsTwice', crew: 'jun' })).toThrow(PreviewRollError);
+        expect(() => preview(world, state, { type: 'testOddsThenIllegal', crew: 'jun' })).toThrow(InvariantError);
+        expect(step(world, state, { type: 'testOddsThenIllegal', crew: 'jun' }).rolls).toHaveLength(1);
+        expect(() => new Dice(structuredClone(state), 'commit').odds('resist', 1.5, 'bad')).toThrow(/between 0 and 1/);
+    });
+
+    it('returns every roll of a command, beyond the window the state keeps', () => {
+        const { world, state } = smallBank();
+        const many = { ...state, npcs: Array.from({ length: 40 }, (_, i) => ({ ...state.npcs[0]!, id: `n${i}` })) };
+        const result = step(world, many, { type: 'endTurn' });
+        expect(result.rolls).toHaveLength(40);
+        expect(result.state.dice).toEqual(result.rolls.slice(-DICE_WINDOW));
     });
 
     it('logs rolls in a bounded window and keeps each stream to itself', () => {

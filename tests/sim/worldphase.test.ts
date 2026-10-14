@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { IllegalCommand, registerWorldHook, startCarrier, type Intent, type State } from '../../src/sim';
+import { InvariantError, registerWorldHook, startCarrier, type Intent, type State } from '../../src/sim';
 import { smallBank, step } from './helpers';
 
 /*
@@ -19,7 +19,16 @@ registerWorldHook('passiveNpcs', 'test.passive', (ctx, phase) => {
     startCarrier(ctx, { kind: 'tellerButton', source: teller.id, pos: teller.pos, countdown: ctx.world.rules.minCarrierCountdown });
 });
 
+const membership: { passive: readonly string[]; combat: readonly string[] }[] = [];
+
+registerWorldHook('passiveNpcs', 'test.hostile', (ctx, phase) => {
+    membership.push({ passive: phase.passive, combat: phase.combat });
+    // The guard turns Hostile mid-phase: it joins the combatants only next phase.
+    if (phase.turn === 1) ctx.state.npcs.find(n => n.id === 'guard')!.status = 'hostile';
+}, { order: 1 });
+
 registerWorldHook('combatNpcs', 'test.combat', (ctx, phase) => {
+    if (phase.turn === 1) expect(phase.combat).toEqual([]);
     seen.push({ step: 'combat', turn: phase.turn, intents: structuredClone(phase.intents) as Record<string, Intent> });
     if (phase.turn === 2) startCarrier(ctx, { kind: 'guardRadio', source: 'guard', pos: { x: 1, y: 1 }, countdown: 3 });
 });
@@ -29,6 +38,13 @@ registerWorldHook('commitIntents', 'test.intents', (ctx, phase) => {
 });
 
 describe('the world phase', () => {
+    it('takes passive and combat membership from the start of the phase', () => {
+        membership.length = 0;
+        let { world, state } = smallBank();
+        for (let i = 0; i < 2; i++) state = step(world, state, { type: 'endTurn' }).state;
+        expect(membership).toEqual([{ passive: ['teller', 'guard'], combat: [] }, { passive: ['teller'], combat: ['guard'] }]);
+    });
+
     it('never shows a new carrier below its minimum countdown, and raises the Alarm when one runs out', () => {
         let { world, state } = smallBank();
         const min = world.rules.minCarrierCountdown;
@@ -60,7 +76,7 @@ describe('the world phase', () => {
             if (ctx.state.turn === 99) startCarrier(ctx, { kind: 'phoneCall', source: 'teller', pos: { x: 0, y: 0 }, countdown: 1 });
         });
         const late: State = { ...state, turn: 99 };
-        expect(() => step(world, late, { type: 'endTurn' })).toThrow(IllegalCommand);
+        expect(() => step(world, late, { type: 'endTurn' })).toThrow(InvariantError);
     });
 
     it('carries out the intents the last world phase committed, whatever the act steps decide', () => {
