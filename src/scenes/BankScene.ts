@@ -1,12 +1,12 @@
 import Phaser from 'phaser';
-import { bakeLighting, LampReach, lightBlockers, LIT, roomLamps, tileLight, windowPatches, type Exposure, type Lamp } from '../art/bank/lamps';
+import { bakeLighting, LampReach, lightBlockers, LIT, roomLamps, tileLight, windowPatches, type Exposure, type ExposureMap, type Lamp, type Reach } from '../art/bank/lamps';
 import { buildExposure, buildLightMaps, farFront, streetFront, type Caster, type Occluder } from '../art/bank/lightmap';
 import { LOOKS, person, PERSON_HEIGHT } from '../art/bank/people';
 import { propArt, type PropArt } from '../art/bank/props';
 import { BANK_TILE_INDEX, bankTileset, type BankTileName } from '../art/bank/tiles';
 import { doorSill, wallArt, wallLook, wallMargin } from '../art/bank/walls';
 import { deepen, mix, PAL } from '../art/palette';
-import { PixelBitmap, toCanvas } from '../art/PixelBitmap';
+import { PixelBitmap } from '../art/PixelBitmap';
 import { bayer4, mulberry32, valueNoise } from '../art/random';
 import type { BankData } from '../level/bankData';
 import { isOnTop, propBox, propSize } from '../level/catalog';
@@ -48,6 +48,9 @@ const ATLAS_WIDTH = 1024;
 const STAND_ABOVE = 16;
 const CUT_ABOVE = 4;
 const STEP_MS = 40;
+
+/** Lets every lamp it is given light every pixel: for something standing, baked with the lamps that reach where it stands. */
+const EVERYWHERE = () => true;
 
 /** Dressing that matters for play stays in view on a cut wall, as a marker of where it is. */
 const ALWAYS_SHOWN: LevelProp['kind'][] = ['camera', 'keycardLed', 'alarmPanel', 'motionSensor'];
@@ -209,7 +212,7 @@ export class BankScene extends Phaser.Scene {
             this.updateWalls(0);
             for (const w of this.walls) this.setWallStep(w, w.target);
         });
-        this.timings.create = performance.now() - started;
+        this.timings.create = performance.measure('bank: create', { start: started }).duration;
         // The first frame uploads the textures and compiles the camera's filters, which the player waits for too.
         this.game.events.once(Phaser.Core.Events.POST_RENDER, () => (this.timings['first frame'] = performance.now() - started - this.timings.create!));
     }
@@ -322,7 +325,7 @@ export class BankScene extends Phaser.Scene {
         const box: Box = { x: Math.round(x - PERSON_SIZE.w / 2), y: Math.round(y - PERSON_SIZE.d / 2), z: 0, ...PERSON_SIZE, facing: 'south' };
         const { bitmap, normals } = p.views[p.facing];
         const left = Math.round(box.x + box.w / 2 - bitmap.width / 2), top = baseLine(box) - PERSON_HEIGHT;
-        const lit = bakeLighting(bitmap, left, top, AMBIENT, this.lamps, this.reachingAny(footprintPoints(box)), this.standingAt(x, y), normals);
+        const lit = bakeLighting(bitmap, left, top, AMBIENT, this.lampsReaching(footprintPoints(box)), EVERYWHERE, this.standingAt(x, y), normals);
         p.texture.context.putImageData(new ImageData(new Uint8ClampedArray(lit), bitmap.width, bitmap.height), 0, 0);
         p.texture.refresh();
         p.image.setPosition(left, top).setDepth(DEPTH.standing + baseLine(box));
@@ -465,7 +468,7 @@ export class BankScene extends Phaser.Scene {
         }
         this.drawRaisedEdges(floor);
         for (const { art, left, top } of flat) floor.stamp(art.lit, left, top);
-        this.addBaked(KEY.floor, floor, 0, 0, (lamp, x, y) => this.reach.reaches(lamp, x, y), (x, y) => this.exposureAt(x, y)).setDepth(DEPTH.floor);
+        this.addBaked(KEY.floor, floor, 0, 0, this.lamps, this.reach, this.exposure).setDepth(DEPTH.floor);
     }
 
     /**
@@ -521,24 +524,37 @@ export class BankScene extends Phaser.Scene {
         return () => e;
     }
 
-    /** Makes texture `key`: `bitmap` drawn at (left, top), lit the way Light2D would light it by the lamps `reaches` lets through, then exposed. */
-    private bake(key: string, bitmap: PixelBitmap, left: number, top: number, reaches: (lamp: Lamp, x: number, y: number) => boolean, exposure: Exposure): string {
-        if (!this.textures.exists(key)) this.textures.addCanvas(key, toCanvas(bakeLighting(bitmap, left, top, AMBIENT, this.lamps, reaches, exposure), bitmap.width, bitmap.height));
+    /**
+     * Makes texture `key`: `bitmap` drawn at (left, top), lit the way Light2D would light it by those of `lamps` that
+     * `reaches` lets through, then exposed.
+     */
+    private bake(key: string, bitmap: PixelBitmap, left: number, top: number, lamps: readonly Lamp[], reaches: Reach, exposure: Exposure | ExposureMap): string {
+        if (!this.textures.exists(key)) this.addPixels(key, bakeLighting(bitmap, left, top, AMBIENT, lamps, reaches, exposure), bitmap.width, bitmap.height);
         return key;
     }
 
-    private addBaked(key: string, bitmap: PixelBitmap, left: number, top: number, reaches: (lamp: Lamp, x: number, y: number) => boolean, exposure: Exposure): Phaser.GameObjects.Image {
-        return this.add.image(left, top, this.bake(key, bitmap, left, top, reaches, exposure)).setOrigin(0, 0);
+    private addBaked(key: string, bitmap: PixelBitmap, left: number, top: number, lamps: readonly Lamp[], reaches: Reach, exposure: Exposure | ExposureMap): Phaser.GameObjects.Image {
+        return this.add.image(left, top, this.bake(key, bitmap, left, top, lamps, reaches, exposure)).setOrigin(0, 0);
     }
 
-    /** Lamps reaching any of `points` on the floor: how a standing object is lit, by what can see where it stands. */
-    private reachingAny(points: [number, number][]): (lamp: Lamp) => boolean {
-        const seen = new Map<Lamp, boolean>();
-        return lamp => {
-            let reached = seen.get(lamp);
-            if (reached === undefined) seen.set(lamp, reached = points.some(([x, y]) => this.reach.reaches(lamp, x, y)));
-            return reached;
-        };
+    /**
+     * Makes texture `key` from RGBA pixels, uploaded straight from memory. A canvas would cost a copy in and, on upload, a
+     * copy back out: with hundreds of baked textures that was a third of the time a bank took to appear. The pixels go up
+     * premultiplied by their alpha and rounded as a canvas would store them, since WebGL's own premultiplying truncates.
+     */
+    private addPixels(key: string, rgba: Uint8ClampedArray, width: number, height: number): Phaser.Textures.Texture {
+        const renderer = this.renderer as Phaser.Renderer.WebGL.WebGLRenderer;
+        const texture = this.textures.addGLTexture(key, renderer.createUint8ArrayTexture(premultiplied(rgba), width, height, false, true));
+        if (!texture) throw new Error(`Failed to create texture '${key}'`);
+        return texture;
+    }
+
+    /**
+     * The lamps reaching any of `points` on the floor, in order: how a standing object is lit, by what can see where it
+     * stands. Baked with `EVERYWHERE`, they light all of it.
+     */
+    private lampsReaching(points: [number, number][]): Lamp[] {
+        return this.lamps.filter(lamp => points.some(([x, y]) => this.reach.reaches(lamp, x, y)));
     }
 
     /**
@@ -552,14 +568,14 @@ export class BankScene extends Phaser.Scene {
         const pieces: { frame: string; rgba: Uint8ClampedArray; w: number; h: number }[] = [];
         const placed = walls.map((wall, i) => {
             const look = wallLook(wall, walls), f = wallFootprint(wall), base = f.y + f.d;
-            const sides = wallSides(wall, f), reaches = this.reachingAny(sides);
+            const sides = wallSides(wall, f), lamps = this.lampsReaching(sides);
             const [ex, ey] = sides.find(([x, y]) => !isOffMap(tiles[Math.floor(y / TILE)]?.[Math.floor(x / TILE)] ?? 'x')) ?? sides[0]!;
             const exposure = this.standingAt(ex, ey);
             const frames = WALL_STEPS.map(height => {
                 const frame = `${i}-${height}`;
                 if (fresh) {
                     const art = wallArt(wall, look, height);
-                    pieces.push({ frame, rgba: bakeLighting(art, f.x - wallMargin(wall), base - art.height, AMBIENT, this.lamps, reaches, exposure), w: art.width, h: art.height });
+                    pieces.push({ frame, rgba: bakeLighting(art, f.x - wallMargin(wall), base - art.height, AMBIENT, lamps, EVERYWHERE, exposure), w: art.width, h: art.height });
                 }
                 return frame;
             });
@@ -594,14 +610,12 @@ export class BankScene extends Phaser.Scene {
             row = Math.max(row, p.h);
             return spot;
         });
-        const canvas = document.createElement('canvas');
-        canvas.width = ATLAS_WIDTH;
-        canvas.height = y + row;
-        const context = canvas.getContext('2d');
-        if (!context) throw new Error('No 2D context to pack the wall atlas with');
-        pieces.forEach((p, i) => context.putImageData(new ImageData(new Uint8ClampedArray(p.rgba), p.w, p.h), spots[i]!.x, spots[i]!.y));
-        const texture = this.textures.addCanvas(key, canvas);
-        if (!texture) throw new Error(`Failed to create texture '${key}'`);
+        const pixels = new Uint8ClampedArray(ATLAS_WIDTH * (y + row) * 4);
+        pieces.forEach((p, i) => {
+            const { x, y } = spots[i]!;
+            for (let j = 0; j < p.h; j++) pixels.set(p.rgba.subarray(j * p.w * 4, (j + 1) * p.w * 4), ((y + j) * ATLAS_WIDTH + x) * 4);
+        });
+        const texture = this.addPixels(key, pixels, ATLAS_WIDTH, y + row);
         pieces.forEach((p, i) => texture.add(p.frame, 0, spots[i]!.x, spots[i]!.y, p.w, p.h));
     }
 
@@ -615,10 +629,11 @@ export class BankScene extends Phaser.Scene {
         const occluders: Occluder[] = [];
         props.forEach(({ p, box, art, left, top, under }, i) => {
             const key = `bank-prop-${i}`, depth = DEPTH.standing + drawLine(box, under);
-            const images = [this.addBaked(key, art.lit, left, top, this.reachingAny(footprintPoints(box)), this.standingAt(box.x + box.w / 2, box.y + box.d / 2)).setDepth(depth)];
+            const images = [this.addBaked(key, art.lit, left, top, this.lampsReaching(footprintPoints(box)), EVERYWHERE, this.standingAt(box.x + box.w / 2, box.y + box.d / 2)).setDepth(depth)];
             this.casters.push(caster(art.lit, left, top, baseLine(box)));
             if (hasPixels(art.glow)) {
-                if (!this.textures.exists(`${key}-glow`)) art.glow.addTo(this.textures, `${key}-glow`);
+                // Unlit, so without the normal map `addTo` would make.
+                if (!this.textures.exists(`${key}-glow`)) this.addPixels(`${key}-glow`, art.glow.colors, art.glow.width, art.glow.height);
                 images.push(this.add.image(left, top, `${key}-glow`).setOrigin(0, 0).setDepth(depth + GLOW_DEPTH));
                 // A second, additive pass makes screens and lamps glow into the bloom.
                 images.push(this.add.image(left, top, `${key}-glow`).setOrigin(0, 0).setDepth(DEPTH.emissive).setBlendMode(Phaser.BlendModes.ADD).setAlpha(0.45));
@@ -667,8 +682,8 @@ export class BankScene extends Phaser.Scene {
 
     private buildLightMaps(occluders: Occluder[]): void {
         const maps = buildLightMaps(this.level, occluders, this.casters);
-        if (!this.textures.exists(KEY.shade)) this.textures.addCanvas(KEY.shade, toCanvas(maps.shade, maps.width, maps.height));
-        if (!this.textures.exists(KEY.glow)) this.textures.addCanvas(KEY.glow, toCanvas(maps.glow, maps.width, maps.height));
+        if (!this.textures.exists(KEY.shade)) this.addPixels(KEY.shade, maps.shade, maps.width, maps.height);
+        if (!this.textures.exists(KEY.glow)) this.addPixels(KEY.glow, maps.glow, maps.width, maps.height);
         this.add.image(0, 0, KEY.shade).setOrigin(0, 0).setDepth(DEPTH.shade).setBlendMode(Phaser.BlendModes.MULTIPLY);
         this.add.image(0, 0, KEY.glow).setOrigin(0, 0).setDepth(DEPTH.sunFloor).setBlendMode(Phaser.BlendModes.ADD);
         // The same shafts, faint, over everything: the light in the air that also falls on people standing in it.
@@ -715,7 +730,10 @@ export class BankScene extends Phaser.Scene {
 
     private buildAtmosphere(): void {
         const front = streetFront(this.level).line;
-        if (!this.textures.exists(KEY.clouds)) this.textures.addCanvas(KEY.clouds, tiled(cloudCanvas(CLOUD_TILE), this.mapWidth + CLOUD_TILE, this.mapHeight + CLOUD_TILE));
+        if (!this.textures.exists(KEY.clouds)) {
+            const width = this.mapWidth + CLOUD_TILE, height = this.mapHeight + CLOUD_TILE;
+            this.addPixels(KEY.clouds, tiled(cloudPixels(CLOUD_TILE), CLOUD_TILE, width, height), width, height);
+        }
         // Slow cloud shadows drifting over the street and the fronts; their top follows the fronts' height. Across the
         // street they stop at the far front and carry on over the open ground beside it.
         const far = farFront(this.level), row = far ? this.level.tiles[far.line / TILE]! : [];
@@ -951,19 +969,36 @@ function personShadow(): PixelBitmap {
     return b;
 }
 
-/** A canvas of `width` by `height` covered with copies of `tile`. */
-function tiled(tile: HTMLCanvasElement, width: number, height: number): HTMLCanvasElement {
-    const canvas = document.createElement('canvas');
-    canvas.width = width;
-    canvas.height = height;
-    const ctx = canvas.getContext('2d')!;
-    ctx.fillStyle = ctx.createPattern(tile, 'repeat')!;
-    ctx.fillRect(0, 0, width, height);
-    return canvas;
+/**
+ * RGBA pixels with each colour multiplied by its alpha, rounded to the nearest as a canvas does when it stores them
+ * (`putImageData`). Opaque pixels, most of them, stay as they are; when all are, the same memory is returned.
+ */
+function premultiplied(rgba: Uint8ClampedArray): Uint8Array {
+    let out: Uint8Array | undefined;
+    for (let i = 3; i < rgba.length; i += 4) {
+        const a = rgba[i]!;
+        if (a === 255) continue;
+        out ??= new Uint8Array(rgba);
+        for (let c = i - 3; c < i; c++) {
+            const product = rgba[c]! * a + 128;
+            out[c] = (product + (product >> 8)) >> 8;
+        }
+    }
+    return out ?? new Uint8Array(rgba.buffer, rgba.byteOffset, rgba.length);
+}
+
+/** RGBA pixels of `width` by `height` covered with copies of `tile`, a square of `size` pixels, from the top-left corner. */
+function tiled(tile: Uint8ClampedArray, size: number, width: number, height: number): Uint8ClampedArray {
+    const pixels = new Uint8ClampedArray(width * height * 4);
+    for (let y = 0; y < height; y++) for (let x = 0; x < width; x += size) {
+        const from = ((y % size) * size) * 4;
+        pixels.set(tile.subarray(from, from + Math.min(size, width - x) * 4), (y * width + x) * 4);
+    }
+    return pixels;
 }
 
 /** Cloud shadow: two octaves of smooth noise cut into two flat levels, dithered only along the edge; about a third in shadow. */
-function cloudCanvas(size: number): HTMLCanvasElement {
+function cloudPixels(size: number): Uint8ClampedArray {
     const rand = mulberry32(23);
     const broad = valueNoise(rand, 4), fine = valueNoise(rand, 8);
     const pixels = new Uint8ClampedArray(size * size * 4);
@@ -974,7 +1009,7 @@ function cloudCanvas(size: number): HTMLCanvasElement {
         const v = inShadow ? 214 : 255;
         pixels.set([v, v, v - (inShadow ? 4 : 0), 255], (y * size + x) * 4);
     }
-    return toCanvas(pixels, size, size);
+    return pixels;
 }
 
 /** A person's patrol as pixel waypoints: their tile, then their route's tiles or their patrol's end. */
