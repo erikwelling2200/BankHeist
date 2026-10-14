@@ -10,17 +10,24 @@
   --mono: ui-monospace, Menlo, Consolas, monospace; --sans: ui-sans-serif, system-ui, sans-serif;
   --r: 6px; --r2: 8px;
   --sh-text: 1;
+  --hp-ok: #7cae84; --heat: #d0683a;
   --pl: max(8px, env(safe-area-inset-left)); --pr: max(8px, env(safe-area-inset-right));
   --pt: max(8px, env(safe-area-inset-top)); --pb: max(8px, env(safe-area-inset-bottom));
   position: fixed; inset: 0; z-index: 5; pointer-events: none; color: var(--iv);
   font: 600 calc(var(--sh-text) * 14px) var(--mono); letter-spacing: 0.06em; text-shadow: 0 2px 0 #000;
   -webkit-user-select: none; user-select: none; -webkit-touch-callout: none;
 }
+/* The colour-blind preset of the signal palette (UI.md "Signal palette"); shapes and glyphs carry the meaning as well. */
+.sh.cb { --safe: #6a9fd0; --amber: #d8c060; --red: #c8508a; --cmd: #b8d8e8; --hp-ok: #6a9fd0; }
 @media (min-width: 1100px) and (min-height: 600px) {
   .sh { --pl: max(16px, env(safe-area-inset-left)); --pr: max(16px, env(safe-area-inset-right)); --pt: max(16px, env(safe-area-inset-top)); --pb: max(16px, env(safe-area-inset-bottom)); }
 }
 .sh button, .sh-sheet, .sh-top > * { pointer-events: auto; }
 .sh button { font: inherit; color: inherit; letter-spacing: inherit; text-shadow: inherit; padding: 0; margin: 0; cursor: pointer; touch-action: manipulation; -webkit-tap-highlight-color: transparent; }
+/* A button's insides never take the pointer: the button is always the target, so refilling it mid-tap keeps the tap. */
+.sh button * { pointer-events: none; }
+.sh button:focus-visible, .sh-sheet:focus-visible { outline: 2px solid var(--iv); outline-offset: 2px; }
+.sh-sheet:focus { outline: none; }
 .sh button:focus-visible { outline: 2px solid var(--iv); outline-offset: 2px; }
 .sh [hidden] { display: none !important; }
 .sh-ic { display: block; width: 24px; height: 24px; image-rendering: pixelated; pointer-events: none; }
@@ -36,13 +43,16 @@
 .sh.keys .sh-kc { display: block; }
 
 /* ---------------------------------------------------------------- top strip: read, not touched (but the ledger) */
-.sh-top { position: absolute; top: var(--pt); left: calc(var(--pl) + 72px); right: calc(var(--pr) + 60px); height: 32px; display: flex; gap: 6px; align-items: stretch; pointer-events: none; }
+.sh-top { position: absolute; top: var(--pt); left: calc(var(--pl) + 92px); right: calc(var(--pr) + 60px); height: 32px; display: flex; gap: 6px; align-items: stretch; pointer-events: none; }
 .sh-state { display: flex; align-items: center; gap: 6px; padding: 0 10px 0 8px; white-space: nowrap; }
 .sh-state .sh-num { font-size: calc(var(--sh-text) * 15px); }
 .sh-state.quiet { box-shadow: inset 2px 0 0 var(--safe); }
 .sh-state.loud { box-shadow: inset 2px 0 0 var(--red); color: var(--red); }
 .sh-state.alarm { border-color: var(--red); box-shadow: inset 2px 0 0 var(--red); }
-.sh-state.alarm .sh-num { color: var(--red); font-size: calc(var(--sh-text) * 18px); }
+.sh-state.alarm .sh-num { color: var(--red); }
+.sh-state.clock { border-color: var(--red); box-shadow: inset 2px 0 0 var(--red); }
+.sh-state.clock .sh-num { color: var(--red); font-size: calc(var(--sh-text) * 18px); }
+.sh-state.go { border-color: var(--gold); box-shadow: inset 2px 0 0 var(--gold); color: var(--gold); }
 .sh-timeline { flex: 1; min-width: 0; position: relative; padding: 0 14px; display: flex; align-items: center; }
 .sh-track { position: relative; height: 1px; flex: 1; background: var(--line2); }
 .sh-done { position: absolute; left: 0; top: -1px; height: 3px; background: var(--iv); }
@@ -57,6 +67,8 @@
 .sh-eta i { width: 10px; height: 12px; background: var(--red); }
 .sh-eta i.off { background: rgba(226, 218, 198, 0.12); }
 .sh-timeline.police .sh-num { color: var(--red); }
+.sh-timeline.heat { gap: 8px; box-shadow: inset 2px 0 0 var(--heat); }
+.sh-timeline.heat .sh-label { color: var(--dim); font-size: calc(var(--sh-text) * 13px); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .sh-turn { display: flex; align-items: center; justify-content: center; min-width: 44px; padding: 0 6px; }
 /* The ledger button: a 44x44 target whose visible face is the strip's 32px. */
 .sh-ledger-btn { position: relative; width: 44px; height: 44px; flex: none; background: none; border: 0; align-self: flex-start; }
@@ -73,12 +85,14 @@
 .sh-endturn .sh-ic { position: relative; }
 .sh-endturn .sh-kc { right: 2px; bottom: -10px; }
 
-/* ---------------------------------------------------------------- crew rail (left thumb) */
+/* ---------------------------------------------------------------- crew rail (left thumb)
+   A card: badges in a column on the left (carry, profile, ammo), the portrait, action pips on the right edge, and under
+   the portrait the HP bar and the Exposed marker. Nothing covers the face. */
 .sh-rail { position: absolute; left: var(--pl); top: var(--pt); display: flex; flex-direction: column; gap: 6px; }
-.sh-crew { position: relative; width: 54px; height: 62px; border-radius: var(--r); background: var(--panel); border: 1px solid var(--line); box-sizing: border-box; display: block; }
-.sh-crew .sh-face { position: absolute; left: 2px; top: 2px; width: 48px; height: 48px; image-rendering: pixelated; }
-.sh-crew.sel { width: 60px; border-color: var(--c); box-shadow: inset 0 0 0 1px var(--c), 0 0 0 1px rgba(0, 0, 0, 0.6); }
-.sh-crew.sel .sh-face { left: 5px; }
+.sh-crew { position: relative; width: 80px; height: 70px; border-radius: var(--r); background: var(--panel); border: 1px solid var(--line); box-sizing: border-box; display: block; }
+.sh-crew .sh-face { position: absolute; left: 28px; top: 2px; width: 48px; height: 48px; image-rendering: pixelated; }
+.sh-crew.sel { border-color: var(--c); box-shadow: inset 0 0 0 1px var(--c), 0 0 0 1px rgba(0, 0, 0, 0.6); background: color-mix(in srgb, var(--c) 14%, rgba(11, 13, 23, 0.8)); }
+.sh-crew.sel::before { content: ''; position: absolute; left: -1px; top: 8px; bottom: 8px; width: 3px; background: var(--c); }
 .sh-crew.spent .sh-face { filter: brightness(0.55) saturate(0.6); }
 .sh-initial { display: flex; align-items: center; justify-content: center; background: color-mix(in srgb, var(--c, #8f866f) 40%, #0b0d17); color: var(--iv); font-size: 22px; }
 .sh-ap { position: absolute; right: -4px; top: 3px; display: flex; flex-direction: column; gap: 2px; }
@@ -87,34 +101,49 @@
 .sh-ap i.off { background: rgba(226, 218, 198, 0.16); }
 .sh.flash-pips .sh-crew .sh-ap i.left { animation: sh-flash 0.25s steps(2) infinite; }
 @keyframes sh-flash { 50% { background: #fff; } }
-.sh-prof { position: absolute; left: -7px; bottom: 9px; width: 24px; height: 24px; background: var(--ink); border: 1px solid var(--line2); }
-.sh-carry { position: absolute; left: -7px; top: -3px; width: 24px; height: 24px; background: var(--ink); border: 1px solid var(--line2); }
-.sh-exp { position: absolute; right: -9px; bottom: 9px; display: flex; align-items: center; gap: 1px; padding: 0 2px; background: var(--ink); border: 1px solid var(--red); color: var(--red); font-size: 12px; letter-spacing: 0; }
-.sh-hp { position: absolute; left: 3px; right: 3px; bottom: 3px; height: 4px; display: flex; gap: 1px; }
-.sh-hp i { flex: 1; background: #7cae84; }
+.sh-side { position: absolute; left: 2px; top: 2px; bottom: 2px; width: 24px; display: flex; flex-direction: column; gap: 2px; align-items: center; }
+.sh-badge { width: 24px; height: 24px; flex: none; box-sizing: border-box; background: var(--ink); border: 1px solid var(--line2); display: flex; align-items: center; justify-content: center; }
+.sh-badge .sh-ic { width: 22px; height: 22px; }
+.sh-badge.unknown { color: var(--dim); font-size: 14px; }
+.sh-ammo { font-size: 11px; letter-spacing: 0; color: var(--iv); line-height: 12px; }
+.sh-ammo.last { color: var(--amber); text-decoration: underline; }
+.sh-foot { position: absolute; left: 28px; right: 3px; top: 52px; height: 14px; display: flex; align-items: center; gap: 4px; }
+.sh-hp { flex: 1; height: 4px; display: flex; gap: 1px; min-width: 0; }
+.sh-hp i { flex: 1; background: var(--hp-ok); }
 .sh-hp.hurt i { background: var(--amber); }
 .sh-hp i.off { background: rgba(226, 218, 198, 0.12); }
+.sh-hp.unknown { height: auto; white-space: nowrap; font-size: 10px; letter-spacing: 0; color: var(--dim); }
+.sh-exp { flex: none; display: flex; align-items: center; gap: 1px; height: 14px; padding: 0 2px 0 1px; box-sizing: border-box; background: var(--ink); border: 1px solid var(--red); color: var(--red); font-size: 11px; letter-spacing: 0; line-height: 1; }
+.sh-exp .sh-ic { width: 12px; height: 12px; image-rendering: auto; }
 .sh-crew .sh-kc { left: 50%; top: -7px; transform: translateX(-50%); }
-.sh-rail.compact .sh-crew { height: 52px; }
-.sh-rail.compact .sh-face { width: 40px; height: 40px; left: 6px; }
-.sh-rail.compact .sh-crew.sel .sh-face { left: 9px; }
-.sh-rail.compact .sh-prof { bottom: 3px; }
+.sh-rail.compact .sh-crew { height: 60px; }
+.sh-rail.compact .sh-face { width: 40px; height: 40px; left: 32px; }
+.sh-rail.compact .sh-foot { top: 43px; }
+.sh-rail.compact .sh-ammo { display: none; }
 
 /* ---------------------------------------------------------------- camera tools and the overlay drawer */
 .sh-ltools { position: absolute; left: var(--pl); bottom: var(--pb); display: flex; gap: 6px; }
 .sh-btn { position: relative; width: 44px; height: 44px; display: flex; align-items: center; justify-content: center; }
 .sh-btn.on { border-color: var(--iv); background: rgba(242, 230, 200, 0.16); }
+.sh-ov > :first-child { opacity: 0.5; }
+.sh-ov.on > :first-child { opacity: 1; }
+.sh-onmark { position: absolute; right: 3px; top: 3px; width: 6px; height: 6px; box-sizing: border-box; border: 1px solid var(--line2); }
+.sh-ov.on { border-width: 2px; }
+.sh-ov.on .sh-onmark { background: var(--iv); border-color: var(--iv); }
 .sh-btn.off { opacity: 0.35; }
 .sh-ltools .sh-kc { right: -4px; top: -8px; }
 .sh-sheet { position: absolute; box-sizing: border-box; background: rgba(11, 13, 23, 0.88); border: 1px solid var(--line2); border-radius: var(--r2); padding: 6px; }
 .sh-drawer { left: calc(var(--pl) + 102px); bottom: var(--pb); display: flex; gap: 6px; }
 .sh-ov-zones { width: 22px; height: 22px; background: linear-gradient(90deg, #4a6058 33%, #96a0ac 33% 66%, #706e6c 66%); border: 1px solid #000; }
 .sh-ov-cones { width: 0; height: 0; border-left: 12px solid transparent; border-right: 12px solid transparent; border-bottom: 20px solid rgba(226, 162, 64, 0.85); }
+.sh-ov-cameras { position: relative; width: 16px; height: 12px; margin-left: 4px; border: 2px solid var(--iv); border-radius: 2px; box-sizing: border-box;
+  background: radial-gradient(circle at 50% 50%, var(--iv) 0 2px, transparent 2.5px); }
+.sh-ov-cameras::before { content: ''; position: absolute; left: -7px; top: 1px; width: 0; height: 0; border-top: 3px solid transparent; border-bottom: 3px solid transparent; border-right: 5px solid var(--iv); }
+.sh-ov-cameras::after { content: ''; position: absolute; left: 4px; top: -6px; width: 4px; height: 4px; background: var(--iv); }
 .sh-ov-materials { width: 22px; height: 22px; border: 1px solid #000; background: repeating-linear-gradient(0deg, #6a4a3a 0 5px, #2a1e18 5px 6px); }
 
 /* ---------------------------------------------------------------- actions, Undo and Confirm (right thumb) */
-.sh-actions { position: absolute; right: var(--pr); bottom: calc(var(--pb) + 66px); display: flex; flex-direction: column; gap: 4px; align-items: flex-end; }
-.sh-actrow { display: flex; gap: 4px; }
+.sh-actions { position: absolute; right: var(--pr); bottom: calc(var(--pb) + 66px); display: grid; grid-template-columns: repeat(2, auto); gap: 4px; justify-content: end; justify-items: end; }
 .sh-act { position: relative; width: 52px; height: 52px; border-radius: var(--r); background: var(--panel); border: 1px solid var(--line); display: flex; align-items: center; justify-content: center; box-sizing: border-box; }
 .sh-act.sel { border-color: var(--iv); background: rgba(242, 230, 200, 0.16); box-shadow: inset 0 -2px 0 var(--iv); }
 .sh-act.na { opacity: 0.35; cursor: default; }
@@ -126,9 +155,12 @@
 .sh-undo { position: absolute; right: calc(var(--pr) + 172px); bottom: var(--pb); }
 .sh-undo .sh-kc { right: -4px; top: -8px; }
 .sh-confirm { position: absolute; right: var(--pr); bottom: var(--pb); width: 164px; height: 58px; box-sizing: border-box; border-radius: var(--r2); border: 0;
-  display: flex; align-items: center; justify-content: center; gap: 8px; padding: 0 10px !important; background: var(--iv); color: var(--ink) !important; text-shadow: none !important; }
+  display: flex; align-items: center; justify-content: center; gap: 6px; padding: 0 10px !important; background: var(--iv); color: var(--ink) !important; text-shadow: none !important; }
 .sh-confirm .sh-ic { filter: brightness(0.06); }
-.sh-cname { font-weight: 700; font-size: calc(var(--sh-text) * 16px); letter-spacing: 0.08em; text-transform: uppercase; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.sh-cname { font-weight: 700; font-size: calc(var(--sh-text) * 16px); letter-spacing: 0.08em; text-transform: uppercase; white-space: nowrap; min-width: 0; }
+.sh-confirm.fit-small .sh-cname { font-size: calc(var(--sh-text) * 13px); letter-spacing: 0.03em; }
+.sh-confirm.fit-wrap .sh-cname { font-size: calc(var(--sh-text) * 12px); letter-spacing: 0.02em; white-space: normal; line-height: 1.1; text-align: center; overflow-wrap: anywhere; }
+.sh-confirm .sh-kind { position: absolute; left: 4px; top: 4px; width: 14px; height: 14px; image-rendering: auto; }
 .sh-confirm .sh-cost { gap: 3px; flex: none; }
 .sh-confirm .sh-cost i { display: block; width: 4px; height: 12px; background: currentColor; }
 .sh-confirm.costly { background: var(--amber); }
@@ -138,10 +170,9 @@
 .sh-confirm.off { background: var(--panel); border: 1px solid var(--line); color: var(--dim) !important; cursor: default; }
 .sh-confirm.off .sh-ic { filter: none; opacity: 0.35; }
 .sh-confirm.off .sh-cname { opacity: 0.45; }
-.sh-confirm .sh-kc { right: 5px; top: 5px; }
 
 /* ---------------------------------------------------------------- threat ledger: every clock, most urgent first */
-.sh-ledger { right: calc(var(--pr) + 128px); top: calc(var(--pt) + 40px); width: 300px; max-height: calc(100% - var(--pt) - var(--pb) - 40px - 66px); overflow-y: auto;
+.sh-ledger { right: calc(var(--pr) + 128px); top: calc(var(--pt) + 40px); width: 340px; max-height: calc(100% - var(--pt) - var(--pb) - 40px - 66px); overflow-y: auto;
   display: flex; flex-direction: column; gap: 4px; overscroll-behavior: contain; }
 .sh-sheet-title { display: flex; align-items: center; gap: 6px; padding: 0 2px 2px; color: var(--dim); font-size: calc(var(--sh-text) * 12px); }
 .sh-sheet-title .sh-ic { width: 12px; height: 12px; image-rendering: auto; }
@@ -150,8 +181,12 @@
 .sh-row.first.red { background: rgba(212, 70, 56, 0.18); border-left-color: var(--red); }
 .sh-row:active { background: rgba(226, 218, 198, 0.14); }
 .sh-n { flex: none; width: 30px; height: 30px; box-sizing: border-box; display: flex; align-items: center; justify-content: center; font-size: calc(var(--sh-text) * 20px); letter-spacing: 0; border: 1px solid var(--line2); color: var(--iv); }
-.red > .sh-n { border-color: var(--red); color: var(--red); }
-.amber > .sh-n { border-color: var(--amber); color: var(--amber); }
+.sh-rows { display: flex; flex-direction: column; gap: 4px; }
+.red > .sh-n { border: 3px double var(--red); color: var(--red); }
+.amber > .sh-n { border: 2px dashed var(--amber); color: var(--amber); }
+.paused > .sh-n { border: 1px dotted var(--mute); color: var(--dim); }
+.sh-row.paused { opacity: 0.7; }
+.sh-paused { flex: none; font-size: 12px; letter-spacing: -1px; color: var(--dim); border: 1px solid var(--line2); padding: 1px 3px; }
 .sh-p { flex: none; width: 30px; height: 30px; image-rendering: pixelated; }
 span.sh-p { font-size: 16px; }
 .sh-rlabel { flex: 1; min-width: 0; font: 500 calc(var(--sh-text) * 13px) var(--sans); letter-spacing: 0; color: var(--iv); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -193,7 +228,9 @@ span.sh-p { font-size: 16px; }
 .sh-minis { display: flex; gap: 6px; flex-wrap: wrap; justify-content: center; }
 .sh-mini { position: relative; width: 52px; height: 60px; border-radius: 2px; background: rgba(226, 218, 198, 0.05); border: 1px solid var(--c); box-sizing: border-box; }
 .sh-mini .sh-face { position: absolute; left: 5px; top: 4px; width: 40px; height: 40px; image-rendering: pixelated; }
-.sh-mini .sh-hp { left: 4px; right: 4px; bottom: 4px; height: 5px; }
+.sh-mini .sh-hp { position: absolute; left: 4px; right: 4px; bottom: 4px; height: 5px; }
+.sh-mini.done .sh-face { filter: brightness(0.6); }
+.sh-mini .sh-exp { position: absolute; right: -6px; top: -6px; }
 .sh-threats { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; justify-content: center; }
 .sh-chip { display: flex; align-items: center; gap: 4px; padding: 3px 6px 3px 3px; border-radius: 2px; background: rgba(226, 218, 198, 0.04); }
 .sh-chip .sh-n { width: 26px; height: 26px; }

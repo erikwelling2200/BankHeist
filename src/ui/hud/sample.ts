@@ -1,4 +1,4 @@
-import type { ActionVM, CrewVM, HudViewModel, ScheduleVM, ThreatVM } from './viewModels';
+import { CREW_COLOURS, type ActionVM, type BankStatusVM, type CrewVM, type HudViewModel, type ScheduleVM, type ThreatVM } from './viewModels';
 
 /**
  * Sample view models for the dev page `?scene=hud`, one per board of the UI mockups (docs/ui-mockups/), so the HUD can
@@ -16,12 +16,14 @@ const SCHEDULE: ScheduleVM = {
     ]
 };
 
+const hp = (now: number, max = 8) => ({ now, max });
+
 const CREW: CrewVM[] = [
-    { id: 'mara', name: 'Mara', colour: '#60c0ce', actionsLeft: 2, actionsMax: 2, profile: 'clean', exposedTo: [], hp: 8, hpMax: 8, selected: false },
-    { id: 'jun', name: 'Jun', colour: '#ce74b8', actionsLeft: 2, actionsMax: 2, profile: 'concealed', exposedTo: [], hp: 8, hpMax: 8, selected: true },
-    { id: 'dex', name: 'Dex', colour: '#9684e0', actionsLeft: 2, actionsMax: 2, profile: 'heavy', exposedTo: [], hp: 8, hpMax: 8, selected: false, carrying: 'van' },
-    { id: 'sol', name: 'Sol', colour: '#dac8a2', actionsLeft: 2, actionsMax: 2, profile: 'armed', exposedTo: [], hp: 8, hpMax: 8, selected: false }
-];
+    { id: 'mara', name: 'Mara', actionsLeft: 2, actionsMax: 2, profile: 'clean', exposedTo: [], hp: hp(8), selected: false },
+    { id: 'jun', name: 'Jun', actionsLeft: 2, actionsMax: 2, profile: 'concealed', exposedTo: [], hp: hp(8), selected: true },
+    { id: 'dex', name: 'Dex', actionsLeft: 2, actionsMax: 2, profile: 'heavy', exposedTo: [], hp: hp(8), selected: false, carrying: 'van' },
+    { id: 'sol', name: 'Sol', actionsLeft: 2, actionsMax: 2, profile: 'armed', exposedTo: [], hp: hp(8), selected: false, ammo: { mag: 12, spare: 2, lastMag: false } }
+].map((c, i) => ({ ...c, colour: CREW_COLOURS[i]!, portrait: c.id }) as CrewVM);
 
 const STEALTH_ACTIONS: ActionVM[] = [
     { id: 'interact', label: 'Interact', icon: 'interact', cost: 1, enabled: true },
@@ -30,25 +32,32 @@ const STEALTH_ACTIONS: ActionVM[] = [
     { id: 'move', label: 'Move', icon: 'move', cost: 1, enabled: true, selected: true }
 ];
 
+const threat = (id: string, kind: ThreatVM['kind'], label: string, countdown: number, portrait?: string, halted: ThreatVM['halted'] = null): ThreatVM =>
+    ({ id, kind, source: portrait ?? id, label, countdown, halted, pos: { x: countdown * 3, y: 4 }, targetId: portrait, portrait });
+
+/** In the Session's order: running before paused, then by countdown. */
 const CARRIERS: ThreatVM[] = [
-    { id: 'c1', label: 'Teller: silent alarm', countdown: 2, kind: 'carrier', icon: 'bell', portrait: 'teller', targetId: 'teller' },
-    { id: 'c2', label: 'Guard: radio', countdown: 2, kind: 'carrier', icon: 'radio', portrait: 'guard', targetId: 'guard' },
-    { id: 'c3', label: 'Customer escaping', countdown: 3, kind: 'escape', icon: 'run', portrait: 'customer', targetId: 'customer' },
-    { id: 'k1', label: 'Operator check-in call', countdown: 5, kind: 'checkIn', icon: 'radio', portrait: 'operator', targetId: 'operator' },
-    { id: 's1', label: 'Manager back from lunch', countdown: 11, kind: 'schedule', icon: 'fork', portrait: 'manager', targetId: 'manager' }
+    threat('c1', 'tellerButton', 'Teller button', 2, 'teller'),
+    threat('c2', 'guardRadio', 'Guard radio', 2, 'guard'),
+    threat('c3', 'escapee', 'Customer escaping', 3, 'customer'),
+    threat('k1', 'missedCheckIn', 'Operator check-in', 5, 'operator'),
+    threat('s1', 'schedule', 'Manager back from lunch', 11, 'manager'),
+    threat('c4', 'phoneCall', 'Clerk on the phone', 2, undefined, 'paused')
 ];
 
+const QUIET: BankStatusVM = { status: 'quiet', label: 'QUIET', nextAlarmIn: null };
 const OVERLAYS = { zones: false, cones: false, cameras: true, cover: false, sound: false, materials: false };
 
 const base = (): HudViewModel => ({
     turn: 9,
-    bank: { status: 'quiet', policeEta: null },
+    bank: { ...QUIET },
     schedule: SCHEDULE,
     crew: CREW.map(c => ({ ...c })),
+    selected: 'jun',
     actions: STEALTH_ACTIONS.map(a => ({ ...a })),
     confirm: { kind: 'clean', label: 'Move', icon: 'move', cost: 1, enabled: false },
     undoEnabled: false,
-    ledger: [CARRIERS[3]!, CARRIERS[4]!],
+    ledger: [threat('s1', 'schedule', 'Manager back from lunch', 11, 'manager')],
     overlays: { ...OVERLAYS },
     mapOn: false,
     recap: null
@@ -93,17 +102,19 @@ export const SAMPLE_STATES: Record<string, () => SampleState> = {
     },
     go: () => {
         const vm = withCrew(base(), c => { c.actionsMax = 3; c.actionsLeft = 3; c.portrait = `${c.id}-m`; });
+        vm.bank = { ...QUIET, go: true };
         vm.actions = [
             { id: 'go', label: 'GO', icon: 'mask', cost: 0, enabled: true, go: true, selected: true },
             { id: 'command', label: 'Command', icon: 'command', cost: 1, enabled: true },
             { id: 'move', label: 'Move', icon: 'move', cost: 1, enabled: true },
             { id: 'wait', label: 'Wait for', icon: 'wait', cost: 0, enabled: true }
         ];
-        vm.confirm = { kind: 'command', label: 'GO', icon: 'mask', cost: 0, enabled: true };
-        return { title: 'GO previewed: masks on, a third action each', vm };
+        vm.confirm = { kind: 'command', label: 'Shout: get down', icon: 'command', cost: 1, enabled: true };
+        return { title: 'GO: masks on, a third action each, a long Confirm label', vm };
     },
     carriers: () => {
         const vm = base();
+        vm.bank = { status: 'quiet', label: 'QUIET: alarm in 2', nextAlarmIn: 2 };
         vm.ledger = CARRIERS.map(t => ({ ...t }));
         vm.crew[1]!.profile = 'armed';
         vm.crew[1]!.exposedTo = ['teller', 'guard', 'customer'];
@@ -113,9 +124,10 @@ export const SAMPLE_STATES: Record<string, () => SampleState> = {
     alarm: () => {
         const vm = base();
         vm.turn = 14;
-        vm.bank = { status: 'alarm', policeEta: 4 };
-        vm.ledger = [{ id: 'p', label: 'Police arrive', countdown: 4, kind: 'reinforcement', icon: 'police', targetId: 'street' }, CARRIERS[3]!];
-        vm.crew[2]!.hp = 5;
+        vm.bank = { status: 'alarm', label: 'ALARM', nextAlarmIn: null, policeEta: 4 };
+        vm.ledger = [threat('p', 'reinforcement', 'Police arrive', 4, 'police'), threat('k1', 'missedCheckIn', 'Operator check-in', 5, 'operator')];
+        vm.crew[2]!.hp = hp(5);
+        vm.crew[3]!.ammo = { mag: 3, spare: 0, lastMag: true };
         vm.crew[0]!.actionsLeft = 0;
         vm.actions = vm.actions.map(a => ({ ...a, selected: false }));
         vm.actions.push({ id: 'loot', label: 'Bag loot', icon: 'bag', cost: 1, enabled: true });
@@ -124,17 +136,28 @@ export const SAMPLE_STATES: Record<string, () => SampleState> = {
     },
     lethal: () => {
         const vm = base();
-        vm.bank = { status: 'loud', policeEta: null };
+        vm.bank = { status: 'loud', label: 'LOUD', nextAlarmIn: null };
         vm.actions = [
             { id: 'fire', label: 'Fire', icon: 'pistol', cost: 1, enabled: true, selected: true },
             { id: 'reload', label: 'Reload', icon: 'reload', cost: 1, enabled: false, reason: 'Magazine full' },
             { id: 'move', label: 'Move', icon: 'move', cost: 1, enabled: true },
             { id: 'watch', label: 'Watch', icon: 'watch', cost: 1, enabled: true },
             { id: 'throw', label: 'Throw', icon: 'throw', cost: 1, enabled: true },
-            { id: 'medkit', label: 'Medkit', icon: 'medkit', cost: 1, enabled: true }
+            { id: 'medkit', label: 'Medkit', icon: 'medkit', cost: 1, enabled: true },
+            { id: 'swap', label: 'Swap weapon', icon: 'swap', cost: 0, enabled: true },
+            { id: 'suppress', label: 'Suppress', icon: 'suppress', cost: 2, enabled: true },
+            { id: 'dash', label: 'Dash', icon: 'dash', cost: 2, enabled: true },
+            { id: 'kit', label: 'Kit', icon: 'kit', cost: 1, enabled: true }
         ];
         vm.confirm = { kind: 'lethal', label: 'Fire ×6', icon: 'pistol', cost: 1, enabled: true };
-        return { title: 'Loud: lethal fire (red)', vm };
+        return { title: 'Loud: lethal fire (red), more actions than the grid holds', vm };
+    },
+    heat: () => {
+        const vm = base();
+        vm.turn = 24;
+        vm.bank = { status: 'alarm', label: 'ALARM', nextAlarmIn: null, policeEta: 0, heat: { level: 2, ticks: 3, next: { label: 'SWAT, rear lot', inTurns: 2 } } };
+        vm.ledger = [threat('b', 'reinforcement', 'SWAT breach', 2, 'swat')];
+        return { title: 'Police on site: heat 2, SWAT next', vm };
     },
     drawer: () => {
         const vm = base();
@@ -149,26 +172,26 @@ export const SAMPLE_STATES: Record<string, () => SampleState> = {
     },
     five: () => {
         const vm = base();
-        vm.crew.push({ id: 'ike', name: 'Ike', colour: '#b0c870', actionsLeft: 2, actionsMax: 2, profile: 'clean', exposedTo: [], hp: 6, hpMax: 6, selected: false, carrying: 'loot' });
-        return { title: 'Five crew: the rail packs tighter', vm };
+        vm.crew.push({ id: 'ike', name: 'Ike', colour: CREW_COLOURS[4]!, actionsLeft: 2, actionsMax: 2, profile: 'unknown', exposedTo: ['guard'], hp: null, selected: false, carrying: 'loot' });
+        return { title: 'Five crew: a placeholder portrait, unknown profile and HP', vm };
     },
     recap: () => {
         const vm = base();
         vm.turn = 31;
-        vm.bank = { status: 'alarm', policeEta: 0 };
+        vm.bank = { status: 'alarm', label: 'ALARM', nextAlarmIn: null, policeEta: 0, heat: { level: 3, ticks: 4, next: { label: 'Regroup', inTurns: 4 } } };
         vm.crew = vm.crew.map(c => ({ ...c, portrait: `${c.id}-m` }));
-        vm.crew[1]!.hp = 4;
-        vm.ledger = [
-            { id: 'b', label: 'SWAT breach', countdown: 1, kind: 'reinforcement', icon: 'charge', targetId: 'rear' },
-            { id: 'g', label: 'Grenade', countdown: 1, kind: 'drill', icon: 'grenade', targetId: 'lobby' }
-        ];
+        vm.crew[1]!.hp = hp(4);
+        vm.ledger = [threat('b', 'reinforcement', 'SWAT breach', 1, 'swat'), threat('g', 'drill', 'Drill jams', 1)];
         vm.recap = {
-            heat: 3,
+            turn: 31,
+            bank: vm.bank,
             events: [
-                { turn: 30, label: 'SWAT breached the rear door', icon: 'charge', portrait: 'swat' },
-                { turn: 30, label: 'Jun was hit', icon: 'attack', portrait: 'jun-m', delta: -4 },
-                { turn: 31, label: 'Drill: 3 turns left', icon: 'drill', portrait: 'dex-m', delta: 3 }
-            ]
+                { turn: 30, text: 'SWAT breached the rear door', icon: 'charge', portrait: 'swat' },
+                { turn: 30, text: 'Jun was hit', icon: 'attack', portrait: 'jun-m', delta: -4 },
+                { turn: 31, text: 'Drill: 3 turns left', icon: 'drill', portrait: 'dex-m', delta: 3 }
+            ],
+            crew: vm.crew.map(c => ({ id: c.id, name: c.name, colour: c.colour, portrait: c.portrait, status: c.actionsLeft ? 'ready' : 'done', actionsLeft: c.actionsLeft, exposed: c.id === 'jun', hp: c.hp })),
+            threats: vm.ledger
         };
         return { title: 'Resume: the recap card', vm };
     }

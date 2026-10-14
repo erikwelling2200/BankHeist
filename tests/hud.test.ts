@@ -1,23 +1,25 @@
 import { describe, expect, it } from 'vitest';
-import { crewWithActionsLeft, liveCarriers, sortLedger, statePill, threatTone, trackPercent } from '../src/ui/hud/derive';
-import type { ThreatVM } from '../src/ui/hud/viewModels';
+import { crewWithActionsLeft, isAlarming, labelFit, liveCarriers, shownActions, statePill, threatIcon, threatTone, trackPercent } from '../src/ui/hud/derive';
+import { MAX_ACTIONS, type ActionVM, type CrewVM, type ThreatVM } from '../src/ui/hud/viewModels';
 
-const threat = (id: string, countdown: number, kind: ThreatVM['kind']): ThreatVM => ({ id, label: id, countdown, kind, icon: 'bell', targetId: id });
+const threat = (id: string, countdown: number, kind: ThreatVM['kind'], halted: ThreatVM['halted'] = null): ThreatVM =>
+    ({ id, kind, source: id, label: id, countdown, halted, pos: { x: 0, y: 0 } });
 
 describe('the stealth HUD view', () => {
-    it('sorts the ledger by urgency, alarm carriers first on a tie', () => {
-        const ledger = [threat('lunch', 11, 'schedule'), threat('call', 2, 'checkIn'), threat('radio', 2, 'carrier'), threat('run', 3, 'escape')];
-        expect(sortLedger(ledger).map(t => t.id)).toEqual(['radio', 'call', 'run', 'lunch']);
+    it('counts running carriers, a missed check-in among them, and gives each threat a tone and an icon', () => {
+        const ledger = [threat('radio', 2, 'guardRadio'), threat('call', 2, 'missedCheckIn'), threat('phone', 2, 'phoneCall', 'paused'), threat('lunch', 11, 'schedule'), threat('swat', 3, 'reinforcement')];
         expect(liveCarriers(ledger)).toBe(2);
-        expect(ledger.map(threatTone)).toEqual(['neutral', 'neutral', 'red', 'red']);
+        expect(ledger.map(isAlarming)).toEqual([true, true, true, false, true]);
+        expect(ledger.map(threatTone)).toEqual(['red', 'red', 'paused', 'neutral', 'red']);
+        expect(ledger.map(t => threatIcon(t.kind))).toEqual(['radio', 'radio', 'phone', 'fork', 'police']);
     });
 
-    it('shows QUIET, then the most urgent carrier, then ALARM and LOUD in the state pill', () => {
-        const quiet = { status: 'quiet' as const, policeEta: null };
-        expect(statePill({ bank: quiet, ledger: [threat('call', 5, 'checkIn')] })).toMatchObject({ tone: 'quiet', text: 'QUIET' });
-        expect(statePill({ bank: quiet, ledger: [threat('run', 3, 'escape'), threat('bell', 2, 'carrier')] })).toMatchObject({ tone: 'alarm', text: '2', label: 'bell in 2' });
-        expect(statePill({ bank: { status: 'alarm', policeEta: 4 }, ledger: [] })).toMatchObject({ tone: 'alarm', text: 'ALARM', label: 'Alarm: police in 4' });
-        expect(statePill({ bank: { status: 'loud', policeEta: null }, ledger: [] })).toMatchObject({ tone: 'loud', text: 'LOUD' });
+    it('shows the Session\'s label in the state pill, the bell and countdown while a carrier runs, and GO in gold', () => {
+        expect(statePill({ bank: { status: 'quiet', label: 'QUIET', nextAlarmIn: null } })).toMatchObject({ tone: 'quiet', text: 'QUIET' });
+        expect(statePill({ bank: { status: 'quiet', label: 'QUIET: alarm in 2', nextAlarmIn: 2 } })).toMatchObject({ tone: 'clock', icon: 'bell', text: '2', label: 'QUIET: alarm in 2' });
+        expect(statePill({ bank: { status: 'alarm', label: 'ALARM', nextAlarmIn: null, policeEta: 4 } })).toMatchObject({ tone: 'alarm', text: 'ALARM' });
+        expect(statePill({ bank: { status: 'loud', label: 'LOUD', nextAlarmIn: null } })).toMatchObject({ tone: 'loud', text: 'LOUD' });
+        expect(statePill({ bank: { status: 'quiet', label: 'QUIET', nextAlarmIn: null, go: true } })).toMatchObject({ tone: 'go', text: 'GO' });
     });
 
     it('places turns on the schedule track from turn 1 to closing', () => {
@@ -27,8 +29,20 @@ describe('the stealth HUD view', () => {
         expect(trackPercent({ end: 45 }, 60)).toBe(100);
     });
 
-    it('asks before ending the turn only for crew who can still act', () => {
-        const crew = (id: string, actionsLeft: number, hp = 8) => ({ id, name: id, colour: '#fff', actionsLeft, actionsMax: 2, profile: 'clean' as const, exposedTo: [], hp, hpMax: 8, selected: false });
-        expect(crewWithActionsLeft([crew('a', 0), crew('b', 1), crew('c', 2, 0)]).map(c => c.id)).toEqual(['b']);
+    it('asks before ending the turn only for crew who can still act, unknown HP included', () => {
+        const crew = (id: string, actionsLeft: number, hp: CrewVM['hp'] = { now: 8, max: 8 }): CrewVM =>
+            ({ id, name: id, colour: '#fff', actionsLeft, actionsMax: 2, profile: 'unknown', exposedTo: [], hp, selected: false });
+        expect(crewWithActionsLeft([crew('a', 0), crew('b', 1), crew('c', 2, { now: 0, max: 8 }), crew('d', 1, null)]).map(c => c.id)).toEqual(['b', 'd']);
+    });
+
+    it('caps the action grid and keeps the selected action in it', () => {
+        const actions: ActionVM[] = Array.from({ length: 11 }, (_, i) => ({ id: `a${i}`, label: `A${i}`, icon: 'move', cost: 1, enabled: true, selected: i === 10 }));
+        const shown = shownActions(actions);
+        expect(shown).toHaveLength(MAX_ACTIONS);
+        expect(shown.at(-1)!.id).toBe('a10');
+    });
+
+    it('shrinks a long Confirm label and wraps the longest instead of cutting it', () => {
+        expect(['Move', 'Kill panel', 'Shout: get down hard'].map(labelFit)).toEqual(['normal', 'small', 'wrap']);
     });
 });

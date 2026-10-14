@@ -52,6 +52,11 @@ async function checkLayout(page: Page, state: string, size: { width: number; hei
     }
 }
 
+async function centre(page: Page, selector: string): Promise<[number, number]> {
+    const b = (await page.locator(selector).boundingBox())!;
+    return [b.x + b.width / 2, b.y + b.height / 2];
+}
+
 async function states(page: Page): Promise<string[]> {
     await open(page, 'select');
     return page.evaluate(() => (window as any).hudSamples as string[]);
@@ -92,6 +97,38 @@ test.describe('the stealth HUD on a phone', () => {
         await expect(page.locator('.sh-tag')).toHaveText('Interact');
     });
 
+    test('delivers taps on crew and actions while the view model updates every frame', async ({ page }) => {
+        await open(page, 'select');
+        await page.evaluate(() => (window as any).hudPump(true));
+        const tap = async (selector: string) => {
+            const b = (await page.locator(selector).boundingBox())!;
+            // A slow tap: the finger rests long enough for several updates to land between down and up.
+            await page.evaluate(([x, y]) => {
+                const target = document.elementFromPoint(x!, y!)!;
+                const init = { bubbles: true, pointerType: 'touch', pointerId: 7, clientX: x, clientY: y, button: 0 };
+                target.dispatchEvent(new PointerEvent('pointerdown', init));
+                return new Promise<void>(done => setTimeout(() => {
+                    const now = document.elementFromPoint(x!, y!)!;
+                    now.dispatchEvent(new PointerEvent('pointerup', init));
+                    // The browser fires click on the element both events hit; that must still be the same button.
+                    if (now === target) now.dispatchEvent(new MouseEvent('click', { bubbles: true, clientX: x, clientY: y, detail: 1 }));
+                    done();
+                }, 120));
+            }, [b.x + b.width / 2, b.y + b.height / 2]);
+        };
+        // The cards are refilled every frame, but each stays the same element.
+        expect(await page.evaluate(() => new Promise(done => {
+            const card = document.querySelector('[data-crew="mara"]'), face = card!.firstElementChild;
+            setTimeout(() => done(card === document.querySelector('[data-crew="mara"]') && face !== card!.firstElementChild), 100);
+        }))).toBe(true);
+        await tap('[data-crew="mara"]');
+        await tap('[data-action="interact"]');
+        await page.touchscreen.tap(...await centre(page, '[data-crew="sol"]'));
+        await page.evaluate(() => (window as any).hudPump(false));
+        expect(await page.evaluate(() => (window as any).hudLog)).toEqual(['selectCrew:mara', 'action:interact', 'selectCrew:sol']);
+        await expect(page.locator('[data-crew="sol"]')).toHaveAttribute('aria-pressed', 'true');
+    });
+
     test('ends the turn on a hold, asking first when crew still have actions', async ({ page }) => {
         await open(page, 'select');
         const end = page.locator('[data-region="end-turn"]');
@@ -103,7 +140,7 @@ test.describe('the stealth HUD on a phone', () => {
         await expect(page.locator('[data-region="prompt"]')).toBeVisible();
         await end.dispatchEvent('pointerup', { pointerType: 'touch', button: 0, pointerId: 1, bubbles: true });
         expect(await page.evaluate(() => (window as any).hudLog)).toEqual([]);
-        await page.locator('[aria-label="End turn anyway"]').click();
+        await page.locator('[aria-label="End turn now"]').click();
         expect(await page.evaluate(() => (window as any).hudLog)).toEqual(['endTurn']);
     });
 });
@@ -153,10 +190,28 @@ test.describe('the stealth HUD on a desktop', () => {
         expect((await log()).slice(-2)).toEqual(['toggleOverlay:cones:true', 'endTurn']);
     });
 
+    test('asks first when End turn is pressed from the keyboard, and keeps Space and Enter off focused buttons', async ({ page }) => {
+        await open(page, 'select');
+        const log = () => page.evaluate(() => (window as any).hudLog as string[]);
+        await page.locator('[data-region="end-turn"]').focus();
+        await page.keyboard.press('Enter');
+        await expect(page.locator('[data-region="prompt"]')).toBeVisible();
+        await expect(page.locator('[data-region="prompt"]')).toBeFocused();
+        expect(await log()).toEqual([]);
+        await page.keyboard.press('Escape');
+        await expect(page.locator('[data-region="prompt"]')).toBeHidden();
+        // Clicking a button with the mouse leaves the focus on the page, so Enter is Confirm, not a second click.
+        await page.locator('[data-crew="mara"]').click();
+        await page.keyboard.press('z');
+        expect(await log()).toEqual(['selectCrew:mara']);
+        await page.keyboard.press('Tab');
+        await expect(page.locator('[data-region="ledger"]')).toBeVisible();
+    });
+
     test('jumps to a ledger row and resumes from the recap card', async ({ page }) => {
         await open(page, 'carriers');
         await page.locator('.sh-row').first().click();
-        expect(await page.evaluate(() => (window as any).hudLog)).toEqual(['ledgerJump:teller']);
+        expect(await page.evaluate(() => (window as any).hudLog)).toEqual(['ledgerJump:6,4:teller']);
         await open(page, 'recap');
         await page.locator('[aria-label="Resume"]').click();
         await expect(page.locator('.sh-recap-back')).toBeHidden();
