@@ -426,9 +426,14 @@ test('shows every room type furnished in the room gallery', async ({ page }) => 
     page.on('console', m => { if (m.type() === 'error') errors.push(m.text()); });
     await page.goto('/?scene=rooms');
     await page.waitForFunction(() => (window as any).game?.scene.getScene('bank')?.sys.isActive(), null, { timeout: 60000 });
-    const cells = await page.evaluate(() => (window as any).gallery as { type: string; variant: string }[]);
+    const cells = await page.evaluate(() => (window as any).gallery as { type: string; variant: string; x: number; y: number; w: number; h: number }[]);
     expect(new Set(cells.map(c => c.type)).size).toBeGreaterThanOrEqual(15);
     expect(new Set(cells.map(c => c.variant))).toEqual(new Set(['small', 'target', 'largest', 'L-shaped']));
+    // Close up, the staff offices at their desks: the groups and the people the stations put there.
+    const office = cells.find(c => c.type === 'staffOffice' && c.variant === 'target')!;
+    await page.evaluate(([x, y]) => (window as any).game.scene.getScene('bank').lookAt(x, y), [(office.x + office.w / 2) * 16, (office.y + office.h / 2) * 16]);
+    await page.waitForTimeout(400);
+    await page.locator('canvas').screenshot({ path: 'screenshots/rooms-offices.png' });
     await page.evaluate(() => (window as any).game.scene.getScene('bank').toggleMap());
     await page.waitForTimeout(800);
     await page.locator('canvas').screenshot({ path: 'screenshots/rooms.png' });

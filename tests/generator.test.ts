@@ -342,6 +342,15 @@ const sweep: GeneratedBank[] = [];
     for (const tier of TIERS) for (const archetype of archetypesFor(tier)) for (const plot of PLOTS) sweep.push(bank(5000 + 37 * k, ++k, { tier, archetype, plot }));
 }
 
+/** The tiles a box stands on (and `margin` more round it), as `x,y`. */
+function tilesOfBox(b: Box, margin = 0): string[] {
+    const out: string[] = [];
+    for (let y = Math.floor(b.y / TILE) - margin; y <= Math.floor((b.y + b.d - 1) / TILE) + margin; y++) {
+        for (let x = Math.floor(b.x / TILE) - margin; x <= Math.floor((b.x + b.w - 1) / TILE) + margin; x++) out.push(`${x},${y}`);
+    }
+    return out;
+}
+
 /** A generated level as the furniture leaves it: which room each tile is in, the tiles furniture blocks, the walls. */
 function siteOf(b: GeneratedBank): { roomAt: (x: number, y: number) => GenRoom | undefined; blocked: Set<string>; walls: Set<string> } {
     const owner = new Map<string, GenRoom>();
@@ -350,9 +359,10 @@ function siteOf(b: GeneratedBank): { roomAt: (x: number, y: number) => GenRoom |
     for (const p of b.props) {
         const box = propBox(p, b.level.walls);
         if (box.h === 0 || box.z >= PERSON_SIZE.h) continue;
-        for (let y = Math.floor(box.y / TILE) - 1; y <= Math.floor((box.y + box.d) / TILE) + 1; y++) for (let x = Math.floor(box.x / TILE) - 1; x <= Math.floor((box.x + box.w) / TILE) + 1; x++) {
+        for (const t of tilesOfBox(box, 1)) {
+            const [x, y] = t.split(',').map(Number) as [number, number];
             if (p.kind === 'counter' && p.gate === x && p.ty === y) continue;
-            if (boxesOverlap(box, place({ tx: x, ty: y }, PERSON_SIZE))) blocked.add(`${x},${y}`);
+            if (boxesOverlap(box, place({ tx: x, ty: y }, PERSON_SIZE))) blocked.add(t);
         }
     }
     const doors = new Set(b.doors.map(d => edgeKey(d)));
@@ -370,19 +380,14 @@ describe('furnishing by activity', () => {
     const lone = (w: number, h: number) => {
         const site = new Site(w + 4, h + 4), rng = new Rng(5);
         const room = site.addRoom('staffOffice', { x: 2, y: 2, w, h }, { wing: 'centre', bank: true });
-        const ring = [site.addRoom('staffCorridor', { x: 0, y: 0, w: w + 4, h: 2 }, { wing: 'centre', bank: true }), site.addRoom('staffCorridor', { x: 0, y: h + 2, w: w + 4, h: 2 }, { wing: 'centre', bank: true }),
-            site.addRoom('staffCorridor', { x: 0, y: 2, w: 2, h }, { wing: 'centre', bank: true }), site.addRoom('staffCorridor', { x: w + 2, y: 2, w: 2, h }, { wing: 'centre', bank: true })];
+        const ring = [{ x: 0, y: 0, w: w + 4, h: 2 }, { x: 0, y: h + 2, w: w + 4, h: 2 }, { x: 0, y: 2, w: 2, h }, { x: w + 2, y: 2, w: 2, h }]
+            .map(r => site.addRoom('staffCorridor', r, { wing: 'centre', bank: true }));
         defaultWalls(site, { rng, oldBank: false, softOutside: false, softNeighbours: new Set() });
         if (!connect(site, room, ring[1]!, 'none', rng)) throw new Error('No door for the test room');
         const f = new Furnisher(site);
         return { site, f, plan: new RoomPlan(room, f, rng, emptyFurnished(), site) };
     };
     const STEP: Record<Facing, [number, number]> = { north: [0, -1], south: [0, 1], east: [1, 0], west: [-1, 0] };
-    const tilesOfBox = (b: Box) => {
-        const out: string[] = [];
-        for (let y = Math.floor(b.y / TILE); y <= Math.floor((b.y + b.d - 1) / TILE); y++) for (let x = Math.floor(b.x / TILE); x <= Math.floor((b.x + b.w - 1) / TILE); x++) out.push(`${x},${y}`);
-        return out;
-    };
     const GROUPS: GroupDef[] = [
         workstation('clerk', 'lamp'), workstation('clerk', 'papers'), deskPair('clerk'), managerDesk(true), meeting(1, 'meetingTable'), meeting(1, 'diningTable', 'dining'),
         countingTable(), kitchenette('staff'), lounge(), cctvConsole(), viewingTable()
@@ -400,10 +405,12 @@ describe('furnishing by activity', () => {
             for (const [i, b] of g.placed.entries()) {
                 if (!b) continue;
                 const piece = def.pieces[i]!;
-                if (piece.on && supportOf(b.box, f.boxes.map(x => x.box)) !== g.placed[piece.on.piece]!.box) bad.push(`${label}: ${piece.kind} isn't on its ${def.pieces[piece.on.piece]!.kind}`);
+                const under = piece.on && g.placed[piece.on.piece]!;
+                if (under && supportOf(b.box, f.boxes.map(x => x.box)) !== under.box) bad.push(`${label}: ${piece.kind} isn't on its ${under.prop.kind}`);
                 if ((b.prop.kind === 'chair' || b.prop.kind === 'officeChair') && anchors.length) {
                     const [dx, dy] = STEP[b.box.facing];
-                    if (!anchorTiles.has(`${b.prop.tx + dx},${b.prop.ty + dy}`)) bad.push(`${label}: a chair at ${b.prop.tx},${b.prop.ty} faces ${b.box.facing}, away from its table`);
+                    const ahead = `${b.prop.tx + dx},${b.prop.ty + dy}`;
+                    if (!anchorTiles.has(ahead)) bad.push(`${label}: a chair at ${b.prop.tx},${b.prop.ty} faces ${b.box.facing}, away from its table`);
                 }
             }
             for (const s of g.stations) {
@@ -445,7 +452,9 @@ describe('furnishing by activity', () => {
         for (const b of sweep) {
             const metrics = b.validation.metrics, type = (id: string) => b.rooms.find(r => r.id === id)!;
             expect(metrics.length, `${b.tier} ${b.archetype} ${b.plot}`).toBe(b.rooms.filter(r => r.bank).length);
-            for (const m of metrics) if (type(m.room).zone !== 'public' && !PASSAGES.includes(m.type) && m.tilesPerPiece > 12) empty.push(`${b.tier} ${b.archetype} ${b.plot}: ${m.room} ${m.area} tiles, ${m.furniture} pieces`);
+            for (const m of metrics.filter(m => type(m.room).zone !== 'public' && !PASSAGES.includes(m.type))) {
+                if (m.tilesPerPiece > 12) empty.push(`${b.tier} ${b.archetype} ${b.plot}: ${m.room} ${m.area} tiles, ${m.furniture} pieces`);
+            }
             const staff = metrics.filter(m => type(m.room).zone === 'staff' && !PASSAGES.includes(m.type));
             const tall = staff.reduce((s, m) => s + m.tallTiles, 0) / staff.length;
             if (tall < 1) bare.push(`${b.tier} ${b.archetype} ${b.plot}: ${tall.toFixed(2)} tall tiles per staff room`);

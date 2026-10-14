@@ -1,5 +1,5 @@
 import type { Facing } from '../level/space';
-import { accent } from './activities';
+import { accent, loose } from './activities';
 import type { Placed } from './furnish';
 import { onTop, type GroupDef, type Kind, type PlacedGroup } from './groups';
 import type { RoomType } from './model';
@@ -52,19 +52,26 @@ const VIGNETTES: Vignette[] = [
     },
     {
         id: 'working-late', rooms: ['managerOffice'], text: "Cold coffee and the day's reports on the manager's desk",
-        tell: p => onGroups(p, ['managerDesk'], 'desk', [{ kind: 'mug', at: [[11, 3], [8, 2.5], [3, 6]] }, { kind: 'paperStack', at: [[9.5, 7], [4, 3], [12, 3]], facing: 'north' }])
+        tell: p => onGroups(p, ['managerDesk'], 'desk', [
+            { kind: 'mug', at: [[11, 3], [8, 2.5], [3, 6]] }, { kind: 'paperStack', at: [[9.5, 7], [4, 3], [12, 3]], facing: 'north' }
+        ])
     },
     {
         id: 'cash-bags', rooms: ['countingRoom', 'antechamber', 'vault'], text: 'Bags of cash waiting to be counted',
-        tell: p => beside(p, ['countingTable', 'cashCart', 'storage'], free('cashBags'))
+        tell: p => beside(p, ['countingTable', 'cashCart', 'storage'], loose('cashBags'))
     },
     {
         id: 'birthday-cake', rooms: ['breakRoom', 'conferenceRoom'], text: 'A birthday cake, a quarter eaten, and mugs round it',
-        tell: p => onGroups(p, ['dining', 'smallMeeting', 'meeting'], 'table', [{ kind: 'cake', at: [[10, 5.5], [22, 7], [8, 5.5], [12, 5.5]] }, { kind: 'mug', at: [...TABLE, ...LONG_TABLE] }, { kind: 'mug', at: [...TABLE, ...LONG_TABLE] }])
+        tell: p => onGroups(p, ['dining', 'smallMeeting', 'meeting'], 'table', [
+            { kind: 'cake', at: [[10, 5.5], [22, 7], [8, 5.5], [12, 5.5]] }, { kind: 'mug', at: [...TABLE, ...LONG_TABLE] }, { kind: 'mug', at: [...TABLE, ...LONG_TABLE] }
+        ])
     },
     {
         id: 'meeting-notes', rooms: ['conferenceRoom'], text: 'Papers and cold coffee left from the morning meeting',
-        tell: p => onGroups(p, ['meeting', 'smallMeeting'], 'table', [{ kind: 'paperStack', at: [...LONG_TABLE, ...TABLE] }, { kind: 'mug', at: [...LONG_TABLE, ...TABLE] }, { kind: 'paperStack', at: [...LONG_TABLE, ...TABLE], facing: 'north' }])
+        tell: p => onGroups(p, ['meeting', 'smallMeeting'], 'table', [
+            { kind: 'paperStack', at: [...LONG_TABLE, ...TABLE] }, { kind: 'mug', at: [...LONG_TABLE, ...TABLE] },
+            { kind: 'paperStack', at: [...LONG_TABLE, ...TABLE], facing: 'north' }
+        ])
     },
     {
         id: 'washing-up', rooms: ['breakRoom'], text: 'Mugs waiting by the sink',
@@ -76,11 +83,12 @@ const VIGNETTES: Vignette[] = [
     },
     {
         id: 'files-out', rooms: ['recordsRoom'], text: 'Files pulled from the shelves, half sorted',
-        tell: p => onGroups(p, ['workstation'], 'desk', [{ kind: 'paperStack', at: DESK }, { kind: 'paperStack', at: DESK, facing: 'east' }]) ?? beside(p, ['stacks', 'storage'], free('boxes'))
+        tell: p => onGroups(p, ['workstation'], 'desk', [{ kind: 'paperStack', at: DESK }, { kind: 'paperStack', at: DESK, facing: 'east' }])
+            ?? beside(p, ['stacks', 'storage'], loose('boxes'))
     },
     {
         id: 'deliveries', rooms: ['atmRoom', 'loadingBay', 'cleanersCloset', 'alarmCloset'], text: 'A delivery stacked by the door, not yet unpacked',
-        tell: p => (p.group(free('boxes'), { near: p.entries, away: -1 }) ? lastTile(p) : undefined)
+        tell: p => (p.group(loose('boxes'), { near: p.entries, away: -1 }) ? lastTile(p) : undefined)
     },
     {
         id: 'cleaner', rooms: ['staffCorridor', 'restroom', 'breakRoom'], text: "The cleaner's trolley and a wet-floor sign: the cleaner starts here",
@@ -113,7 +121,8 @@ function onGroups(p: Parcel, names: string[], tag: string, items: Item[]): P | u
     for (const g of p.rng.shuffle(p.groups.filter(g => names.includes(g.def.name)))) {
         for (const under of tops(g, tag)) {
             const mark = p.f.mark();
-            if (items.every(item => item.at.some(([u, v]) => p.f.try(onTop(item.kind, under, u, v, g.frame.mirror, item.facing ?? 'south'), p.room)))) return { x: under.prop.tx, y: under.prop.ty };
+            const fits = (item: Item) => item.at.some(([u, v]) => p.f.try(onTop(item.kind, under, u, v, g.frame.mirror, item.facing ?? 'south'), p.room));
+            if (items.every(fits)) return { x: under.prop.tx, y: under.prop.ty };
             p.f.rollback(mark);
         }
     }
@@ -122,11 +131,6 @@ function onGroups(p: Parcel, names: string[], tag: string, items: Item[]): P | u
 
 /** The pieces tagged `tag` of a group that went in. */
 const tops = (g: PlacedGroup, tag: string): Placed[] => g.placed.filter((b, i): b is Placed => !!b && g.def.pieces[i]!.tag === tag);
-
-/** A single thing standing free on the floor (cash bags, a box, a sign). */
-function free(kind: Kind): GroupDef {
-    return { name: kind, w: 1, d: 1, wall: false, pieces: [{ kind, at: [0, 0] }] };
-}
 
 /** `def` near one of the room's groups named `names` (or pieces of that kind); where, or undefined. */
 function beside(p: Parcel, names: string[], def: GroupDef): P | undefined {

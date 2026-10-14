@@ -20,8 +20,8 @@ export function workstation(role: string, dress: 'lamp' | 'papers'): GroupDef {
         name: 'workstation', w: 2, d: 2, wall: true, corner: 0.5,
         pieces: [
             { kind: 'desk', at: [0, 0], facing: 'north', push: ['north'], extra: { bare: true }, tag: 'desk' },
-            { kind: 'monitor', at: [0, 0], on: { piece: 0, u: 13.5, v: 6.5 }, facing: 'north' },
-            dress === 'lamp' ? { kind: 'deskLamp', at: [0, 0], on: { piece: 0, u: 2.5, v: 5 }, facing: 'north' } : { kind: 'paperStack', at: [0, 0], on: { piece: 0, u: 4, v: 3 }, facing: 'north' },
+            { kind: 'monitor', on: { piece: 0, u: 13.5, v: 6.5 }, facing: 'north' },
+            dress === 'lamp' ? { kind: 'deskLamp', on: { piece: 0, u: 2.5, v: 5 }, facing: 'north' } : { kind: 'paperStack', on: { piece: 0, u: 4, v: 3 }, facing: 'north' },
             { kind: 'officeChair', at: [0, 1], facing: 'north', push: ['north'] },
             { kind: 'bin', at: [2, 0], push: ['north', 'west'], optional: true }
         ],
@@ -39,9 +39,9 @@ export function deskPair(role: string): GroupDef {
         name: 'deskPair', w: 2, d: 4, wall: false,
         pieces: [
             ...side(1, 'south'), ...side(2, 'north'),
-            { kind: 'monitor', at: [0, 0], on: { piece: 0, u: 13.5, v: 6.5 }, facing: 'north' },
-            { kind: 'monitor', at: [0, 0], on: { piece: 1, u: 13.5, v: 6.5 }, facing: 'north' },
-            { kind: 'paperStack', at: [0, 0], on: { piece: 1, u: 4, v: 3 }, facing: 'north', optional: true },
+            { kind: 'monitor', on: { piece: 0, u: 13.5, v: 6.5 }, facing: 'north' },
+            { kind: 'monitor', on: { piece: 1, u: 13.5, v: 6.5 }, facing: 'north' },
+            { kind: 'paperStack', on: { piece: 1, u: 4, v: 3 }, facing: 'north', optional: true },
             { kind: 'officeChair', at: [1, 0], facing: 'south', push: ['south'] },
             { kind: 'officeChair', at: [0, 3], facing: 'north', push: ['north'] }
         ],
@@ -60,9 +60,9 @@ export function managerDesk(wall: boolean): GroupDef {
         pieces: [
             { kind: 'desk', at: [0, 1], extra: { bare: true }, tag: 'desk' },
             { kind: 'officeChair', at: [0, 0], push: ['south'] },
-            { kind: 'monitor', at: [0, 0], on: { piece: 0, u: 5, v: 7 }, facing: 'north' },
-            { kind: 'photoFrame', at: [0, 0], on: { piece: 0, u: 15, v: 7 }, facing: 'north' },
-            { kind: 'deskLamp', at: [0, 0], on: { piece: 0, u: 17.5, v: 2.5 }, facing: 'north' },
+            { kind: 'monitor', on: { piece: 0, u: 5, v: 7 }, facing: 'north' },
+            { kind: 'photoFrame', on: { piece: 0, u: 15, v: 7 }, facing: 'north' },
+            { kind: 'deskLamp', on: { piece: 0, u: 17.5, v: 2.5 }, facing: 'north' },
             { kind: 'chair', at: [0, 2], facing: 'north', push: ['north'] },
             { kind: 'chair', at: [1, 2], facing: 'north', push: ['north'] },
             { kind: 'plant', at: [-1, 0], push: ['north'], optional: true }
@@ -84,7 +84,10 @@ export function meeting(tables: number, kind: 'meetingTable' | 'diningTable', na
         pieces.push({ kind: 'chair', at: [x, 0], push: ['south'] });
         pieces.push({ kind: 'chair', at: [x, 2], facing: 'north', push: ['north'] });
     }
-    pieces.push({ kind: 'chair', at: [0, 1], facing: 'east', push: ['east'], optional: true }, { kind: 'chair', at: [len + 1, 1], facing: 'west', push: ['west'], optional: true });
+    pieces.push(
+        { kind: 'chair', at: [0, 1], facing: 'east', push: ['east'], optional: true },
+        { kind: 'chair', at: [len + 1, 1], facing: 'west', push: ['west'], optional: true }
+    );
     return { name, w: len + 2, d: 3, wall: false, pieces };
 }
 
@@ -94,9 +97,9 @@ export function countingTable(): GroupDef {
         name: 'countingTable', w: 3, d: 3, wall: false,
         pieces: [
             { kind: 'diningTable', at: [0, 1], extra: { bare: true }, tag: 'table' },
-            { kind: 'cashCounter', at: [0, 0], on: { piece: 0, u: 15, v: 3 }, facing: 'north' },
-            { kind: 'cashCounter', at: [0, 0], on: { piece: 0, u: 15, v: 8 } },
-            { kind: 'paperStack', at: [0, 0], on: { piece: 0, u: 5, v: 5.5 }, optional: true },
+            { kind: 'cashCounter', on: { piece: 0, u: 15, v: 3 }, facing: 'north' },
+            { kind: 'cashCounter', on: { piece: 0, u: 15, v: 8 } },
+            { kind: 'paperStack', on: { piece: 0, u: 5, v: 5.5 }, optional: true },
             { kind: 'chair', at: [0, 0], push: ['south'] },
             { kind: 'chair', at: [0, 2], facing: 'north', push: ['north'] },
             { kind: 'cashCart', at: [2, 1], facing: 'west', optional: true }
@@ -137,7 +140,7 @@ export function kitchenette(station?: string): GroupDef {
         name: 'kitchenette', w: 3, d: 2, wall: true, corner: 1,
         pieces: [
             { kind: 'kitchenCounter', at: [0, 0], push: ['north'], extra: { bare: true }, tag: 'counter' },
-            { kind: 'microwave', at: [0, 0], on: { piece: 0, u: 21, v: 3.5 } },
+            { kind: 'microwave', on: { piece: 0, u: 21, v: 3.5 } },
             { kind: 'fridge', at: [2, 0], push: ['north', 'west'] },
             { kind: 'waterCooler', at: [-1, 0], push: ['north', 'east'], optional: true }
         ],
@@ -203,9 +206,14 @@ export function viewingTable(): GroupDef {
     };
 }
 
-/** A single thing against a wall (a plant, a cabinet, a cash cart), the floor in front of it kept when it is used from there. */
-export function accent(kind: Kind, corner = 0, used = false): GroupDef {
-    return { name: kind, w: 1, d: used ? 2 : 1, wall: true, corner, pieces: [{ kind, at: [0, 0], push: ['north'] }], ...(used ? { clear: [[0, 1] as [number, number]] } : {}) };
+/** A single thing against a wall (a plant, a cabinet, a cash cart), wanting a corner as much as `corner` says. */
+export function accent(kind: Kind, corner = 0): GroupDef {
+    return { name: kind, w: 1, d: 1, wall: true, corner, pieces: [{ kind, at: [0, 0], push: ['north'] }] };
+}
+
+/** A single thing standing free on the floor, towards the middle of the room (a cash cart, cash bags, a box). */
+export function loose(kind: Kind): GroupDef {
+    return { name: kind, w: 1, d: 1, wall: false, pieces: [{ kind, at: [0, 0] }] };
 }
 
 /** A sideboard (a low credenza) along a wall, for the conference room's water and the files. */

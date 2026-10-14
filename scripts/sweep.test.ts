@@ -47,8 +47,8 @@ test('sweep', () => {
             const area = ROOM_RULES[type].area;
             return `${type.padEnd(18)} ${(r.count / n).toFixed(1).padStart(8)} ${(r.area / r.count).toFixed(0).padStart(10)} ${String(area?.target ?? '-').padStart(7)}`
                 + ` ${String(r.maxArea).padStart(8)}${area && r.maxArea > area.max ? '!' : ' '}${String(area?.max ?? '-').padStart(4)}`
-                + ` ${`${Math.round((100 * r.shaped) / r.count)}%`.padStart(7)} ${(r.area / Math.max(1, r.furniture)).toFixed(1).padStart(12)} ${r.emptiest.toFixed(1).padStart(9)}`
-                + ` ${(r.tall / r.count).toFixed(1).padStart(11)} ${`${Math.round((100 * r.seen) / r.count)}%`.padStart(16)}`;
+                + ` ${`${Math.round((100 * r.shaped) / r.count)}%`.padStart(7)} ${(r.area / Math.max(1, r.furniture)).toFixed(1).padStart(12)}`
+                + ` ${r.emptiest.toFixed(1).padStart(9)} ${(r.tall / r.count).toFixed(1).padStart(11)} ${`${Math.round((100 * r.seen) / r.count)}%`.padStart(16)}`;
         }),
         '',
         ...(failures.length ? ['Failures:', ...failures] : [])

@@ -32,8 +32,8 @@ export type Kind = LevelProp['kind'];
  */
 export interface Piece {
     kind: Kind;
-    /** Its north-west tile in the group's frame (unused for a piece standing on another). */
-    at: [number, number];
+    /** Its north-west tile in the group's frame; none for a piece standing on another. */
+    at?: [number, number];
     /** Which way it faces in the group's frame; south, into the room, by default. */
     facing?: Facing;
     /** Sides of its tiles it is pushed against, in the group's frame (north is the group's back). */
@@ -92,6 +92,12 @@ export class Frame {
     }
 }
 
+/** Tops whose art isn't symmetric across, so what stands on them doesn't mirror with their group. */
+const DRAWN_ONE_WAY: Kind[] = ['kitchenCounter'];
+
+/** A step one tile in each direction. */
+const STEP: Record<Facing, [number, number]> = { north: [0, -1], south: [0, 1], east: [1, 0], west: [-1, 0] };
+
 const turn = (f: Facing, by: Facing): Facing => FACINGS[(FACINGS.indexOf(f) + FACINGS.indexOf(by)) % 4]!;
 const flip = (f: Facing): Facing => (f === 'east' ? 'west' : f === 'west' ? 'east' : f);
 
@@ -108,7 +114,7 @@ export interface PlacedGroup {
     stations: Station[];
 }
 
-/** How a program asks for a group: its partner nearby, how many candidates to try. */
+/** What a program asks of a group's place beyond its own wants: a partner nearby, which ways it may face, the door. */
 export interface GroupOptions {
     /** Tiles it wants to be near (its partner group). */
     near?: P[];
@@ -118,6 +124,8 @@ export interface GroupOptions {
     facings?: Facing[];
     /** Only mirrored, or only not. */
     mirror?: boolean;
+    /** How much it wants to face the nearest door (the manager sees who comes in). */
+    faceDoor?: number;
 }
 
 /** How many of the best candidates are tried with the `Furnisher` before a group gives up. */
@@ -280,7 +288,13 @@ export class RoomPlan {
         score += (opts.away ?? (def.wall ? 0.5 : 0.15)) * Math.min(4, toDoor);
         // Against the south wall a group shows the camera its back (the walls in front are cut down, the furniture isn't):
         // storage and the like would rather stand along the other walls.
-        if (def.wall && !def.stations?.length && frame.facing === 'north') score -= 0.8;
+        if (def.wall && !def.stations?.length && frame.facing === 'north') score -= 2;
+        if (opts.faceDoor) {
+            const cx = foot.reduce((s, p) => s + p.x, 0) / foot.length, cy = foot.reduce((s, p) => s + p.y, 0) / foot.length;
+            const door = this.entries.reduce((a, b) => (Math.hypot(b.x - cx, b.y - cy) < Math.hypot(a.x - cx, a.y - cy) ? b : a));
+            const [fx, fy] = STEP[frame.facing], len = Math.hypot(door.x - cx, door.y - cy) || 1;
+            score += (opts.faceDoor * (fx * (door.x - cx) + fy * (door.y - cy))) / len;
+        }
         if (opts.near?.length) score -= 0.4 * Math.min(...foot.map(p => Math.min(...opts.near!.map(q => Math.abs(q.x - p.x) + Math.abs(q.y - p.y)))));
         // A free-standing group stands in the middle of its part of the room, clear of the walls.
         const part = this.partOf(frame.tile(0, 0));
@@ -307,6 +321,7 @@ export class RoomPlan {
 
     /** The world tiles a floor piece takes. */
     private pieceTiles(piece: Piece, frame: Frame): P[] {
+        if (!piece.at) throw new Error(`A ${piece.kind} on the floor needs its tile in the group`);
         const span = propSpan({ kind: piece.kind, tx: 0, ty: 0, facing: piece.facing ?? 'south', ...piece.extra } as LevelProp);
         return frame.rect(piece.at[0], piece.at[1], span.w, span.d);
     }
@@ -376,12 +391,15 @@ export class RoomPlan {
  */
 export function onTop(kind: Kind, under: Placed, u: number, v: number, mirror: boolean, facing: Facing, extra: Record<string, unknown> = {}): LevelProp {
     const b = under.box, own = propSize(under.prop), fs = b.facing;
+    // A top drawn one way round (the kitchen counter's sink) keeps what stands on it where its art leaves room.
+    mirror &&= !DRAWN_ONE_WAY.includes(under.prop.kind);
     const mu = mirror ? own.w - u : u;
-    const [cx, cy] = fs === 'south' ? [b.x + mu, b.y + v] : fs === 'north' ? [b.x + own.w - mu, b.y + own.d - v] : fs === 'east' ? [b.x + v, b.y + own.w - mu] : [b.x + own.d - v, b.y + mu];
+    const [cx, cy] = fs === 'south' ? [b.x + mu, b.y + v] : fs === 'north' ? [b.x + own.w - mu, b.y + own.d - v]
+        : fs === 'east' ? [b.x + v, b.y + own.w - mu] : [b.x + own.d - v, b.y + mu];
     const world = turn(mirror ? flip(facing) : facing, fs);
-    const base = { kind, tx: Math.floor(cx / TILE), ty: Math.floor(cy / TILE), facing: world, elevation: b.z + b.h, alignX: 'center', alignY: 'center', ...extra } as LevelProp;
-    const size = turned(propSize(base), world), at = propBox(base, []);
-    return { ...base, offset: [Math.round(cx - size.w / 2) - at.x, Math.round(cy - size.d / 2) - at.y] };
+    const base = { kind, tx: Math.floor(cx / TILE), ty: Math.floor(cy / TILE), facing: world, elevation: b.z + b.h, alignX: 'center', alignY: 'center', ...extra };
+    const size = turned(propSize(base as LevelProp), world), at = propBox(base as LevelProp, []);
+    return { ...base, offset: [Math.round(cx - size.w / 2) - at.x, Math.round(cy - size.d / 2) - at.y] } as LevelProp;
 }
 
 /** A binary min-heap of numbers by key, for the walks; stale entries are skipped by the caller. */

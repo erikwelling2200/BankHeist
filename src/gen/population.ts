@@ -102,7 +102,8 @@ export function populate(ctx: Ctx): Population {
     if (sweepFrom) {
         const to = freeIn(rng.pick(corridors));
         const path = to && nav.path(sweepFrom, to);
-        add({ role: 'cleaner', look: 'cleaner', observer: 'staff', tx: sweepFrom.x, ty: sweepFrom.y, facing: trolley?.facing ?? 'front', ...(path && path.length > 2 ? { route: toTiles(corners(path).slice(1)) } : {}) });
+        const route = path && path.length > 2 ? { route: toTiles(corners(path).slice(1)) } : {};
+        add({ role: 'cleaner', look: 'cleaner', observer: 'staff', tx: sweepFrom.x, ty: sweepFrom.y, facing: trolley?.facing ?? 'front', ...route });
     }
     // Guards on the posts and routes security planned.
     ctx.guards.forEach(g => {

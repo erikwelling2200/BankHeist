@@ -1,10 +1,11 @@
+import { TILE } from '../level/level';
 import type { LevelProp, PersonFacing } from '../level/plan';
 import type { Facing } from '../level/space';
 import {
-    accent, cctvConsole, cleaningStation, countingTable, deskPair, kitchenette, lockerBank, lounge, managerDesk, meeting, serverRow, sideboard, stacks, storage,
-    viewingTable, workstation
+    accent, cctvConsole, cleaningStation, countingTable, deskPair, kitchenette, lockerBank, loose, lounge, managerDesk, meeting, serverRow, sideboard, stacks,
+    storage, viewingTable, workstation
 } from './activities';
-import type { Furnisher } from './furnish';
+import type { Furnisher, Placed } from './furnish';
 import { RoomPlan, type GroupDef, type Kind, type PlacedGroup } from './groups';
 import type { GenRoom, Rect, RoomType } from './model';
 import type { P } from './nav';
@@ -176,18 +177,21 @@ export class Parcel extends RoomPlan {
 
     /** Pieces of furniture standing on the room's floor. */
     pieces(): number {
-        return this.f.boxes.filter(b => b.box.z === 0 && b.box.h > 0 && this.site.roomAt(Math.floor((b.box.x + b.box.w / 2) / 16), Math.floor((b.box.y + b.box.d / 2) / 16)) === this.room).length;
+        const middle = (b: Placed) => this.site.roomAt(Math.floor((b.box.x + b.box.w / 2) / TILE), Math.floor((b.box.y + b.box.d / 2) / TILE));
+        return this.f.boxes.filter(b => b.box.z === 0 && b.box.h > 0 && middle(b) === this.room).length;
     }
 
     /**
      * Storage along every wall that has room for it (lesson 8: one storage wall per wall long enough): runs of `kinds`
-     * in turn, the longest that fits first, down to `least` long.
+     * in turn, the longest that fits first, down to `least` long. Not along the south wall, where the camera would only
+     * see the backs of the shelves.
      */
     storageWalls(kinds: Kind[], most: number, least = 2, runs = 8): number {
         let placed = 0;
         for (let len = most; len >= least && placed < runs; len--) {
             const run = Array.from({ length: len }, (_, i) => kinds[(i + placed) % kinds.length]!);
-            if (this.group(storage(run))) { placed++; len++; }
+            // After a run goes in, another as long, before trying shorter ones.
+            if (this.group(storage(run), { facings: ['south', 'east', 'west'] })) { placed++; len++; }
         }
         return placed;
     }
@@ -195,6 +199,28 @@ export class Parcel extends RoomPlan {
     /** Things against the walls from `pool` until the room has a piece of furniture for every `per` tiles of floor. */
     dense(pool: Kind[], per: number, most = 8): void {
         for (let i = 0; i < most && this.area > per * this.pieces(); i++) if (!this.group(accent(this.rng.pick(pool), 0.5))) break;
+    }
+
+    /** The first block of `size` by `size` tiles of open floor (nothing standing on it, nothing kept free), as its tiles. */
+    gap(size = 3): P[] | undefined {
+        const open = (x: number, y: number) => this.site.roomAt(x, y) === this.room && !this.f.occupied(x, y) && !this.f.isKept(x, y) && !this.reserved.has(`${x},${y}`);
+        for (const t of this.site.tilesOfRoom(this.room)) {
+            const block: P[] = [];
+            for (let dy = 0; dy < size; dy++) for (let dx = 0; dx < size; dx++) block.push({ x: t.x + dx, y: t.y + dy });
+            if (block.every(b => open(b.x, b.y))) return block;
+        }
+        return undefined;
+    }
+
+    /**
+     * Where a big room still has a stretch of open floor, more of what the room is for, beside it (lesson 8: big rooms
+     * fill with more of what they do): the first of `defs` that goes in there, up to `most` times.
+     */
+    fillGaps(defs: GroupDef[], most = 3): void {
+        for (let i = 0; i < most; i++) {
+            const gap = this.gap();
+            if (!gap || !defs.some(def => this.group(def, { near: gap }))) return;
+        }
     }
 
     /** The middle of a placed group's footprint. */
@@ -272,6 +298,7 @@ function tellerLine(style: 'backCounters' | 'cabinets' | 'mixed'): ParcelFn {
         if (p.h >= 7) p.group(deskPair('clerk'));
         // The tellers' trolleys for the cash run, and filing along the side walls.
         p.groupsOf(accent('cashCart'), p.area >= 40 ? 2 : 1);
+        p.fillGaps([workstation('clerk', 'papers'), storage(['filingCabinet', 'filingCabinet']), accent('plant')]);
         p.dense(['filingCabinet', 'plant', 'waterCooler', 'printer', 'filingCabinet'], 9, 12);
         for (const kind of ['crest', 'clock', 'painting'] as const) p.hang(kind);
         p.cameraCorners();
@@ -343,6 +370,7 @@ function atmRoom(style: number): ParcelFn {
         p.lootAt(cart, 'cashCart', 'ATM cash cassettes', 20000, 'heavy', 1, 1);
         p.storageWalls(style === 1 ? ['shelving'] : STORE, 3, 1, 1 + style);
         if (style === 2) p.group(workstation('technician', 'papers'));
+        p.fillGaps([loose(style === 1 ? 'cashCart' : 'boxes'), storage(STORE)]);
         p.dense(['boxes', 'shelving', 'cashCart'], 8);
         p.cameraCorners();
     };
@@ -352,7 +380,7 @@ function atmRoom(style: number): ParcelFn {
 function office(style: 'desk' | 'meeting' | 'shelves'): ParcelFn {
     return p => {
         p.walks();
-        const desk = p.group(managerDesk(true), { away: 1.2 }) ?? p.group(managerDesk(false), { away: 1.2 });
+        const desk = p.group(managerDesk(true), { away: 1.2, faceDoor: 2 }) ?? p.group(managerDesk(false), { away: 1.2, faceDoor: 2 });
         const manager = desk?.stations[0];
         if (manager) p.out.alarms.push({ tx: manager.tx, ty: manager.ty, name: "Manager's desk button", room: p.room.id });
         p.lootAt(desk, 'desk', "Manager's PC (vault code, time-lock schedule)", 0, 'light');
@@ -361,6 +389,7 @@ function office(style: 'desk' | 'meeting' | 'shelves'): ParcelFn {
         if (style === 'meeting' && p.area >= 26) p.group(meeting(1, 'diningTable', 'smallMeeting'), desk ? { near: desk.tiles } : {});
         else if (p.area >= 28) p.group(lounge());
         p.group(accent('coatStand', 1));
+        p.fillGaps([meeting(1, 'diningTable', 'smallMeeting'), lounge(), storage(['bookshelf', 'filingCabinet']), accent('plant')]);
         p.hang('painting');
         p.dense(['plant', 'filingCabinet', 'bookshelf'], 8);
     };
@@ -374,6 +403,7 @@ function breakRoom(style: 'table' | 'lockers' | 'both'): ParcelFn {
         if (style !== 'lockers' || p.area >= 24) p.groupsOf(meeting(1, 'diningTable', 'dining'), p.area >= 44 ? 2 : 1, kitchen ? { near: kitchen.tiles } : {});
         if (style !== 'table') p.group(lockerBank(p.area >= 30 ? 3 : 2)) ?? p.group(lockerBank(2));
         if (style !== 'lockers' && p.area >= 34) p.group(lounge());
+        p.fillGaps([meeting(1, 'diningTable', 'dining'), lounge(), lockerBank(2), accent('plant')]);
         p.hang('noticeBoard');
         p.dense(['plant', 'waterCooler', 'coatStand', 'lockers'], 8);
         p.cameraCorners();
@@ -421,6 +451,10 @@ function cctv(style: number): ParcelFn {
         p.group(storage(style === 1 ? ['filingCabinet', 'boxes'] : ['filingCabinet', 'filingCabinet']));
         if (style !== 0) p.hang('noticeBoard');
         if (style === 2 && p.area >= 30) p.group(workstation('guard', 'papers'));
+        // The guards' room as much as the operator's: their lockers, a table to brief at.
+        if (p.area >= 32) p.group(lockerBank(2));
+        if (p.area >= 40) p.group(meeting(1, 'diningTable', 'briefing'));
+        p.fillGaps([lockerBank(2), storage(['filingCabinet', 'boxes']), loose('boxes')]);
         p.dense(['filingCabinet', 'boxes', 'serverRack'], 8);
     };
 }
@@ -433,7 +467,10 @@ function alarmCloset(style: number): ParcelFn {
         p.spot('grates', 1, p.h - 1);
         p.spot('hatches', 0, 0);
         p.walks();
+        // The alarm's batteries and the phone-line rack, spares on shelving.
+        if (p.area >= 20) p.group(serverRow(2, true), { facings: ['south', 'east', 'west'] });
         p.storageWalls(style === 1 ? ['shelving', 'boxes'] : ['shelving'], 3, 1, 2 + style);
+        p.fillGaps([serverRow(2, false), loose('boxes')]);
         p.dense(STORE, 7);
     };
 }
@@ -451,6 +488,7 @@ function serverRoom(style: number): ParcelFn {
             if (row) { placed++; n++; first ??= row; }
         }
         p.storageWalls(['serverRack'], 3, 1, style === 2 ? 3 : 1);
+        p.fillGaps([serverRow(3, false), serverRow(2, false), loose('boxes')]);
         p.lootAt(first, undefined, 'Server drive rack', 15000, 'very heavy', 1, 1);
         p.dense(['serverRack', 'boxes', 'shelving'], 7);
     };
@@ -465,6 +503,8 @@ function antechamber(style: number): ParcelFn {
         p.walks();
         // Cash in transit between the vault and the counter waits here: carts and a cash shelf.
         p.storageWalls(['cashShelf'], 2, 1, 1);
+        p.group(loose('cashCart'));
+        p.fillGaps([loose('cashCart')], 2);
         p.dense(['cashCart', 'cashShelf', 'cashCart'], 8);
         p.cameraCorners();
     };
@@ -476,7 +516,8 @@ function vault(style: number): ParcelFn {
         p.walks();
         const kinds: Kind[] = style === 1 ? ['depositBoxes', 'cashShelf'] : style === 2 ? ['cashShelf'] : ['cashShelf', 'cashShelf', 'depositBoxes'];
         p.storageWalls(kinds, Math.max(2, p.w), 1);
-        p.groupsOf(accent('cashCart'), 2);
+        p.groupsOf(loose('cashCart'), p.area >= 40 ? 2 : 1);
+        p.fillGaps([loose('cashCart')], 2);
         if (ctx.motionSensors) p.hang('motionSensor');
         p.loot(`Vault cash (class ${ctx.vaultClass})`, 40000, 'heavy', 1, 1);
         p.loot('Gold crate', 120000, 'very heavy', Math.floor(p.w / 2), 1);
@@ -490,6 +531,7 @@ function depositRoom(style: number): ParcelFn {
         p.storageWalls(['depositBoxes'], Math.max(2, p.w), style === 1 ? 2 : 1);
         p.group(viewingTable());
         if (style === 2) p.group(accent('chair'));
+        p.fillGaps([viewingTable(), storage(['depositBoxes', 'depositBoxes']), accent('plant')]);
         p.loot('Deposit boxes (jewels, one holds intel)', 30000, 'light', 0, 0);
         p.dense(['depositBoxes', 'plant'], 8);
         p.cameraCorners();
@@ -526,6 +568,7 @@ function countingRoom(style: number): ParcelFn {
         if (p.area >= 36) p.group(countingTable(), table ? { near: table.tiles } : {});
         p.group(storage(style === 2 ? ['filingCabinet', 'cashShelf', 'cashShelf'] : ['cashShelf', 'shelving']));
         p.groupsOf(accent('cashCart'), style === 1 ? 2 : 1, table ? { near: table.tiles } : {});
+        p.fillGaps([countingTable(), loose('cashCart')]);
         p.dense(['cashCart', 'boxes', 'filingCabinet'], 8);
         p.cameraCorners();
     };
@@ -535,11 +578,12 @@ function countingRoom(style: number): ParcelFn {
 function records(style: number): ParcelFn {
     return p => {
         p.walks();
-        if (style !== 2) for (let i = 0, n = Math.min(4, p.w - 2); i < (p.area >= 40 ? 2 : 1) && n >= 2; i++) {
+        if (style === 2) p.group(workstation('archivist', 'papers'));
+        for (let i = 0, n = Math.min(4, p.w - 2); i < (p.area >= 40 ? 2 : 1) && n >= 2; i++) {
             while (n >= 2 && !p.group(stacks(n))) n--;
         }
-        if (style === 2) p.group(workstation('archivist', 'papers'));
         p.storageWalls(style === 1 ? ['filingCabinet', 'filingCabinet', 'shelving'] : ['shelving', 'shelving', 'filingCabinet'], 5, 1);
+        p.fillGaps([stacks(3), stacks(2), loose('boxes')]);
         p.loot('Loan files and the branch records (intel)', 0, 'light', 0, 0);
         p.dense(['boxes', 'filingCabinet'], 6);
     };
@@ -560,27 +604,32 @@ function staffOffice(style: number): ParcelFn {
         p.group(storage(style === 1 ? ['filingCabinet', 'printer', 'bookshelf'] : ['bookshelf', 'filingCabinet', 'printer']))
             ?? p.group(storage(['bookshelf', 'printer']));
         p.group(accent('plant', 1));
+        p.fillGaps([deskPair('clerk'), workstation('clerk', 'lamp'), storage(['filingCabinet', 'bookshelf']), accent('plant')]);
         p.hang(style === 0 ? 'noticeBoard' : 'clock');
         p.dense(['plant', 'filingCabinet', 'waterCooler', 'coatStand', 'bookshelf'], 8);
         p.cameraCorners();
     };
 }
 
-/** The conference room: a meeting table sized to the room with chairs round it, the whiteboard beside it, a sideboard. */
+/**
+ * The conference room: a meeting table with chairs round it (a plain table in a small room), the whiteboard on the wall
+ * by it, a sideboard or bookcases, and in a big room a sofa to wait on.
+ */
 function conference(style: number): ParcelFn {
     return p => {
         p.walks();
-        const options: GroupDef[] = style === 1 ? [meeting(2, 'diningTable'), meeting(1, 'meetingTable')] : [meeting(1, 'meetingTable'), meeting(2, 'diningTable')];
+        const options = p.area < 30 && style === 2 ? [meeting(1, 'diningTable')] : [meeting(1, 'meetingTable'), meeting(1, 'diningTable')];
         let table: PlacedGroup | undefined;
-        for (const def of [...options, meeting(1, 'diningTable')]) if ((table = p.group(def))) break;
+        for (const def of options) if ((table = p.group(def))) break;
         if (table) p.hangNear('whiteboard', Parcel.middle(table));
-        if (style === 2) p.group(storage(['bookshelf', 'bookshelf']));
+        if (style === 1) p.group(storage(['bookshelf', 'bookshelf']));
         else p.group(sideboard());
-        // A big room has a corner to wait in, and a second table for the overflow.
-        if (p.area >= 44) p.group(lounge());
-        if (p.area >= 50) p.group(meeting(1, 'diningTable', 'smallMeeting'));
+        if (style === 2) p.group(storage(['bookshelf', 'filingCabinet']));
+        if (p.area >= 40) p.group(lounge());
+        p.group(accent('coatStand', 1));
+        p.fillGaps([lounge(), storage(['bookshelf', 'bookshelf']), accent('plant')]);
         p.hang('painting');
-        p.dense(['plant', 'bookshelf', 'waterCooler', 'coatStand'], 9);
+        p.dense(['plant', 'bookshelf', 'waterCooler'], 9);
     };
 }
 
