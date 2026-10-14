@@ -1,25 +1,19 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import {
-    crewCards, HEIST_KEY, installDebugHandle, MemoryStorage, PlaybackQueue, registerImportance, Session, threatLedger, worldKey, type SessionChange, type SimHandle
+    crewCards, HEIST_KEY, installDebugHandle, MemoryStorage, PlaybackQueue, PREVIEW_CACHE, registerImportance, Session, threatLedger, UI_KEY, worldKey, type SessionChange, type SimHandle
 } from '../../src/game';
-import { commit as engineCommit, hashOf, IllegalCommand, registerCommand, SaveFormatError, startCarrier, type Command } from '../../src/sim';
-import { smallBank } from '../sim/helpers';
+import { commit as engineCommit, fixtureWorld, hashOf, IllegalCommand, SaveFormatError, startCarrier, type Command } from '../../src/sim';
+import { registerTestCommand, smallBank, testCommand, type TestCommand } from '../sim/helpers';
 
-declare module '../../src/sim/core/types' {
-    interface CommandMap {
-        /** Starts a teller-button carrier: final, since the world reacted. */
-        gameTestAlarm: { countdown: number };
-        /** Tells the crew something: final. */
-        gameTestScout: { crew: string };
-    }
-}
-
-registerCommand('gameTestAlarm', (ctx, cmd) => {
-    startCarrier(ctx, { kind: 'tellerButton', source: 'teller', pos: { x: 7, y: 0 }, countdown: cmd.countdown });
+/** Starts a teller-button carrier: final, since the world reacted. */
+registerTestCommand('gameTestAlarm', (ctx, cmd) => {
+    startCarrier(ctx, { kind: 'tellerButton', source: 'teller', pos: { x: 7, y: 0 }, countdown: (cmd as { countdown?: number }).countdown ?? 2 });
 });
-registerCommand('gameTestScout', (ctx, cmd) => {
-    ctx.emit({ type: 'revealed', what: 'room', id: cmd.crew });
+/** Tells the crew something: final. */
+registerTestCommand('gameTestScout', (ctx, cmd) => {
+    ctx.emit({ type: 'revealed', what: 'room', id: cmd.crew ?? '' });
 });
+const alarm = (countdown: number): Command => testCommand({ type: 'gameTestAlarm', countdown } as TestCommand);
 
 const MOVE_JUN: Command = { type: 'move', crew: 'jun', path: [{ x: 1, y: 0 }] };
 const MOVE_MARA: Command = { type: 'move', crew: 'mara', path: [{ x: 1, y: 2 }] };
@@ -55,7 +49,7 @@ describe('the game session', () => {
     it('empties the undo stack after a final action', () => {
         const { session } = start();
         session.commit(MOVE_JUN);
-        const scout = session.commit({ type: 'gameTestScout', crew: 'jun' });
+        const scout = session.commit(testCommand({ type: 'gameTestScout', crew: 'jun' }));
         expect(scout.undoable).toBe(false);
         expect(session.canUndo).toBe(false);
         expect(session.undo()).toBe(false);
@@ -116,7 +110,7 @@ describe('the game session', () => {
 
     it('resumes exactly: state, undo stack, recent events, selection and camera', () => {
         const { session, storage } = start();
-        session.commit({ type: 'gameTestAlarm', countdown: 3 });
+        session.commit(alarm(3));
         session.commit(MOVE_JUN);
         session.commit(MOVE_MARA);
         session.select('mara');
@@ -143,9 +137,88 @@ describe('the game session', () => {
     it('resumes nothing from an empty storage and refuses another format', () => {
         const storage = new MemoryStorage();
         expect(Session.resume(storage)).toBeNull();
-        start(storage);
-        storage.set(HEIST_KEY, storage.get(HEIST_KEY)!.replace(/"format":\d+/, '"format":0'));
-        expect(() => Session.resume(storage)).toThrow(SaveFormatError);
+        expect(Session.lastResumeError).toBeNull();
+        const { session } = start(storage);
+        const good = storage.get(HEIST_KEY)!;
+        storage.set(HEIST_KEY, good.replace(/"format":\d+/, '"format":0'));
+        expect(Session.resume(storage)).toBeNull();
+        expect(Session.lastResumeError).toBeInstanceOf(SaveFormatError);
+        // A world that isn't the one the heist was played in, or no world at all.
+        storage.set(HEIST_KEY, good);
+        const world = storage.get(worldKey(session.worldId))!;
+        storage.set(worldKey(session.worldId), world.replace('"actionsPerTurn":2', '"actionsPerTurn":3'));
+        expect(Session.resume(storage)).toBeNull();
+        expect(String(Session.lastResumeError)).toMatch(/isn't the world/);
+        storage.remove(worldKey(session.worldId));
+        expect(Session.resume(storage)).toBeNull();
+        expect(String(Session.lastResumeError)).toMatch(/missing/);
+        storage.set(worldKey(session.worldId), world);
+        expect(Session.resume(storage)).not.toBeNull();
+    });
+
+    it('never leaves a heist pointing at a world it deleted', () => {
+        const storage = new MemoryStorage();
+        const old = start(storage).session;
+        old.commit(MOVE_JUN);
+        // A new heist on another world whose world write fails (a full quota).
+        const set = storage.set.bind(storage);
+        storage.set = (key, value) => {
+            if (key.startsWith('world:')) throw new Error('quota');
+            set(key, value);
+        };
+        const { state } = smallBank();
+        const other = Session.start({ world: fixtureWorld(['...']), state: { ...state, crew: [] }, storage, genVersion: 'fixture' });
+        expect(other.lastSaveError).toBeInstanceOf(Error);
+        expect(storage.get(HEIST_KEY)).toBeNull();
+        expect(storage.get(worldKey(old.worldId))).not.toBeNull();
+        expect(Session.resume(storage)).toBeNull();
+        expect(Session.lastResumeError).toBeNull();
+    });
+
+    it('hands out frozen state, results and events', () => {
+        const { session } = start();
+        const result = session.commit(MOVE_JUN);
+        expect(Object.isFrozen(session.state.crew[0]!.pos)).toBe(true);
+        expect(Object.isFrozen(result.events[0])).toBe(true);
+        expect(Object.isFrozen(session.recent)).toBe(true);
+        expect(Object.isFrozen(session.undoStack[0]!.crew)).toBe(true);
+        expect(Object.isFrozen(session.playback.peek()!.event)).toBe(true);
+        expect(() => { session.state.crew[0]!.actionsLeft = 9; }).toThrow(TypeError);
+    });
+
+    it('writes UI changes alone, debounced, and resumes them', () => {
+        vi.useFakeTimers();
+        try {
+            const { session, storage } = start();
+            session.commit(MOVE_JUN);
+            const heistWrites = storage.writesOf(HEIST_KEY);
+            session.select('mara');
+            session.setCamera({ x: 1, y: 2, zoom: 3 });
+            session.setPendingCommand(MOVE_MARA);
+            expect(storage.writesOf(UI_KEY)).toBe(0);
+            vi.advanceTimersByTime(1000);
+            expect(storage.writesOf(UI_KEY)).toBe(1);
+            expect(storage.writesOf(HEIST_KEY)).toBe(heistWrites);
+            const resumed = Session.resume(storage)!;
+            expect(resumed.ui).toEqual({ selected: 'mara', camera: { x: 1, y: 2, zoom: 3 }, pendingCommand: MOVE_MARA });
+            // A commit clears the pending command; the heist save then carries the UI, and an older UI entry is ignored.
+            session.commit(MOVE_MARA);
+            expect(session.pendingCommand).toBeNull();
+            expect(Session.resume(storage)!.ui).toEqual({ selected: 'mara', camera: { x: 1, y: 2, zoom: 3 }, pendingCommand: null });
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+
+    it('drops a saved UI that no longer fits, and an undo stack without its events', () => {
+        const { session, storage } = start();
+        session.commit(MOVE_JUN);
+        const heist = JSON.parse(storage.get(HEIST_KEY)!) as Record<string, unknown>;
+        storage.set(HEIST_KEY, JSON.stringify({ ...heist, ui: { selected: 'ghost', camera: { x: 'a', y: 0, zoom: 1 }, pendingCommand: 5 }, undoRecent: [] }));
+        const resumed = Session.resume(storage)!;
+        expect(resumed.ui).toEqual({ selected: null, camera: null, pendingCommand: null });
+        expect(resumed.canUndo).toBe(false);
+        expect(hashOf(resumed.state)).toBe(hashOf(session.state));
     });
 
     it('keeps playing when the storage is full', () => {
@@ -159,7 +232,7 @@ describe('the game session', () => {
     it('recaps the last three events, the bank, the turn and the crew', () => {
         const { session, storage } = start();
         session.commit({ type: 'wait', crew: 'jun' });
-        session.commit({ type: 'gameTestAlarm', countdown: 2 });
+        session.commit(alarm(2));
         session.commit(MOVE_MARA);
         const recap = Session.resume(storage)!.recap();
         expect(recap.turn).toBe(1);
@@ -189,19 +262,49 @@ describe('the game session', () => {
         session.commit(MOVE_JUN);
         expect(seen).toEqual(['commit', 'undo', 'ui', 'endTurn']);
     });
+
+    it('reports a listener that throws, and tells changes made inside a listener after the current one', () => {
+        const errors: unknown[] = [];
+        const { world, state } = smallBank();
+        const session = Session.start({ world, state, storage: new MemoryStorage(), genVersion: 'fixture', onListenerError: e => errors.push(e) });
+        const seen: string[] = [];
+        session.subscribe(change => {
+            seen.push(`a:${change.kind}`);
+            if (change.kind === 'commit') session.select('jun');
+        });
+        session.subscribe(change => {
+            seen.push(`b:${change.kind}`);
+            throw new Error('boom');
+        });
+        expect(() => session.commit(MOVE_JUN)).not.toThrow();
+        expect(seen).toEqual(['a:commit', 'b:commit', 'a:ui', 'b:ui']);
+        expect(errors).toHaveLength(2);
+    });
+
+    it('keeps the most recent previews', () => {
+        const { session } = start();
+        const first = session.preview(MOVE_JUN);
+        for (let i = 0; i < PREVIEW_CACHE; i++) session.preview({ type: 'move', crew: 'mara', path: [{ x: 1, y: 2 }], extra: i } as Command);
+        expect(session.preview(MOVE_JUN)).not.toBe(first);
+        const again = session.preview(MOVE_JUN);
+        expect(session.preview(MOVE_JUN)).toBe(again);
+    });
 });
 
 describe('the playback queue', () => {
     it('queues the events of each commit with their importance', () => {
         const { session } = start();
         session.commit(MOVE_JUN);
-        session.commit({ type: 'gameTestAlarm', countdown: 2 });
+        session.commit(alarm(2));
         session.endTurn();
         const items = session.playback.drain();
         expect(items.map(i => [i.event.type, i.important])).toEqual([
             ['moved', null], ['carrierStarted', 'carrier'], ['phaseStarted', null], ['carrierTicked', 'carrier'], ['phaseStarted', null]
         ]);
         expect(items.map(i => i.seq)).toEqual([0, 1, 2, 3, 4]);
+        // The world phase belongs to the turn that ended until the next crew phase starts.
+        expect(items.map(i => i.turn)).toEqual([1, 1, 1, 1, 2]);
+        expect(session.playback.pending()).toEqual([]);
         expect(session.playback.length).toBe(0);
     });
 
@@ -211,8 +314,10 @@ describe('the playback queue', () => {
             const { session } = start();
             session.commit({ type: 'move', crew: 'jun', path: [{ x: 1, y: 0 }] });
             expect(session.playback.peek()!.important).toBeNull();
+            session.commit(MOVE_MARA);
             session.undo();
-            expect(session.playback.length).toBe(0);
+            expect(session.playback.pending().map(i => i.event.type)).toEqual(['moved']);
+            expect(session.playback.peek()!.event).toMatchObject({ crew: 'jun' });
             const queue = new PlaybackQueue();
             queue.push([{ type: 'moved', crew: 'jun', from: { x: 5, y: 0 }, to: { x: 6, y: 0 } }], session.state);
             expect(queue.next()!.important).toBe('arrival');
@@ -229,8 +334,8 @@ describe('the playback queue', () => {
 describe('the HUD view models', () => {
     it('shows the turn, the bank, the crew rail and the threat ledger by urgency', () => {
         const { session } = start();
-        session.commit({ type: 'gameTestAlarm', countdown: 4 });
-        session.commit({ type: 'gameTestAlarm', countdown: 2 });
+        session.commit(alarm(4));
+        session.commit(alarm(2));
         session.select('jun');
         session.commit(MOVE_JUN);
         const hud = session.hud();

@@ -44,7 +44,7 @@ export interface PlaybackItem {
     event: SimEvent;
     /** Why the camera should visit it, or null for the log and edge-of-screen arrows only. */
     important: ImportantReason | null;
-    /** The turn the event happened in (the state's turn once its batch was done). */
+    /** The turn the event happened in: a world phase's events belong to the turn that ended, until the next begins. */
     turn: number;
 }
 
@@ -53,11 +53,23 @@ export class PlaybackQueue {
     private seq = 0;
     speed: PlaybackSpeed = '1x';
 
-    /** Queues the events of one commit, classified against the state they left. */
-    push(events: readonly SimEvent[], state: State): PlaybackItem[] {
-        const added = events.map(event => ({ seq: this.seq++, event, important: importance(event, state), turn: state.turn }));
+    /**
+     * Queues the events of one commit, classified against the state they left. `turn` is the turn the commit was given
+     * in; a crew phase starting moves the events after it into its turn.
+     */
+    push(events: readonly SimEvent[], state: State, turn = state.turn): PlaybackItem[] {
+        const added = events.map(event => {
+            if (event.type === 'phaseStarted' && event.phase === 'crew') turn = event.turn;
+            return { seq: this.seq++, event, important: importance(event, state), turn };
+        });
         this.items.push(...added);
         return added;
+    }
+
+    /** Drops the items with these sequence numbers (an undone commit's), leaving the rest queued. */
+    remove(seqs: readonly number[]): void {
+        const drop = new Set(seqs);
+        this.items = this.items.filter(i => !drop.has(i.seq));
     }
 
     /** The next event to animate, removed from the queue. */
@@ -70,8 +82,8 @@ export class PlaybackQueue {
     }
 
     /** Everything still waiting, without taking it. */
-    pending(): readonly PlaybackItem[] {
-        return this.items;
+    pending(): PlaybackItem[] {
+        return [...this.items];
     }
 
     /** Takes everything at once (skip, or the instant speed). */

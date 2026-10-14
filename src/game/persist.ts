@@ -1,62 +1,80 @@
-import { assertPlainJson, deserialise, SAVE_FORMAT, SaveFormatError, type ReadonlyWorld, type Saved, type SimEvent, type State, type UndoStack } from '../sim';
+import {
+    deserialiseState, deserialiseWorld, SAVE_FORMAT, SaveFormatError, serialiseState, serialiseWorld, type ReadonlyWorld, type SavedState,
+    type SimEvent, type State, type UndoStack
+} from '../sim';
 
 /*
- * How the Session's two autosave entries are written and read, behind two pairs of functions, so this can move onto
- * the core's per-action save (state, recent events and undo, with the world serialised once) when src/sim has it.
- * Both entries carry src/sim's SAVE_FORMAT, and reading puts them back together through its `deserialise`, so a save
- * is checked and frozen the same way however it is stored.
+ * How the Session's autosave entries are written and read. The core's save (src/sim/core/save.ts) does the work: the
+ * world once with `serialiseWorld`, the state, recent events and undo stack after every action with `serialiseState`.
+ * The heist entry is that state save with the Session's own fields added beside the core's (the world it belongs to,
+ * the events before each undoable action, the UI and a save counter), so the core checks it as its own.
  */
 
-/** What the Session keeps beside the core save: the UI and the recent events before each undoable action. */
+export { serialiseWorld };
+
+/** What the Session keeps beside the core save. */
 export interface HeistExtras<Ui> {
     worldId: string;
     /** In step with the undo stack, so undoing takes its events back too. */
     undoRecent: SimEvent[][];
     ui: Ui;
+    /** Counts the heist's saves, so a UI entry written after it can tell it belongs to this one. */
+    seq: number;
 }
 
-export function serialiseWorld(genVersion: string, world: ReadonlyWorld): string {
-    return JSON.stringify({ format: SAVE_FORMAT, genVersion, world });
-}
+const EXTRA_KEYS = ['worldId', 'undoRecent', 'ui', 'seq'] as const;
 
 export function serialiseHeist<Ui>(saved: { state: State; recent: readonly SimEvent[]; undo: UndoStack } & HeistExtras<Ui>): string {
-    const heist = {
-        format: SAVE_FORMAT, worldId: saved.worldId, state: saved.state, recent: saved.recent, undo: saved.undo,
-        undoRecent: saved.undoRecent, ui: saved.ui
-    };
-    assertPlainJson(heist, 'heist');
-    return JSON.stringify(heist);
+    const core = serialiseState(saved);
+    const extras = JSON.stringify({ worldId: saved.worldId, undoRecent: saved.undoRecent, ui: saved.ui, seq: saved.seq });
+    // The core's object, closed one field later: `{…core…,"worldId":…}`.
+    return `${core.slice(0, -1)},${extras.slice(1)}`;
 }
 
-function parse(text: string, what: string): Record<string, unknown> {
+function parseObject(text: string, what: string): Record<string, unknown> {
     let data: unknown;
     try {
         data = JSON.parse(text);
     } catch (e) {
         throw new SaveFormatError(`The ${what} isn't JSON: ${(e as Error).message}`);
     }
-    if (!data || typeof data !== 'object') throw new SaveFormatError(`The ${what} is not an object`);
-    const record = data as Record<string, unknown>;
-    if (record.format !== SAVE_FORMAT) {
-        throw new SaveFormatError(`The ${what} has format ${String(record.format)}, this build reads format ${SAVE_FORMAT}`);
-    }
-    return record;
+    if (!data || typeof data !== 'object' || Array.isArray(data)) throw new SaveFormatError(`The ${what} is not an object`);
+    return data as Record<string, unknown>;
 }
 
 /** The world id a heist entry was played in, to find its world entry. */
 export function heistWorldId(heistText: string): string {
-    const id = parse(heistText, 'save').worldId;
+    const id = parseObject(heistText, 'save').worldId;
     if (typeof id !== 'string') throw new SaveFormatError('The save names no world');
     return id;
 }
 
-export function deserialiseHeist<Ui>(heistText: string, worldText: string): Saved & HeistExtras<Partial<Ui> | null> {
-    const heist = parse(heistText, 'save'), stored = parse(worldText, 'saved world');
-    const saved = deserialise(JSON.stringify({
-        format: SAVE_FORMAT, genVersion: stored.genVersion, world: stored.world, state: heist.state, recent: heist.recent, undo: heist.undo
-    }));
-    const undoRecent = Array.isArray(heist.undoRecent) && heist.undoRecent.length === saved.undo.length
-        ? heist.undoRecent as SimEvent[][] : saved.undo.map(() => saved.recent);
+export function deserialiseHeist<Ui>(heistText: string, worldText: string): SavedState & { genVersion: string; world: ReadonlyWorld } & HeistExtras<Partial<Ui> | null> {
+    const { genVersion, world } = deserialiseWorld(worldText);
+    const saved = deserialiseState(heistText);
+    const heist = parseObject(heistText, 'save');
+    for (const key of EXTRA_KEYS) if (!(key in heist)) throw new SaveFormatError(`The save has no ${key}`);
     const ui = heist.ui && typeof heist.ui === 'object' ? heist.ui as Partial<Ui> : null;
-    return { ...saved, worldId: String(heist.worldId), undoRecent, ui };
+    const seq = typeof heist.seq === 'number' ? heist.seq : 0;
+    const base = { ...saved, genVersion, world, worldId: String(heist.worldId), ui, seq };
+    // Undo needs the events before each undoable action; a save without them in step loses its undo rather than
+    // making them up.
+    if (!Array.isArray(heist.undoRecent) || heist.undoRecent.length !== saved.undo.length) return { ...base, undo: [], undoRecent: [] };
+    return { ...base, undoRecent: heist.undoRecent as SimEvent[][] };
+}
+
+/** The UI entry: the UI state alone, written cheaply between heist saves, for the heist save number `seq`. */
+export function serialiseUi<Ui>(seq: number, ui: Ui): string {
+    return JSON.stringify({ format: SAVE_FORMAT, seq, ui });
+}
+
+/** The UI in a UI entry if it belongs to heist save `seq`, else null. Never throws. */
+export function deserialiseUi<Ui>(text: string | null, seq: number): Partial<Ui> | null {
+    if (text === null) return null;
+    try {
+        const entry = parseObject(text, 'UI');
+        return entry.format === SAVE_FORMAT && entry.seq === seq && entry.ui && typeof entry.ui === 'object' ? entry.ui as Partial<Ui> : null;
+    } catch {
+        return null;
+    }
 }
