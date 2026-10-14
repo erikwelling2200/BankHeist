@@ -52,6 +52,9 @@ export function defaultRules(): Rules {
     return { ...DEFAULT_RULES, ...RULE_DEFAULTS } as Rules;
 }
 
+/** The fields of `State` the engine fills in itself; packages fill in theirs with `registerStateInit`. */
+type CoreStateKey = 'turn' | 'phase' | 'bank' | 'crew' | 'npcs' | 'doors' | 'edges' | 'objects' | 'cameras' | 'carriers' | 'seed' | 'rng' | 'dice' | 'nextId';
+
 export interface CrewStart { id: string; name?: string; pos: Pos; facing?: Facing; items?: string[] }
 
 export function initialState(world: ReadonlyWorld, options: { seed: number; crew: readonly CrewStart[] }): State {
@@ -65,20 +68,22 @@ export function initialState(world: ReadonlyWorld, options: { seed: number; crew
     const crewInits = inOrder(CREW_INITS), npcInits = inOrder(NPC_INITS);
     const crew: CrewState[] = options.crew.map(c => {
         place('Crew member', c.id, c.pos);
-        const member: CrewState = {
+        // Packages' own fields are filled in by their crew inits, just below.
+        const member: Pick<CrewState, 'id' | 'name' | 'pos' | 'facing' | 'actionsLeft' | 'loadout'> = {
             id: c.id,
             name: c.name ?? c.id,
             pos: { x: c.pos.x, y: c.pos.y },
             facing: c.facing ?? 'n',
             actionsLeft: world.rules.actionsPerTurn,
-            loadout: { items: [...(c.items ?? [])] }
+            loadout: { items: [...(c.items ?? [])] } as CrewState['loadout']
         };
-        for (const init of crewInits) init(world, c, member);
-        return member;
+        for (const init of crewInits) init(world, c, member as CrewState);
+        return member as CrewState;
     });
     const npcs: NpcState[] = world.people.map(p => {
         place('NPC', p.id, p.pos);
-        const npc: NpcState = {
+        // Packages' own fields are filled in by their NPC inits, just below.
+        const npc: Pick<NpcState, 'id' | 'pos' | 'facing' | 'status' | 'suspicion' | 'exposedTo' | 'intent'> = {
             id: p.id,
             pos: { x: p.pos.x, y: p.pos.y },
             facing: p.facing,
@@ -87,14 +92,15 @@ export function initialState(world: ReadonlyWorld, options: { seed: number; crew
             exposedTo: [],
             intent: { path: [] }
         };
-        for (const init of npcInits) init(world, p, npc);
-        return npc;
+        for (const init of npcInits) init(world, p, npc as NpcState);
+        return npc as NpcState;
     });
     const doors: Record<string, DoorState> = {};
     for (const id of sortedIds(world.doors)) doors[id] = { status: world.doors[id]!.start };
     const cameras: Record<string, CameraState> = {};
     for (const c of world.cameras) cameras[c.id] = { facing: 0, live: true };
-    const state: State = {
+    // Packages' own fields are filled in by their state inits, just below.
+    const state: Pick<State, CoreStateKey> = {
         turn: 1,
         phase: 'crew',
         bank: { loud: false, alarm: false },
@@ -108,8 +114,8 @@ export function initialState(world: ReadonlyWorld, options: { seed: number; crew
         dice: [],
         nextId: 1
     };
-    for (const init of inOrder(STATE_INITS)) init(world, state);
-    return state;
+    for (const init of inOrder(STATE_INITS)) init(world, state as State);
+    return state as State;
 }
 
 /**

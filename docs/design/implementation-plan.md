@@ -166,6 +166,25 @@ Each package lists its goal, the design sections it covers, the files, what it d
   - **Note from M1-04:** Alerted must be a flag separate from the NPC's status: a commanded guard stays Alerted (§8.7).
     `npcObserver` (geo/cones.ts) reads `alerted`/`hostile` statuses as Alerted until that flag exists; switch it over.
   - **Accept:** every cell of §8.4 is tested, Core and Peripheral, using cases taken from `scripts/ui-mockups/rules.py`; the trespass sequence; the on-edge reading.
+  - **Notes (done):** the one copy of each rule is in `rules/perceive.ts`: `reaction` (the matrix lookup with every
+    modifier), `assessStep` (mid-move, only `!`), `assessEnd`, `sightingsAlong` / `assessWorldPhase` (an NPC walking
+    its committed intent; doors it walks through open for the rest of its walk; cameras at the facing they pan to) and
+    `witness` (illegal acts), all pure and returning `Sighting`s (who, from where, cell, outcome, why);
+    `applySightings` is the only writer. A move judges its steps and end against the NPCs as the move began and
+    applies them together at the end; the world phase judges every sighting before applying any, before anyone moves
+    (`perception.world`, passiveNpcs order −100), then checks trespass deadlines (−90); decay runs in devices (40).
+    A sighting that reads "—" is no perception check in the crew phase (undo stays free) but stops decay in the world
+    phase. `NpcState.alerted` is the on-edge flag (cones.ts reads it); statuses are M1-06's. NPCs hand their reactions
+    to M1-06 as `NpcState.wants` (react > challenge > escort > investigate > face, with the tile last seen and when it
+    was decided); camera `!`s queue in `State.cameraReports` for M1-08. Later actions call `perceiveEnd(ctx, crew)`
+    after every action and `witnessAct(ctx, crew, act)` for illegal acts. Frisk range is Chebyshev (rules.py uses
+    Euclidean 2.2); civilians in the Secure zone read the Staff zone's civilian column (rules.py: nothing). Only the
+    staff uniform is in (the guard and courier uniforms are M2-03's; `holsterable` marks the pistols they affect).
+    `assessPath` judges a whole move (the move hook applies exactly it); `worldPoses` works out every NPC's walk once
+    so the overlay can ask `assessWorldPhase` about many tiles; `assessWorldPhase` includes a trespass deadline falling
+    due (`deadlineOutcome`, the same function the deadline hook uses). Each NPC's walk opens only its own doors.
+    Deferred: §8.7 "once loud, an unexposed Clean crew member counts as a civilian" (→ M3); the security chief
+    remembering faces (§16.2).
 - [ ] **M1-06 NPC schedules and intents.**
   - **Covers:** §6.1, §6.4, §16.1, §16.3, §8.5 (Curious turns, Investigating walks), "one investigates, the others watch".
   - **Work:**
@@ -177,6 +196,10 @@ Each package lists its goal, the design sections it covers, the files, what it d
   - **Files:** `src/gen/population.ts`, `src/sim/rules/npc/*`.
   - **Depends on:** M1-02, M1-03. **∥** M1-05.
   - **Accept:** a generated bank runs 45 turns with nobody stuck or on a blocked tile; intents equal what was carried out the next phase.
+  - **Note from M1-05:** NPC reactions arrive as `NpcState.wants` (rules/suspicion.ts). A want formed in the crew
+    phase must rewrite `npc.intent` at once (in the same command), so its telegraph shows during that crew phase and
+    the world phase's perception (`sightingsAlong`, judged on the intents frozen at the start of the phase) looks along
+    the new facing and path. A want formed in a world phase becomes the intent committed at its end (§6.2).
 - [ ] **M1-07 Turn loop and crew actions.**
   - **Covers:** §6.1–6.3, §6.6, §8.10, §11.10 (knockout).
   - **Work:**
@@ -200,6 +223,9 @@ Each package lists its goal, the design sections it covers, the files, what it d
   - **Files:** `src/sim/rules/{carriers,cameras,checkins}.ts`.
   - **Depends on:** M1-07. **∥** M1-10, M1-11.
   - **Accept:** a property test that every carrier is created with a countdown of at least 2 and every carrier type has a counter that works mid-countdown; scenario "the panel is dead, so the teller's button is dead".
+  - **Note from M1-05:** camera `!` sightings wait in `State.cameraReports` (one per camera and crew member; a
+    `cameraSaw` event each time). The hatched overlay judges each camera at the facing it pans to next
+    (`cameraObserver(…, next = true)`), so a panning camera must advance exactly one step per world phase.
 - [ ] **M1-09 Previews, safe floor and the property test.**
   - **Covers:** §8.8, §8.9 preview, §20.2.
   - **Work:**
@@ -481,6 +507,14 @@ Later milestones: within each milestone, the `∥` notes in §3 apply. UI packag
 18. **Camera panning.** The generator stores `pan: [dirA, dirB]` (facing ±45°). The live feeds cycle round-robin over the monitors each world phase.
 19. **Saves.** Store the whole world plus the state, not only the seeds.
 20. **Property-test library.** Use the repo's own seeded `Rng`; no new dependency.
+21. **Suspicion decay and undo (M1-05).** A pip decays at the end of a world phase in which the NPC didn't see that crew
+    member. A crew-phase sighting that reads "—" doesn't count as seeing (it changes nothing, so the move stays
+    undoable and the overlay's green holds); one in the world phase does. Seeing with an effect, in either phase, does.
+22. **Second offence and cameras (M1-05).** A Warned crew member's `T` becomes `!` for the NPC that warned them and for
+    any enforcer NPC, not for cameras: cameras register only `!` cells (§8.4) and the operator doesn't know who was
+    warned.
+23. **Civilians in the Secure zone (M1-05).** §8.4 doesn't list them; they read the Staff zone's civilian column (only
+    Armed and Heavy matter to them, §8.2).
 
 ### Critical files for implementation
 

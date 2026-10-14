@@ -30,6 +30,8 @@ declare module '../core/types' {
 export type MoveMode = 'move' | 'dash';
 
 export interface MoveHook {
+    /** Before the first step, with the state as it was before the move (the path is already checked). */
+    start?: (ctx: Ctx, member: CrewState, path: readonly Pos[], mode: MoveMode) => void;
     /** After the mover stands on `path[index]` (facing along the step), before the next step. */
     step?: (ctx: Ctx, member: CrewState, path: readonly Pos[], index: number, mode: MoveMode) => void;
     /** After the move is over (the moved event and any noise emitted). */
@@ -74,6 +76,7 @@ export function crewMoveOptions(member: DeepReadonly<CrewState>): MoveOptions {
 }
 
 function walk(ctx: Ctx, member: CrewState, path: readonly Pos[], mode: MoveMode): void {
+    for (const h of hooks()) h.start?.(ctx, member, path, mode);
     const from = member.pos;
     let prev = from;
     for (let i = 0; i < path.length; i++) {

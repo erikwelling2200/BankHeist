@@ -12,7 +12,7 @@ export const MOVE_ACTIONS = 1;
 export const DASH_ACTIONS = 2;
 
 /**
- * The loadout item that is heavy armour: Move reaches `rules.heavyMoveTiles` and Dash isn't allowed (§6.3). A
- * placeholder id until the item tables (M1-05) own it.
+ * The loadout item that is heavy armour: Move reaches `rules.heavyMoveTiles` and Dash isn't allowed (§6.3), while it
+ * is worn (in `Loadout.items`, not packed). Its entry in the item table is `ITEMS.heavyArmour` (data/items.ts).
  */
 export const HEAVY_ARMOUR_ITEM = 'heavyArmour';

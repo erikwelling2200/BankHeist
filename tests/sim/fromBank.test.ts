@@ -5,7 +5,7 @@ import { SEE_THROUGH } from '../../src/gen/nav';
 import { WALL_CHARS } from '../../src/level/plan';
 import type { WallKind } from '../../src/level/walls';
 import {
-    deserialise, DOOR_KINDS, NOT_CARRIERS, edgeBetween, edgeKey, initialState, packWorld, serialise, tileAt, unpackWorld, WALL_MATERIALS, worldFromBank,
+    assessWorldPhase, deserialise, DOOR_KINDS, NOT_CARRIERS, edgeBetween, edgeKey, initialState, packWorld, serialise, tileAt, sightMap, unpackWorld, WALL_MATERIALS, worldFromBank,
     type DeepReadonly, type Pos, type ReadonlyWorld, type Tile, type Zone
 } from '../../src/sim';
 
@@ -174,5 +174,31 @@ describe('wall materials', () => {
             expect(WALL_MATERIALS[kind].blocksSight, kind).toBe(!SEE_THROUGH.includes(kind));
             expect(WALL_MATERIALS[kind].blocksMove, kind).toBe(true);
         }
+    });
+});
+
+describe('perception on a generated world (M1-05)', () => {
+    it('judges a crew member by the zone of the generated tile they stand on, through rails and fences', () => {
+        let sightings = 0;
+        const zones = new Set<Zone>();
+        for (const { label, world } of banks.filter((_, i) => i % 4 === 0)) {
+            const taken = new Set(world.people.map(p => `${p.pos.x},${p.pos.y}`));
+            for (let i = 0, tried = 0; i < world.tiles.length && tried < 40; i++) {
+                const tile = world.tiles[i]!, pos = { x: i % world.width, y: Math.floor(i / world.width) };
+                if (tile.blocksMove || tile.zone === 'public' || taken.has(`${pos.x},${pos.y}`) || i % 7) continue;
+                tried++;
+                const state = initialState(world, { seed: 1, crew: [{ id: 'jun', pos }] });
+                for (const s of assessWorldPhase(world, state, sightMap(world, state), 'jun', pos)) {
+                    expect(s.zone, label).toBe(tileAt(world, s.tile)!.zone);
+                    zones.add(s.zone);
+                    sightings++;
+                }
+            }
+        }
+        expect(sightings).toBeGreaterThan(0);
+        expect(zones.has('staff') || zones.has('secure')).toBe(true);
+        const clear = Object.values(banks[0]!.world.edges).filter(e => e.material === 'rail' || e.material === 'fence');
+        for (const { world } of banks) for (const e of Object.values(world.edges)) if (e.material === 'rail' || e.material === 'fence') expect(e.blocksSight).toBe(false);
+        expect(clear.every(e => e.blocksMove)).toBe(true);
     });
 });

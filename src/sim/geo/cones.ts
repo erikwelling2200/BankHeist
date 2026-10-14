@@ -38,6 +38,13 @@ declare module '../core/types' {
         /** How much further Alerted NPCs see, in both arcs (§8.7: Core 8, Peripheral 10). */
         alertedRangeBonus: number;
     }
+    interface NpcState {
+        /**
+         * On edge (§8.7): it sees further and treats Peripheral as Core, and reads everyone one profile higher. A flag
+         * of its own, not a status: a commanded guard stays Alerted. Set by rules/suspicion.ts (`alertNpc`).
+         */
+        alerted: boolean;
+    }
     interface CameraDef {
         /** It sees in the dark (Regional HQ tier and up, §8.3), at half range; otherwise it is blind on unlit tiles. */
         seesInDark?: boolean;
@@ -75,12 +82,6 @@ export const ARC_TAN: Readonly<Record<HalfAngle, readonly [number, number] | nul
 
 /** NPC states that see nothing. */
 export const BLIND_STATUSES: readonly NpcStatus[] = ['unconscious', 'dead'];
-
-/**
- * NPC states that see on edge: further, and Peripheral as Core (§8.7). A stopgap until M1-05 makes Alerted a flag of
- * its own (a commanded guard stays Alerted); `npcObserver` takes that flag when it exists.
- */
-export const ALERTED_STATUSES: readonly NpcStatus[] = ['alerted', 'hostile'];
 
 export interface VisionProfiles { calm: VisionProfile; alerted: VisionProfile; camera: VisionProfile; darkCamera: VisionProfile; crew: VisionProfile }
 
@@ -143,12 +144,12 @@ export function profilesOf(world: ReadonlyWorld): VisionProfiles {
 
 /**
  * An NPC as an observer, or null while it sees nothing (out cold, dead). Commanded and tied NPCs still see; whether
- * what they see counts (eyes down, §8.7) is for perception to decide.
+ * what they see counts (eyes down, §8.7) is for perception to decide. Its `alerted` flag gives it the on-edge profile.
  */
 export function npcObserver(world: ReadonlyWorld, npc: DeepReadonly<NpcState>): Observer | null {
     if (BLIND_STATUSES.includes(npc.status)) return null;
     const p = profilesOf(world);
-    return { pos: npc.pos, facing: npc.facing, profile: ALERTED_STATUSES.includes(npc.status) ? p.alerted : p.calm };
+    return { pos: npc.pos, facing: npc.facing, profile: npc.alerted ? p.alerted : p.calm };
 }
 
 /**

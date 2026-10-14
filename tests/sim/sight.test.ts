@@ -309,8 +309,9 @@ describe('cones', () => {
 });
 
 describe('observers', () => {
-    const npc = (status: NpcState['status'], facing: Facing = 's'): NpcState => ({
-        id: 'guard', pos: P(4, 0), facing, status, suspicion: {}, exposedTo: [], intent: { path: [] }
+    const npc = (status: NpcState['status'], facing: Facing = 's', alerted = false): NpcState => ({
+        id: 'guard', pos: P(4, 0), facing, status, suspicion: {}, exposedTo: [], intent: { path: [] }, alerted,
+        alertCause: null, warned: [], challenges: [], wants: [], lastSeen: {}
     });
 
     it('build NPCs, cameras and crew from the state', () => {
@@ -318,8 +319,10 @@ describe('observers', () => {
         const state = initialState(world, { seed: 1, crew: [{ id: 'jun', pos: P(8, 8), facing: 'n' }] });
         expect(npcObserver(world, npc('calm'))!.profile.name).toBe('calm');
         expect(npcObserver(world, npc('curious'))!.profile.name).toBe('calm');
-        expect(npcObserver(world, npc('alerted'))!.profile.name).toBe('alerted');
-        expect(npcObserver(world, npc('hostile'))!.profile.name).toBe('alerted');
+        // Alerted is a flag of its own (§8.7): a commanded guard stays on edge, a status alone doesn't make one.
+        expect(npcObserver(world, npc('calm', 's', true))!.profile.name).toBe('alerted');
+        expect(npcObserver(world, npc('commanded', 's', true))!.profile.name).toBe('alerted');
+        expect(npcObserver(world, npc('hostile'))!.profile.name).toBe('calm');
         expect(npcObserver(world, npc('unconscious'))).toBeNull();
         expect(npcObserver(world, npc('dead'))).toBeNull();
 
@@ -341,8 +344,8 @@ describe('observers', () => {
         const rng = new Rng(9);
         for (let n = 0; n < 20; n++) {
             const { world, state } = randomFixture(rng);
-            for (const status of ['calm', 'alerted'] as const) {
-                const o = npcObserver(world, { ...npc(status, rng.pick(FACINGS)), pos: P(rng.int(0, world.width - 1), rng.int(0, world.height - 1)) })!;
+            for (const alerted of [false, true]) {
+                const o = npcObserver(world, { ...npc('calm', rng.pick(FACINGS), alerted), pos: P(rng.int(0, world.width - 1), rng.int(0, world.height - 1)) })!;
                 const field = seenTiles(world, state, o), listed = new Set(field.tiles.map(p => `${p.x},${p.y}`));
                 expect(seenTiles(world, state, o)).toBe(field);
                 for (let y = 0; y < world.height; y++) for (let x = 0; x < world.width; x++) {

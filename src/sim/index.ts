@@ -15,6 +15,10 @@ import './geo/move';
 import './geo/sound';
 import './rules/carriers';
 import './rules/doors';
+import './rules/perceive';
+import './rules/profile';
+import './rules/suspicion';
+import './rules/trespass';
 // --- systems: end
 
 export * from './core/types';
@@ -54,10 +58,23 @@ export * from './data/movement';
 export * from './data/noise';
 export { BLOCKS, buildSightMap, CLEAR, hasLineOfSight, lineOfSight, MID, sightInputs, sightMap, type SightMap } from './geo/los';
 export {
-    ALERTED_STATUSES, ARC_TAN, bandAt, bandOf, BLIND_STATUSES, cameraObserver, crewObserver, fieldOn,
+    ARC_TAN, bandAt, bandOf, BLIND_STATUSES, cameraObserver, crewObserver, fieldOn,
     inArc, npcObserver, profilesOf, rangeOn, sees, seenTiles, seesOn, visionProfiles,
     type Arc, type Band, type HalfAngle, type Observer, type SightField, type VisionProfile, type VisionProfiles
 } from './geo/cones';
 export { worldFromBank, NOT_CARRIERS, OBJECT_KINDS } from './world/fromBank';
 export { WALL_MATERIALS, DOOR_KINDS, type WallMaterial } from './world/materials';
 export { packWorld, unpackWorld, packTiles, unpackTiles, type PackedTiles, type PackedWorld } from './world/compact';
+export * from './data/items';
+export * from './data/matrix';
+export { checkLoadout, crewLook, crewProfile, friskFinds, notorietySteps, readProfile, type CrewLook } from './rules/profile';
+export {
+    addSuspicion, alertNpc, expose, EYES_DOWN, isEyesDown, isExposedTo, markSeen, MAX_PIPS, pipsOf, refreshWant, setEscort,
+    type CameraReport, type Challenge, type LastSeen, type Want, type WantKind
+} from './rules/suspicion';
+export { challenge, challengeDeadline, challengerOf, deadlineOutcome, dueChallenge, hasWarned, isWarned } from './rules/trespass';
+export {
+    applySightings, assessEnd, assessPath, assessStep, assessWorldPhase, perceiveEnd, posesAlong, reaction, sightingsAlong,
+    sightsAlongWalk, witness, witnessAct, worldPoses, type AlongOptions, type AssessOptions, type PathAssessment, type PoseAt,
+    type Reaction, type ReactionInput, type Sighting, type WorldPhaseOptions, type WorldPoses, type Why
+} from './rules/perceive';
