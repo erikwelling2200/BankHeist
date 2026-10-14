@@ -16,6 +16,7 @@ Top-down 2D pixel-art stealth game. Phaser 4 + TypeScript + Vite, shipped as an 
   `?seed=` picks other parcels). Check furnishing changes there first.
 - `docs/design/research.md` holds the key research findings behind each design decision, with the full notes per area in
   `docs/design/research/`.
+- `docs/design/implementation-plan.md` is the build plan for the game rules (architecture of `src/sim`, work packages per milestone with checkboxes); tick packages off as they land.
 - The design's hard promises: the safe-floor overlay and every preview use the same rules as the real outcome; every
   alarm carrier shows a countdown of at least 2; no NPC raises an alarm, draws a weapon or breaches without a telegraphed
   intent, and grenades land a phase before they go off. Full previews are for stealth only; in combat, police announce
