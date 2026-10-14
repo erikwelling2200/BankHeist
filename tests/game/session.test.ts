@@ -78,7 +78,7 @@ describe('the game session', () => {
         const done = session.commit(MOVE_JUN);
         expect(hashOf(done.state)).toBe(hashOf(a.state));
         expect(done.events).toEqual(a.events);
-        expect(() => session.preview(MOVE_JUN)).toThrow(/isn't next to/);
+        expect(() => session.preview(MOVE_JUN)).toThrow(IllegalCommand);
     });
 
     it('autosaves after every commit, undo and end of turn, and writes the world once', () => {
@@ -319,7 +319,7 @@ describe('the playback queue', () => {
             expect(session.playback.pending().map(i => i.event.type)).toEqual(['moved']);
             expect(session.playback.peek()!.event).toMatchObject({ crew: 'jun' });
             const queue = new PlaybackQueue();
-            queue.push([{ type: 'moved', crew: 'jun', from: { x: 5, y: 0 }, to: { x: 6, y: 0 } }], session.state);
+            queue.push([{ type: 'moved', crew: 'jun', from: { x: 5, y: 0 }, to: { x: 6, y: 0 }, path: [{ x: 6, y: 0 }] }], session.state);
             expect(queue.next()!.important).toBe('arrival');
             queue.speed = '2x';
             expect(queue.duration(400)).toBe(200);
