@@ -429,6 +429,76 @@ test('draws the move grid on a raised floor where it stands', async ({ page }) =
     expect(errors).toEqual([]);
 });
 
+/** A scene for the world UI: five NPCs the crew sees near Mara, in different states, one holding a carrier. */
+const WORLD_UI_SETUP = `(() => { ${PAGE_HELPERS}
+    const st = clone(sim.state), present = st.npcs.filter(n => n.status !== 'away');
+    // Whoever has most people within 2 tiles (so a knockout's quiet noise reaches someone), and the four nearest them.
+    const cheb = (p, q) => Math.max(Math.abs(p.x - q.x), Math.abs(p.y - q.y));
+    let best = null, most = 0;
+    for (const a of present) {
+        const n = present.filter(o => o !== a && cheb(o.pos, a.pos) <= 2).length;
+        if (n > most) { most = n; best = [a, ...present.filter(o => o !== a).sort((p, q) => cheb(p.pos, a.pos) - cheb(q.pos, a.pos)).slice(0, 4)]; }
+    }
+    if (!best) return null;
+    // The one long-pressed (b) is the furthest from Mara, so her drawing doesn't stand over it.
+    const [a, ...rest] = best;
+    rest.sort((p, q) => cheb(q.pos, a.pos) - cheb(p.pos, a.pos));
+    const [b, c, d, e] = rest;
+    for (const n of best) know(st, n);
+    a.status = 'curious'; a.suspicion = { mara: 2, jun: 1 };
+    b.status = 'alerted'; b.alerted = true; b.exposedTo = ['jun']; b.suspicion = { jun: 3 };
+    c.status = 'investigating'; c.suspicion = { mara: 1 };
+    if (d) { d.status = 'commanded'; }
+    const holder = e ?? d ?? c;
+    st.carriers.push({ id: 'carrier-test', kind: 'tellerButton', source: holder.id, pos: { ...holder.pos }, countdown: 3, started: { turn: st.turn, phase: 'crew' }, halted: null });
+    // Mara right next to the curious one, so a knockout's quiet noise reaches the others.
+    for (const dd of AROUND) {
+        const p = { x: a.pos.x + dd.x, y: a.pos.y + dd.y };
+        if (!free(st, p)) continue;
+        st.crew[0].pos = p;
+        return { state: st, info: { a: a.id, aAt: a.pos, b: b.id, bAt: b.pos } };
+    }
+    return null;
+})()`;
+
+test('draws the world UI: badges and pips, cones on long-press, a noise ring with ear badges', SMOKE, async ({ page }) => {
+    const errors = await boot(page);
+    const setup = await restartWith<{ a: string; aAt: Pos; b: string; bAt: Pos }>(page, WORLD_UI_SETUP);
+    expect(setup).not.toBeNull();
+    await page.locator('.sh-rail .sh-crew').nth(0).click();
+    await page.waitForTimeout(700);
+    let shown = await play(page);
+    expect(shown.badges).toBeGreaterThanOrEqual(4);
+    await page.screenshot({ path: 'screenshots/play-badges.png' });
+
+    // Long-press the Alerted NPC: its cones, red (once the camera has stopped moving).
+    await expect.poll(async () => { const a = await scene(page); await page.waitForTimeout(150); const b = await scene(page); return a.midX === b.midX && a.midY === b.midY && a.zoom === b.zoom; }).toBe(true);
+    const at = await onPage(page, setup!.bAt);
+    await page.mouse.move(at.x, at.y - 8);
+    // A frame for the game to see where the pointer is before it goes down.
+    await page.waitForTimeout(100);
+    await page.mouse.down();
+    await page.waitForTimeout(700);
+    await page.mouse.up();
+    expect((await play(page)).cones).toBe(1);
+    await page.screenshot({ path: 'screenshots/play-cones.png' });
+    await tapTile(page, setup!.aAt);
+    // That tap cleared the cones and previewed a knockout of the curious one: its noise ring, and who hears it.
+    shown = await play(page);
+    expect(shown.cones).toBe(0);
+    expect(shown.pending).toMatchObject({ type: 'knockout', npc: setup!.a });
+    expect(shown.noise).toBeGreaterThan(0);
+    expect(shown.hearers).toBeGreaterThan(0);
+    await page.screenshot({ path: 'screenshots/play-noise.png' });
+
+    // The colour-blind preset (B): the same overlay in its own palette.
+    await page.keyboard.press('b');
+    expect((await play(page)).colourBlind).toBe(true);
+    await page.screenshot({ path: 'screenshots/play-colour-blind.png' });
+    await page.keyboard.press('b');
+    expect(errors).toEqual([]);
+});
+
 test.describe('on a phone', () => {
     test.use({ viewport: { width: 844, height: 390 }, hasTouch: true, isMobile: true });
 

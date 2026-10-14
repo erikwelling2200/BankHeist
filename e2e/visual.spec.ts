@@ -81,4 +81,18 @@ test.describe('looks the same', { tag: '@visual' }, () => {
         await shot(page, 'props');
         expect(errors).toEqual([]);
     });
+
+    test('play mode: the world UI over a new heist with Mara selected', async ({ page }) => {
+        const errors = await open(page, '/?play&new');
+        await page.waitForFunction(() => (window as any).sim, null, { timeout: 60000 });
+        await page.addStyleTag({ content: '.sh, .play-speed, .play-toast { display: none !important; }' });
+        await page.evaluate(() => (window as any).sim.session.select('mara'));
+        await frames(page, 2);
+        await page.waitForFunction(() => (window as any).game.scene.getScene('bank')?.debugState.settled !== false, null, { timeout: 20000 });
+        await frames(page, 2);
+        // The game's canvas with the world UI layer over it.
+        const box = (await page.locator('canvas').first().boundingBox())!;
+        await expect(page).toHaveScreenshot('play-select.png', { ...tolerance, clip: box, timeout: 60000 });
+        expect(errors).toEqual([]);
+    });
 });

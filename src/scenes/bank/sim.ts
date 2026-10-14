@@ -1,4 +1,5 @@
 import Phaser from 'phaser';
+import { npcBadges, npcCone, noiseHearers, type HearerVM } from '../../game/worldUi';
 import { actionMenu, barkText, doorMiddle, moveAlong, moveRange, moveTo, targetsOf, type ActionId, type MoveRange, type PlaybackItem, type PlaybackSpeed, type Session, type SessionChange } from '../../game';
 import type { GeneratedBank } from '../../gen/model';
 import { TILE } from '../../level/level';
@@ -48,6 +49,18 @@ function drawnFacing(f: Facing, current: PersonFacing): PersonFacing {
 }
 
 const centre = (p: Pos): [number, number] => [(p.x + 0.5) * TILE, (p.y + 0.5) * TILE];
+/** Where the colour-blind preset is remembered. */
+const COLOUR_BLIND_KEY = 'bankheist.colourBlind';
+
+function readColourBlind(): boolean {
+    if (new URLSearchParams(location.search).has('cb')) return true;
+    try {
+        return localStorage.getItem(COLOUR_BLIND_KEY) === '1';
+    } catch {
+        return false;
+    }
+}
+
 /** A step in each of the rules' facings. */
 const FACING_DELTA: Record<Facing, Pos> = {
     n: { x: 0, y: -1 }, ne: { x: 1, y: -1 }, e: { x: 1, y: 0 }, se: { x: 1, y: 1 }, s: { x: 0, y: 1 }, sw: { x: -1, y: 1 }, w: { x: -1, y: 0 }, nw: { x: -1, y: -1 }
@@ -102,6 +115,10 @@ export class PlayMode {
     private posed = new Map<string, PersonPose | undefined>();
     private knownFor?: State;
     private knownCache?: KnownView;
+    /** The NPC whose cones a long-press shows, until the next tap. */
+    private coneOf: string | null = null;
+    /** The colour-blind preset: `&cb` in the address, or the B key (remembered). */
+    private colourBlind = readColourBlind();
     /** The door, NPC or object the player tapped: the grid's actions on a thing are for it. */
     private target: string | null = null;
     /** The selected member's range, worked out once per state and member. */
@@ -123,7 +140,8 @@ export class PlayMode {
             tap: (x, y) => this.tap(x, y),
             claim: (x, y) => this.claim(x, y),
             drag: (x, y) => this.dragTo(x, y),
-            release: cancelled => this.release(cancelled)
+            release: cancelled => this.release(cancelled),
+            longPress: (x, y) => this.longPress(x, y)
         });
         camera.holdPan = () => this.input.drawing;
         camera.onMapChange = on => {
@@ -176,7 +194,8 @@ export class PlayMode {
             speed: this.session.playback.speed, path: this.overlay.state.path, dash: this.overlay.state.dash, reach: this.overlay.state.reach,
             /** How many of the range's tiles only a Dash reaches, and how many tiles the previewed dash's noise reaches. */
             dashReach: this.overlay.state.dashReach, range: this.overlay.state.range, noise: this.overlay.state.noise,
-            target: this.target, witnesses: this.overlay.state.witnesses,
+            target: this.target, witnesses: this.overlay.state.witnesses, badges: this.overlay.state.badges, hearers: this.overlay.state.hearers,
+            cones: this.overlay.state.cones, coneOf: this.coneOf, colourBlind: this.overlay.state.colourBlind,
             /** The grid's entries as shown: id, enabled and reason. */
             actions: this.session.hud({ target: this.target }).actions.map(a => ({ id: a.id, enabled: a.enabled, reason: a.reason, selected: !!a.selected })),
             intents: this.overlay.state.intents,
@@ -539,6 +558,10 @@ export class PlayMode {
     private tap(x: number, y: number): void {
         if (this.busy) return this.skip();
         if (this.recap) return;
+        if (this.coneOf) {
+            this.coneOf = null;
+            this.refresh();
+        }
         // Where on the ground the tap is: a raised floor is drawn up the screen (walls.liftAt).
         const gy = this.groundY(x, y), tile = { x: Math.floor(x / TILE), y: Math.floor(gy / TILE) }, { crew } = this.session.state;
         // Someone standing on the tile tapped; then a second tap on the previewed tile, which commits it (UI.md); then
@@ -749,7 +772,17 @@ export class PlayMode {
 
     private onKey(e: KeyboardEvent): void {
         if (e.key === 'f' || e.key === 'F') this.cycleSpeed();
+        else if (e.key === 'b' || e.key === 'B') this.setColourBlind(!this.colourBlind);
         else if (e.key === 'Escape' && this.session.pendingCommand) this.session.setPendingCommand(null);
+    }
+
+    /** The colour-blind preset (UI.md "Signal palette"), remembered on this device. */
+    private setColourBlind(on: boolean): void {
+        this.colourBlind = on;
+        try {
+            localStorage.setItem(COLOUR_BLIND_KEY, on ? '1' : '0');
+        } catch { /* private mode: for this visit only */ }
+        this.refresh();
     }
 
     private cycleSpeed(): void {
@@ -787,7 +820,8 @@ export class PlayMode {
         if (!member) return { colour: '', intents, ...layer };
         const colour = CREW_COLOURS[this.session.state.crew.indexOf(member) % CREW_COLOURS.length]!;
         // The whole range stays drawn while a tile is previewed or a path dragged (XCOM style): the path goes on top.
-        const range = member.actionsLeft > 0 ? this.range(member) : undefined;
+        // A long-pressed NPC's cones are the question being asked: the range steps aside for them.
+        const range = member.actionsLeft > 0 && !this.coneOf ? this.range(member) : undefined;
         const bodies = this.session.state.crew.filter(c => c.dragging !== null).map(c => this.trailOf(c));
         const base = { colour, intents, ...layer, ...(range ? { reach: { move: range.walk, dash: range.run, at: member.pos, unfilled: bodies } } : {}) };
         if (this.dragPath) {
@@ -797,14 +831,28 @@ export class PlayMode {
         const pending = this.session.pendingCommand;
         if (pending && 'path' in pending) {
             const dash = pending.type === 'dash';
-            return { ...base, from: member.pos, path: pending.path as Pos[], dash, ...(dash ? { noise: this.noiseOf(pending) } : {}), witnesses: this.witnessesOf(pending) };
+            return {
+                ...base, from: member.pos, path: pending.path as Pos[], dash, ...(dash ? { noise: this.noiseOf(pending), hearers: this.hearersOf(pending) } : {}),
+                witnesses: this.witnessesOf(pending)
+            };
         }
         // An action on a thing: its target marked, the noise it makes (a knockout's), and who would see it (§8.4).
         const targetDoor = this.target ? doorMiddle(this.session.world, this.target) : undefined;
         const targetTile = this.target && !targetDoor ? this.targetTile(this.target) : undefined;
         const marks = { ...(targetDoor ? { targetDoor } : {}), ...(targetTile ? { targetTile } : {}) };
-        if (pending) return { ...base, ...marks, noise: this.noiseOf(pending), witnesses: this.witnessesOf(pending) };
+        // An action on a thing: its noise ring and who'd hear or see it, without the movement range under them.
+        const { reach: _range, ...rest } = base;
+        if (pending) return { ...rest, ...marks, noise: this.noiseOf(pending), hearers: this.hearersOf(pending), witnesses: this.witnessesOf(pending) };
         return { ...base, ...marks };
+    }
+
+    /** Who hears the pending command's noise and what they'll do: the player's preview, through the crew's knowledge. */
+    private hearersOf(cmd: Command): HearerVM[] {
+        try {
+            return noiseHearers(this.session.world, this.session.state, this.known(), this.session.playerPreview(cmd));
+        } catch {
+            return [];
+        }
     }
 
     /** Where a target NPC (as the crew knows it) or object stands. */
@@ -872,13 +920,33 @@ export class PlayMode {
     }
 
     /** The overlay's knowledge layer: unscouted tiles, ghosts' "seen N turns ago", the sound pings. */
-    private knowledgeLayer(): Pick<OverlayContent, 'seen' | 'ghosts' | 'pings'> {
-        const view = this.known();
+    private knowledgeLayer(): Pick<OverlayContent, 'seen' | 'ghosts' | 'pings' | 'badges' | 'crewColours' | 'cones' | 'predicted' | 'colourBlind'> {
+        const view = this.known(), { world, state } = this.session, busy = this.busy;
+        const shown = (id: string) => this.people.shown(this.sprite.get(id) ?? -1);
+        // Cones: the one long-pressed, or every NPC's the crew knows of from the overlay drawer (§20.4).
+        const coneIds = this.overlays.cones ? view.npcs.filter(m => m.kind !== 'ghost' && shown(m.id)).map(m => m.id) : this.coneOf ? [this.coneOf] : [];
         return {
             seen: { width: view.width, bits: view.seen },
-            ghosts: view.npcs.filter(m => m.kind === 'ghost' && this.people.shown(this.sprite.get(m.id) ?? -1)).map(m => ({ pos: m.pos, seenAgo: m.seenAgo })),
-            pings: view.pings.map(p => ({ at: p.at }))
+            ghosts: view.npcs.filter(m => m.kind === 'ghost' && shown(m.id)).map(m => ({ pos: m.pos, seenAgo: m.seenAgo })),
+            pings: view.pings.map(p => ({ at: p.at })),
+            colourBlind: this.colourBlind,
+            crewColours: Object.fromEntries(state.crew.map((c, i) => [c.id, CREW_COLOURS[i % CREW_COLOURS.length]!])),
+            // People walking during playback: their plates come back when it is over.
+            ...(busy ? {} : {
+                badges: npcBadges(world, state, view).filter(b => !state.npcs.some(n => n.id === b.id) || shown(b.id)),
+                predicted: view.npcs.filter(m => m.kind === 'predicted' && shown(m.id)).map(m => m.pos),
+                cones: coneIds.flatMap(id => npcCone(world, state, view, id) ?? [])
+            })
         };
+    }
+
+    /** Long-press (UI.md "why"): on an NPC the crew knows of, its cones until the next tap; elsewhere, nothing yet. */
+    private longPress(x: number, y: number): void {
+        if (this.busy || this.recap) return;
+        const gy = this.groundY(x, y), tile = { x: Math.floor(x / TILE), y: Math.floor(gy / TILE) };
+        const hit = this.known().npcs.find(m => m.kind !== 'ghost' && (same(m.pos, tile) || this.people.hit(this.sprite.get(m.id) ?? -1, x, y)));
+        this.coneOf = hit && this.coneOf !== hit.id ? hit.id : null;
+        this.refresh();
     }
 
     /** A short message over the map that fades by itself ("Blocked"). */

@@ -25,15 +25,18 @@ export interface MapGestures {
 
 export class MapInput {
     private down?: { id: number; x: number; y: number; at: number; moved: boolean; claimed: boolean; screenX: number; screenY: number };
-    private fingers = 0;
-    private longTimer?: Phaser.Time.TimerEvent;
+    /** The pointers down now, by id: a set, so an up the page never delivered can't leave a phantom finger behind. */
+    private readonly fingers = new Set<number>();
+    /** The long-press timer, in wall-clock time: what the finger feels, however slowly the game's frames come. */
+    private longTimer?: number;
 
-    constructor(private readonly scene: Phaser.Scene, private readonly gestures: MapGestures) {
+    constructor(scene: Phaser.Scene, private readonly gestures: MapGestures) {
         const { input } = scene;
         input.on(Phaser.Input.Events.POINTER_DOWN, this.onDown, this);
         input.on(Phaser.Input.Events.POINTER_MOVE, this.onMove, this);
         input.on(Phaser.Input.Events.POINTER_UP, this.onUp, this);
         input.on(Phaser.Input.Events.POINTER_UP_OUTSIDE, this.onUp, this);
+        scene.events.once(Phaser.Scenes.Events.SHUTDOWN, () => window.clearTimeout(this.longTimer));
     }
 
     /** Whether a path is being drawn: the camera mustn't pan meanwhile. */
@@ -42,21 +45,21 @@ export class MapInput {
     }
 
     private onDown(p: Phaser.Input.Pointer): void {
-        this.fingers++;
-        if (this.fingers > 1 || p.rightButtonDown()) {
+        this.fingers.add(p.id);
+        if (this.fingers.size > 1 || p.rightButtonDown()) {
             this.cancel();
             return;
         }
         const { x, y } = this.css(p);
-        this.down = { id: p.id, x: p.worldX, y: p.worldY, at: this.scene.time.now, moved: false, claimed: this.gestures.claim(p.worldX, p.worldY), screenX: x, screenY: y };
-        this.longTimer?.remove();
-        this.longTimer = this.scene.time.delayedCall(LONG_PRESS_MS, () => {
+        this.down = { id: p.id, x: p.worldX, y: p.worldY, at: performance.now(), moved: false, claimed: this.gestures.claim(p.worldX, p.worldY), screenX: x, screenY: y };
+        window.clearTimeout(this.longTimer);
+        this.longTimer = window.setTimeout(() => {
             const d = this.down;
             if (d && !d.moved && !d.claimed) {
                 this.gestures.longPress?.(d.x, d.y);
                 this.down = undefined;
             }
-        });
+        }, LONG_PRESS_MS);
     }
 
     private onMove(p: Phaser.Input.Pointer): void {
@@ -68,9 +71,9 @@ export class MapInput {
     }
 
     private onUp(p: Phaser.Input.Pointer): void {
-        this.fingers = Math.max(0, this.fingers - 1);
+        this.fingers.delete(p.id);
         const d = this.down;
-        this.longTimer?.remove();
+        window.clearTimeout(this.longTimer);
         if (!d || d.id !== p.id) return;
         this.down = undefined;
         if (d.claimed && d.moved) {
@@ -78,13 +81,13 @@ export class MapInput {
             return;
         }
         if (d.claimed) this.gestures.release(true);
-        if (!d.moved && this.scene.time.now - d.at < LONG_PRESS_MS) this.gestures.tap(d.x, d.y);
+        if (!d.moved && performance.now() - d.at < LONG_PRESS_MS) this.gestures.tap(d.x, d.y);
     }
 
     private cancel(): void {
         if (this.down?.claimed) this.gestures.release(true);
         this.down = undefined;
-        this.longTimer?.remove();
+        window.clearTimeout(this.longTimer);
     }
 
     /** The pointer in CSS pixels: a finger's slop doesn't depend on the zoom. */
