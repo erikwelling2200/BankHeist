@@ -333,6 +333,9 @@ function lobby(style: 'queue' | 'waiting' | 'open'): ParcelFn {
             }
             p.put({ kind: 'writingDesk', dx: p.w - 4, dy: 2, wide: 2 }) || p.put({ kind: 'writingDesk', dx: 2, dy: 2, wide: 2 });
         }
+        // The walks between the lobby's doors (the street, the counter gate, the restrooms, the staff doors) stay free of
+        // the seating and the cover that go in next.
+        p.walks();
         if (style !== 'open' && atDoors) {
             p.put({ kind: 'sofa', dx: 1, dy: Math.max(2, p.h - 5) });
             p.put({ kind: 'coffeeTable', dx: 1, dy: Math.max(2, p.h - 5) + 2 });

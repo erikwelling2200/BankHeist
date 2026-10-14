@@ -250,12 +250,32 @@ export function bankDoors(site: Site, plot: Plot, layout: Layout, rooms: GenRoom
     if (!back) return false;
     site.setWall(back[0]!, 'doorBack');
     site.addDoor(backRoom, alley, back[0]!, 'keycard', 'doorBack');
-    // Every room of the bank is reachable.
-    const linked = new Set<string>();
-    for (const d of site.doors) { linked.add(d.a); linked.add(d.b); }
-    const lonely = rooms.filter(r => !linked.has(r.id));
+    // Every room of the bank is reachable from outside, not just given a door: rooms whose rules point at each other
+    // (a conference room and a records room) can otherwise open only into each other. Such a room gets a door to a
+    // reachable neighbour, locked as its rules say, until every room is reached or none can be.
+    let lonely = unreachable(site, rooms);
+    while (lonely.length) {
+        const linked = lonely.some(room => {
+            const reached = site.neighbours(room).filter(r => bank.has(r) && !lonely.includes(r));
+            return reached.some(r => connect(site, room, r, ROOM_RULES[room.type].lock, rng));
+        });
+        if (!linked) break;
+        lonely = unreachable(site, rooms);
+    }
     if (lonely.length) doorFailure = `unreachable: ${lonely.map(r => r.type).join(', ')}`;
     return !lonely.length;
+}
+
+/** The bank rooms no chain of doors and openings leads to from outside the bank. */
+export function unreachable(site: Site, rooms: GenRoom[]): GenRoom[] {
+    const inBank = new Set(rooms.map(r => r.id)), reached = new Set(site.rooms.filter(r => !inBank.has(r.id)).map(r => r.id));
+    for (let grew = true; grew;) {
+        grew = false;
+        for (const d of site.doors) for (const [from, to] of [[d.a, d.b], [d.b, d.a]] as const) {
+            if (reached.has(from) && !reached.has(to)) { reached.add(to); grew = true; }
+        }
+    }
+    return rooms.filter(r => !reached.has(r.id));
 }
 
 /** Rooms a shortcut never leads into: the core, rooms behind a hard lock (their one door is the lock), the public floor, the counter and the stairs. */

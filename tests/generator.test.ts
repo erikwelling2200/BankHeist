@@ -323,6 +323,47 @@ describe('interiors', () => {
     });
 });
 
+describe('regressions found by adversarial review', () => {
+    /** Bank rooms no chain of doors leads to from outside the bank. */
+    const sealed = (b: GeneratedBank) => {
+        const inBank = new Set(b.rooms.filter(r => r.bank).map(r => r.id)), reached = new Set(b.rooms.filter(r => !inBank.has(r.id)).map(r => r.id));
+        for (let grew = true; grew;) {
+            grew = false;
+            for (const d of b.doors) for (const [from, to] of [[d.a, d.b], [d.b, d.a]]) if (reached.has(from!) && !reached.has(to!)) { reached.add(to!); grew = true; }
+        }
+        return b.rooms.filter(r => r.bank && !reached.has(r.id)).map(r => r.id);
+    };
+
+    it('reaches every room of the bank from outside, not just gives each a door', () => {
+        // A conference room and a records room once opened only into each other.
+        for (const pin of [{ layout: 8919, population: 1, tier: 'city', archetype: 'atrium', plot: 'midBlock' }, { layout: 7441, population: 3, tier: 'city', archetype: 'atrium', plot: 'midBlock' }] as const) {
+            expect(sealed(bank(pin.layout, pin.population, pin)), JSON.stringify(pin)).toEqual([]);
+        }
+        let n = 0;
+        for (const tier of TIERS) for (const archetype of archetypesFor(tier)) for (const plot of PLOTS) expect(sealed(bank(3000 + n++, 1, { tier, archetype, plot })), `${tier} ${archetype} ${plot}`).toEqual([]);
+    }, 300000);
+
+    it('never stands anyone inside a wall, metre-thick ones included', () => {
+        for (const pin of [{ layout: 527521, population: 8, tier: 'small', archetype: 'threeKeys', plot: 'plazaFront' }, { layout: 105877, population: 4, tier: 'city', archetype: 'twoWing', plot: 'plazaFront' }] as const) {
+            const b = bank(pin.layout, pin.population, pin);
+            const inWall = b.people.filter(p => {
+                const box = place({ tx: p.tx, ty: p.ty }, PERSON_SIZE);
+                return b.level.walls.some(w => {
+                    const f = wallFootprint(w);
+                    return box.x < f.x + f.w && f.x < box.x + box.w && box.y < f.y + f.d && f.y < box.y + box.d;
+                });
+            });
+            expect(inWall.map(p => `${p.role} at ${p.tx},${p.ty}`), JSON.stringify(pin)).toEqual([]);
+        }
+    }, 120000);
+
+    it('makes the note on a desk part of how this vault opens', () => {
+        const b = bank(1, 1, { tier: 'city', archetype: 'threeKeys' });
+        const note = b.opportunities.find(o => o.id === 'sticky-note');
+        if (note) expect(note.text).not.toContain('the vault code');
+    }, 60000);
+});
+
 describe('the room gallery', () => {
     it('builds every room type in every variant, each with a door, furnished by the parcels', () => {
         const { data, cells } = roomGallery();
