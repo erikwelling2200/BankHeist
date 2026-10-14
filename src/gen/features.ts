@@ -28,8 +28,13 @@ export function buildFeatures(site: Site, plot: Plot, bank: GenRoom[], headlines
             const edges = [y, y + 1].map(ty => ({ run: 'northSouth' as const, tx: east, ty }));
             if (!edges.every(e => site.wallAt(e)?.kind === 'brick' || site.wallAt(e)?.kind === 'plaster')) continue;
             if (!furnish.canStand(east - 2, y)) continue;
-            if (!furnish.try({ kind: 'backCounter', tx: east - 1, ty: y, width: 2, facing: 'west', alignX: 'east' }, room)) continue;
+            // The window first: it is thicker than the wall it replaces, and the counter stands against its face.
+            const before = edges.map(e => site.wallAt(e)!.kind);
             for (const e of edges) site.setWall(e, 'tellerWindow');
+            if (!furnish.try({ kind: 'backCounter', tx: east - 1, ty: y, width: 2, facing: 'west', alignX: 'east' }, room)) {
+                edges.forEach((e, i) => site.setWall(e, before[i]!));
+                continue;
+            }
             furnish.try({ kind: 'tubeTerminal', tx: east + 2, ty: y });
             out.window = { x: east - 1, y };
             break;

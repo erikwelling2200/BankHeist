@@ -45,6 +45,10 @@ interface Ctx {
     nav: Nav;
     furnish: Furnisher;
     timeLock: boolean;
+    /** How the vault opens socially (`keys.ts`): its code, the code split between two people, or the Three Keys parts. */
+    vaultOpens: 'code' | 'dualControl' | 'threeKeys';
+    /** Whether the air duct from the roof is one of the ways in (a vent fitted and the roof has a ladder). */
+    ductIn: boolean;
     softDepositWall: boolean;
     sidewalkY: number;
     width: number;
@@ -97,10 +101,12 @@ export function populate(ctx: Ctx): Population {
     // The cleaner starts where their trolley is (the story pass put it somewhere), or anywhere in the staff corridors,
     // and sweeps the corridors.
     const corridors = bank.filter(r => r.type === 'staffCorridor');
-    const trolley = stationsOf('cleaner')[0];
+    // A trolley the roof hatch's ladder (placed after it) closed in leaves the cleaner nowhere to sweep: they start in a
+    // corridor instead.
+    const to = freeIn(rng.pick(corridors));
+    const trolley = stationsOf('cleaner').find(s => to && nav.path({ x: s.tx, y: s.ty }, to));
     const sweepFrom = trolley ? { x: trolley.tx, y: trolley.ty } : standAt(freeIn(rng.pick(corridors)));
     if (sweepFrom) {
-        const to = freeIn(rng.pick(corridors));
         const path = to && nav.path(sweepFrom, to);
         const route = path && path.length > 2 ? { route: toTiles(corners(path).slice(1)) } : {};
         add({ role: 'cleaner', look: 'cleaner', observer: 'staff', tx: sweepFrom.x, ty: sweepFrom.y, facing: trolley?.facing ?? 'front', ...route });
@@ -239,17 +245,19 @@ function scheduleDay(ctx: Ctx, people: GenPerson[]): { timeline: TimelineEvent[]
 
     // Opportunities that follow from the building (§17.6); a note left on a desk (the story pass) comes first.
     const note = ctx.furnished.stories.find(s => s.id === 'sticky-note');
-    if (note) opportunities.unshift({ id: 'sticky-note', text: `A note by a monitor in the ${roomName(note.room)} has the vault code on it.`, found: 'documents' });
+    // What the note gives has to be part of how this vault opens (§15.2): the code, half of it, or the time-lock window.
+    const noted = { code: 'the vault code', dualControl: "the head teller's half of the vault code", threeKeys: 'the time-lock window, written out' }[ctx.vaultOpens];
+    if (note) opportunities.unshift({ id: 'sticky-note', text: `A note by a monitor in the ${roomName(note.room)} has ${noted} on it.`, found: 'documents' });
     const bribable = people.find(p => p.traits.includes('in debt (bribable)'));
     if (bribable) opportunities.push({ id: 'bribe', text: `${bribable.name}, a teller, is in debt and can be bribed (Smooth Talker) to stay off the alarm.`, found: 'eavesdropping' });
     if (ctx.neighbours.some(n => n.scaffoldTop)) opportunities.push({ id: 'scaffolding', text: 'Renovation scaffolding next door gives roof access.', found: 'intel' });
     if (ctx.softDepositWall) opportunities.push({ id: 'cafe-wall', text: 'The café shares a Soft wall with the deposit-box room.', found: 'documents' });
-    if (roomId('serverRoom')) opportunities.push({ id: 'vent', text: 'The server-room vent connects to the roof: a way in for someone small.', found: 'documents' });
+    if (ctx.ductIn) opportunities.push({ id: 'vent', text: 'The server-room vent connects to the roof: a way in for someone small.', found: 'documents' });
     if (roomId('recordsRoom')) opportunities.push({ id: 'records', text: "The records room files the guard rota and the alarm company's service visits.", found: 'documents' });
     // Every bank has these to fall back on, so there are always three to find.
     const guard = people.find(p => p.role === 'lobbyGuard');
     const fallback: Opportunity[] = [
-        { id: 'cleaner-keys', text: "The cleaner keeps the back-door keys on a hook in the cleaner's closet.", found: 'eavesdropping' },
+        { id: 'cleaner-keys', text: `The cleaner keeps the back-door keys ${roomId('cleanersCloset') ? "on a hook in the cleaner's closet" : 'on their belt'}.`, found: 'eavesdropping' },
         { id: 'manager-pc', text: "The manager's PC holds the vault code and the time-lock schedule.", found: 'documents' },
         ...(guard ? [{ id: 'check-in', text: `${guard.name}, the lobby guard, radios in on the hour; dispatch only notices a missed call.`, found: 'eavesdropping' as const }] : [])
     ];

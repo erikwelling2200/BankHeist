@@ -250,12 +250,34 @@ export function bankDoors(site: Site, plot: Plot, layout: Layout, rooms: GenRoom
     if (!back) return false;
     site.setWall(back[0]!, 'doorBack');
     site.addDoor(backRoom, alley, back[0]!, 'keycard', 'doorBack');
-    // Every room of the bank is reachable.
-    const linked = new Set<string>();
-    for (const d of site.doors) { linked.add(d.a); linked.add(d.b); }
-    const lonely = rooms.filter(r => !linked.has(r.id));
+    // Every room of the bank is reachable from outside, not just given a door: rooms whose rules point at each other
+    // (a conference room and a records room) can otherwise open only into each other. Such a room gets a door to a
+    // reachable neighbour, locked as its rules say, until every room is reached or none can be.
+    let lonely = unreachable(site, rooms);
+    while (lonely.length) {
+        const linked = lonely.some(room => {
+            // Only a door the rules allow either way round, and never into a secure room: their doors are hard locks.
+            const allowed = (r: GenRoom) => ROOM_RULES[room.type].opensOnto.includes(r.type) || ROOM_RULES[r.type].opensOnto.includes(room.type);
+            const reached = site.neighbours(room).filter(r => bank.has(r) && !lonely.includes(r) && r.zone !== 'secure' && room.zone !== 'secure' && allowed(r));
+            return reached.some(r => connect(site, room, r, ROOM_RULES[room.type].lock, rng));
+        });
+        if (!linked) break;
+        lonely = unreachable(site, rooms);
+    }
     if (lonely.length) doorFailure = `unreachable: ${lonely.map(r => r.type).join(', ')}`;
     return !lonely.length;
+}
+
+/** The bank rooms no chain of doors and openings leads to from outside the bank. */
+export function unreachable(site: Site, rooms: GenRoom[]): GenRoom[] {
+    const inBank = new Set(rooms.map(r => r.id)), reached = new Set(site.rooms.filter(r => !inBank.has(r.id)).map(r => r.id));
+    for (let grew = true; grew;) {
+        grew = false;
+        for (const d of site.doors) for (const [from, to] of [[d.a, d.b], [d.b, d.a]] as const) {
+            if (reached.has(from) && !reached.has(to)) { reached.add(to); grew = true; }
+        }
+    }
+    return rooms.filter(r => !reached.has(r.id));
 }
 
 /** Rooms a shortcut never leads into: the core, rooms behind a hard lock (their one door is the lock), the public floor, the counter and the stairs. */
@@ -296,7 +318,9 @@ export function shortcuts(site: Site, rooms: GenRoom[], rng: Rng): void {
     for (let n = 0; n < SHORTCUTS; n++) {
         let best: { a: GenRoom; b: GenRoom; edge: Edge; steps: number } | undefined;
         for (const [i, a] of rooms.entries()) for (const b of rooms.slice(i + 1)) {
-            if (NO_SHORTCUT.includes(a.type) || NO_SHORTCUT.includes(b.type) || isOpenPair(a.type, b.type)) continue;
+            // Never into a secure room either: its door is a hard lock (or sits behind one), and a second way in walks round
+            // it (a deposit-box room off the antechamber would bypass the mantrap).
+            if (NO_SHORTCUT.includes(a.type) || NO_SHORTCUT.includes(b.type) || a.zone === 'secure' || b.zone === 'secure' || isOpenPair(a.type, b.type)) continue;
             if (site.doors.some(d => (d.a === a.id && d.b === b.id) || (d.a === b.id && d.b === a.id))) continue;
             const edges = site.sharedEdges(a, b);
             const edge = edges.length >= 3 ? doorEdge(site, edges, rng)?.[0] : undefined;

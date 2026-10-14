@@ -324,6 +324,91 @@ describe('interiors', () => {
     });
 });
 
+describe('regressions found by adversarial review', () => {
+    /** Bank rooms no chain of doors leads to from outside the bank. */
+    const sealed = (b: GeneratedBank) => {
+        const inBank = new Set(b.rooms.filter(r => r.bank).map(r => r.id)), reached = new Set(b.rooms.filter(r => !inBank.has(r.id)).map(r => r.id));
+        for (let grew = true; grew;) {
+            grew = false;
+            for (const d of b.doors) for (const [from, to] of [[d.a, d.b], [d.b, d.a]]) if (reached.has(from!) && !reached.has(to!)) { reached.add(to!); grew = true; }
+        }
+        return b.rooms.filter(r => r.bank && !reached.has(r.id)).map(r => r.id);
+    };
+
+    it('reaches every room of the bank from outside, not just gives each a door', () => {
+        // A conference room and a records room once opened only into each other.
+        for (const pin of [{ layout: 8919, population: 1, tier: 'city', archetype: 'atrium', plot: 'midBlock' }, { layout: 7441, population: 3, tier: 'city', archetype: 'atrium', plot: 'midBlock' }] as const) {
+            expect(sealed(bank(pin.layout, pin.population, pin)), JSON.stringify(pin)).toEqual([]);
+        }
+        let n = 0;
+        for (const tier of TIERS) for (const archetype of archetypesFor(tier)) for (const plot of PLOTS) expect(sealed(bank(3000 + n++, 1, { tier, archetype, plot })), `${tier} ${archetype} ${plot}`).toEqual([]);
+    }, 300000);
+
+    it('never stands anyone inside a wall, metre-thick ones included', () => {
+        for (const pin of [{ layout: 527521, population: 8, tier: 'small', archetype: 'threeKeys', plot: 'plazaFront' }, { layout: 105877, population: 4, tier: 'city', archetype: 'twoWing', plot: 'plazaFront' }] as const) {
+            const b = bank(pin.layout, pin.population, pin);
+            const inWall = b.people.filter(p => {
+                const box = place({ tx: p.tx, ty: p.ty }, PERSON_SIZE);
+                return b.level.walls.some(w => {
+                    const f = wallFootprint(w);
+                    return box.x < f.x + f.w && f.x < box.x + box.w && box.y < f.y + f.d && f.y < box.y + box.d;
+                });
+            });
+            expect(inWall.map(p => `${p.role} at ${p.tx},${p.ty}`), JSON.stringify(pin)).toEqual([]);
+        }
+    }, 120000);
+
+    it('opens secure rooms only through hard locks, repair doors included', () => {
+        // The reachability repair once gave the CCTV room a plain wooden door from a sealed conference room.
+        const pins = [{ layout: 32676, population: 4, tier: 'city', archetype: 'atrium', plot: 'midBlock' } as const];
+        let n = 0;
+        const banks = [...pins.map(pin => bank(pin.layout, pin.population, pin))];
+        for (const tier of TIERS) for (const archetype of archetypesFor(tier)) for (const plot of PLOTS) banks.push(bank(3000 + n++, 1, { tier, archetype, plot }));
+        for (const b of banks) {
+            const secure = new Set(b.rooms.filter(r => r.bank && r.zone === 'secure').map(r => r.id));
+            const soft = b.doors.filter(d => secure.has(d.a) !== secure.has(d.b) && !['keycard', 'vault'].includes(d.lock));
+            expect(soft.map(d => `${d.id} ${d.a}-${d.b} ${d.lock}`), `${b.tier} ${b.archetype} ${b.plot} ${b.seed.layout}`).toEqual([]);
+        }
+    }, 300000);
+
+    it('never lets a shortcut walk round the mantrap or into any secure room', () => {
+        // A shortcut into the deposit-box room once let the crew reach the antechamber without the mantrap.
+        const pins = [{ layout: 68549, population: 8, tier: 'city', archetype: 'twoWing', plot: 'midBlock' }, { layout: 69665, population: 8, tier: 'city', archetype: 'twoWing', plot: 'stripMallEnd' }] as const;
+        let n = 0;
+        const banks = pins.map(pin => bank(pin.layout, pin.population, pin));
+        for (const tier of TIERS) for (const archetype of archetypesFor(tier)) for (const plot of PLOTS) banks.push(bank(3000 + n++, 1, { tier, archetype, plot }));
+        for (const b of banks) {
+            const secure = new Set(b.rooms.filter(r => r.bank && r.zone === 'secure').map(r => r.id));
+            expect(b.doors.filter(d => d.detour !== undefined && (secure.has(d.a) || secure.has(d.b))).map(d => d.id), `${b.tier} ${b.archetype} ${b.seed.layout}`).toEqual([]);
+            const lock = b.locks.find(l => l.id === 'mantrap'), ante = b.rooms.find(r => r.type === 'antechamber');
+            if (!lock || !ante) continue;
+            // With the mantrap's door walled up, nothing outside reaches the antechamber.
+            const reached = new Set(b.rooms.filter(r => !r.bank).map(r => r.id));
+            for (let grew = true; grew;) {
+                grew = false;
+                for (const d of b.doors) if (d.id !== lock.target) for (const [from, to] of [[d.a, d.b], [d.b, d.a]]) if (reached.has(from!) && !reached.has(to!)) { reached.add(to!); grew = true; }
+            }
+            expect(reached.has(ante.id), `mantrap bypassed in ${b.tier} ${b.archetype} ${b.plot} ${b.seed.layout}`).toBe(false);
+        }
+    }, 300000);
+
+    it('only names things the bank has in its opportunities', () => {
+        for (const pin of [{ layout: 95837, population: 12, tier: 'small', archetype: 'atrium', plot: 'midBlock' }, { layout: 48827, population: 5, tier: 'city', archetype: 'threeKeys', plot: 'stripMallEnd' },
+            { layout: 933146, population: 4, tier: 'hq', archetype: 'fortress', plot: 'plazaFront' }] as const) {
+            const b = bank(pin.layout, pin.population, pin), ids = b.opportunities.map(o => o.id);
+            if (ids.includes('vent')) expect(b.approaches.some(a => a.name.startsWith('Air duct')), JSON.stringify(pin)).toBe(true);
+            const keys = b.opportunities.find(o => o.id === 'cleaner-keys');
+            if (keys?.text.includes("cleaner's closet")) expect(b.rooms.some(r => r.type === 'cleanersCloset'), JSON.stringify(pin)).toBe(true);
+        }
+    }, 120000);
+
+    it('makes the note on a desk part of how this vault opens', () => {
+        const b = bank(1, 1, { tier: 'city', archetype: 'threeKeys' });
+        const note = b.opportunities.find(o => o.id === 'sticky-note');
+        if (note) expect(note.text).not.toContain('the vault code');
+    }, 60000);
+});
+
 describe('the room gallery', () => {
     it('builds every room type in every variant, each with a door, furnished by the parcels', () => {
         const { data, cells } = roomGallery();

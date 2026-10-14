@@ -177,13 +177,15 @@ export class RoomPlan {
      * Keeps free the walk between each pair of the room's doors, and a step into the room from each door (lesson 6),
      * round what already stands in it. A walk is the shortest that stays off the walls (they are for the furniture)
      * and turns least: a step costs 10, a tile beside a wall 6 more, a turn 1. A door that can't be reached from the
-     * first one even now (a room cut in two by a fixed piece) isn't asked to stay reachable.
+     * first one even now (a room cut in two by a fixed piece) isn't asked to stay reachable. `fromFirst` keeps only the
+     * walks from the first door to each other one: every door stays reachable, at a fraction of the cost and floor in a
+     * room with many doors (the lobby).
      */
-    walks(): void {
+    walks(fromFirst = false): void {
         if (!this.entries.length) throw new Error(`${this.room.id} has no way in to keep a walk from`);
         for (let i = 0; i < this.entries.length; i++) {
-            const from = this.walksFrom(this.entries[i]!);
-            for (let j = i + 1; j < this.entries.length; j++) for (const t of from(this.entries[j]!)) this.f.keep(t.x, t.y);
+            const from = i === 0 || !fromFirst ? this.walksFrom(this.entries[i]!) : undefined;
+            if (from) for (let j = i + 1; j < this.entries.length; j++) for (const t of from(this.entries[j]!)) this.f.keep(t.x, t.y);
             // The tile beyond the door's own, straight on into the room: where whoever comes in steps to.
             const e = this.entries[i]!, step = this.inward[i]!, next = { x: e.x + step.x, y: e.y + step.y };
             if (this.mine(next.x, next.y) && !this.f.blocked(next.x, next.y)) this.f.keep(next.x, next.y);
