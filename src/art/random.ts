@@ -23,8 +23,9 @@ export function valueNoise(rand: () => number, cells: number): (u: number, v: nu
     };
 }
 
+const BAYER4 = [0, 8, 2, 10, 12, 4, 14, 6, 3, 11, 1, 9, 15, 7, 13, 5];
+
 /** 4x4 Bayer threshold in [0, 1), for dithering only where two bands meet. */
 export function bayer4(x: number, y: number): number {
-    const m = [0, 8, 2, 10, 12, 4, 14, 6, 3, 11, 1, 9, 15, 7, 13, 5];
-    return m[(y & 3) * 4 + (x & 3)]! / 16;
+    return BAYER4[(y & 3) * 4 + (x & 3)]! / 16;
 }

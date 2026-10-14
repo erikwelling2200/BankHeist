@@ -266,7 +266,9 @@ export class BankScene extends Phaser.Scene {
             /** Which tiles lamp light reaches, for the rules: rows of '#' (lit) and '.'. */
             lit: this.litTiles.map(row => row.map(lit => (lit ? '#' : '.')).join('')),
             people: this.people.map(p => ({ look: p.person.look, x: p.x, y: p.y, facing: p.facing, light: p.light, visible: p.image.visible })),
-            walls: this.walls.map(w => ({ kind: w.wall.kind, run: w.wall.run, tx: w.wall.tx, ty: w.wall.ty, height: WALL_STEPS[w.step]! }))
+            walls: this.walls.map(w => ({ kind: w.wall.kind, run: w.wall.run, tx: w.wall.tx, ty: w.wall.ty, height: WALL_STEPS[w.step]! })),
+            /** Every wall has reached the height the view asks of it (as of the last frame), so a screenshot can be taken. */
+            settled: this.walls.every(w => w.step === w.target)
         };
     }
 
@@ -452,10 +454,14 @@ export class BankScene extends Phaser.Scene {
      */
     private buildFloor(flat: PlacedProp[]): void {
         const tiles = bankTileset(), floor = new PixelBitmap(this.mapWidth, this.mapHeight);
+        // Copied a tile row at a time, the floor being a million pixels or more; every one is opaque.
         this.level.tiles.forEach((row, y) => row.forEach((_, x) => {
             const index = BANK_TILE_INDEX[this.tileName(x, y)];
-            for (let j = 0; j < TILE; j++) for (let i = 0; i < TILE; i++) {
-                floor.set(x * TILE + i, y * TILE + j, tiles.color(index * TILE + i, j), tiles.heightAt(index * TILE + i, j));
+            for (let j = 0; j < TILE; j++) {
+                const from = j * tiles.width + index * TILE, to = (y * TILE + j) * floor.width + x * TILE;
+                floor.colors.set(tiles.colors.subarray(from * 4, (from + TILE) * 4), to * 4);
+                floor.heights.set(tiles.heights.subarray(from, from + TILE), to);
+                for (let i = 0; i < TILE; i++) floor.colors[(to + i) * 4 + 3] = 255;
             }
         }));
         // Thresholds under the doors in north-south walls: seen side-on, the door itself barely shows.
@@ -657,7 +663,10 @@ export class BankScene extends Phaser.Scene {
      * each has a texture of their own that `movePerson` relights wherever they stand.
      */
     private buildPeople(): void {
-        if (!this.textures.exists(KEY.shadow)) personShadow().addTo(this.textures, KEY.shadow);
+        if (!this.textures.exists(KEY.shadow)) {
+            const shadow = personShadow();
+            this.addPixels(KEY.shadow, shadow.colors, shadow.width, shadow.height);
+        }
         this.bank.people.forEach((p, i) => {
             const spec = LOOKS[p.look];
             if (!spec) throw new Error(`No look named '${p.look}'`);
@@ -752,7 +761,7 @@ export class BankScene extends Phaser.Scene {
         if (!this.textures.exists(KEY.mote)) {
             const mote = new PixelBitmap(1, 1);
             mote.set(0, 0, 0xfff2d0, 1);
-            mote.addTo(this.textures, KEY.mote);
+            this.addPixels(KEY.mote, mote.colors, 1, 1);
         }
         // Dust drifting in the sun shafts just inside the glass.
         if (this.still) return;

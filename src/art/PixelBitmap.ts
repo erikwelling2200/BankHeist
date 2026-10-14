@@ -1,5 +1,5 @@
 import type Phaser from 'phaser';
-import { buildNormalMap } from '../logic/normalMap';
+import { buildNormalMap, sobelNormal } from '../logic/normalMap';
 
 /**
  * A colour + height bitmap that is turned into a Phaser texture with a linked normal map. Unpainted pixels stay
@@ -19,7 +19,10 @@ export class PixelBitmap {
     }
 
     setNormal(x: number, y: number, nx: number, ny: number, nz: number): void {
-        this.normals.set([nx, ny, nz], (y * this.width + x) * 3);
+        const i = (y * this.width + x) * 3;
+        this.normals[i] = nx;
+        this.normals[i + 1] = ny;
+        this.normals[i + 2] = nz;
     }
 
     inBounds(x: number, y: number): boolean {
@@ -28,8 +31,12 @@ export class PixelBitmap {
 
     set(x: number, y: number, color: number, height: number, alpha = 255): void {
         if (!this.inBounds(x, y)) throw new Error(`Pixel (${x}, ${y}) is outside a ${this.width}x${this.height} bitmap`);
+        // Written one channel at a time: whole bitmaps are painted pixel by pixel, and an array per pixel adds up.
         const i = y * this.width + x;
-        this.colors.set([(color >> 16) & 0xff, (color >> 8) & 0xff, color & 0xff, alpha], i * 4);
+        this.colors[i * 4] = (color >> 16) & 0xff;
+        this.colors[i * 4 + 1] = (color >> 8) & 0xff;
+        this.colors[i * 4 + 2] = color & 0xff;
+        this.colors[i * 4 + 3] = alpha;
         this.heights[i] = height;
     }
 
@@ -108,14 +115,24 @@ export class PixelBitmap {
     /** RGBA normal map: from the heights, overridden by explicit normals (encoded the same way, +Y up for WebGL). */
     normalMap(): Uint8ClampedArray {
         const map = buildNormalMap(this.heights, this.width, this.height);
-        for (let i = 0; i < this.width * this.height; i++) {
-            const nx = this.normals[i * 3]!;
-            if (Number.isNaN(nx)) continue;
-            map[i * 4] = Math.round((nx * 0.5 + 0.5) * 255);
-            map[i * 4 + 1] = Math.round((-this.normals[i * 3 + 1]! * 0.5 + 0.5) * 255);
-            map[i * 4 + 2] = Math.round((this.normals[i * 3 + 2]! * 0.5 + 0.5) * 255);
-        }
+        for (let i = 0; i < this.width * this.height; i++) if (!Number.isNaN(this.normals[i * 3]!)) this.explicitNormal(i, map, i * 4);
         return map;
+    }
+
+    /** Writes the normal map's pixel at (x, y) into `out` at `at`: for baking only the pixels a light falls on. */
+    normalAt(x: number, y: number, out: Uint8ClampedArray, at: number): void {
+        const i = y * this.width + x;
+        if (Number.isNaN(this.normals[i * 3]!)) sobelNormal(this.heights, this.width, this.height, x, y, out, at);
+        else {
+            this.explicitNormal(i, out, at);
+            out[at + 3] = 255;
+        }
+    }
+
+    private explicitNormal(i: number, out: Uint8ClampedArray, at: number): void {
+        out[at] = Math.round((this.normals[i * 3]! * 0.5 + 0.5) * 255);
+        out[at + 1] = Math.round((-this.normals[i * 3 + 1]! * 0.5 + 0.5) * 255);
+        out[at + 2] = Math.round((this.normals[i * 3 + 2]! * 0.5 + 0.5) * 255);
     }
 }
 

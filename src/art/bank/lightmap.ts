@@ -34,6 +34,8 @@ const WINDOW_REACH = 80;
 
 /** Quantises `value` (0 = no effect, 1 = full) into `bands` steps, dithering only in a thin strip where steps meet. */
 function band(value: number, bands: number, x: number, y: number): number {
+    // Nothing to band, as for most of the map: what the rest works out to, without the dither.
+    if (value === 0) return 0;
     const scaled = value * bands;
     const lower = Math.floor(scaled);
     const frac = scaled - lower;
@@ -106,12 +108,18 @@ export function buildLightMaps(level: Level, occluders: Occluder[], casters: Cas
     // Ambient occlusion: floor darkens close to the foot of walls.
     const ao = new Float32Array(width * height);
     for (let y = 0; y < height; y++) for (let x = 0; x < width; x++) {
-        if (structureAt(x, y)) continue;
+        const i = y * width + x;
+        if (solid[i] === 1) continue;
         let d = 6;
-        for (let r = 1; r < 6 && d === 6; r++) {
-            if (structureAt(x - r, y) || structureAt(x + r, y) || structureAt(x, y - r) || structureAt(x, y + r)) d = r;
+        if (x >= 5 && y >= 5 && x < width - 5 && y < height - 5) {
+            // Away from the map's edge every neighbour is on it: read them straight, as this runs for every pixel.
+            for (let r = 1; r < 6 && d === 6; r++) if (solid[i - r] === 1 || solid[i + r] === 1 || solid[i - r * width] === 1 || solid[i + r * width] === 1) d = r;
+        } else {
+            for (let r = 1; r < 6 && d === 6; r++) {
+                if (structureAt(x - r, y) || structureAt(x + r, y) || structureAt(x, y - r) || structureAt(x, y + r)) d = r;
+            }
         }
-        ao[y * width + x] = d >= 6 ? 0 : (6 - d) / 6 * 0.55;
+        ao[i] = d >= 6 ? 0 : (6 - d) / 6 * 0.55;
     }
     // Contact shadows under furniture and people: a soft oval over the footprint.
     const footprint = new Float32Array(width * height);
@@ -161,7 +169,8 @@ export function buildLightMaps(level: Level, occluders: Occluder[], casters: Cas
         const occlusion = Math.min(1, ao[i]! + footprint[i]!);
         const level = band(occlusion, SHADE_BANDS.length - 1, x, y);
         const s = Math.round(255 * SHADE_BANDS[Math.round(level * (SHADE_BANDS.length - 1))]! * (sunShadow[i] ? SUN_SHADOW : 1));
-        shade.set([s, s, s, 255], i * 4);
+        shade[i * 4] = shade[i * 4 + 1] = shade[i * 4 + 2] = s;
+        shade[i * 4 + 3] = 255;
 
         let sun = 0;
         const dist = structureAt(x, y) || outdoors(x, y) ? 0 : shaft[i]!;
@@ -175,7 +184,10 @@ export function buildLightMaps(level: Level, occluders: Occluder[], casters: Cas
         }
         const lit = sun > 0 ? band(sun, 3, x, y) : 0;
         const a = lit * 0.22;
-        glow.set([SUN[0] * a, SUN[1] * a, SUN[2] * a, 255], i * 4);
+        glow[i * 4] = SUN[0] * a;
+        glow[i * 4 + 1] = SUN[1] * a;
+        glow[i * 4 + 2] = SUN[2] * a;
+        glow[i * 4 + 3] = 255;
     }
     return { width, height, shade, glow };
 }
@@ -189,17 +201,15 @@ export function buildLightMaps(level: Level, occluders: Occluder[], casters: Cas
 export function buildExposure(level: Level): { width: number; height: number; rgb: Float32Array } {
     const width = level.tiles[0]!.length * TILE, height = level.tiles.length * TILE;
     const front = streetFront(level).line, far = farFront(level)?.line;
-    const rgb = new Float32Array(width * height * 3);
+    const rgb = new Float32Array(width * height * 3).fill(2);
     for (let y = 0; y < height; y++) for (let x = 0; x < width; x++) {
-        const t = level.tiles[Math.floor(y / TILE)]![Math.floor(x / TILE)]!;
-        let factor = [2, 2, 2];
-        if (!isOutdoors(t)) {
-            // Lifted towards the glass on the street: the bank's front below, the far front above a building across the street.
-            const near = y < front ? Math.max(0, 1 - (front - y) / WINDOW_REACH) : far !== undefined && y >= far ? Math.max(0, 1 - (y - far) / WINDOW_REACH) : 0;
-            const r = 2 * (ROOF_DEEP + (ROOF_WINDOW - ROOF_DEEP) * band(near, 4, x, y));
-            factor = [r * 0.9, r * 0.95, r];
-        }
-        rgb.set(factor, (y * width + x) * 3);
+        if (isOutdoors(level.tiles[Math.floor(y / TILE)]![Math.floor(x / TILE)]!)) continue;
+        // Lifted towards the glass on the street: the bank's front below, the far front above a building across the street.
+        const near = y < front ? Math.max(0, 1 - (front - y) / WINDOW_REACH) : far !== undefined && y >= far ? Math.max(0, 1 - (y - far) / WINDOW_REACH) : 0;
+        const r = 2 * (ROOF_DEEP + (ROOF_WINDOW - ROOF_DEEP) * band(near, 4, x, y)), i = (y * width + x) * 3;
+        rgb[i] = r * 0.9;
+        rgb[i + 1] = r * 0.95;
+        rgb[i + 2] = r;
     }
     return { width, height, rgb };
 }

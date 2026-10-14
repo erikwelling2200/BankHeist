@@ -40,20 +40,28 @@ export function lightBlockers(level: Level): { width: number; height: number; bl
     return { width, height, blocks, drowned };
 }
 
-/** Which floor pixels a lamp reaches: a square of `size` pixels round its floor point, its corner at (left, top). */
-interface ReachMask { left: number; top: number; size: number; seen: Uint8Array }
+/**
+ * Which floor pixels a lamp reaches: a square of `size` pixels round its floor point, its corner at (left, top), each
+ * pixel 0 until it is first asked about, then `REACHED` or `UNREACHED`; and, per block of `BLOCK` pixels, whether the
+ * block is open to the lamp (see `LampReach`).
+ */
+interface ReachMask { lamp: Lamp; left: number; top: number; size: number; seen: Uint8Array; open: Int8Array; ray: Ray }
 
 /** A ray from a lamp's floor point (fx, fy) by (dx, dy) in `steps` steps, and the pixel it starts on. */
 interface Ray { fx: number; fy: number; dx: number; dy: number; steps: number; startX: number; startY: number; startBlocked: number }
 
+const REACHED = 1, UNREACHED = 2;
 /** Below this many steps a stretch of a ray is marched pixel by pixel rather than split again. */
 const MARCH_STEPS = 6;
+/** Pixels round a lamp are traced in square blocks of this size. */
+const BLOCK = 8;
 
 /**
- * Which floor pixels each lamp reaches without its light crossing a wall, traced once per lamp. A ray marches from the
- * lamp's floor point to each pixel in its radius; rather than visit every step, it asks a summed-area table whether the
- * rectangle round a stretch of steps holds a blocking pixel, and splits only the stretches that do. The steps between two
- * steps never leave the rectangle round them, so the answer is the same as marching all of them, at a fraction of the cost.
+ * Which floor pixels each lamp reaches without its light crossing a wall. A ray marches from the lamp's floor point to the
+ * pixel; rather than visit every step, it asks a summed-area table whether the rectangle round a stretch of steps holds a
+ * blocking pixel, and splits only the stretches that do. A ray's steps never leave the rectangle round its ends, so the
+ * answer is the same as marching all of them, at a fraction of the cost. A pixel is traced the first time it is asked
+ * about, and only then: the light of a lamp hung high fades out well inside its radius, and no one asks past that.
  */
 export class LampReach {
     private readonly masks = new Map<Lamp, ReachMask>();
@@ -62,41 +70,63 @@ export class LampReach {
 
     constructor(private readonly blockers: ReturnType<typeof lightBlockers>, lamps: readonly Lamp[]) {
         this.sums = summedArea(blockers.blocks, blockers.width, blockers.height);
-        for (const lamp of lamps) this.masks.set(lamp, this.trace(lamp));
+        for (const lamp of lamps) {
+            const r = Math.ceil(lamp.radius), size = r * 2 + 1, blocks = Math.ceil(size / BLOCK);
+            const ray: Ray = { fx: lamp.from.x, fy: lamp.from.y, dx: 0, dy: 0, steps: 0, startX: Math.floor(lamp.from.x), startY: Math.floor(lamp.from.y), startBlocked: 0 };
+            ray.startBlocked = this.blocked(ray.startX, ray.startY) ? 1 : 0;
+            const mask = { lamp, left: ray.startX - r, top: ray.startY - r, size, seen: new Uint8Array(size * size), open: new Int8Array(blocks * blocks).fill(-1), ray };
+            this.masks.set(lamp, mask);
+        }
     }
 
     /** True when the lamp's light reaches floor point (x, y) and shows there. Points outside its radius are never reached. */
     reaches(lamp: Lamp, x: number, y: number): boolean {
         const mask = this.mask(lamp);
         const mx = Math.floor(x) - mask.left, my = Math.floor(y) - mask.top;
-        return mx >= 0 && my >= 0 && mx < mask.size && my < mask.size && mask.seen[my * mask.size + mx] === 1;
+        return mx >= 0 && my >= 0 && mx < mask.size && my < mask.size && this.reachesPixel(mask, mx, my);
     }
 
-    /** The lamp's traced reach, for code that tests many points against it. */
+    /** The lamp's reach, for code that tests many points against it with `reachesPixel`. */
     mask(lamp: Lamp): ReachMask {
         const mask = this.masks.get(lamp);
         if (!mask) throw new Error('A lamp that was never traced');
         return mask;
     }
 
-    /** Marches from the lamp's floor point to every pixel in its radius; a blocking pixel on the way (not counting the start) stops it. */
-    private trace(lamp: Lamp): ReachMask {
-        const { width, drowned } = this.blockers;
-        const r = Math.ceil(lamp.radius), size = r * 2 + 1, left = Math.floor(lamp.from.x) - r, top = Math.floor(lamp.from.y) - r;
-        const seen = new Uint8Array(size * size);
-        const ray: Ray = { fx: lamp.from.x, fy: lamp.from.y, dx: 0, dy: 0, steps: 0, startX: Math.floor(lamp.from.x), startY: Math.floor(lamp.from.y), startBlocked: 0 };
-        ray.startBlocked = this.blocked(ray.startX, ray.startY) ? 1 : 0;
-        for (let j = 0; j < size; j++) for (let i = 0; i < size; i++) {
-            const dx = left + i + 0.5 - ray.fx, dy = top + j + 0.5 - ray.fy;
-            if (dx * dx + dy * dy > lamp.radius * lamp.radius) continue;
-            const px = left + i, py = top + j;
-            if (this.blocked(px, py) || drowned[py * width + px] === 1) continue;
-            ray.dx = dx;
-            ray.dy = dy;
-            ray.steps = Math.ceil(Math.max(Math.abs(dx), Math.abs(dy)) * 2);
-            if (ray.steps < 1 || this.clear(ray, 1, ray.steps)) seen[j * size + i] = 1;
+    /** Whether the lamp reaches pixel (i, j) of its mask, tracing it if this is the first time it is asked. */
+    reachesPixel(mask: ReachMask, i: number, j: number): boolean {
+        const at = j * mask.size + i;
+        if (mask.seen[at] === 0) mask.seen[at] = this.trace(mask, i, j) ? REACHED : UNREACHED;
+        return mask.seen[at] === REACHED;
+    }
+
+    /** Marches from the lamp's floor point to pixel (i, j) of its mask; a blocking pixel on the way (not counting the start) stops it. */
+    private trace(mask: ReachMask, i: number, j: number): boolean {
+        const { width, height, blocks, drowned } = this.blockers, { lamp, ray } = mask;
+        const px = mask.left + i, py = mask.top + j, dx = px + 0.5 - ray.fx, dy = py + 0.5 - ray.fy;
+        if (dx * dx + dy * dy > lamp.radius * lamp.radius) return false;
+        if (px < 0 || py < 0 || px >= width || py >= height || blocks[py * width + px] === 1 || drowned[py * width + px] === 1) return false;
+        // A block of pixels whose rectangle with the start (and a pixel's margin) holds no wall is open: every ray into it
+        // is clear, unmarched. That is most of a lamp's own room.
+        const b = Math.floor(j / BLOCK) * Math.ceil(mask.size / BLOCK) + Math.floor(i / BLOCK);
+        if (mask.open[b] === -1) {
+            const x0 = mask.left + i - (i % BLOCK) - 1, y0 = mask.top + j - (j % BLOCK) - 1;
+            mask.open[b] = this.wallsIn(ray, Math.min(x0, ray.startX), Math.min(y0, ray.startY), Math.max(x0 + BLOCK + 1, ray.startX), Math.max(y0 + BLOCK + 1, ray.startY)) === 0 ? 1 : 0;
         }
-        return { left, top, size, seen };
+        if (mask.open[b] === 1) return true;
+        ray.dx = dx;
+        ray.dy = dy;
+        ray.steps = Math.ceil(Math.max(Math.abs(dx), Math.abs(dy)) * 2);
+        return ray.steps < 1 || this.clear(ray, 1, ray.steps);
+    }
+
+    /** Blocking pixels in the rectangle (x0, y0) to (x1, y1), the ray's start not counting; off the map, more than none. */
+    private wallsIn(ray: Ray, x0: number, y0: number, x1: number, y1: number): number {
+        const { width, height } = this.blockers;
+        if (x0 < 0 || y0 < 0 || x1 >= width || y1 >= height) return Infinity;
+        const row = width + 1, sums = this.sums;
+        const count = sums[(y1 + 1) * row + x1 + 1]! - sums[y0 * row + x1 + 1]! - sums[(y1 + 1) * row + x0]! + sums[y0 * row + x0]!;
+        return ray.startX >= x0 && ray.startX <= x1 && ray.startY >= y0 && ray.startY <= y1 ? count - ray.startBlocked : count;
     }
 
     private blocked(x: number, y: number): boolean {
@@ -108,15 +138,8 @@ export class LampReach {
     private clear(ray: Ray, from: number, to: number): boolean {
         const ax = Math.floor(ray.fx + (ray.dx * from) / ray.steps), ay = Math.floor(ray.fy + (ray.dy * from) / ray.steps);
         const bx = Math.floor(ray.fx + (ray.dx * to) / ray.steps), by = Math.floor(ray.fy + (ray.dy * to) / ray.steps);
-        const x0 = Math.min(ax, bx), x1 = Math.max(ax, bx), y0 = Math.min(ay, by), y1 = Math.max(ay, by);
-        const { width, height } = this.blockers;
         // Off the map counts as blocked, which the table doesn't know: such a stretch is split or marched.
-        if (x0 >= 0 && y0 >= 0 && x1 < width && y1 < height) {
-            const row = width + 1, sums = this.sums;
-            let count = sums[(y1 + 1) * row + x1 + 1]! - sums[y0 * row + x1 + 1]! - sums[(y1 + 1) * row + x0]! + sums[y0 * row + x0]!;
-            if (ray.startX >= x0 && ray.startX <= x1 && ray.startY >= y0 && ray.startY <= y1) count -= ray.startBlocked;
-            if (count === 0) return true;
-        }
+        if (this.wallsIn(ray, Math.min(ax, bx), Math.min(ay, by), Math.max(ax, bx), Math.max(ay, by)) === 0) return true;
         if (to - from < MARCH_STEPS) {
             for (let s = from; s <= to; s++) {
                 const px = Math.floor(ray.fx + (ray.dx * s) / ray.steps), py = Math.floor(ray.fy + (ray.dy * s) / ray.steps);
@@ -161,11 +184,12 @@ const CELL = 32;
  * Bakes the lighting of a bitmap drawn with its top-left corner at screen (left, top), as Light2D would light it, but
  * only by the lamps `reaches` lets through for each of its pixels, then exposes it (`exposure`). The lit colour clamps
  * before exposure, as the framebuffer did when lighting ran at half exposure on the GPU. Returns RGBA, alpha kept. Pass
- * the bitmap's `normals` when relighting it often, as something moving is. Something standing lit the same all over is
- * baked fastest by passing only the lamps that reach it and a `reaches` that lets them all through.
+ * the bitmap's `normals` when relighting it often, as something moving is; without them, only the pixels a lamp falls
+ * on have their normal worked out. Something standing lit the same all over is baked fastest by passing only the lamps
+ * that reach it and a `reaches` that lets them all through.
  */
 export function bakeLighting(
-    bitmap: PixelBitmap, left: number, top: number, ambient: number, lamps: readonly Lamp[], reaches: Reach, exposure: Exposure | ExposureMap, normals = bitmap.normalMap()
+    bitmap: PixelBitmap, left: number, top: number, ambient: number, lamps: readonly Lamp[], reaches: Reach, exposure: Exposure | ExposureMap, normals?: Uint8ClampedArray
 ): Uint8ClampedArray {
     const { width, height, colors } = bitmap, out = new Uint8ClampedArray(colors);
     const [baseR, baseG, baseB] = channels(ambient);
@@ -189,12 +213,12 @@ export function bakeLighting(
         });
         cells.push(cell);
     }
-    const map = typeof exposure === 'function' ? undefined : exposure;
+    const map = typeof exposure === 'function' ? undefined : exposure, normal = new Uint8ClampedArray(4);
     for (let y = 0; y < height; y++) for (let x = 0; x < width; x++) {
         const i = y * width + x;
         if (colors[i * 4 + 3] === 0) continue;
-        // The normal map is encoded with +Y up; the screen's y runs down.
-        const nx = (normals[i * 4]! / 255) * 2 - 1, ny = -((normals[i * 4 + 1]! / 255) * 2 - 1), nz = (normals[i * 4 + 2]! / 255) * 2 - 1;
+        // The normal, once a lamp falls on the pixel. The normal map is encoded with +Y up; the screen's y runs down.
+        let nx = NaN, ny = NaN, nz = NaN;
         let lightR = baseR, lightG = baseG, lightB = baseB;
         const sx = left + x + 0.5, sy = top + y + 0.5;
         for (const k of cells[Math.floor(y / CELL) * cols + Math.floor(x / CELL)]!) {
@@ -204,8 +228,15 @@ export function bakeLighting(
             if (attenuation <= 0) continue;
             if (masks) {
                 const m = masks[k]!, mx = Math.floor(sx) - m.left, my = Math.floor(sy) - m.top;
-                if (mx < 0 || my < 0 || mx >= m.size || my >= m.size || m.seen[my * m.size + mx] !== 1) continue;
+                if (mx < 0 || my < 0 || mx >= m.size || my >= m.size || !(reaches as LampReach).reachesPixel(m, mx, my)) continue;
             } else if (!test!(lamps[k]!, sx, sy)) continue;
+            if (Number.isNaN(nx)) {
+                const from = normals ?? normal, at = normals ? i * 4 : 0;
+                if (!normals) bitmap.normalAt(x, y, normal, 0);
+                nx = (from[at]! / 255) * 2 - 1;
+                ny = -((from[at + 1]! / 255) * 2 - 1);
+                nz = (from[at + 2]! / 255) * 2 - 1;
+            }
             const facing = Math.max(0, (nx * dx + ny * dy + nz * dz) / Math.sqrt(d2));
             lightR += tintR[k]! * attenuation * facing;
             lightG += tintG[k]! * attenuation * facing;
@@ -217,7 +248,12 @@ export function bakeLighting(
             er = map.rgb[e]!;
             eg = map.rgb[e + 1]!;
             eb = map.rgb[e + 2]!;
-        } else [er, eg, eb] = (exposure as Exposure)(sx, sy);
+        } else {
+            const e = (exposure as Exposure)(sx, sy);
+            er = e[0];
+            eg = e[1];
+            eb = e[2];
+        }
         out[i * 4] = Math.min(255, colors[i * 4]! * lightR) * er;
         out[i * 4 + 1] = Math.min(255, colors[i * 4 + 1]! * lightG) * eg;
         out[i * 4 + 2] = Math.min(255, colors[i * 4 + 2]! * lightB) * eb;

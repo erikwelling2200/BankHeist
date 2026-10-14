@@ -23,8 +23,18 @@ async function open(page: Page, path: string, scene = 'bank'): Promise<string[]>
     return errors;
 }
 
-/** The canvas matches its baseline; walls still sliding to their height settle first, as the shot waits to be stable. */
+/** Waits for `count` frames to be drawn: what the page just asked for (a new view, the map) shows only on the next one. */
+const frames = (page: Page, count: number) => page.evaluate(n => new Promise<void>(done => {
+    const game = (window as any).game;
+    const tick = () => (--n <= 0 ? done() : game.events.once('postrender', tick));
+    game.events.once('postrender', tick);
+}), count);
+
+/** The canvas matches its baseline, once the walls have slid to the height the view asks of them. */
 async function shot(page: Page, name: string): Promise<void> {
+    await frames(page, 2);
+    await page.waitForFunction(() => (window as any).game.scene.getScene('bank')?.debugState.settled !== false, null, { timeout: 20000 });
+    await frames(page, 2);
     await expect(page.locator('canvas')).toHaveScreenshot(`${name}.png`, { ...tolerance, timeout: 20000 });
 }
 
@@ -38,6 +48,9 @@ const BANKS: [string, string][] = [
 ];
 
 test.describe('looks the same', { tag: '@visual' }, () => {
+    // Software WebGL draws a whole plot slowly, and each shot waits for two identical frames.
+    test.describe.configure({ timeout: 120000 });
+
     for (const [name, path] of BANKS) {
         test(`${name} bank at its start view and on the tactical map`, async ({ page }) => {
             const errors = await open(page, path);
