@@ -7,8 +7,8 @@ export const PERSON_WIDTH = 16;
 export const PERSON_HEIGHT = 24;
 
 type HairStyle = 'short' | 'long' | 'bald' | 'bun' | 'ponytail' | 'cap' | 'buzz';
-type TopKind = 'suit' | 'shirt' | 'vest' | 'uniform' | 'coat' | 'tee' | 'hoodie' | 'dress' | 'cardigan' | 'bomber';
-type Carry = 'briefcase' | 'duffel' | 'handbag' | 'none';
+type TopKind = 'suit' | 'shirt' | 'vest' | 'uniform' | 'coat' | 'tee' | 'polo' | 'hoodie' | 'dress' | 'cardigan' | 'bomber';
+type Carry = 'briefcase' | 'duffel' | 'handbag' | 'laptopBag' | 'cashCase' | 'none';
 
 export interface PersonSpec {
     skin: Ramp;
@@ -27,6 +27,8 @@ export interface PersonSpec {
     lanyard?: boolean;
     glasses?: boolean;
     beard?: boolean;
+    /** A radio earpiece, its coiled lead running down behind the right ear into the collar. */
+    earpiece?: boolean;
 }
 
 const H = { hair: 1, face: 0.95, torso: 0.8, arm: 0.85, legs: 0.6, shoes: 0.35 };
@@ -76,7 +78,7 @@ export function person(spec: PersonSpec, facing: 'front' | 'back', edge: Edge = 
             b.set(x, y, c, H.torso);
         }
     }
-    const sleeve = spec.topKind === 'tee' ? 3 : 7;
+    const sleeve = spec.topKind === 'tee' || spec.topKind === 'polo' ? 3 : 7;
     for (let y = torsoTop + 1; y <= 14; y++) {
         const bare = y - torsoTop > sleeve;
         b.set(3, y, bare ? skin[2]! : cloth[1]!, H.arm);
@@ -93,6 +95,13 @@ export function person(spec: PersonSpec, facing: 'front' | 'back', edge: Edge = 
     // Neck and head.
     b.rect(7, top + 5, 2, 1, skin[1]!, H.face);
     drawHead(b, spec, top, front);
+    if (spec.earpiece) {
+        // The coil shows pale against the neck and the dark collar behind the right ear.
+        b.set(11, top + 3, PAL.steel[4], H.face);
+        b.set(11, top + 4, PAL.steel[3], H.face);
+        b.set(10, top + 5, PAL.steel[4], H.face);
+        if (!front) b.set(10, torsoTop, PAL.steel[3], H.torso + 0.05);
+    }
     if (spec.carry && spec.carry !== 'none') drawCarry(b, spec.carry, front);
     edge(b);
     return b;
@@ -174,6 +183,17 @@ function frontDetails(b: PixelBitmap, spec: PersonSpec, torsoTop: number, hemY: 
             b.rect(4, 14, 8, 1, cloth[0]!, H.torso);
             break;
         }
+        case 'polo': {
+            // A turned-down collar either side of a short buttoned placket.
+            b.set(6, torsoTop, cloth[3]!, H.torso + 0.05);
+            b.set(9, torsoTop, cloth[3]!, H.torso + 0.05);
+            b.set(7, torsoTop, cloth[0]!, H.torso);
+            b.set(8, torsoTop, cloth[0]!, H.torso);
+            b.vline(8, torsoTop + 1, 2, cloth[1]!, H.torso);
+            b.set(8, torsoTop + 1, PAL.cloth.white[2]!, H.torso + 0.02);
+            b.rect(4, 14, 8, 1, PAL.cloth.black[2]!, H.torso);
+            break;
+        }
         case 'tee': {
             b.rect(7, torsoTop, 2, 1, cloth[1]!, H.torso);
             b.rect(4, 14, 8, 1, PAL.cloth.black[2]!, H.torso);
@@ -197,7 +217,8 @@ function backDetails(b: PixelBitmap, spec: PersonSpec, torsoTop: number, hemY: n
     if (spec.topKind === 'suit' || spec.topKind === 'coat') b.vline(8, torsoTop + 3, hemY - torsoTop - 2, cloth[0]!, H.torso);
     if (spec.topKind === 'hoodie') b.rect(5, torsoTop, 6, 2, cloth[3]!, H.torso + 0.15);
     if (spec.topKind === 'uniform') b.rect(4, torsoTop + 2, 8, 1, cloth[3]!, H.torso + 0.02);
-    if (spec.topKind === 'shirt' || spec.topKind === 'uniform' || spec.topKind === 'tee' || spec.topKind === 'bomber') {
+    if (spec.topKind === 'polo') b.rect(5, torsoTop, 6, 1, cloth[3]!, H.torso + 0.05);
+    if (spec.topKind === 'shirt' || spec.topKind === 'uniform' || spec.topKind === 'tee' || spec.topKind === 'polo' || spec.topKind === 'bomber') {
         b.rect(4, 14, 8, 1, PAL.cloth.black[1]!, H.torso);
     }
 }
@@ -293,6 +314,25 @@ function drawCarry(b: PixelBitmap, carry: Carry, front: boolean): void {
             b.hline(bx + 1, 15, 3, PAL.cloth.olive[0]!, 0.7);
             break;
         }
+        case 'laptopBag': {
+            // A slim black messenger bag on a strap across the body: a flap with a buckle, riding on the hip.
+            const strap = PAL.cloth.black[3]!;
+            if (front) for (let i = 0; i < 6; i++) b.set(10 - i, 8 + i, strap, 0.9);
+            const bx = front ? 1 : 11;
+            b.rect(bx, 13, 4, 4, PAL.cloth.black[1]!, 0.72);
+            b.hline(bx, 13, 4, PAL.cloth.black[3]!, 0.78);
+            b.hline(bx, 14, 4, PAL.cloth.black[2]!, 0.76);
+            b.set(bx + 2, 15, PAL.steel[3], 0.8);
+            break;
+        }
+        case 'cashCase':
+            // An armoured courier's steel cash case, chained to the wrist.
+            b.rect(12, 16, 4, 4, PAL.steel[3], 0.75);
+            b.hline(12, 16, 4, PAL.steel[5], 0.8);
+            b.vline(15, 17, 3, PAL.steel[2], 0.7);
+            b.set(13, 18, PAL.cloth.mustard[3]!, 0.8);
+            b.set(12, 15, PAL.steel[4], 0.75);
+            break;
         case 'none':
             break;
     }
@@ -319,5 +359,9 @@ export const LOOKS: Record<string, PersonSpec> = {
     manager: { skin: skin.tan, hair: hair.grey, hairStyle: 'short', top: cloth.navy, topKind: 'suit', tie: cloth.mustard, legs: cloth.navy, shoes: cloth.black, glasses: true, lanyard: true },
     operator: { skin: skin.pale, hair: hair.brown, hairStyle: 'buzz', top: cloth.charcoal, topKind: 'shirt', legs: cloth.charcoal, shoes: cloth.black, lanyard: true, beard: true },
     cleaner: { skin: skin.dark, hair: hair.black, hairStyle: 'bun', top: cloth.teal, topKind: 'uniform', legs: cloth.teal, shoes: cloth.white, short: 1 },
+    itTech: { skin: skin.brown, hair: hair.black, hairStyle: 'short', top: cloth.teal, topKind: 'polo', legs: cloth.beige, shoes: cloth.charcoal, glasses: true, lanyard: true, carry: 'laptopBag' },
+    securityChief: { skin: skin.dark, hair: hair.grey, hairStyle: 'buzz', top: cloth.black, topKind: 'suit', under: cloth.white, tie: cloth.charcoal, legs: cloth.black, shoes: cloth.black, earpiece: true, lanyard: true },
+    officeWorker: { skin: skin.pale, hair: hair.blond, hairStyle: 'long', top: cloth.burgundy, topKind: 'cardigan', under: cloth.white, legs: cloth.charcoal, shoes: cloth.black, short: 1, lanyard: true },
+    courier: { skin: skin.tan, hair: hair.brown, hairStyle: 'cap', top: cloth.grey, topKind: 'uniform', legs: cloth.grey, shoes: cloth.black, carry: 'cashCase' },
     barista: { skin: skin.brown, hair: hair.auburn, hairStyle: 'ponytail', top: cloth.black, topKind: 'vest', under: cloth.white, legs: cloth.black, shoes: cloth.black, short: 1 }
 };

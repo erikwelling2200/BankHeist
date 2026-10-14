@@ -9,23 +9,31 @@ import type { Wall, WallKind } from './walls';
  * Floor: `,` staff linoleum   `.` lobby marble   `=` carpet runner   `q` concrete (Secure)   `v` steel plate (the vault)
  *        `t` small white tiles (restrooms, the café kitchen)   `f` café floorboards   `u` a vacant shop's dusty floor
  *        `m` an office tower's granite lobby   `n` office carpet, raised (an upper floor)   `h` a raised concrete landing
- *        `z` stairs, rising to the north   `y` a plaza's brick pavers
+ *        `z` stairs, rising to the north   `y` a plaza's brick pavers   `j` raised linoleum (a staff mezzanine)
+ *        `p` a parking garage's concrete, bays painted on it   `k` scaffold boards, raised   `e` a building site's gravel
  *        `s` sidewalk   `c` curb   `r` road   `l` road with the centre-line dashes   `a` alley
  *        `x` off the map (a neighbour's building, nothing to see)
  * Walls: `-` `|` plaster (Soft)   `R` concrete (Reinforced)   `V` the vault's steel   `O` the vault door
  *        `b` brick (outside walls)   `d` wood door   `k` keycard steel door   `S` steel service door in a front
  *        `p` stone pier   `P` brick pier   `g` window   `D` glass door   `A` through-the-wall ATM   `B` boarded-up window
  *        `H` rolling shutter   `G` an office tower's glass curtain wall   `E` its glass doors   `i` a railing
+ *        `F` a building site's chain-link fence   `J` a steel back door in brick   `T` an old bank's metre-thick stone
+ *        `W` a drive-through teller window
  */
 
-export type FloorTile = ',' | '.' | '=' | 'q' | 'v' | 't' | 'f' | 'u' | 'm' | 'n' | 'h' | 'z' | 'y' | 's' | 'c' | 'r' | 'l' | 'a' | 'x';
+export type FloorTile = ',' | '.' | '=' | 'q' | 'v' | 't' | 'f' | 'u' | 'm' | 'n' | 'h' | 'z' | 'y' | 'j' | 'p' | 'k' | 'e'
+    | 's' | 'c' | 'r' | 'l' | 'a' | 'x';
 
-const FLOOR = new Set<string>([',', '.', '=', 'q', 'v', 't', 'f', 'u', 'm', 'n', 'h', 'z', 'y', 's', 'c', 'r', 'l', 'a', 'x']);
+export const FLOOR_TILES: readonly FloorTile[] = [',', '.', '=', 'q', 'v', 't', 'f', 'u', 'm', 'n', 'h', 'z', 'y', 'j', 'p', 'k', 'e', 's', 'c', 'r', 'l', 'a', 'x'];
+const FLOOR = new Set<string>(FLOOR_TILES);
 const WALL_KINDS: Record<string, WallKind> = {
     '-': 'plaster', '|': 'plaster', R: 'concrete', V: 'vault', O: 'vaultDoor', b: 'brick', d: 'doorWood', k: 'doorKeycard',
     S: 'doorService', p: 'pier', P: 'brickPier', g: 'window', D: 'doorGlass', A: 'atm', B: 'boarded', H: 'shutter',
-    G: 'curtain', E: 'doorTower', i: 'rail'
+    G: 'curtain', E: 'doorTower', i: 'rail', F: 'fence', J: 'doorBack', T: 'thick', W: 'tellerWindow'
 };
+
+/** The plan character of each wall kind (the first one, where two share a kind). */
+export const WALL_CHARS = Object.fromEntries(Object.entries(WALL_KINDS).reverse().map(([c, k]) => [k, c])) as Record<WallKind, string>;
 
 export interface Level { tiles: FloorTile[][]; walls: Wall[] }
 
@@ -56,7 +64,7 @@ export function parsePlan(plan: readonly string[]): Level {
 export const isOffMap = (tile: FloorTile): boolean => tile === 'x';
 
 /** Tiles under the open sky. */
-export const isOutdoors = (tile: FloorTile): boolean => tile === 's' || tile === 'c' || tile === 'r' || tile === 'l' || tile === 'a' || tile === 'y';
+export const isOutdoors = (tile: FloorTile): boolean => tile === 's' || tile === 'c' || tile === 'r' || tile === 'l' || tile === 'a' || tile === 'y' || tile === 'e';
 
 /**
  * Height is a property of the tile, not a separate floor (§14.7): an upper-floor room in a neighbouring building is a
@@ -70,7 +78,7 @@ export const RAISED_HEIGHT = px(3.5);
  */
 export function floorHeight(tiles: readonly (readonly FloorTile[])[], tx: number, ty: number): number {
     const t = tiles[ty]?.[tx];
-    if (t === 'n' || t === 'h') return RAISED_HEIGHT;
+    if (t === 'n' || t === 'h' || t === 'j' || t === 'k') return RAISED_HEIGHT;
     if (t !== 'z') return 0;
     let above = 0, below = 0;
     while (tiles[ty - above - 1]?.[tx] === 'z') above++;
@@ -115,12 +123,38 @@ export type LevelProp = Placed & (
     | { kind: 'cafeTable' | 'cafeCounter' }
     | { kind: 'dumpster' | 'generator' }
     | { kind: 'tree' | 'bench' | 'rifleCase' }
+    | { kind: 'floorGrate' | 'ventGrille' | 'roofHatch' | 'metalDetector' | 'motionSensor' | 'pillar' | 'tubeTerminal' | 'skylight' }
 );
 
 export type PersonFacing = 'front' | 'back';
 
 /**
  * People stand in the middle of their tile (`PERSON_SIZE`) and are named after the archetype they are drawn as. A
- * person with a `patrol` walks in a straight line to that tile and back, pausing at each end.
+ * person with a `patrol` walks in a straight line to that tile and back, pausing at each end; one with a `route` walks
+ * from tile to tile along it (each leg straight along a row or a column) and back again.
  */
-export interface LevelPerson { look: string; tx: number; ty: number; facing: PersonFacing; patrol?: { tx: number; ty: number } }
+export interface LevelPerson {
+    look: string;
+    tx: number;
+    ty: number;
+    facing: PersonFacing;
+    patrol?: { tx: number; ty: number };
+    route?: { tx: number; ty: number }[];
+}
+
+/** Writes a level back out as a plan (the inverse of `parsePlan`), for tests and for reading a generated level. */
+export function toPlan(level: Level): string[] {
+    const h = level.tiles.length, w = level.tiles[0]!.length;
+    const grid = Array.from({ length: 2 * h + 1 }, () => Array.from({ length: 2 * w + 1 }, () => ' '));
+    level.tiles.forEach((row, y) => row.forEach((t, x) => (grid[2 * y + 1]![2 * x + 1] = t)));
+    for (const wall of level.walls) {
+        const c = WALL_CHARS[wall.kind];
+        if (wall.run === 'eastWest') grid[2 * wall.ty]![2 * wall.tx + 1] = c;
+        else grid[2 * wall.ty + 1]![2 * wall.tx] = c;
+    }
+    for (let gy = 0; gy <= 2 * h; gy += 2) for (let gx = 0; gx <= 2 * w; gx += 2) {
+        const around = [grid[gy]![gx - 1], grid[gy]![gx + 1], grid[gy - 1]?.[gx], grid[gy + 1]?.[gx]];
+        if (around.some(c => c !== undefined && c !== ' ')) grid[gy]![gx] = '+';
+    }
+    return grid.map(r => r.join(''));
+}

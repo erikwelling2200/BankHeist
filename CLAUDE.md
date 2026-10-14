@@ -6,7 +6,9 @@ Top-down 2D pixel-art stealth game. Phaser 4 + TypeScript + Vite, shipped as an 
 - `docs/design/GAME_DESIGN.md` is the source of truth for how the game plays: rules, numbers, canonical tables and the
   milestone order (§22). The current playable content is only a stack demo and doesn't reflect it.
 - `docs/design/visual-preview.md` holds the visual style card, the lighting model and the example bank built to settle
-  them; it is the default page (`/`). The old stack demo is at `/?scene=demo`, the prop sheet at `/?scene=props`, the
+  them (`/?bank=example`). The default page (`/`) is a generated bank: the procedural generator of §17 lives in
+  `src/gen/` and `docs/design/generator.md` maps it to the design (seeds in the address, `?seed=layout-population`,
+  plus `tier`, `archetype` and `plot`). The old stack demo is at `/?scene=demo`, the prop sheet at `/?scene=props`, the
   police officer's animation preview at `/?scene=officer`.
 - `docs/design/research.md` holds the key research findings behind each design decision, with the full notes per area in
   `docs/design/research/`.
@@ -17,14 +19,18 @@ Top-down 2D pixel-art stealth game. Phaser 4 + TypeScript + Vite, shipped as an 
 
 ## Commands
 - `npm run dev` – Vite dev server with hot reload.
-- `npm run typecheck` / `npm test` – TypeScript and Vitest unit tests (pure logic in `src/logic`, `src/level`).
+- `npm run typecheck` / `npm test` – TypeScript and Vitest unit tests (pure logic in `src/logic`, `src/level`, `src/gen`).
+  `tests/generator.test.ts` builds every tier and archetype and checks §17.7 on each.
 - `npm run test:e2e` – builds, serves the production build and drives it in Chromium with Playwright. Writes `screenshots/*.png`.
 - `npm run screenshot` – only the boot test; the fastest way to look at the current visuals.
 
 ## Verifying changes
 - Run typecheck, unit tests and e2e before pushing. For any visual change, read `screenshots/start.png` (and add a
   screenshot to the relevant e2e test when a new feature isn't visible at boot) – don't call visual work done unseen.
-- `window.game` and `window.Phaser` are exposed; `game.scene.getScene('vault').debugState` gives test-friendly state.
+- `window.game` and `window.Phaser` are exposed; `game.scene.getScene('vault').debugState` gives test-friendly state,
+  and `window.generated` the generated bank (its rooms, people, keys, ways in and validation report).
+- The generator only places what fits: give a new prop a catalog entry and art first, then place it through a parcel
+  (`src/gen/parcels.ts`) with the `Furnisher`, which rejects props that don't fit between walls or touch another box.
 - In the cloud sandbox Playwright uses the preinstalled Chromium at `/opt/pw-browsers`, which is why `@playwright/test`
   is pinned to 1.56.1. Bumping it needs a matching browser.
 

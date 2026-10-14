@@ -44,8 +44,8 @@ const concreteSection: Painter['section'] = (put, t, length, rand) => {
 };
 
 /** A door cut through: the jambs in the wall's section at its ends, the leaf in between. */
-const doorSection = (leaf: number, edge: number): Painter['section'] => (put, t, length, rand) => {
-    plasterSection(put, t, length, rand);
+const doorSection = (leaf: number, edge: number, wall: Painter['section'] = plasterSection): Painter['section'] => (put, t, length, rand) => {
+    wall(put, t, length, rand);
     for (let u = 2; u < length - 2; u++) for (let v = 0; v < t; v++) put(u, v, v === t - 1 ? edge : leaf);
 };
 
@@ -279,6 +279,142 @@ const railFace: Painter['face'] = put => {
     }
 };
 
+/** A building site's fence: a little taller than a full wall, so like the railing it is never cut down. */
+export const FENCE_HEIGHT = px(2.0);
+
+/** The fence's top tube, a clamp over the post at each panel's end. */
+const fenceSection: Painter['section'] = (put, t, length) => {
+    for (let v = 0; v < t; v++) for (let u = 0; u < length; u++) put(u, v, u === 1 ? PAL.steel[5] : PAL.steel[4]);
+};
+
+/** Chain-link mesh is see-through: a tint of galvanised wire over whatever stands behind it. */
+const MESH_ALPHA = 175;
+const mesh = (u: number, z: number) => (u + z) % 4 === 0 || (u - z + 64) % 4 === 0;
+
+/**
+ * A chain-link site fence across the view: a galvanised post in a concrete foot at each panel's end, the top tube, a
+ * tension wire low down, and the diamond mesh between them, open in the middle of every diamond.
+ */
+const fenceFace: Painter['face'] = put => {
+    const H = FENCE_HEIGHT;
+    for (let z = 1; z <= H; z++) for (let u = 0; u < TILE; u++) {
+        if (z <= 2 && u <= 2) put(u, z, z === 2 ? PAL.concrete[4] : u === 2 ? PAL.concrete[1] : PAL.concrete[2], 0.6);
+        else if (u === 1) put(u, z, z % 6 === 0 ? PAL.steel[5] : PAL.steel[3], 0.75);
+        else if (z === H) put(u, z, PAL.steel[4], 0.8);
+        else if (z === H - 1) put(u, z, PAL.steel[2], 0.7);
+        else if (z === 3) put(u, z, PAL.steel[2], 0.6, MESH_ALPHA);
+        else if (mesh(u, z)) put(u, z, z > H - 6 ? PAL.steel[4] : PAL.steel[3], 0.6, MESH_ALPHA);
+    }
+};
+
+/**
+ * The fence running north-south, seen end-on: its mesh is edge-on, a faint line; the post at the north end of each
+ * panel and the top tube along it show as they do on the railing (run position u, height z lands on row u + height + 1 - z).
+ */
+function sideFence(bitmap: PixelBitmap, m: number, height: number): void {
+    const row = (u: number, z: number) => u + height + 1 - z;
+    for (let u = 0; u < TILE; u++) for (let z = 3; z < height; z += 2) bitmap.set(m, row(u, z), PAL.steel[3], 0.6, MESH_ALPHA);
+    for (let z = 1; z <= height; z++) bitmap.set(m, row(1, z), z <= 2 ? PAL.concrete[3] : PAL.steel[3], 0.75);
+    for (let u = 0; u < TILE; u++) bitmap.set(m, row(u, height), u === 1 ? PAL.steel[5] : PAL.steel[4], 0.8);
+}
+
+/**
+ * A steel back door in brick: a concrete lintel over it, the leaf painted a dull green with a kick plate, hinges on its
+ * west side and a pull handle on its east side; the keypad, its LED lit, on the brick beside it.
+ */
+const doorBack: Painter['face'] = (put, rand) => {
+    brickFace(put, rand);
+    const paint = (i: number) => mix(PAL.leaf[i]!, PAL.steel[i]!, 0.55);
+    for (let u = 1; u < 15; u++) for (const z of [F - 1, F]) put(u, z, z === F ? PAL.concrete[4] : PAL.concrete[2], 0.7);
+    for (let z = 1; z <= F - 2; z++) for (let u = 2; u < 14; u++) {
+        const frame = u === 2 || u === 13 || z === F - 2;
+        let c = frame ? PAL.steel[1] : z <= 2 ? PAL.steel[3] : paint(u < 6 ? 3 : 2);
+        if (!frame && z === 3) c = PAL.steel[1];
+        if (u === 3 && (z === 5 || z === F - 5)) c = PAL.steel[4];
+        put(u, z, c, frame ? 0.7 : 0.55);
+    }
+    for (let z = 8; z <= 12; z++) put(11, z, z === 12 ? PAL.steel[5] : PAL.steel[4], 0.85);
+    put(10, 8, PAL.steel[1], 0.8);
+    put(10, 12, PAL.steel[1], 0.8);
+    for (let z = 11; z <= 14; z++) { put(14, z, z === 14 ? PAL.steel[4] : PAL.steel[2], 0.8); put(15, z, PAL.steel[1], 0.8); }
+    put(14, 13, PAL.emissive.ledGreen, 0.8);
+};
+
+/** Dressed stone a little warmer than the shop front's limestone. */
+const ashlar = (i: number) => mix(PAL.limestone[i]!, PAL.marbleCream[Math.min(4, i)]!, 0.35);
+
+/** An old bank's metre-thick wall in section: a skin of ashlar each side, the rubble core between them, hatched. */
+const thickSection: Painter['section'] = (put, t, length, rand) => {
+    const stones = Array.from({ length: 64 }, () => (rand() > 0.5 ? 2 : rand() > 0.4 ? 1 : 3));
+    for (let v = 0; v < t; v++) for (let u = 0; u < length; u++) {
+        if (v <= 1 || v >= t - 2) {
+            const joint = (u + (v <= 1 ? 0 : 6)) % 12 === 0;
+            put(u, v, joint ? ashlar(0) : v === t - 1 ? ashlar(5) : v === 0 ? ashlar(1) : ashlar(2));
+            continue;
+        }
+        // Rubble: rough stones about four pixels by two, bedded in dark lime mortar.
+        const course = Math.floor((v - 2) / 3), shift = (course * 5) % 4, stone = Math.floor((u + shift) / 4);
+        const mortar = (v - 2) % 3 === 2 || (u + shift) % 4 === 0;
+        const c = mortar ? PAL.plaster[0] : step(PAL.limestone, stones[(course * 7 + stone) % 64]!);
+        put(u, v, mix(c, PAL.ink, (u + v) % 4 === 0 ? 0.4 : 0.22));
+    }
+};
+
+/**
+ * Its face: big ashlar blocks in courses six pixels high, every other course set half a block over, each block drafted
+ * (lit along its top, shadowed under it) over a projecting plinth.
+ */
+const thickFace: Painter['face'] = (put, rand) => {
+    const shades = Array.from({ length: 32 }, () => (rand() > 0.7 ? 4 : 3));
+    for (let z = 1; z <= F; z++) for (let u = 0; u < TILE; u++) {
+        if (z <= 4) { put(u, z, z === 4 ? ashlar(5) : z === 3 ? ashlar(3) : ashlar(2), z === 4 ? 0.85 : 0.6); continue; }
+        const course = Math.floor((z - 5) / 6), k = (z - 5) % 6, shift = (course % 2) * 6;
+        const block = Math.floor((u + shift) / 12), head = (u + shift) % 12 === 0;
+        let c: number, h = 0.7;
+        if (k === 0 || head) { c = ashlar(1); h = 0.35; }
+        else if (k === 1) c = ashlar(2);
+        else if (k === 5) { c = ashlar(5); h = 0.8; }
+        else c = (u * 3 + z * 5) % 11 === 0 ? ashlar(2) : ashlar(shades[(course * 3 + block) % 32]!);
+        put(u, z, c, h);
+    }
+};
+
+/** The drive-through window in section: brick at its ends, the glass between the frame's two steel lips. */
+const tellerSection: Painter['section'] = (put, t, length, rand) => {
+    brickSection(put, t, length, rand);
+    for (let u = 3; u < length - 3; u++) for (let v = 0; v < t; v++) put(u, v, v === Math.floor(t / 2) ? PAL.glass[4] : v === t - 1 ? PAL.steel[4] : PAL.steel[1]);
+};
+
+/**
+ * A drive-through teller window in brick: a steel surround, a sliding glass window in two panes (the near one latched,
+ * a speak-through grille set in the other), a ledge, and under it the deal drawer that slides out to the car.
+ */
+const tellerWindow: Painter['face'] = (put, rand) => {
+    brickFace(put, rand);
+    for (let u = 1; u < 15; u++) put(u, 21, PAL.concrete[4], 0.75);
+    for (let z = 4; z <= 20; z++) for (let u = 2; u < 14; u++) {
+        const edge = u === 2 || u === 13 || z === 4 || z === 20;
+        if (edge) { put(u, z, z === 20 ? PAL.steel[3] : PAL.steel[1], 0.75); continue; }
+        if (z === 10) { put(u, z, PAL.steel[5], 0.85); continue; }
+        if (z === 9) { put(u, z, PAL.steel[1], 0.6); continue; }
+        if (z < 9) {
+            // The deal drawer: its lip lit, a recessed pull, dark gaps round it in the steel panel.
+            const drawer = u >= 4 && u <= 11 && z >= 5 && z <= 7;
+            const gap = (u === 4 || u === 11) && z >= 5 && z <= 7;
+            put(u, z, gap ? PAL.steel[0] : drawer ? (z === 7 ? PAL.steel[4] : z === 6 && u >= 7 && u <= 8 ? PAL.steel[1] : PAL.steel[3]) : PAL.steel[2], drawer ? 0.75 : 0.6);
+            continue;
+        }
+        if (u === 8 || z === 19) { put(u, z, PAL.steel[2], 0.7); continue; }
+        if (u === 7 && z <= 18) { put(u, z, PAL.steel[1], 0.65); continue; }
+        // The speak-through: a round grille of holes in the west pane.
+        const dx = u - 4.5, dz = z - 14.5;
+        if (dx * dx + dz * dz <= 2.6) { put(u, z, (u + z) % 2 ? PAL.steel[1] : PAL.steel[4], 0.7); continue; }
+        if (u === 11 && z === 14) { put(u, z, PAL.steel[5], 0.8); continue; }
+        const streak = (u + z + 6) % 9 === 0;
+        put(u, z, streak ? PAL.glass[3] : PAL.glass[0], 0.5, streak ? REFLECTION_ALPHA : GLASS_ALPHA);
+    }
+};
+
 const glyphs: Record<string, string[]> = { B: ['##.', '###', '##.'], A: ['.#.', '###', '#.#'], N: ['#.#', '###', '#.#'], K: ['#.#', '##.', '#.#'] };
 
 /** One leaf of the glass double doors, "BA" or "NK" in gold leaf on its transom. */
@@ -331,7 +467,11 @@ const PAINTERS: Record<Exclude<WallKind, 'doorGlass' | 'vaultDoor'>, Painter> & 
     atm: { section: stoneSection, face: atmFace },
     curtain: { section: curtainSection, face: curtainFace },
     doorTower: { section: curtainSection, face: doorTower },
-    rail: { section: railSection, face: railFace }
+    rail: { section: railSection, face: railFace },
+    fence: { section: fenceSection, face: fenceFace },
+    doorBack: { section: doorSection(PAL.steel[2], PAL.steel[4], brickSection), face: doorBack },
+    thick: { section: thickSection, face: thickFace },
+    tellerWindow: { section: tellerSection, face: tellerWindow }
 };
 
 export type WallLook = keyof typeof PAINTERS;
@@ -347,7 +487,8 @@ export function wallLook(wall: Wall, walls: readonly Wall[]): WallLook {
 /** Doors whose casings and handles stand proud of the wall: seen side-on, they are what shows the door. */
 const SIDE_DOORS: Partial<Record<WallKind, { casing: number; edge: number; handle: number; sill: number }>> = {
     doorWood: { casing: PAL.walnut[1], edge: PAL.walnut[4], handle: PAL.brass[5], sill: PAL.oak[4] },
-    doorKeycard: { casing: PAL.steel[1], edge: PAL.steel[4], handle: PAL.steel[5], sill: PAL.steel[4] }
+    doorKeycard: { casing: PAL.steel[1], edge: PAL.steel[4], handle: PAL.steel[5], sill: PAL.steel[4] },
+    doorBack: { casing: PAL.steel[1], edge: PAL.steel[3], handle: PAL.steel[5], sill: PAL.concrete[4] }
 };
 
 /** The threshold under a north-south door, laid into the floor a little wider than the wall: its colour, if it has one. */
@@ -366,8 +507,7 @@ export function wallMargin(wall: Wall): number {
  * is the segment's south edge at floor level; it reaches `wallMargin` past the footprint on each side.
  */
 export function wallArt(wall: Wall, look: WallLook, cut: number): PixelBitmap {
-    // A railing is lower than any cut, so it always stands at its own height.
-    const height = wall.kind === 'rail' ? RAIL_HEIGHT : cut;
+    const height = wallHeight(wall.kind, cut);
     const t = WALL_THICKNESS[wall.kind], painter = PAINTERS[look], rand = mulberry32(look.length * 97 + t);
     const eastWest = wall.run === 'eastWest', m = wallMargin(wall);
     const top = eastWest ? t : TILE, bitmap = new PixelBitmap(eastWest ? TILE : t + 2 * m, top + height);
@@ -380,7 +520,16 @@ export function wallArt(wall: Wall, look: WallLook, cut: number): PixelBitmap {
     const door = SIDE_DOORS[wall.kind];
     if (!eastWest && door) sideDoor(bitmap, door, t, m, height);
     if (!eastWest && wall.kind === 'rail') sideRail(bitmap, m, height);
+    if (!eastWest && wall.kind === 'fence') sideFence(bitmap, m, height);
     return bitmap;
+}
+
+/**
+ * How tall a segment stands when walls are cut to `cut`: a railing is lower than any cut and a site fence is see-through,
+ * so both always stand at their own height.
+ */
+export function wallHeight(kind: WallKind, cut: number): number {
+    return kind === 'rail' ? RAIL_HEIGHT : kind === 'fence' ? FENCE_HEIGHT : cut;
 }
 
 /**

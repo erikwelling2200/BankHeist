@@ -18,8 +18,8 @@ import { PixelBitmap } from '../PixelBitmap';
  */
 export interface Lamp { x: number; y: number; z: number; radius: number; color: number; intensity: number; from: { x: number; y: number } }
 
-/** Glass lets light through; every other wall stops it. */
-const CLEAR: WallKind[] = ['window', 'doorGlass', 'curtain', 'doorTower', 'rail'];
+/** Glass and see-through walls (a railing, a fence) let light through; every other wall stops it. */
+const CLEAR: WallKind[] = ['window', 'doorGlass', 'curtain', 'doorTower', 'rail', 'fence', 'tellerWindow'];
 
 /**
  * Pixels of the map that stop light (`blocks`: walls other than glass, and tiles off the map) and where lamp light
@@ -173,8 +173,8 @@ export function windowPatches(level: Level, line: number, side: 'north' | 'south
     });
 }
 
-/** Glass in a front: windows, glass doors and curtain walls. */
-const GLASS: WallKind[] = ['window', 'doorGlass', 'curtain', 'doorTower'];
+/** Glass in a front: windows, glass doors, curtain walls and a drive-through's teller window. */
+const GLASS: WallKind[] = ['window', 'doorGlass', 'curtain', 'doorTower', 'tellerWindow'];
 
 /**
  * How much lamp light reaches the middle of each tile, on the scale of a lamp's intensity (a flat floor right under a

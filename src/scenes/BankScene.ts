@@ -8,10 +8,10 @@ import { doorSill, wallArt, wallLook, wallMargin } from '../art/bank/walls';
 import { deepen, mix, PAL } from '../art/palette';
 import { PixelBitmap, toCanvas } from '../art/PixelBitmap';
 import { bayer4, mulberry32, valueNoise } from '../art/random';
-import { BANK_PEOPLE, BANK_PLAN, BANK_PROPS, BANK_ROOMS } from '../level/bank';
+import type { BankData } from '../level/bankData';
 import { propBox, propSize } from '../level/catalog';
 import { TILE } from '../level/level';
-import { floorHeight, isOffMap, isOutdoors, parsePlan, type Level, type LevelPerson, type LevelProp, type PersonFacing as Facing } from '../level/plan';
+import { floorHeight, isOffMap, isOutdoors, type Level, type LevelPerson, type LevelProp, type PersonFacing as Facing } from '../level/plan';
 import { baseLine, PERSON_SIZE, px, WALL_STEPS, type Box } from '../level/space';
 import { wallFootprint, type Footprint, type Wall } from '../level/walls';
 import { mapZoom, nearestStep, zoomSteps } from '../logic/zoom';
@@ -26,7 +26,10 @@ const KEY = { floor: 'bank-floor', walls: 'bank-walls', shade: 'bank-shade', glo
 const AMBIENT = 0x8a8274;
 /** The cloud shadow pattern's size; it repeats seamlessly. */
 const CLOUD_TILE = 256;
-const DEPTH = { floor: 0, shade: 2, sunFloor: 3, shadows: 4, standing: 10, haze: 1910, emissive: 1920, clouds: 1930, motes: 1940 } as const;
+const DEPTH = { floor: 0, shade: 2, sunFloor: 3, shadows: 4, standing: 10, haze: 1910, emissive: 1920, clouds: 1930, motes: 1940, knowledge: 1950 } as const;
+
+/** A question mark, five pixels by seven, for rooms the blueprint doesn't show. */
+const QUESTION = [' ### ', '#   #', '    #', '   # ', '  #  ', '     ', '  #  '];
 /** Arrow keys pan this many screen pixels a second, whatever the zoom. */
 const PAN_SPEED = 480;
 /** The camera opens on the lobby, about this many tiles high. */
@@ -43,7 +46,7 @@ const CUT_ABOVE = 4;
 const STEP_MS = 40;
 
 /** Dressing that matters for play stays in view on a cut wall, as a marker of where it is. */
-const ALWAYS_SHOWN: LevelProp['kind'][] = ['camera', 'keycardLed', 'alarmPanel'];
+const ALWAYS_SHOWN: LevelProp['kind'][] = ['camera', 'keycardLed', 'alarmPanel', 'motionSensor'];
 
 /** People walk at about 1.4m/s and wait this long at each end of a patrol. */
 const WALK_SPEED = px(1.4);
@@ -65,7 +68,8 @@ interface PersonSprite {
     facing: Facing;
     /** Mean brightness of the lit sprite (0-255), so tests can see the light change. */
     light: number;
-    patrol?: { from: [number, number]; to: [number, number]; t: number; out: boolean; wait: number };
+    /** A walk along a line of waypoints (pixels) and back: the leg being walked, how far along it, which way. */
+    patrol?: { points: [number, number][]; leg: number; t: number; dir: 1 | -1; wait: number };
 }
 
 /** A prop placed in the level, with its art for the way it faces. */
@@ -99,6 +103,8 @@ interface WallSprite {
  * whole-number steps between about 11 and 34 tiles high; Map (or M) for the tactical map of the whole plot.
  */
 export class BankScene extends Phaser.Scene {
+    private bank!: BankData;
+    private knowledge?: Phaser.GameObjects.Graphics;
     private level!: Level;
     private lamps: Lamp[] = [];
     private reach!: LampReach;
@@ -147,20 +153,23 @@ export class BankScene extends Phaser.Scene {
     }
 
     create(): void {
-        this.level = parsePlan(BANK_PLAN);
+        this.bank = this.registry.get('bankData') as BankData;
+        if (!this.bank) throw new Error("No bank to draw: set the registry's 'bankData' before starting the scene");
+        this.level = this.bank.level;
         this.walls = [];
         this.people = [];
+        this.knowledge = undefined;
         this.mapView = undefined;
         this.mapWidth = this.level.tiles[0]!.length * TILE;
         this.mapHeight = this.level.tiles.length * TILE;
 
-        const props = BANK_PROPS.map((p): PlacedProp => {
+        const props = this.bank.props.map((p): PlacedProp => {
             const box = propBox(p, this.level.walls), art = propArt(p, propSize(p), box.facing);
             return { p, box, art, left: box.x - art.originX, top: baseLine(box) - box.z - art.lit.height };
         });
         const far = farFront(this.level);
         this.lamps = [
-            ...roomLamps(BANK_ROOMS), ...windowPatches(this.level, streetFront(this.level).line), ...(far ? windowPatches(this.level, far.line, 'south') : []),
+            ...roomLamps(this.bank.rooms), ...windowPatches(this.level, streetFront(this.level).line), ...(far ? windowPatches(this.level, far.line, 'south') : []),
             ...props.flatMap(propLamps)
         ];
         this.reach = new LampReach(lightBlockers(this.level), this.lamps);
@@ -274,22 +283,32 @@ export class BankScene extends Phaser.Scene {
         p.light = meanBrightness(lit);
     }
 
-    /** Walks a patrolling person along their line, waiting at each end; they are moved (and relit) only when they cross a pixel or turn. */
+    /**
+     * Walks a patrolling person along their waypoints and back, waiting at each end; they are moved (and relit) only when
+     * they cross a pixel or turn.
+     */
     private walk(p: PersonSprite, deltaMs: number): void {
         const patrol = p.patrol!;
         if (patrol.wait > 0) {
             patrol.wait -= deltaMs;
             return;
         }
-        const [fx, fy] = patrol.from, [tx, ty] = patrol.to;
-        const length = Math.hypot(tx - fx, ty - fy);
-        patrol.t += ((patrol.out ? 1 : -1) * WALK_SPEED * deltaMs) / 1000 / length;
-        const heading = patrol.out ? ty - fy : fy - ty;
-        if (patrol.t >= 1 || patrol.t <= 0) {
-            patrol.t = Math.min(1, Math.max(0, patrol.t));
-            patrol.out = !patrol.out;
-            patrol.wait = PATROL_WAIT_MS;
+        const leg = (i: number): [[number, number], [number, number]] => [patrol.points[i]!, patrol.points[i + 1]!];
+        let [[fx, fy], [tx, ty]] = leg(patrol.leg);
+        patrol.t += (patrol.dir * WALK_SPEED * deltaMs) / 1000 / Math.max(1, Math.hypot(tx - fx, ty - fy));
+        if (patrol.t > 1 || patrol.t < 0) {
+            const next = patrol.leg + patrol.dir;
+            if (patrol.t > 1 && next < patrol.points.length - 1) { patrol.leg = next; patrol.t = 0; }
+            else if (patrol.t < 0 && patrol.leg > 0) { patrol.leg -= 1; patrol.t = 1; }
+            else {
+                // The end of the line: turn round and wait.
+                patrol.t = Math.min(1, Math.max(0, patrol.t));
+                patrol.dir = patrol.dir === 1 ? -1 : 1;
+                patrol.wait = PATROL_WAIT_MS;
+            }
+            [[fx, fy], [tx, ty]] = leg(patrol.leg);
         }
+        const heading = patrol.dir * (ty - fy);
         const x = Math.round(fx + (tx - fx) * patrol.t), y = Math.round(fy + (ty - fy) * patrol.t);
         const facing: Facing = heading > 0 ? 'front' : heading < 0 ? 'back' : p.facing;
         if (x !== p.x || y !== p.y || facing !== p.facing) this.movePerson(this.people.indexOf(p), x, y, facing);
@@ -367,6 +386,12 @@ export class BankScene extends Phaser.Scene {
             case 'y': return variant(2) ? 'pavers1' : 'pavers0';
             case 'r': return variant(5) === 0 ? 'road1' : 'road0';
             case 'l': return x % 2 === 0 ? 'roadDash' : 'roadGap';
+            case 'j': return variant(2) ? 'mezzanine1' : 'mezzanine0';
+            // A bay is three tiles wide (about 3.8m), its line along the west edge of its first tile.
+            case 'p': return x % 3 === 0 ? 'garageBay' : variant(4) === 0 ? 'garage1' : 'garage0';
+            case 'k': return variant(3) === 0 ? 'scaffold1' : 'scaffold0';
+            // The site dumper's tracks run the length of the site, every few columns.
+            case 'e': return x % 5 === 2 ? 'gravel1' : 'gravel0';
         }
     }
 
@@ -567,7 +592,7 @@ export class BankScene extends Phaser.Scene {
      */
     private buildPeople(): void {
         if (!this.textures.exists(KEY.shadow)) personShadow().addTo(this.textures, KEY.shadow);
-        BANK_PEOPLE.forEach((p, i) => {
+        this.bank.people.forEach((p, i) => {
             const spec = LOOKS[p.look];
             if (!spec) throw new Error(`No look named '${p.look}'`);
             const view = (facing: Facing) => {
@@ -583,7 +608,7 @@ export class BankScene extends Phaser.Scene {
                 person: p, views, texture, x, y, facing: p.facing, light: 0,
                 image: this.add.image(0, 0, key).setOrigin(0, 0),
                 shadow: this.add.image(0, 0, KEY.shadow).setDepth(DEPTH.shadows).setAlpha(0.55),
-                patrol: p.patrol && { from: [x, y], to: [(p.patrol.tx + 0.5) * TILE, (p.patrol.ty + 0.5) * TILE], t: 0, out: true, wait: PATROL_WAIT_MS }
+                patrol: patrolOf(p, x, y)
             });
             this.movePerson(i, x, y);
         });
@@ -597,6 +622,32 @@ export class BankScene extends Phaser.Scene {
         this.add.image(0, 0, KEY.glow).setOrigin(0, 0).setDepth(DEPTH.sunFloor).setBlendMode(Phaser.BlendModes.ADD);
         // The same shafts, faint, over everything: the light in the air that also falls on people standing in it.
         this.add.image(0, 0, KEY.glow).setOrigin(0, 0).setDepth(DEPTH.haze).setBlendMode(Phaser.BlendModes.ADD).setAlpha(0.35);
+    }
+
+    /**
+     * The knowledge layer (§17.8): with `full` off, the rooms the blueprint shows only as outlines are drawn as grey
+     * blocks with a `?`, and the people in them are hidden. Unknown is drawn as unknown, never as empty.
+     */
+    showKnowledge(full: boolean): void {
+        this.knowledge?.destroy();
+        this.knowledge = undefined;
+        const outlines = this.bank.outlines ?? [];
+        const hidden = (x: number, y: number) => !full && outlines.some(r => x >= r.x * TILE && x < (r.x + r.w) * TILE && y >= r.y * TILE && y < (r.y + r.h) * TILE);
+        for (const p of this.people) {
+            p.image.setVisible(!hidden(p.x, p.y));
+            p.shadow.setVisible(!hidden(p.x, p.y));
+        }
+        if (full) return;
+        const g = this.add.graphics().setDepth(DEPTH.knowledge);
+        for (const r of outlines) {
+            g.fillStyle(0x1b1d27, 0.94).fillRect(r.x * TILE, r.y * TILE, r.w * TILE, r.h * TILE);
+            g.lineStyle(1, 0x8f866f, 0.9).strokeRect(r.x * TILE + 0.5, r.y * TILE + 0.5, r.w * TILE - 1, r.h * TILE - 1);
+            // A pixel question mark in the middle of the room.
+            const cx = Math.floor((r.x + r.w / 2) * TILE) - 5, cy = Math.floor((r.y + r.h / 2) * TILE) - 7;
+            g.fillStyle(0x8f866f, 1);
+            QUESTION.forEach((row, y) => [...row].forEach((c, x) => c === '#' && g.fillRect(cx + x * 2, cy + y * 2, 2, 2)));
+        }
+        this.knowledge = g;
     }
 
     private buildAtmosphere(): void {
@@ -648,7 +699,7 @@ export class BankScene extends Phaser.Scene {
         cam.filters.external.addVignette(0.5, 0.5, 1, 0.16);
         this.fitScreen();
         this.applyZoom(nearestStep(this.zoomLevels, this.screen.height, TILE, START_TILES));
-        cam.centerOn(30 * TILE, 21 * TILE);
+        cam.centerOn((this.bank.focus.tx + 0.5) * TILE, (this.bank.focus.ty + 0.5) * TILE);
 
         const onResize = () => this.fitScreen();
         window.addEventListener('resize', onResize);
@@ -816,4 +867,12 @@ function cloudCanvas(size: number): HTMLCanvasElement {
         pixels.set([v, v, v - (inShadow ? 4 : 0), 255], (y * size + x) * 4);
     }
     return toCanvas(pixels, size, size);
+}
+
+/** A person's patrol as pixel waypoints: their tile, then their route's tiles or their patrol's end. */
+function patrolOf(p: LevelPerson, x: number, y: number): PersonSprite['patrol'] {
+    const tiles = p.route ?? (p.patrol ? [p.patrol] : undefined);
+    if (!tiles?.length) return undefined;
+    const points: [number, number][] = [[x, y], ...tiles.map((t): [number, number] => [(t.tx + 0.5) * TILE, (t.ty + 0.5) * TILE])];
+    return { points, leg: 0, t: 0, dir: 1, wait: PATROL_WAIT_MS };
 }

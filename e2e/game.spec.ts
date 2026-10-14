@@ -6,13 +6,16 @@ async function state(page: Page): Promise<DebugState> {
     return page.evaluate(() => (window as any).game.scene.getScene('vault').debugState);
 }
 
-/** Opens a scene (the bank by default, the old stack demo with `?scene=demo`) and waits for it to run. */
-async function boot(page: Page, scene: 'bank' | 'vault' = 'vault'): Promise<string[]> {
+/**
+ * Opens a scene and waits for it to run: a generated bank (`bank`, from a fixed seed unless `query` says otherwise),
+ * the hand-made example bank (`example`) or the old stack demo (`vault`).
+ */
+async function boot(page: Page, scene: 'bank' | 'example' | 'vault' = 'vault', query = 'seed=2024-1'): Promise<string[]> {
     const errors: string[] = [];
     page.on('pageerror', e => errors.push(e.message));
     page.on('console', m => { if (m.type() === 'error') errors.push(m.text()); });
-    await page.goto(scene === 'bank' ? '/' : '/?scene=demo');
-    await page.waitForFunction(s => (window as any).game?.scene.getScene(s)?.sys.isActive(), scene, { timeout: 60000 });
+    await page.goto(scene === 'bank' ? `/?${query}` : scene === 'example' ? '/?bank=example' : '/?scene=demo');
+    await page.waitForFunction(s => (window as any).game?.scene.getScene(s)?.sys.isActive(), scene === 'vault' ? 'vault' : 'bank', { timeout: 60000 });
     await page.waitForTimeout(800);
     return errors;
 }
@@ -128,7 +131,7 @@ test.describe('on a high-density phone', () => {
     });
 });
 
-test.describe('the bank', () => {
+test.describe('the hand-made example bank', () => {
     const scene = (page: Page) => page.evaluate(() => (window as any).game.scene.getScene('bank').debugState);
     const lookAt = async (page: Page, x: number, y: number) => {
         await page.evaluate(([x, y]) => (window as any).game.scene.getScene('bank').lookAt(x, y), [x, y]);
@@ -139,7 +142,7 @@ test.describe('the bank', () => {
     const TILE = 16, BACK_WALL = 13, FRONT = 28;
 
     test('cuts the walls the camera looks past and keeps lamp light behind walls', async ({ page }) => {
-        const errors = await boot(page, 'bank');
+        const errors = await boot(page, 'example');
         await lookAt(page, 30 * TILE, 22 * TILE);
         await page.locator('canvas').screenshot({ path: 'screenshots/bank-lobby.png' });
         let state = await scene(page);
@@ -168,7 +171,7 @@ test.describe('the bank', () => {
     });
 
     test('stands an office tower across the street, with the sniper nest up its stairs (§14.5)', async ({ page }) => {
-        const errors = await boot(page, 'bank');
+        const errors = await boot(page, 'example');
         const TOWER = 39;
         await lookAt(page, 32 * TILE, 41 * TILE);
         await page.locator('canvas').screenshot({ path: 'screenshots/bank-nest.png' });
@@ -183,7 +186,7 @@ test.describe('the bank', () => {
     });
 
     test('relights people as they move, and walks the guards and a passer-by on their patrols', async ({ page }) => {
-        const errors = await boot(page, 'bank');
+        const errors = await boot(page, 'example');
         type Person = { look: string; x: number; y: number; facing: string; light: number };
         const people = (): Promise<Person[]> => page.evaluate(() => (window as any).game.scene.getScene('bank').debugState.people);
         const index = (await people()).findIndex(p => p.look === 'customerCasual');
@@ -206,7 +209,7 @@ test.describe('the bank', () => {
     });
 
     test('pans and zooms in crisp steps, and shows the whole plot on the tactical map (§20.1)', async ({ page }) => {
-        const errors = await boot(page, 'bank');
+        const errors = await boot(page, 'example');
         let state = await scene(page);
         // A 540px-tall screen: 11 to 34 tiles high is zoom 3 (11.25 tiles), 2 (16.9) or 1 (33.75); it opens on 2.
         expect(state.zoomLevels).toEqual([1, 2, 3]);
@@ -239,6 +242,45 @@ test.describe('the bank', () => {
         state = await scene(page);
         expect(state.map).toBe(false);
         expect(state.zoom).toBe(2);
+        expect(errors).toEqual([]);
+    });
+});
+
+test.describe('generated banks (§17)', () => {
+    const generated = (page: Page) => page.evaluate(() => {
+        const g = (window as any).generated;
+        return { tier: g.tier, archetype: g.archetype, plot: g.plot, seed: `${g.seed.layout}-${g.seed.population}`, failed: g.validation.results.filter((r: { ok: boolean; rule: string }) => !r.ok && !g.validation.relaxed.includes(r.rule)).map((r: { rule: string }) => r.rule) };
+    });
+
+    for (const archetype of ['twoWing', 'atrium', 'threeKeys', 'fortress', 'mezzanineWatch']) {
+        test(`draws a ${archetype} bank that passes its checks`, async ({ page }) => {
+            const errors = await boot(page, 'bank', `seed=31-2&tier=city&archetype=${archetype}`);
+            const g = await generated(page);
+            expect(g.archetype).toBe(archetype);
+            expect(g.failed).toEqual([]);
+            await page.evaluate(() => (window as any).game.scene.getScene('bank').toggleMap());
+            await page.waitForTimeout(400);
+            await page.locator('canvas').screenshot({ path: `screenshots/generated-${archetype}.png` });
+            expect(errors).toEqual([]);
+        });
+    }
+
+    test('puts the seed in the address, rolls a new bank, and shows the blueprint (§17.2, §17.8)', async ({ page }) => {
+        await page.setViewportSize({ width: 1280, height: 800 });
+        const errors = await boot(page, 'bank', 'tier=small');
+        const first = await generated(page);
+        expect(new URL(page.url()).searchParams.get('seed')).toBe(first.seed);
+        expect(first.tier).toBe('small');
+        await expect(page.locator('.briefing-panel')).toBeVisible();
+        await page.locator('.briefing-panel').screenshot({ path: 'screenshots/briefing.png' });
+        await page.getByRole('button', { name: 'Show blueprint only' }).click();
+        await page.waitForTimeout(300);
+        await page.locator('canvas').screenshot({ path: 'screenshots/generated-blueprint.png' });
+        await Promise.all([page.waitForURL(url => url.searchParams.get('seed') !== first.seed), page.getByRole('button', { name: 'Same building, new people' }).click()]);
+        await page.waitForFunction(() => (window as any).game?.scene?.getScene('bank')?.sys.isActive(), null, { timeout: 60000 });
+        const again = await generated(page);
+        expect(again.seed.split('-')[0]).toBe(first.seed.split('-')[0]);
+        expect(again.tier).toBe('small');
         expect(errors).toEqual([]);
     });
 });

@@ -10,6 +10,7 @@ export const BANK_TILE_NAMES = [
     'sidewalkTL', 'sidewalkTR', 'sidewalkBL', 'sidewalkBR', 'curb', 'road0', 'road1', 'roadDash', 'roadGap',
     'concrete0', 'concrete1', 'steelPlate', 'whiteTile', 'floorboards0', 'floorboards1', 'dusty0', 'dusty1', 'alley0', 'alley1',
     'granite0', 'granite1', 'officeCarpet0', 'officeCarpet1', 'stairs', 'pavers0', 'pavers1', 'curbFar',
+    'mezzanine0', 'mezzanine1', 'garage0', 'garage1', 'garageBay', 'scaffold0', 'scaffold1', 'gravel0', 'gravel1',
     'offMap'
 ] as const;
 
@@ -225,6 +226,104 @@ const curbFar: Painter = (b, ox, rand) => {
     }
 };
 
+/**
+ * A staff mezzanine's linoleum: the same flecked sheet flooring as downstairs from a cooler grey-blue batch, so the
+ * raised floor reads apart from the ground floor's; `seam` runs a welded seam along the tile's north edge.
+ */
+const mezzanine = (seam: boolean): Painter => (b, ox, rand) => {
+    const tone = (i: number) => mix(step(PAL.linoleum, i), step(PAL.officeCarpet, i + 1), 0.4);
+    for (let y = 0; y < TILE; y++) for (let x = 0; x < TILE; x++) {
+        const fleck = rand();
+        let c = tone(2);
+        if (fleck > 0.93) c = tone(3);
+        else if (fleck < 0.06) c = tone(1);
+        if (seam && y === 0) c = mix(tone(1), tone(2), 0.5);
+        b.set(ox + x, y, c, 0.5);
+    }
+};
+
+/**
+ * A parking garage's power-floated concrete: paler and smoother than the vault's, a faint tyre polish down the middle,
+ * now and then an oil drip; `bay` paints the bay line, white with a yellow edge, along the tile's west side.
+ */
+const garage = (seed: number, oil: boolean, bay: boolean): Painter => (b, ox, rand) => {
+    const noise = valueNoise(mulberry32(seed), 2);
+    for (let y = 0; y < TILE; y++) for (let x = 0; x < TILE; x++) {
+        const n = noise(x / TILE, y / TILE), r = rand();
+        let c = mix(step(PAL.concrete, 3), step(PAL.concrete, 4), 0.2 + n * 0.3);
+        if (r > 0.95) c = step(PAL.concrete, 4);
+        else if (r < 0.04) c = step(PAL.concrete, 2);
+        b.set(ox + x, y, c, 0.5);
+    }
+    if (oil) {
+        const cx = 6 + rand() * 4, cy = 6 + rand() * 4;
+        // A soaked-in ring, darker where it is fresh, and a drip beside it.
+        b.ellipse(ox + cx, cy, 3.4, 2.3, mix(PAL.concrete[3], PAL.asphalt[3], 0.45), 0.48);
+        b.ellipse(ox + cx - 0.4, cy - 0.2, 2, 1.3, mix(PAL.concrete[2], PAL.asphalt[2], 0.5), 0.45);
+        b.plot(ox + Math.floor(cx) + 4, Math.floor(cy) + 2, mix(PAL.concrete[3], PAL.asphalt[3], 0.45), 0.48);
+    }
+    if (bay) for (let y = 0; y < TILE; y++) {
+        const worn = rand() > 0.88;
+        b.set(ox, y, worn ? mix(PAL.paper[2], PAL.concrete[3], 0.5) : PAL.paper[2], 0.55);
+        b.set(ox + 1, y, worn ? mix(PAL.paintLine[1], PAL.concrete[3], 0.5) : PAL.paintLine[1], 0.55);
+    }
+};
+
+/**
+ * Scaffold boards, laid east-west on the tubes: four grey-brown timber boards to a tile, the dark drop below showing in
+ * the gaps between them, a steel clip holding each board down at the tube on the tile's west edge. `joint` butts two
+ * boards end to end halfway across.
+ */
+const scaffold = (joint: boolean): Painter => (b, ox, rand) => {
+    const timber = (i: number) => mix(step(PAL.plywood, i), step(PAL.concrete, i), 0.4);
+    const shades = Array.from({ length: 8 }, () => (rand() > 0.6 ? 3 : 2));
+    for (let y = 0; y < TILE; y++) for (let x = 0; x < TILE; x++) {
+        const board = Math.floor(y / 4), row = y % 4, end = joint && (x === 7 || x === 8);
+        const piece = board * 2 + (joint && x > 7 ? 1 : 0);
+        let c: number, h: number;
+        if (row === 3 || (end && x === 8)) { c = mix(PAL.void, PAL.plywood[0], 0.3); h = 0.1; }
+        else {
+            c = timber(row === 0 ? shades[piece]! + 1 : row === 2 ? shades[piece]! - 1 : shades[piece]!);
+            if (rand() > 0.93) c = timber(1);
+            h = row === 0 ? 0.6 : 0.5;
+        }
+        b.set(ox + x, y, c, h);
+    }
+    // The tube under the boards' ends, seen in the gaps, and the clips over it.
+    for (let board = 0; board < 4; board++) {
+        b.set(ox, board * 4 + 3, PAL.steel[2], 0.3);
+        b.set(ox + 1, board * 4 + 1, PAL.steel[4], 0.75);
+        b.set(ox + 1, board * 4 + 2, PAL.steel[2], 0.7);
+    }
+};
+
+/**
+ * A building site's ground: compacted grey-brown hardcore, speckled with grit and a few pebbles catching the light;
+ * `ruts` presses a pair of tyre tracks into it, north to south.
+ */
+const gravel = (ruts: boolean): Painter => (b, ox, rand) => {
+    const ground = (i: number) => mix(step(PAL.concrete, i), step(PAL.plywood, i), 0.35);
+    for (let y = 0; y < TILE; y++) for (let x = 0; x < TILE; x++) {
+        const r = rand();
+        b.set(ox + x, y, ground(r > 0.9 ? 4 : r > 0.62 ? 3 : r < 0.14 ? 1 : 2), 0.4 + r * 0.15);
+    }
+    // A site dumper's wheels, about 0.9m apart: each rut's west wall in shadow, tread marks across its floor.
+    const rut = (x: number) => (x >= 1 && x <= 3) || (x >= 12 && x <= 14);
+    if (ruts) for (let y = 0; y < TILE; y++) for (let x = 0; x < TILE; x++) {
+        if (!rut(x)) continue;
+        const wall = x === 1 || x === 12, tread = (y + x) % 3 === 0;
+        b.set(ox + x, y, wall ? ground(0) : tread ? ground(1) : mix(ground(1), ground(2), 0.5), wall ? 0.2 : 0.3);
+    }
+    for (let i = 0; i < (ruts ? 3 : 5); i++) {
+        const x = 1 + Math.floor(rand() * 13), y = 1 + Math.floor(rand() * 13);
+        if (ruts && (rut(x) || rut(x + 1))) continue;
+        b.set(ox + x, y, ground(5), 0.8);
+        b.set(ox + x + 1, y, ground(3), 0.7);
+        b.set(ox + x, y + 1, ground(1), 0.4);
+        b.set(ox + x + 1, y + 1, ground(0), 0.35);
+    }
+};
+
 /** Off the map (a neighbour's building): dark and hatched like the walls' sections, so it reads as solid, not as floor. */
 const offMap: Painter = (b, ox) => {
     for (let y = 0; y < TILE; y++) for (let x = 0; x < TILE; x++) b.set(ox + x, y, (x + y) % 4 === 0 ? deepen(PAL.plaster[1], 0.3) : deepen(PAL.plaster[0], 0.3), 1);
@@ -239,6 +338,8 @@ const PAINTERS: Record<BankTileName, Painter> = {
     dusty0: dusty(41), dusty1: dusty(42), alley0: alley(false), alley1: alley(true),
     granite0: granite(51), granite1: granite(52), officeCarpet0: officeCarpet(false), officeCarpet1: officeCarpet(true), stairs,
     pavers0: pavers(0), pavers1: pavers(4), curbFar,
+    mezzanine0: mezzanine(false), mezzanine1: mezzanine(true), garage0: garage(71, false, false), garage1: garage(72, true, false),
+    garageBay: garage(73, false, true), scaffold0: scaffold(false), scaffold1: scaffold(true), gravel0: gravel(false), gravel1: gravel(true),
     offMap
 };
 

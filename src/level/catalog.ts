@@ -93,7 +93,23 @@ export const CATALOG: Record<LevelProp['kind'], ItemSpec> = {
     // case, its lid lying flat behind it.
     tree: { size: fixed(2.5, 2.5, 4.6), span: () => [2, 2] },
     bench: { size: fixed(1.8, 0.6, 0.85), span: () => [2, 1] },
-    rifleCase: { size: fixed(1.2, 0.9, 0.15) }
+    rifleCase: { size: fixed(1.2, 0.9, 0.15) },
+    // The ways in and the things that watch them. A cast-iron grate over the sewer in a utility room's floor; a duct
+    // grille low on a wall; a steel ladder fixed to a wall up to a ceiling hatch, its collar standing out from the wall
+    // at the top (the roof route's inside end).
+    floorGrate: { size: fixed(0.7, 0.7, 0) },
+    ventGrille: { size: fixed(0.6, 0.08, 0.4), alignY: 'north', elevation: px(0.3) },
+    roofHatch: { size: fixed(0.7, 0.5, 1.92), alignY: 'north' },
+    // A walk-through metal detector: two thin, deep side panels under a head box; people walk between the panels.
+    metalDetector: { size: fixed(0.95, 0.6, 2.1) },
+    // A PIR motion sensor high in the wall, just under where the walls are cut at their full height.
+    motionSensor: { size: fixed(0.15, 0.08, 0.15), alignY: 'north', elevation: px(1.75) },
+    // A parking garage's square concrete column, drawn to the height full walls are cut at so it hides no more than they do.
+    pillar: { size: fixed(0.5, 0.5, 1.92) },
+    // A drive-through's pneumatic-tube terminal on its post, at a car window's height.
+    tubeTerminal: { size: fixed(0.5, 0.4, 1.3) },
+    // Daylight through a roof light, lying on the floor under it (the skylight route's inside end).
+    skylight: { size: fixed(2.4, 2.4, 0), span: () => [2, 2] }
 };
 
 /** A prop's size in its own frame. */

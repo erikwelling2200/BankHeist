@@ -3,6 +3,7 @@ import type { Facing, Size } from '../../level/space';
 import { atmScreen, camera, clock, crest, exitSign, keycardLed, noticeBoard, painting } from './dressing';
 import { backCounter, bin, brochureRack, coffeeTable, counter, filingCabinet, mat, plant, printer, queueRail, sofa, waterCooler, writingDesk } from './furniture';
 import { bench, cafeCounter, cafeTable, dumpster, generator, menuBoard, rifleCase, tree, wallLadder } from './outside';
+import { floorGrate, metalDetector, motionSensor, pillar, roofHatch, skylight, tubeTerminal, ventGrille } from './routes';
 import { alarmPanel, atmBack, bookshelf, boxes, breakerPanel, cashCart, cashShelf, cctvDesk, chair, depositBoxes, desk, diningTable, fridge, kitchenCounter, lockers, mopBucket, officeChair, serverRack, shelving, toilet, vaultConsole, washbasin } from './rooms';
 import { bollard, hydrant, manhole, newsBox, streetBin, streetLamp } from './street';
 import { vanArt } from './van';
@@ -72,5 +73,14 @@ export function propArt(p: LevelProp, s: Size, facing: Facing): PropArt {
         case 'tree': return tree(s, facing);
         case 'bench': return bench(s, facing);
         case 'rifleCase': return rifleCase(s, facing);
+        case 'floorGrate': return floorGrate(s, facing);
+        case 'ventGrille': return ventGrille(s, facing);
+        case 'roofHatch': return roofHatch(s, facing);
+        case 'metalDetector': return metalDetector(s, facing);
+        case 'motionSensor': return motionSensor(s, facing);
+        // Bays are numbered along the garage, one column to a bay.
+        case 'pillar': return pillar(s, facing, 1 + (p.tx % 9));
+        case 'tubeTerminal': return tubeTerminal(s, facing);
+        case 'skylight': return skylight(s, facing);
     }
 }

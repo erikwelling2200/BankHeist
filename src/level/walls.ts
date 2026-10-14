@@ -17,7 +17,8 @@ export type WallRun = 'eastWest' | 'northSouth';
  * the open edge of raised tiles and stairs: half cover, see-through, never cut down.
  */
 export type WallKind = 'plaster' | 'concrete' | 'vault' | 'vaultDoor' | 'brick' | 'doorWood' | 'doorKeycard' | 'doorService'
-    | 'pier' | 'brickPier' | 'window' | 'doorGlass' | 'atm' | 'boarded' | 'shutter' | 'curtain' | 'doorTower' | 'rail';
+    | 'pier' | 'brickPier' | 'window' | 'doorGlass' | 'atm' | 'boarded' | 'shutter' | 'curtain' | 'doorTower' | 'rail'
+    | 'fence' | 'doorBack' | 'thick' | 'tellerWindow';
 
 export interface Wall { kind: WallKind; run: WallRun; tx: number; ty: number }
 
@@ -40,7 +41,11 @@ export const WALL_THICKNESS: Record<WallKind, number> = {
     shutter: px(0.3),
     curtain: px(0.2),
     doorTower: px(0.2),
-    rail: px(0.1)
+    rail: px(0.1),
+    fence: px(0.1),
+    doorBack: px(0.3),
+    thick: px(0.9),
+    tellerWindow: px(0.3)
 };
 
 /** A wall segment's footprint on the floor, in pixels. */

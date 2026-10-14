@@ -1,18 +1,20 @@
 import { describe, expect, it } from 'vitest';
 import { propArt } from '../src/art/bank/props';
 import { Turn, View } from '../src/art/bank/view';
-import { propSize } from '../src/level/catalog';
+import { CATALOG, propSize } from '../src/level/catalog';
 import { BANK_PROPS } from '../src/level/bank';
 import type { LevelProp } from '../src/level/plan';
 import { FACINGS, topRows, turned } from '../src/level/space';
 
 const RED = 0xff0000, BLUE = 0x0000ff, GREY = 0x808080;
-const FLAT: LevelProp['kind'][] = ['mat', 'manhole'];
+const FLAT: LevelProp['kind'][] = ['mat', 'manhole', 'floorGrate', 'skylight'];
 
 describe('hand-drawn props', () => {
     const kinds = new Map(BANK_PROPS.map(p => [p.kind, p]));
+    // Every kind in the catalog, whether or not the example bank uses it (a generated bank may).
+    for (const kind of Object.keys(CATALOG) as LevelProp['kind'][]) if (!kinds.has(kind)) kinds.set(kind, { kind, tx: 0, ty: 0 } as LevelProp);
 
-    it('draws every kind in the lobby facing all four ways, each view standing on its turned footprint', () => {
+    it('draws every kind in the catalog facing all four ways, each view standing on its turned footprint', () => {
         for (const p of kinds.values()) for (const facing of FACINGS) {
             const size = propSize(p), art = propArt(p, size, facing), footprint = turned(size, facing);
             const label = `${p.kind} facing ${facing}`;
