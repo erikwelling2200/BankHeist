@@ -25,7 +25,8 @@ async function pageFor(width, height) {
     const key = `${width}x${height}`;
     if (pages.has(key)) return pages.get(key);
     const page = await browser.newPage({ viewport: { width, height }, deviceScaleFactor: 1 });
-    await page.goto(`${base}/?bank=example&still`);
+    // QUERY adds to the address, e.g. QUERY=people=noir to draw the cast in another style.
+    await page.goto(`${base}/?bank=example&still${process.env.QUERY ? `&${process.env.QUERY}` : ''}`);
     await page.waitForFunction(() => window.game?.scene?.getScene('bank')?.debugState?.ready);
     await page.addStyleTag({ content: '.camera-controls,.fullscreen-button,.briefing,.generator-bar,.hud{display:none!important}' });
     await page.evaluate(() => { window.exampleBank = structuredClone(window.game.registry.get('bankData')); });

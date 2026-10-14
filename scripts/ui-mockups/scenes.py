@@ -378,12 +378,26 @@ def sBlueprint():
     outlines = [{'x': r['x'], 'y': r['y'], 'w': r['w'], 'h': r['h'], 'name': r['name'], 'parts': r.get('parts') or [{k: r[k] for k in 'xywh'}]} for r in rooms]
     return Scene(0, 0, mapView=True, outlines=outlines, plotOnly=True)
 
+LINEUP = ['crewMara', 'crewJun', 'crewDex', 'crewSol', 'guard', 'teller', 'customerSuit', 'customerDress', 'manager']
+LINEUPX = [21, 23, 25, 27, 29, 31, 33, 37, 39]
+
+def sLineup():
+    """The cast for comparing drawing styles: facing the camera, facing away, then masked, police and someone lying down."""
+    s = Scene(19, 15, dy=8)
+    for look, x in zip(LINEUP, LINEUPX):
+        s.add(look, x, 19, 90); s.add(look, x, 22, -90)
+    for (who, x) in zip(('mara', 'jun', 'dex', 'sol'), LINEUPX):
+        look, maskName = CREWLOOK[who]; s.add(look, x, 25, 90, mask=maskName)
+    s.add('police', 29, 25, 90); s.add('swat', 31, 25, 90); s.add('cleaner', 33, 25, 90)
+    s.prone('customerCoat', 37, 25); s.prone('guard', 39, 25, tied=True)
+    return s
+
 SCENES = {
     'stealth-select': sSelect, 'stealth-path': lambda: sPath(0)[0], 'stealth-why': lambda: sPath(1)[0], 'stealth-wait': lambda: sPath(2)[0],
     'noise-quiet': lambda: sNoise('quiet'), 'noise-loud': lambda: sNoise('loud'), 'challenge': sChallenge, 'carriers': sCarriers,
     'go-preview': sGoPreview, 'go-after': sGoAfter, 'lapse': sLapse, 'aim': sAim, 'aim-tight': lambda: sAim(2),
     'watch': sWatch, 'police': sPolice, 'tracers': sTracers, 'vehicle': sVehicle, 'throw': sThrow,
-    'route': sRoute, 'cause': sCause, 'desktop': sDesktop, 'wall': sWall, 'tactical': sTactical, 'blueprint': sBlueprint,
+    'route': sRoute, 'cause': sCause, 'lineup': sLineup, 'desktop': sDesktop, 'wall': sWall, 'tactical': sTactical, 'blueprint': sBlueprint,
 }
 
 if __name__ == '__main__':
