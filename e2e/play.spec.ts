@@ -359,6 +359,10 @@ test('knocks out an NPC in reach, drags the body and stashes it', SMOKE, async (
     await page.locator('.sh-confirm').click();
     await idle(page);
     expect(await page.evaluate(() => (window as any).sim.state.crew[0].dragging)).toBe(npc);
+    // The body is drawn where it lay, behind Mara, not under her.
+    const bodyIndex = await page.evaluate(id => (window as any).sim.state.npcs.findIndex((n: any) => n.id === id), npc);
+    const tileOf = (p: { x: number; y: number }) => ({ x: Math.floor(p.x / 16), y: Math.floor(p.y / 16) });
+    expect(tileOf((await scene(page)).people[bodyIndex])).toEqual(npcAt);
 
     // Then, a turn on, beside a stash with the body: the reach is halved, no dash band; Stash hides it.
     const stash = await restartWith<{ at: Pos; object?: string; objectAt?: Pos }>(page, `(() => { ${PAGE_HELPERS}
@@ -389,6 +393,7 @@ test('knocks out an NPC in reach, drags the body and stashes it', SMOKE, async (
     expect(shown.reach).toBeGreaterThan(0);
     expect(shown.actions.map((a: any) => a.id)).toEqual(expect.arrayContaining(['drop', 'stash']));
     expect(shown.pending).toBeNull();
+    expect(tileOf((await scene(page)).people[bodyIndex])).not.toEqual(stash!.at);
     await page.screenshot({ path: 'screenshots/play-drag.png' });
     await page.locator('.sh-actions button[data-action="stash"]').click();
     expect((await play(page)).pending).toMatchObject({ type: 'stash', crew: 'mara' });

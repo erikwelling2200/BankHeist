@@ -21,7 +21,7 @@ export interface OverlayContent {
     /** The crew colour (CSS). */
     colour: string;
     /** The tiles a Move can end on, and those only a Dash reaches. */
-    reach?: { move: Pos[]; dash: Pos[]; at?: Pos };
+    reach?: { move: Pos[]; dash: Pos[]; at?: Pos; unfilled?: Pos[] };
     /** Where the path starts (the crew member's tile) and its steps. */
     from?: Pos;
     path?: Pos[];
@@ -184,12 +184,14 @@ export class WorldOverlay {
 
         if (c.reach) {
             // The mover's own tile counts as inside, so the edge doesn't box them in.
-            const { move, dash, at } = c.reach, inMove = has([...move, ...(at ? [at] : [])]), inAll = has([...move, ...dash, ...(at ? [at] : [])]);
+            // Tiles with someone lying on them (a dragged body) keep their edge but no tint, so the body shows.
+            const bare = has(c.reach.unfilled ?? []), filled = (tiles: Pos[]) => tiles.filter(p => !bare(p.x, p.y));
+            const { at } = c.reach, move = c.reach.move, dash = c.reach.dash, inMove = has([...move, ...(at ? [at] : [])]), inAll = has([...move, ...dash, ...(at ? [at] : [])]);
             // Dash's band: a faint tint and a diagonal hatch, so it reads apart from Move's without its colour.
             ctx.fillStyle = RUN;
-            for (const p of dash) ctx.fillRect(left(p), top(p), S, S);
+            for (const p of filled(dash)) ctx.fillRect(left(p), top(p), S, S);
             ctx.fillStyle = RUN_HATCH;
-            for (const p of dash) {
+            for (const p of filled(dash)) {
                 const x = left(p), y = top(p);
                 // Lines at 45°, every 8 UI pixels, continuing across neighbouring tiles.
                 for (let k = 0; k < S; k++) {
@@ -198,7 +200,7 @@ export class WorldOverlay {
                 }
             }
             ctx.fillStyle = WALK;
-            for (const p of move) ctx.fillRect(left(p), top(p), S, S);
+            for (const p of filled(move)) ctx.fillRect(left(p), top(p), S, S);
             // The range's outer edge, dashed gold; then Move's edge, solid steel blue: where a step costs a second action.
             stroke(dash, inAll, RUN_EDGE, 2, [6, 4]);
             stroke(move, inMove, WALK_EDGE, 2, []);

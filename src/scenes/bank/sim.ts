@@ -48,6 +48,10 @@ function drawnFacing(f: Facing, current: PersonFacing): PersonFacing {
 }
 
 const centre = (p: Pos): [number, number] => [(p.x + 0.5) * TILE, (p.y + 0.5) * TILE];
+/** A step in each of the rules' facings. */
+const FACING_DELTA: Record<Facing, Pos> = {
+    n: { x: 0, y: -1 }, ne: { x: 1, y: -1 }, e: { x: 1, y: 0 }, se: { x: 1, y: 1 }, s: { x: 0, y: 1 }, sw: { x: -1, y: 1 }, w: { x: -1, y: 0 }, nw: { x: -1, y: -1 }
+};
 const same = (a: Pos | undefined, b: Pos | undefined): boolean => !!a && !!b && a.x === b.x && a.y === b.y;
 
 /**
@@ -92,6 +96,8 @@ export class PlayMode {
     private playing = false;
     /** The door states shown, by door id. */
     private shownDoors = new Map<string, boolean>();
+    /** The tile the body each crew member drags is drawn on, by crew id: the one they last stepped from. */
+    private trail = new Map<string, Pos>();
     /** The pose each NPC is drawn in, by id (undefined: standing). */
     private posed = new Map<string, PersonPose | undefined>();
     private knownFor?: State;
@@ -221,14 +227,21 @@ export class PlayMode {
 
     private play(item: PlaybackItem): void {
         const e = item.event, speed = this.session.playback.duration(1);
+        // Where a dragged body lay before this move (applyEvent moves the trail on).
+        const trailed = e.type === 'moved' ? this.trail.get(e.crew) : undefined;
         this.applyEvent(e);
         if (e.type === 'moved') {
             const index = this.sprite.get(e.crew);
             if (index === undefined || speed === 0) return;
-            const points = [e.from, ...e.path].map(centre);
-            // A body being dragged follows the dragger step by step (rules/actions/body.ts).
-            const dragged = this.session.state.crew.find(c => c.id === e.crew)?.dragging, body = dragged ? this.sprite.get(dragged) : undefined;
-            this.startWalk([{ index, points }, ...(body !== undefined ? [{ index: body, points }] : [])], STEP_MS * speed);
+            const tiles = [e.from, ...e.path], points = tiles.map(centre);
+            // A body being dragged trails one step behind the dragger (rules/actions/body.ts keeps it on their tile).
+            const member = this.session.state.crew.find(c => c.id === e.crew), dragged = member?.dragging, body = dragged ? this.sprite.get(dragged) : undefined;
+            const walkers = [{ index, points }];
+            if (member && body !== undefined) {
+                const behind = trailed ?? this.trailOf({ ...member, pos: e.from });
+                walkers.push({ index: body, points: [behind, ...tiles.slice(0, -1)].map(centre) });
+            }
+            this.startWalk(walkers, STEP_MS * speed);
             return;
         }
         if (e.type === 'npcWalked') {
@@ -304,7 +317,28 @@ export class PlayMode {
             if (index !== undefined) this.people.move(index, ...centre(e.at));
             return;
         }
+        if (e.type === 'moved') {
+            const member = this.session.state.crew.find(c => c.id === e.crew);
+            if (member?.dragging) this.trail.set(e.crew, [e.from, ...e.path].at(-2)!);
+            return;
+        }
+        if (e.type === 'bodyLifted') {
+            // Taken hold of where it lies: it stays on its tile, behind the dragger.
+            const index = this.sprite.get(e.npc);
+            if (index !== undefined) {
+                const at = this.people.at(index);
+                this.trail.set(e.crew, { x: Math.floor(at.x / TILE), y: Math.floor(at.y / TILE) });
+            }
+            return;
+        }
+        if (e.type === 'bodyDropped') {
+            this.trail.delete(e.crew);
+            const index = this.sprite.get(e.npc);
+            if (index !== undefined) this.people.move(index, ...centre(e.at));
+            return;
+        }
         if (e.type === 'bodyStashed') {
+            this.trail.delete(e.crew);
             const index = this.sprite.get(e.npc);
             if (index !== undefined) this.people.setAway(index, true);
             return;
@@ -432,13 +466,28 @@ export class PlayMode {
             this.people.setAway(index, !m || n.status === 'away' || n.stashed !== null);
             if (!m) continue;
             this.setPose(n.id, n.status === 'tied' ? 'tied' : n.status === 'unconscious' || n.status === 'dead' ? 'prone' : undefined);
-            place(index, m.pos, m.facing);
-            this.people.setAlpha(index, MARKER_ALPHA[m.kind]);
+            // A dragged body lies on the tile behind its carrier (the rules keep it on theirs).
+            const dragger = state.crew.find(c => c.dragging === n.id);
+            place(index, dragger ? this.trailOf(dragger) : m.pos, m.facing);
+            // The crew has hold of a dragged body: it is never a guess.
+            this.people.setAlpha(index, dragger ? 1 : MARKER_ALPHA[m.kind]);
         }
         for (const id of Object.keys(world.doors)) {
             const status = doorStatus(world, state, id);
             this.showDoor(id, status === 'open' || status === 'breached');
         }
+    }
+
+    /**
+     * Where the body a crew member drags is drawn: the tile they came from (`trail`, kept from the playback), else the
+     * tile behind them, else their own.
+     */
+    private trailOf(member: CrewState): Pos {
+        const known = this.trail.get(member.id);
+        if (known) return known;
+        const d = FACING_DELTA[member.facing], { world } = this.session, behind = { x: member.pos.x - d.x, y: member.pos.y - d.y };
+        const ok = behind.x >= 0 && behind.y >= 0 && behind.x < world.width && behind.y < world.height && !world.tiles[behind.y * world.width + behind.x]!.blocksMove;
+        return ok ? behind : member.pos;
     }
 
     private showDoor(id: string, open: boolean): void {
@@ -712,7 +761,10 @@ export class PlayMode {
     // ------------------------------------------------------------------------------------------------- Showing
 
     private onChange(change: SessionChange): void {
-        if (change.kind === 'undo') this.syncAll();
+        if (change.kind === 'undo') {
+            this.trail.clear();
+            this.syncAll();
+        }
         if (change.kind === 'commit' && change.noticedUnseen) this.stirred();
         this.refresh();
     }
@@ -736,7 +788,8 @@ export class PlayMode {
         const colour = CREW_COLOURS[this.session.state.crew.indexOf(member) % CREW_COLOURS.length]!;
         // The whole range stays drawn while a tile is previewed or a path dragged (XCOM style): the path goes on top.
         const range = member.actionsLeft > 0 ? this.range(member) : undefined;
-        const base = { colour, intents, ...layer, ...(range ? { reach: { move: range.walk, dash: range.run, at: member.pos } } : {}) };
+        const bodies = this.session.state.crew.filter(c => c.dragging !== null).map(c => this.trailOf(c));
+        const base = { colour, intents, ...layer, ...(range ? { reach: { move: range.walk, dash: range.run, at: member.pos, unfilled: bodies } } : {}) };
         if (this.dragPath) {
             const along = moveAlong(this.session.world, this.picture(), member, range ?? { move: null, dash: null }, this.dragPath);
             return { ...base, from: member.pos, path: this.dragPath, dash: along.command?.type === 'dash', badFrom: along.badFrom };
