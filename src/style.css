@@ -8,3 +8,37 @@
 @media (orientation: portrait) and (pointer: coarse) {
   .rotate-hint { display: flex; position: fixed; inset: 0; z-index: 20; align-items: center; justify-content: center; padding: 24px; text-align: center; background: #0b0d17; color: #f2e6c8; font: 600 18px ui-monospace, Menlo, Consolas, monospace; letter-spacing: 0.08em; }
 }
+.camera-controls { position: fixed; left: max(12px, env(safe-area-inset-left)); top: 50%; transform: translateY(-50%); display: flex; flex-direction: column; gap: 8px; z-index: 10; }
+.camera-controls button { width: 48px; height: 48px; border: 1px solid rgba(242, 230, 200, 0.35); border-radius: 8px; background: rgba(11, 13, 23, 0.6); color: #f2e6c8; font: 600 22px ui-monospace, Menlo, Consolas, monospace; padding: 0; touch-action: manipulation; }
+.camera-controls .camera-map { font-size: 13px; letter-spacing: 0.06em; }
+.camera-controls .camera-map.active { background: rgba(242, 230, 200, 0.85); color: #0b0d17; }
+.briefing { position: fixed; top: max(8px, env(safe-area-inset-top)); right: max(12px, env(safe-area-inset-right)); bottom: 8px; z-index: 11; display: flex; flex-direction: column; align-items: flex-end; pointer-events: none; font: 500 13px/1.45 ui-sans-serif, system-ui, sans-serif; color: #f2e6c8; }
+.briefing-toggle { pointer-events: auto; flex-shrink: 0; height: 36px; min-width: 44px; padding: 0 14px; border: 1px solid rgba(242, 230, 200, 0.35); border-radius: 6px; background: rgba(11, 13, 23, 0.7); color: #f2e6c8; font: 600 13px ui-monospace, Menlo, Consolas, monospace; letter-spacing: 0.06em; }
+.briefing-panel { display: none; pointer-events: auto; margin-top: 8px; width: min(380px, calc(100vw - 96px)); max-height: calc(100% - 44px); overflow-y: auto; padding: 12px 14px 16px; border: 1px solid rgba(242, 230, 200, 0.25); border-radius: 8px; background: rgba(11, 13, 23, 0.88); }
+.briefing.open .briefing-panel { display: block; }
+.briefing h2 { margin: 0 0 2px; font-size: 16px; color: #f2c94c; }
+.briefing h3 { margin: 12px 0 4px; font-size: 12px; text-transform: uppercase; letter-spacing: 0.1em; color: #c9b98f; }
+.briefing h4 { margin: 6px 0 2px; font-size: 12px; color: #c9b98f; }
+.briefing ul { margin: 0; padding-left: 18px; }
+.briefing li { margin: 2px 0; }
+.briefing p { margin: 4px 0; }
+.briefing-sub { color: #b5a98a; font-size: 12px; }
+.briefing-seed { color: #8f866f; font: 12px ui-monospace, Menlo, Consolas, monospace; }
+.briefing-lock { margin: 6px 0; }
+.generator-bar { position: fixed; top: max(8px, env(safe-area-inset-top)); left: 0; right: 0; margin-inline: auto; width: max-content; z-index: 12; display: flex; flex-wrap: wrap; justify-content: center; align-items: center; gap: 6px; max-width: calc(100vw - 220px); padding: 6px 8px; border: 1px solid rgba(242, 230, 200, 0.25); border-radius: 8px; background: rgba(11, 13, 23, 0.82); font: 500 12px ui-sans-serif, system-ui, sans-serif; color: #f2e6c8; }
+.generator-bar select, .generator-bar button { min-height: 32px; border: 1px solid rgba(242, 230, 200, 0.35); border-radius: 6px; background: rgba(242, 230, 200, 0.08); color: #f2e6c8; font: inherit; padding: 0 8px; touch-action: manipulation; }
+.generator-bar select option { color: #0b0d17; }
+/* While a bank generates in the page: the bar can't be pressed again, and the pointer says to wait. */
+.generating, .generating * { cursor: progress; }
+.generating .generator-bar { opacity: 0.6; pointer-events: none; }
+.generator-bar button { background: rgba(242, 201, 76, 0.18); }
+.generator-bar button.active { background: rgba(242, 230, 200, 0.85); color: #0b0d17; }
+.generator-seed { color: #b5a98a; font: 11px ui-monospace, Menlo, Consolas, monospace; white-space: nowrap; }
+/* On a phone the bar keeps to one row, scrolling sideways if it must, clear of the fullscreen button and the camera buttons. */
+@media (max-width: 900px) {
+  .generator-seed { display: none; }
+  .generator-bar { max-width: calc(100vw - 150px); flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; }
+  .generator-bar > * { flex-shrink: 0; }
+}
+/* The briefing hangs below the generator bar, however many rows it wraps to (the bar sets --generator-bar-bottom). */
+.briefing { top: calc(var(--generator-bar-bottom, max(48px, calc(env(safe-area-inset-top) + 40px))) + 8px); }

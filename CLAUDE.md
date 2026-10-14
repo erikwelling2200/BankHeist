@@ -7,6 +7,13 @@ Top-down 2D pixel-art stealth game. Phaser 4 + TypeScript + Vite, shipped as an 
   milestone order (§22). The current playable content is only a stack demo and doesn't reflect it.
 - `docs/design/UI.md` specifies the screens, visual language and touch grammar; the mockups' sources are in
   `docs/ui-mockups/`.
+- `docs/design/visual-preview.md` holds the visual style card, the lighting model and the example bank built to settle
+  them (`/?bank=example`). The default page (`/`) is a generated bank: the procedural generator of §17 lives in
+  `src/gen/` and `docs/design/generator.md` maps it to the design (seeds in the address, `?seed=layout-population`,
+  plus `tier`, `archetype` and `plot`). The old stack demo is at `/?scene=demo`, the prop sheet at `/?scene=props`, the
+  police officer's animation preview at `/?scene=officer`, and the room gallery at `/?scene=rooms`: every room type the
+  generator furnishes, in four sizes and shapes, furnished and staffed by the real parcels (`src/gen/gallery.ts`;
+  `?seed=` picks other parcels). Check furnishing changes there first.
 - `docs/design/research.md` holds the key research findings behind each design decision, with the full notes per area in
   `docs/design/research/`.
 - The design's hard promises: the safe-floor overlay and every preview use the same rules as the real outcome; every
@@ -16,26 +23,83 @@ Top-down 2D pixel-art stealth game. Phaser 4 + TypeScript + Vite, shipped as an 
 
 ## Commands
 - `npm run dev` – Vite dev server with hot reload.
-- `npm run typecheck` / `npm test` – TypeScript and Vitest unit tests (pure logic in `src/logic`, `src/level`).
-- `npm run test:e2e` – builds, serves the production build and drives it in Chromium with Playwright. Writes `screenshots/*.png`.
+- `npm run typecheck` / `npm test` – TypeScript and Vitest unit tests (pure logic in `src/logic`, `src/level`, `src/gen`).
+  `tests/generator.test.ts` builds every tier and archetype and checks §17.7 on each.
+- `npm run sweep` – generates every tier × archetype × plot from several seeds (`SWEEP_SEEDS`, default 4; pin one with
+  `SWEEP_TIER`, `SWEEP_ARCHETYPE`, `SWEEP_PLOT`) and prints validity, attempts, time per bank and per room type its
+  size against the program's target and max, how many are shaped and how full they are. Run it after generator changes.
+- `npm run test:e2e` – builds, serves the production build and drives it in Chromium with Playwright (all but the visual
+  regression tests). Writes `screenshots/*.png`. `E2E_PORT` serves it on another port than 4173, so two checkouts can
+  test at once without one reusing the other's server.
+- `npm run test:smoke` – only the e2e tests tagged `@smoke` (boot, a generated bank, regenerating in the page, the room
+  gallery, the prop sheet): a minute or so here, build included. Tag a test with `SMOKE` to add it.
+- `npm run test:visual` – visual regression: the canvas of fixed views (the example bank and three generated banks at
+  their start view and on the tactical map, the room gallery, the prop sheet) against the baselines in
+  `e2e/visual.spec.ts-snapshots/`. Pages open with `?still`, so no cloud drifts, nobody patrols and no dust flies, and
+  the HTML over the canvas is hidden. `npm run test:visual:update` rewrites the baselines.
 - `npm run screenshot` – only the boot test; the fastest way to look at the current visuals.
 
 ## Verifying changes
-- Run typecheck, unit tests and e2e before pushing. For any visual change, read `screenshots/start.png` (and add a
-  screenshot to the relevant e2e test when a new feature isn't visible at boot) – don't call visual work done unseen.
-- `window.game` and `window.Phaser` are exposed; `game.scene.getScene('vault').debugState` gives test-friendly state.
+- Run typecheck, unit tests and e2e before pushing (`test:smoke` for a quick check while working). For any visual
+  change, read `screenshots/start.png` (and add a screenshot to the relevant e2e test when a new feature isn't visible at
+  boot) – don't call visual work done unseen.
+- Changing the art, the lighting or the generator changes the visual baselines on purpose: run `npm run test:visual`,
+  look at the `-diff.png` (and `-actual.png`) images it leaves in `test-results/`, and when every change is one you meant,
+  run `npm run test:visual:update` and commit the new baselines. A change that must not alter the look (a refactor, a
+  speed-up) has to pass `VISUAL_EXACT=1 npm run test:visual`, which allows no pixel of difference. CI doesn't run the
+  visual tests: the baselines come from this sandbox's software renderer.
+- `window.game` and `window.Phaser` are exposed; `game.scene.getScene('vault').debugState` gives test-friendly state,
+  and `window.generated` the generated bank (its rooms, people, keys, ways in and validation report). The bank scene's
+  `debugState.timings` gives the milliseconds each stage of building the bank took (also in the browser's performance
+  timeline as `bank: <stage>`, with `bank: generate` for the generator), and `settled` whether the walls have reached
+  their height.
+- The generator only places what fits: give a new prop a catalog entry and art first, then place it through a parcel
+  (`src/gen/parcels.ts`) with the `Furnisher`, which rejects props that don't fit between walls or touch another box.
 - In the cloud sandbox Playwright uses the preinstalled Chromium at `/opt/pw-browsers`, which is why `@playwright/test`
   is pinned to 1.56.1. Bumping it needs a matching browser.
 
 ## Rendering
 - Internal resolution is 320x180 with `pixelArt: true`, scaled to fit with nearest-neighbour filtering. Keep art on a
   16px grid (`TILE`).
-- Lighting is Phaser's Light2D: objects opt in with `setLighting(true)`; normal maps are the texture's data source.
-  `render.maxLights` is 32 – lights beyond that are silently dropped, so raise it if a scene gets busier.
+- The bank scene sets its own resolution: the screen's device pixels over a whole-number zoom (`BankCamera.applyZoom`,
+  steps from `src/logic/zoom.ts`, §20.1), by changing the game config's base size and calling `scale.refresh()` – a
+  plain `setGameSize` is undone by `EXPAND`. Pan, zoom and the tactical map buttons are HTML (`src/ui/CameraControls.ts`).
+- Lighting: Phaser's Light2D (objects opt in with `setLighting(true)`; normal maps are the texture's data source;
+  `render.maxLights` is 32 and lights beyond that are silently dropped) shines through walls, so the bank doesn't use
+  it. Its lamps are baked with Light2D's formula in `src/art/bank/lamps.ts`, traced against the walls; light anything
+  new in the bank through `Baker.bake`, and move people with `BankScene.movePerson`, which relights only them. The demo and the prop sheet still use Light2D.
+- `BankScene` only puts the bank together from its parts in `src/scenes/bank/`: `bake.ts` (the `Baker`: lighting,
+  exposure, texture upload, light maps), `floor.ts`, `walls.ts` (and their cut-away heights), `props.ts`, `people.ts`
+  (patrols, relighting), `knowledge.ts` (the blueprint layer), `atmosphere.ts` (clouds, dust) and `camera.ts` (zoom,
+  map, pan, pinch). Building a bank is the wait the player feels, so keep it fast: textures go up as raw pixels
+  (`Baker.addPixels`, not canvases, which once took a third of it), lamp reach is traced only where it is asked for, and
+  normals are worked out only where light falls.
 - All art is generated in `src/art` from palette grids, with a height per colour that becomes the normal map. Real art
   can replace it by loading PNGs plus `-n.png` normal maps in a preload scene and keeping the `TEX` keys.
+- Every object is a box at a real scale (`src/level/space.ts`: 1px ≈ 8cm, people 1.75m, walls cut at 1.9m). Floor tiles
+  are square and heights full scale, but the tops of things are drawn at `TOP_DEPTH` (2/3) of their depth, so long
+  things pointing at the camera don't look tall; `View` applies it, draw with it. Before
+  drawing a new item, give it a `CATALOG` entry in `src/level/catalog.ts`: real width, depth and height, elevation if
+  mounted, where it stands (centred, against which edge, between two tiles) and which way it faces. Every prop needs
+  all four facings, each **drawn by hand as pixel art** on a `View` (`src/art/bank/view.ts`), which knows the
+  projection so each view fits the object's box; take every view's geometry from one set of measurements, as
+  `src/art/bank/van.ts` does, so the four agree. `View` has tools for the common shapes: `Turn` maps the prop's own
+  frame to a facing and draws its boxy parts with every visible face painted by hand; `cylinder` draws round bodies with
+  curved normals; `project`/`dot` place freehand shapes (leaves, a rope). Draw anything curved as a curve, never as a
+  stack of boxes: that gives a voxel look. Check props on
+  `/?scene=props`, which shows each facing south, east, north and west. The scene places and orders each prop from its
+  box; tests reject boxes that intersect each other or a wall.
+- Walls stand on the edges between tiles at their real thickness (`src/level/walls.ts`), never on tiles; the level plan
+  is drawn at double resolution (`src/level/bank.ts`, legend in `src/level/plan.ts`). Their tops follow the floor grid, unforeshortened,
+  and always show the wall in section (dark, hatched). Walls north of the middle of the screen stand full height; the
+  rest are cut down to `CUT_HEIGHT` (`Walls.update`), so paint wall faces by height above the floor, and
+  anything whose look depends on a wall's height (its exposure, the cloud shadows, dressing hung on it) has to follow it.
 - Before generating or restyling art, read `docs/pixel-art/PROMPTING.md` (rules) and `docs/pixel-art/README.md`
-  (findings, example scripts in `scripts/pixel-art/`).
+  (findings, example scripts in `scripts/pixel-art/`); before animating, `docs/pixel-art/animation.md`.
+- Animated characters are keyed poses painted by a rig (`src/art/bank/officer.ts`: joints per frame, hand-drawn head,
+  shoe and gun pieces), so volumes stay identical between frames. Choreography is data: cels with durations, a whole-pixel
+  `step` or `glide` for the footing and cues (`src/logic/timeline.ts`); a side-on walk steps exactly as far as the
+  planted foot slides back in the drawing. Hold every telegraph (an aim, a glance) at least 300ms.
 - Camera post-processing (bloom, vignette) lives in `VaultScene.create`. Phaser's vignette goes near black at its
   radius, so keep `strength` low.
 - The HUD is an HTML overlay (`src/ui/Hud.ts`) so text stays crisp, not canvas text.

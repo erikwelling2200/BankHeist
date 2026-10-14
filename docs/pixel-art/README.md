@@ -2,7 +2,8 @@
 
 Notes from a session in which Claude generated pixel art entirely in code (Python + Pillow + numpy, no image
 model), iterating on a bank lobby scene. The scripts are in `scripts/pixel-art/` and every version of the output is
-in `examples/`. How to ask for new art is in [PROMPTING.md](PROMPTING.md).
+in `examples/`. How to ask for new art is in [PROMPTING.md](PROMPTING.md); how to animate it is in
+[animation.md](animation.md).
 
 ## What Claude can and can't do
 
@@ -80,6 +81,11 @@ The game itself renders at 320x180, top-down, with Phaser Light2D and normal map
 (`src/art`). The examples here are a ¾ view at 256x176 with lighting baked into the image. What carries over
 directly: the locked hue-shifted palette, the style card, the sel-out outlines and the critique loop. Rim light
 and cast shadows would come from Light2D and the normal maps in-engine, not be baked in.
+
+The in-engine version of this look is the example bank ([visual-preview.md](../design/visual-preview.md), the default
+page): the same palette rules and critique loop, with lamps baked against the walls, baked light maps (shafts,
+occlusion, sun shadows) and a baked exposure that lets a sunny street and a dim interior share one scene. Its renders
+are the `bank-preview-*.png` files in `examples/`.
 
 ## Running the scripts
 
