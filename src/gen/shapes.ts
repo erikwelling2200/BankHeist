@@ -10,11 +10,11 @@ import { isOpenPair, ROOM_RULES } from './rooms';
  * corridor, cheap in a break room or the records, dear in an office or a secure room) plus how far each room's area is
  * off its target, and kept when it lowers the cost or, now and then, on a seeded roll: a short, bounded walk.
  *
- * Hard rules: every room stays in one piece with nothing narrower than two tiles and room for a 3×3 square of
- * furniture, no U-shapes (whatever a room's bounding box doesn't cover lies in its corners), every pair of rooms that
- * met still meets, a secure room meets no new room (so the CCTV room never comes to touch the vault corridor, §17.7),
- * and the rooms the design keeps rectangular (the core, the teller line, the stairs and the gallery), the street row
- * and the lobby's row along the counter stay as they are.
+ * Hard rules: every room stays in one piece with nothing narrower than two tiles (a room, not a corridor, has no arm
+ * under three but for a two-tile alcove), no U-shapes (whatever a room's bounding box doesn't cover lies in its
+ * corners), every pair of rooms that met still meets, a secure room meets no new room (so the CCTV room never comes to
+ * touch the vault corridor, §17.7), and the rooms the design keeps rectangular (the core, the teller line, the stairs
+ * and the gallery), the street row and the lobby's row along the counter stay as they are.
  */
 
 /** Rooms that keep their rectangle. */
@@ -28,7 +28,7 @@ const SHAPE_COST: Partial<Record<RoomType, number>> = {
 
 /** How readily a worse move is kept: one that raises the cost by this much is kept about one time in e. */
 const TEMPERATURE = 1;
-/** Moves proposed per bank, and the most kept, per room that isn't a corridor. */
+/** Moves proposed per bank, and the most kept per room that isn't a corridor (about a third of the rooms end up shaped). */
 const PROPOSALS = 500;
 const MOVES_PER_ROOM = 0.6;
 /** The most corners a room may have: an L has six, a T or a notched L eight. */
