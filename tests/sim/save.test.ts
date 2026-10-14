@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
-    appendRecent, deserialise, hashOf, RECENT_EVENTS, recordUndo, SAVE_FORMAT, serialise, type SimEvent, type State
+    appendRecent, deserialise, deserialiseState, deserialiseWorld, hashOf, RECENT_EVENTS, recordUndo, SAVE_FORMAT, serialise,
+    serialiseState, serialiseWorld, type SimEvent, type State
 } from '../../src/sim';
 import { play, SCRIPT, smallBank, step } from './helpers';
 
@@ -17,6 +18,20 @@ describe('saving', () => {
         expect(loaded.recent).toEqual(first.events);
         expect(loaded.undo).toEqual([mid]);
         expect(loaded.genVersion).toBe('fixture');
+    });
+
+    it('saves the world once and the state after every action', () => {
+        const { world, state } = smallBank();
+        const first = step(world, state, SCRIPT[0]!);
+        const undo = recordUndo([], state, first.undoable);
+        const loaded = deserialiseWorld(serialiseWorld('fixture', world));
+        expect(loaded).toEqual({ genVersion: 'fixture', world });
+        const text = serialiseState({ state: first.state, recent: first.events, undo });
+        expect(text).not.toContain('tiles');
+        const resumed = deserialiseState(text);
+        expect(resumed).toEqual({ state: first.state, recent: first.events, undo: [state] });
+        expect(Object.isFrozen(resumed.state.crew)).toBe(true);
+        expect(() => deserialiseState(text.replace('"nextId"', '"nextIdx"'))).toThrow(/state has no nextId/);
     });
 
     it('keeps only the last few events for the recap', () => {
@@ -55,13 +70,15 @@ describe('saving', () => {
 });
 
 /*
- * The save's shape: every field name and type of a fully populated save, records collapsed to one entry. If this
- * changes, World, State or Save changed shape: bump SAVE_FORMAT, then record the new hash under the new format.
+ * The save's shape: every field name and type of a fully populated save, records collapsed to one entry. It fails
+ * whenever World, State or Save change shape, and prints the new hash. During development SAVE_FORMAT stays put:
+ * only the integrator, merging packages, updates the hash below (and bumps SAVE_FORMAT once saves must survive an
+ * update). A package never bumps SAVE_FORMAT; it reports the new hash with its change.
  * The test only sees fields its sample save fills in: a package that augments IntentActionMap, ObjectState,
  * NpcStatusMap, CarrierKindMap or adds a field must also fill it in below, or a change of shape goes unnoticed.
  */
 const SHAPE_HASHES: Record<number, string> = {
-    1: '560656ed11263e39'
+    1: 'ab1a0f13837a21a7'
 };
 
 /** Paths whose objects are records by id, not structs. */
@@ -108,7 +125,7 @@ describe('the save format', () => {
         full.objects.panel = { disabled: true, open: false };
         full.cameras.cam = { facing: 0, live: true };
         full.crew[0]!.loadout.items = ['pistol'];
-        full.dice.push({ turn: 1, stream: 'combat', reason: 'hit', value: 0.5 });
+        full.dice.push({ turn: 1, kind: 'chance', stream: 'combat', reason: 'hit', value: 0.5, p: 0.7 });
         full.rng.combat = 5;
         full.carriers.push({ id: 'carrier-9', kind: 'tellerButton', source: 'teller', pos: { x: 0, y: 0 }, countdown: 2, started: { turn: 1, phase: 'world' }, halted: null });
         const save = JSON.parse(serialise({
@@ -126,6 +143,6 @@ describe('the save format', () => {
         })) as Record<string, unknown>;
         const shape = shapeOf(save, '');
         const hash = hashOf(shape);
-        expect(hash, `Save shape changed:\n${JSON.stringify(shape, null, 1)}`).toBe(SHAPE_HASHES[SAVE_FORMAT]);
+        expect(hash, `Save shape changed, its hash is now '${hash}':\n${JSON.stringify(shape, null, 1)}`).toBe(SHAPE_HASHES[SAVE_FORMAT]);
     });
 });

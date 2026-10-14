@@ -1,4 +1,27 @@
-import { assertPlainJson, commit, fixtureWorld, initialState, type Command, type CommitResult, type ReadonlyWorld, type State } from '../../src/sim';
+import {
+    assertPlainJson, commit, fixtureWorld, initialState, registerCommand, registerEvents, setDevChecks, type Command,
+    type CommandType, type CommitResult, type Ctx, type EventClass, type ReadonlyWorld, type Reducer, type SimEvent, type State
+} from '../../src/sim';
+
+// Tests run the engine's development checks (previews checked for plain JSON, frozen undo snapshots and loads).
+setDevChecks(true);
+
+/*
+ * Test-only commands and events, through a typed escape hatch rather than augmenting CommandMap or EventMap: an
+ * augmentation in tests/ would add test members to the production `Command` and `SimEvent` unions.
+ */
+export type TestCommand = { type: string; crew?: string };
+
+export const testCommand = (cmd: TestCommand): Command => cmd as unknown as Command;
+export const testEvent = (event: { type: string } & Record<string, unknown>): SimEvent => event as unknown as SimEvent;
+
+export function registerTestCommand(type: string, reduce: (ctx: Ctx, cmd: TestCommand) => void, options: { final?: boolean; placeholder?: boolean; replace?: boolean } = {}): void {
+    registerCommand(type as CommandType, reduce as unknown as Reducer<CommandType>, options);
+}
+
+export function registerTestEvents(classes: Record<string, EventClass>): void {
+    registerEvents(classes as Parameters<typeof registerEvents>[0]);
+}
 
 /** A small bank: a public lobby, a staff room behind a door and a secure closet behind glass. */
 export function smallBank(): { world: ReadonlyWorld; state: State } {

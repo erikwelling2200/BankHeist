@@ -1,6 +1,7 @@
 import { edgeBetween, edgeKey } from '../core/grid';
 import { clonePlain } from '../core/json';
-import { DEFAULT_RULES, type CameraDef, type DoorDef, type DoorStart, type Lock, type Material, type PersonDef, type Pos, type ReadonlyWorld, type Rules, type Tile, type WallEdge, type WorldObject, type Zone } from '../core/types';
+import { defaultRules } from '../core/state';
+import { type CameraDef, type DoorDef, type DoorStart, type Lock, type Material, type PersonDef, type Pos, type ReadonlyWorld, type Rules, type Tile, type WallEdge, type WorldObject, type Zone } from '../core/types';
 import { freezeWorld } from './freeze';
 
 /*
@@ -84,6 +85,6 @@ export function fixtureWorld(map: readonly string[], options: FixtureOptions = {
         objects: clonePlain([...(options.objects ?? [])]),
         people: clonePlain([...(options.people ?? [])]),
         cameras: clonePlain([...(options.cameras ?? [])]),
-        rules: { ...DEFAULT_RULES, ...options.rules }
+        rules: { ...defaultRules(), ...options.rules }
     });
 }

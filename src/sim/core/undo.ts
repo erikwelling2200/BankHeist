@@ -1,4 +1,4 @@
-import { sortedIds } from './json';
+import { deepFreeze, devChecksOn, sortedIds } from './json';
 import type { EventType, State } from './types';
 
 /*
@@ -42,7 +42,9 @@ export type UndoStack = readonly State[];
 
 /** The stack after committing an action from `before`. */
 export function recordUndo(stack: UndoStack, before: State, undoable: boolean): UndoStack {
-    return undoable ? [...stack, before] : [];
+    if (!undoable) return [];
+    // In development, a snapshot is frozen so a stray write to a state that is meant to be finished shows at once.
+    return [...stack, devChecksOn() ? deepFreeze(before) : before];
 }
 
 /** Takes back the last undoable action: the state before it, and the stack without it. */

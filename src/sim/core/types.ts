@@ -127,8 +127,8 @@ export interface CameraDef {
     room: string | null;
 }
 
-/** The numbers of the rules that a bank or a difficulty might change (§6.3, §8.3, §9.1). */
-export interface Rules {
+/** The engine's own rule numbers (§6.3, §8.3, §9.1). */
+export interface CoreRules {
     actionsPerTurn: number;
     moveTiles: number;
     coreRange: number;
@@ -137,7 +137,14 @@ export interface Rules {
     minCarrierCountdown: number;
 }
 
-export const DEFAULT_RULES: Readonly<Rules> = {
+/**
+ * The numbers of the rules that a bank or a difficulty might change. A package adds its own by augmenting `Rules` and
+ * registering their defaults with `registerRuleDefaults`; world builders take `defaultRules()`, which has them all.
+ */
+export interface Rules extends CoreRules {}
+
+/** The engine's defaults; `defaultRules()` adds every package's. */
+export const DEFAULT_RULES: Readonly<CoreRules> = {
     actionsPerTurn: 2,
     moveTiles: 5,
     coreRange: 6,
@@ -266,11 +273,15 @@ export interface BankState {
 /** One roll of the dice, kept so a heist's luck can be shown. */
 export interface DiceRoll {
     turn: number;
+    /** Which call rolled it: `odds` is a roll a preview showed the chance of. */
+    kind: 'next' | 'int' | 'chance' | 'odds';
     stream: string;
     /** What the roll was for, for the log ("hit jun", "resist"). */
     reason: string;
     /** The raw draw in [0, 1), or the integer for `Dice.int`. */
     value: number;
+    /** The chance of success, for `chance` and `odds`: the roll succeeded if `value < p`. */
+    p?: number;
 }
 
 export type Phase = 'crew' | 'world';
