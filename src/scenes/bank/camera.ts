@@ -37,9 +37,16 @@ export class BankCamera {
      * them, so when one finger's move zooms, the other's position is already in the old zoom's pixels.
      */
     private readonly held = new Map<number, { x: number; y: number }>();
+    /** While this says so, a single finger's drag doesn't pan: it belongs to someone else (play mode's path drawing). */
+    holdPan?: () => boolean;
+    /** Told whenever the tactical map is shown or left. */
+    onMapChange?: (on: boolean) => void;
 
-    /** For the plot of `width` by `height` map pixels. */
-    constructor(private readonly scene: Phaser.Scene, private readonly width: number, private readonly height: number) {}
+    /**
+     * For the plot of `width` by `height` map pixels. `buttons` adds the HTML zoom and map buttons; play mode leaves them
+     * out, its HUD having the map button where UI.md puts it.
+     */
+    constructor(private readonly scene: Phaser.Scene, private readonly width: number, private readonly height: number, private readonly buttons = true) {}
 
     /** Whether the tactical map shows. */
     get onMap(): boolean {
@@ -63,7 +70,7 @@ export class BankCamera {
 
         const onResize = () => this.fitScreen();
         window.addEventListener('resize', onResize);
-        this.controls = new CameraControls({ zoomIn: () => this.zoomStep(1), zoomOut: () => this.zoomStep(-1), toggleMap: () => this.toggleMap() });
+        if (this.buttons) this.controls = new CameraControls({ zoomIn: () => this.zoomStep(1), zoomOut: () => this.zoomStep(-1), toggleMap: () => this.toggleMap() });
         scene.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
             window.removeEventListener('resize', onResize);
             this.controls?.destroy();
@@ -113,7 +120,7 @@ export class BankCamera {
                 }
                 return;
             }
-            if (this.dragFrom) {
+            if (this.dragFrom && !this.holdPan?.()) {
                 cam.scrollX -= (at.x - this.dragFrom.x) / this.zoom;
                 cam.scrollY -= (at.y - this.dragFrom.y) / this.zoom;
             }
@@ -166,6 +173,15 @@ export class BankCamera {
             this.showPlot();
         }
         this.controls?.showMap(!!this.mapView);
+        this.onMapChange?.(!!this.mapView);
+    }
+
+    /** Moves the view so map point (x, y) is in the middle: at once, or panning over `ms`. Leaves the tactical map first. */
+    centreOn(x: number, y: number, ms = 0): void {
+        if (this.mapView) this.toggleMap();
+        const cam = this.scene.cameras.main;
+        if (ms > 0) cam.pan(x, y, ms, 'Sine.easeInOut', true);
+        else cam.centerOn(x, y);
     }
 
     /** The plot's rectangle on screen, in CSS pixels from the canvas's top-left corner. */
@@ -207,7 +223,8 @@ export class BankCamera {
 
     /** How far down the canvas, in device pixels, the generator bar reaches. The hand-made example bank has none. */
     private coveredTop(): number {
-        const bar = document.querySelector('.generator-bar');
+        // The generator bar, or play mode's HUD strip.
+        const bar = document.querySelector('.generator-bar') ?? document.querySelector('.sh-top');
         if (!bar) return 0;
         const ratio = window.devicePixelRatio || 1;
         return Math.max(0, bar.getBoundingClientRect().bottom - this.scene.game.canvas.getBoundingClientRect().top) * ratio;

@@ -10,12 +10,32 @@ import { OfficerScene } from './scenes/OfficerScene';
 import { PropSheetScene } from './scenes/PropSheetScene';
 import { VaultScene } from './scenes/VaultScene';
 import { Fullscreen } from './ui/Fullscreen';
+import { installDebugHandle, MemoryStorage, webStorage } from './game';
+import { playHeist } from './game/heist';
+import type { PlaySetup } from './scenes/BankScene';
+
+/** The bank `?play` opens without a seed in the address: a small branch (decision Q1), pinned so every run is the same. */
+export const PLAY_BANK = { seed: '31-2', tier: 'small', archetype: 'twoWing' } as const;
 
 /** Starts the game on the scene the address names (`?scene=`, default the generated bank). Loaded only off the HUD page. */
 export function startGame(params: URLSearchParams, scene: string): void {
+    // `?play` is the game (implementation plan §2.5): the pinned bank (or `&seed=`), played through a Session that
+    // autosaves to this browser and resumes (`&new` starts afresh).
+    const play = params.has('play') && !params.has('scene');
+    if (play && !params.has('seed')) {
+        for (const [k, v] of Object.entries(PLAY_BANK)) params.set(k, v);
+        history.replaceState(null, '', `${location.pathname}?${params}`.replace(/=(?=&|$)/g, ''));
+    }
     // `?scene=rooms` is the room gallery: every room type furnished in a few sizes (`?seed=` picks other parcels).
     const gallery = scene === 'rooms' ? roomGallery(Number(params.get('seed') ?? 1)) : undefined;
     const bank = gallery ? { data: gallery.data, generated: undefined } : ['props', 'officer', 'demo'].includes(scene) ? undefined : generateAddressed();
+    const playSetup = play && bank?.generated ? startHeist(bank.generated, params.has('new')) : undefined;
+    if (playSetup && params.has('new')) {
+        // Started afresh once: reloading the page resumes this heist rather than starting yet another.
+        const address = new URLSearchParams(location.search);
+        address.delete('new');
+        history.replaceState(null, '', `${location.pathname}?${address}`.replace(/=(?=&|$)/g, ''));
+    }
 
     const game = new Phaser.Game({
         type: Phaser.WEBGL,
@@ -35,7 +55,7 @@ export function startGame(params: URLSearchParams, scene: string): void {
         // `?scene=lobby` is an older link to the bank.
         scene: [{ bank: BankScene, lobby: BankScene, rooms: BankScene, props: PropSheetScene, officer: OfficerScene, demo: VaultScene }[scene] ?? BankScene],
         // `?still` stops what moves by itself (drifting clouds, patrols, dust), so screenshots of a view match pixel for pixel.
-        callbacks: { preBoot: g => g.registry.set('bankData', bank?.data).set('still', params.has('still')) }
+        callbacks: { preBoot: g => g.registry.set('bankData', bank?.data).set('still', params.has('still')).set('play', playSetup) }
     });
 
     let panels: { briefing: Briefing; bar: GeneratorBar } | undefined;
@@ -81,7 +101,7 @@ export function startGame(params: URLSearchParams, scene: string): void {
         return next;
     }
 
-    if (bank?.generated) {
+    if (bank?.generated && !playSetup) {
         showPanels(bank.generated);
         window.addEventListener('popstate', showAddressedBank);
     }
@@ -90,4 +110,18 @@ export function startGame(params: URLSearchParams, scene: string): void {
 
     new Fullscreen();
     registerSW({ immediate: true });
+}
+
+/**
+ * The heist in a generated bank: resumed from this browser's autosave if it was played in this bank (unless `fresh`),
+ * with `window.sim` for debugging and the e2e tests, and saved whenever the page is hidden or left (§20.6).
+ */
+function startHeist(generated: GeneratedBank, fresh: boolean): PlaySetup {
+    const storage = webStorage() ?? new MemoryStorage();
+    const { session, resumed } = playHeist(generated, storage, { fresh });
+    installDebugHandle(session);
+    document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') session.save(); });
+    window.addEventListener('pagehide', () => session.save());
+    Object.assign(window, { generated });
+    return { session, bank: generated, resumed };
 }

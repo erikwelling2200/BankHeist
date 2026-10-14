@@ -1,12 +1,12 @@
 import {
-    appendRecent, assertPlainJson, clonePlain, commit, deepFreeze, hashOf, popUndo, preview, recordUndo, SaveFormatError, stableJson,
+    assertPlainJson, clonePlain, commit, deepFreeze, hashOf, popUndo, preview, RECENT_EVENTS, recordUndo, SaveFormatError, stableJson,
     type Command, type CommitResult, type PreviewResult, type ReadonlyWorld, type SimEvent, type State, type UndoStack
 } from '../sim';
 import { deserialiseHeist, deserialiseUi, heistWorldId, serialiseHeist, serialiseUi, serialiseWorld } from './persist';
 import { PlaybackQueue, type PlaybackItem } from './playback';
 import type { SaveStorage } from './storage';
 import type { HudViewModel, RecapVM } from '../ui/hud/viewModels';
-import { hudView, recapView } from './views';
+import { hudView, recapView, type HudExtras } from './views';
 
 /*
  * The Session sits between the pure rules (src/sim) and the scene and HUD (implementation plan §2.4, §2.5). It owns
@@ -81,8 +81,15 @@ export interface SessionOptions {
 
 export type ResumeOptions = Pick<SessionOptions, 'uiSaveDelay' | 'onListenerError'>;
 
-/** The undo stack's companion: the recent events before each undoable action, and the playback items it queued. */
-interface UndoExtra { recent: readonly SimEvent[]; seqs: number[] }
+/**
+ * The undo stack's companion: the recent events (and their turns) before each undoable action, and the playback items it
+ * queued.
+ */
+interface UndoExtra { recent: readonly SimEvent[]; recentTurns: readonly number[]; seqs: number[] }
+
+/** The turns of saved recent events, or (a save from before turns were kept, or out of step) the current turn for each. */
+const turnsOrNow = (turns: readonly number[] | undefined, events: readonly SimEvent[], turn: number): number[] =>
+    turns && turns.length === events.length && turns.every(t => Number.isInteger(t)) ? [...turns] : events.map(() => turn);
 
 /** The UI as saved, checked against the state: an unknown crew id, a bad camera or a bad command are dropped. */
 function checkUi(ui: Partial<UiState> | null | undefined, state: State): UiState {
@@ -115,6 +122,8 @@ export class Session {
     private _undo: UndoStack;
     private undoExtra: UndoExtra[];
     private _recent: readonly SimEvent[];
+    /** The turn each recent event happened in, recorded when it was appended (in step with `_recent`). */
+    private _recentTurns: readonly number[];
     private _ui: UiState;
     private worldSaved: boolean;
     private seq: number;
@@ -129,7 +138,7 @@ export class Session {
 
     private constructor(init: {
         world: ReadonlyWorld; worldId: string; genVersion: string; storage: SaveStorage; state: State; undo: UndoStack;
-        undoExtra: UndoExtra[]; recent: readonly SimEvent[]; ui: UiState; worldSaved: boolean; seq: number; options: ResumeOptions;
+        undoExtra: UndoExtra[]; recent: readonly SimEvent[]; recentTurns: readonly number[]; ui: UiState; worldSaved: boolean; seq: number; options: ResumeOptions;
     }) {
         this.world = init.world;
         this.worldId = init.worldId;
@@ -139,6 +148,7 @@ export class Session {
         this._undo = deepFreeze([...init.undo]);
         this.undoExtra = init.undoExtra;
         this._recent = deepFreeze(init.recent);
+        this._recentTurns = deepFreeze([...init.recentTurns]);
         this._ui = deepFreeze(init.ui);
         this.worldSaved = init.worldSaved;
         this.seq = init.seq;
@@ -151,7 +161,7 @@ export class Session {
         const state = clonePlain(options.state);
         const session = new Session({
             world: options.world, worldId: hashOf(options.world), genVersion: options.genVersion, storage: options.storage,
-            state, undo: [], undoExtra: [], recent: [], ui: checkUi(options.ui, state), worldSaved: false, seq: 0, options
+            state, undo: [], undoExtra: [], recent: [], recentTurns: [], ui: checkUi(options.ui, state), worldSaved: false, seq: 0, options
         });
         session.save();
         return session;
@@ -173,7 +183,8 @@ export class Session {
             const ui = checkUi(deserialiseUi<UiState>(storage.get(UI_KEY), saved.seq) ?? saved.ui, saved.state);
             return new Session({
                 world: saved.world, worldId, genVersion: saved.genVersion, storage, state: saved.state, undo: saved.undo,
-                undoExtra: saved.undoRecent.map(recent => ({ recent, seqs: [] })), recent: saved.recent, ui, worldSaved: true,
+                undoExtra: saved.undoRecent.map((recent, i) => ({ recent, recentTurns: turnsOrNow(saved.undoRecentTurns?.[i], recent, saved.state.turn), seqs: [] })),
+                recent: saved.recent, recentTurns: turnsOrNow(saved.recentTurns, saved.recent, saved.state.turn), ui, worldSaved: true,
                 seq: saved.seq, options
             });
         } catch (e) {
@@ -208,6 +219,11 @@ export class Session {
         return this._recent;
     }
 
+    /** The turn each of `recent` happened in, in step with it. */
+    get recentTurns(): readonly number[] {
+        return this._recentTurns;
+    }
+
     get ui(): Readonly<UiState> {
         return this._ui;
     }
@@ -224,14 +240,23 @@ export class Session {
         return this._ui.pendingCommand;
     }
 
-    /** What the HUD shows now. */
-    hud(): HudViewModel {
-        return hudView(this.world, this._state, this._ui, { undoEnabled: this.canUndo });
+    /**
+     * What the HUD shows now. `extras` adds what only the scene knows (the picked action, the tactical map); Confirm is
+     * coloured from the player's preview of the pending command.
+     */
+    hud(extras: Omit<HudExtras, 'undoEnabled' | 'previewEvents'> = {}): HudViewModel {
+        let previewEvents: HudExtras['previewEvents'];
+        if (this._ui.pendingCommand) {
+            try {
+                previewEvents = this.playerPreview(this._ui.pendingCommand).events;
+            } catch { /* a stale command: Confirm shows it, and committing it says why it can't */ }
+        }
+        return hudView(this.world, this._state, this._ui, { ...extras, undoEnabled: this.canUndo, previewEvents });
     }
 
     /** The resume recap card (§20.6): the last 3 events, the bank, the turn and each crew member's status. */
     recap(): RecapVM {
-        return recapView(this.world, this._state, this._recent);
+        return recapView(this.world, this._state, this._recent, this._recentTurns);
     }
 
     // ------------------------------------------------------------------------------------------------- Playing
@@ -272,8 +297,10 @@ export class Session {
         const before = this._state, result = deepFreeze(commit(this.world, before, cmd));
         const queued = this.playback.push(result.events, result.state, before.turn);
         this._undo = deepFreeze(recordUndo(this._undo, before, result.undoable));
-        this.undoExtra = result.undoable ? [...this.undoExtra, { recent: this._recent, seqs: queued.map(i => i.seq) }] : [];
-        this._recent = deepFreeze(appendRecent(this._recent, result.events));
+        this.undoExtra = result.undoable ? [...this.undoExtra, { recent: this._recent, recentTurns: this._recentTurns, seqs: queued.map(i => i.seq) }] : [];
+        // Each event's turn is the one the playback queue gave it: a world phase's events belong to the turn that ended.
+        this._recent = deepFreeze([...this._recent, ...result.events].slice(-RECENT_EVENTS));
+        this._recentTurns = deepFreeze([...this._recentTurns, ...queued.map(i => i.turn)].slice(-RECENT_EVENTS));
         this.setState(result.state);
         this.save();
         this.emit({ kind: cmd.type === 'endTurn' ? 'endTurn' : 'commit', command: cmd, result, queued });
@@ -292,6 +319,7 @@ export class Session {
         this._undo = popped.stack;
         this.undoExtra = this.undoExtra.slice(0, -1);
         this._recent = extra.recent;
+        this._recentTurns = extra.recentTurns;
         this.playback.remove(extra.seqs);
         this.setState(popped.state);
         this.save();
@@ -340,8 +368,8 @@ export class Session {
         this.cancelUiSave();
         try {
             const heist = serialiseHeist({
-                worldId: this.worldId, state: this._state, recent: this._recent, undo: this._undo,
-                undoRecent: this.undoExtra.map(e => [...e.recent]), ui: this._ui, seq: this.seq + 1
+                worldId: this.worldId, state: this._state, recent: this._recent, recentTurns: [...this._recentTurns], undo: this._undo,
+                undoRecent: this.undoExtra.map(e => [...e.recent]), undoRecentTurns: this.undoExtra.map(e => [...e.recentTurns]), ui: this._ui, seq: this.seq + 1
             });
             if (!this.worldSaved) {
                 // Never a heist pointing at a world that isn't there: the old heist goes first, the old worlds last.

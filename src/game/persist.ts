@@ -17,6 +17,10 @@ export interface HeistExtras<Ui> {
     worldId: string;
     /** In step with the undo stack, so undoing takes its events back too. */
     undoRecent: SimEvent[][];
+    /** The turn each recent event happened in, in step with the core's `recent` (absent in older saves). */
+    recentTurns?: number[];
+    /** The same for each entry of `undoRecent`. */
+    undoRecentTurns?: number[][];
     ui: Ui;
     /** Counts the heist's saves, so a UI entry written after it can tell it belongs to this one. */
     seq: number;
@@ -26,7 +30,9 @@ const EXTRA_KEYS = ['worldId', 'undoRecent', 'ui', 'seq'] as const;
 
 export function serialiseHeist<Ui>(saved: { state: State; recent: readonly SimEvent[]; undo: UndoStack } & HeistExtras<Ui>): string {
     const core = serialiseState(saved);
-    const extras = JSON.stringify({ worldId: saved.worldId, undoRecent: saved.undoRecent, ui: saved.ui, seq: saved.seq });
+    const extras = JSON.stringify({
+        worldId: saved.worldId, undoRecent: saved.undoRecent, recentTurns: saved.recentTurns ?? [], undoRecentTurns: saved.undoRecentTurns ?? [], ui: saved.ui, seq: saved.seq
+    });
     // The core's object, closed one field later: `{…core…,"worldId":…}`.
     return `${core.slice(0, -1)},${extras.slice(1)}`;
 }
@@ -56,11 +62,14 @@ export function deserialiseHeist<Ui>(heistText: string, worldText: string): Save
     for (const key of EXTRA_KEYS) if (!(key in heist)) throw new SaveFormatError(`The save has no ${key}`);
     const ui = heist.ui && typeof heist.ui === 'object' ? heist.ui as Partial<Ui> : null;
     const seq = typeof heist.seq === 'number' ? heist.seq : 0;
-    const base = { ...saved, genVersion, world, worldId: String(heist.worldId), ui, seq };
+    const numbers = (v: unknown): number[] | undefined => (Array.isArray(v) && v.every(n => typeof n === 'number') ? v as number[] : undefined);
+    const recentTurns = numbers(heist.recentTurns);
+    const undoRecentTurns = Array.isArray(heist.undoRecentTurns) ? heist.undoRecentTurns.map(numbers).map(t => t ?? []) : undefined;
+    const base = { ...saved, genVersion, world, worldId: String(heist.worldId), ui, seq, recentTurns };
     // Undo needs the events before each undoable action; a save without them in step loses its undo rather than
     // making them up.
-    if (!Array.isArray(heist.undoRecent) || heist.undoRecent.length !== saved.undo.length) return { ...base, undo: [], undoRecent: [] };
-    return { ...base, undoRecent: heist.undoRecent as SimEvent[][] };
+    if (!Array.isArray(heist.undoRecent) || heist.undoRecent.length !== saved.undo.length) return { ...base, undo: [], undoRecent: [], undoRecentTurns: [] };
+    return { ...base, undoRecent: heist.undoRecent as SimEvent[][], undoRecentTurns };
 }
 
 /** The UI entry: the UI state alone, written cheaply between heist saves, for the heist save number `seq`. */

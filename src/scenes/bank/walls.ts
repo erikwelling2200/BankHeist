@@ -1,4 +1,5 @@
 import type Phaser from 'phaser';
+import { PAL } from '../../art/palette';
 import { bakeLighting } from '../../art/bank/lamps';
 import { farFront, streetFront } from '../../art/bank/lightmap';
 import { wallArt, wallLook, wallMargin } from '../../art/bank/walls';
@@ -45,6 +46,8 @@ interface WallSprite {
 export class Walls {
     private readonly sprites: WallSprite[] = [];
     private clock = 0;
+    /** The open leaves drawn over doorways (play mode only), by wall segment. */
+    private readonly leaves = new Map<WallSprite, Phaser.GameObjects.Graphics>();
 
     constructor(private readonly scene: Phaser.Scene, private readonly level: Level, private readonly tops: { front: (y: number) => void; far: (y: number) => void }) {}
 
@@ -134,11 +137,47 @@ export class Walls {
         return this.sprites.map(w => ({ kind: w.wall.kind, run: w.wall.run, tx: w.wall.tx, ty: w.wall.ty, height: WALL_STEPS[w.step]! }));
     }
 
+    /**
+     * Shows the door leaf on the segment at tile edge (`run`, tx, ty) open or closed (play mode, §6.9): an open door is a
+     * gap in the wall with its leaf swung back against the jamb into the tile south (east-west walls) or east (north-south
+     * walls) of it. Closed is the wall's own art, so a bank that never opens a door looks exactly as before.
+     */
+    setDoorOpen(run: Wall['run'], tx: number, ty: number, open: boolean): void {
+        const w = this.sprites.find(s => s.wall.run === run && s.wall.tx === tx && s.wall.ty === ty);
+        if (!w) throw new Error(`No wall segment at ${run} ${tx},${ty} to open`);
+        w.image.setVisible(!open);
+        for (const d of w.dressing) for (const image of d.images) image.setVisible(!open && d.top <= WALL_STEPS[w.step]!);
+        let leaf = this.leaves.get(w);
+        if (!open) {
+            leaf?.setVisible(false);
+            return;
+        }
+        if (!leaf) {
+            const f = wallFootprint(w.wall), glass = w.wall.kind === 'doorGlass' || w.wall.kind === 'doorTower';
+            const colour = glass ? 0x8fb4c4 : w.wall.kind === 'doorWood' ? 0x7a5236 : 0x6d7480, length = TILE - 3;
+            const g = this.scene.add.graphics();
+            // The threshold: the floor under the doorway, a dark sill line.
+            g.fillStyle(PAL.void, 0.55);
+            g.fillRect(f.x, f.y, f.w, f.d);
+            // The leaf, swung open against the west (east-west wall) or north (north-south wall) jamb, seen from above.
+            g.fillStyle(PAL.void, 0.5);
+            if (w.wall.run === 'eastWest') g.fillRect(f.x + 1, f.y + f.d, 3, length);
+            else g.fillRect(f.x + f.w, f.y + 1, length, 3);
+            g.fillStyle(colour, glass ? 0.8 : 1);
+            if (w.wall.run === 'eastWest') g.fillRect(f.x, f.y + f.d - 1, 2, length);
+            else g.fillRect(f.x + f.w - 1, f.y, length, 2);
+            g.setDepth(DEPTH.standing + (w.wall.run === 'eastWest' ? f.y + f.d - 1 + length : f.y + 2));
+            this.leaves.set(w, (leaf = g));
+        }
+        leaf.setVisible(true);
+    }
+
     private setStep(w: WallSprite, step: number): void {
         w.step = step;
         const height = WALL_STEPS[step]!;
         w.image.setFrame(w.frames[step]!);
-        for (const d of w.dressing) for (const image of d.images) image.setVisible(d.top <= height);
+        const open = this.leaves.get(w)?.visible ?? false;
+        for (const d of w.dressing) for (const image of d.images) image.setVisible(!open && d.top <= height);
         // Cloud shadows fall on the street and the fronts, not on the floor seen over a cut-down front, nor on the inside
         // of the front across the street.
         if (w.front) this.tops.front(wallFootprint(w.wall).y - height);

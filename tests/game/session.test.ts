@@ -244,8 +244,8 @@ describe('the game session', () => {
         ]);
         expect(recap.bank).toEqual({ status: 'quiet', label: 'QUIET: alarm in 2', nextAlarmIn: 2 });
         expect(recap.crew).toEqual([
-            { id: 'jun', name: 'jun', colour: CREW_COLOURS[0], status: 'done', actionsLeft: 0, exposed: false, hp: null },
-            { id: 'mara', name: 'mara', colour: CREW_COLOURS[1], status: 'ready', actionsLeft: 1, exposed: false, hp: null }
+            { id: 'jun', name: 'jun', colour: CREW_COLOURS[0], portrait: 'jun', status: 'done', actionsLeft: 0, exposed: false, hp: null },
+            { id: 'mara', name: 'mara', colour: CREW_COLOURS[1], portrait: 'mara', status: 'ready', actionsLeft: 1, exposed: false, hp: null }
         ]);
         expect(recap.threats.map(t => t.countdown)).toEqual([2]);
         session.endTurn();
@@ -253,6 +253,22 @@ describe('the game session', () => {
         expect(session.recap().bank.status).toBe('alarm');
         expect(session.recap().events.at(-1)).toEqual({ turn: 3, text: 'Turn 3' });
         expect(session.recap().events.map(e => e.turn)).toEqual([2, 2, 3]);
+    });
+
+    it('records each recent event\'s turn as it is appended, and keeps it through undo and resume', () => {
+        const { session, storage } = start();
+        session.commit({ type: 'wait', crew: 'jun' });
+        session.endTurn();
+        session.commit(MOVE_MARA);
+        const turns = [...session.recentTurns];
+        expect(turns).toHaveLength(session.recent.length);
+        expect(turns[0]).toBe(1);
+        expect(turns.at(-1)).toBe(2);
+        expect(Session.resume(storage)!.recentTurns).toEqual(turns);
+        const resumed = Session.resume(storage)!;
+        resumed.undo();
+        expect(resumed.recentTurns).toEqual(turns.slice(0, -1));
+        expect(resumed.recap().events.at(-1)!.turn).toBe(2);
     });
 
     it('tells subscribers what changed, and stops when they unsubscribe', () => {
@@ -346,7 +362,7 @@ describe('the HUD view models', () => {
         const hud = session.hud();
         expect(hud.turn).toBe(1);
         expect(hud.selected).toBe('jun');
-        expect(hud.crew[0]).toEqual({ id: 'jun', name: 'jun', colour: CREW_COLOURS[0], actionsLeft: 1, actionsMax: 2, selected: true, profile: 'unknown', exposedTo: [], hp: null });
+        expect(hud.crew[0]).toEqual({ id: 'jun', name: 'jun', colour: CREW_COLOURS[0], portrait: 'jun', actionsLeft: 1, actionsMax: 2, selected: true, profile: 'unknown', exposedTo: [], hp: null });
         expect(hud.crew[1]!.selected).toBe(false);
         expect(hud.crew[1]!.colour).toBe(CREW_COLOURS[1]);
         expect(hud.undoEnabled).toBe(true);
@@ -376,6 +392,10 @@ describe('the debug handle', () => {
         sim.endTurn();
         expect(sim.state.turn).toBe(2);
         expect(sim.world).toBe(session.world);
+        const path = sim.path('jun', { x: 1, y: 0 })!;
+        expect(path.at(-1)).toEqual({ x: 1, y: 0 });
+        expect(sim.commit({ type: 'move', crew: 'jun', path }).state.crew[0]!.pos).toEqual({ x: 1, y: 0 });
+        expect(sim.path('jun', { x: 99, y: 99 })).toBeUndefined();
         remove();
         expect(target.sim).toBeUndefined();
     });

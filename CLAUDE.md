@@ -15,6 +15,11 @@ Top-down 2D pixel-art stealth game. Phaser 4 + TypeScript + Vite, shipped as an 
   generator furnishes, in four sizes and shapes, furnished and staffed by the real parcels (`src/gen/gallery.ts`;
   `?seed=` picks other parcels). Check furnishing changes there first. The stealth HUD (`src/ui/hud/`) is at `/?scene=hud` over a blank
   page with sample view models (`&state=` picks one, `&text=1.3` scales the text, `&cb` the colour-blind palette, `&bare` hides the picker).
+- `/?play` is the game: a pinned small branch (or `&seed=`) played through the Session (`src/game/`; `heist.ts` builds
+  the crew and resumes the autosave, `&new` starts afresh) in `BankScene` with `src/scenes/bank/sim.ts` (people and
+  doors from the state, playback), `input.ts` (taps and path drags), `overlay.ts` (the 2× world UI) and the HTML HUD.
+  `window.sim` is the debug handle (`sim.path(crew, to)` for scripted moves); `debugState.play` and `tileOnPage(x, y)`
+  help e2e tests.
 - `docs/design/research.md` holds the key research findings behind each design decision, with the full notes per area in
   `docs/design/research/`.
 - `docs/design/implementation-plan.md` is the build plan for the game rules (architecture of `src/sim`, work packages per milestone with checkboxes); tick packages off as they land.

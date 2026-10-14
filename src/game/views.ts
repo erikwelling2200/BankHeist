@@ -1,6 +1,6 @@
-import type { CarrierKind, ReadonlyWorld, SimEvent, State } from '../sim';
+import { DASH_ACTIONS, inHeavyArmour, MOVE_ACTIONS, type CarrierKind, type Command, type ReadonlyWorld, type SimEvent, type State } from '../sim';
 import {
-    CREW_COLOURS, OVERLAY_IDS, type BankStatus, type BankStatusVM, type CrewVM, type HudViewModel, type OverlayId, type RecapEventVM,
+    CREW_COLOURS, OVERLAY_IDS, type ActionVM, type BankStatus, type CommitKind, type ConfirmVM, type HudIcon, type BankStatusVM, type CrewVM, type HudViewModel, type OverlayId, type RecapEventVM,
     type RecapVM, type ThreatVM
 } from '../ui/hud/viewModels';
 import type { UiState } from './session';
@@ -41,6 +41,10 @@ export function bankView(state: State): BankStatusVM {
 /** Each crew member's colour, from their place in the crew's order. */
 const crewColour = (index: number): string => CREW_COLOURS[index % CREW_COLOURS.length]!;
 
+/** The crew members with a portrait of their own (src/ui/hud/img), by id; the rest show their initial. */
+const PORTRAITS: ReadonlySet<string> = new Set(['mara', 'jun', 'dex', 'sol']);
+const portraitOf = (id: string): { portrait?: string } => (PORTRAITS.has(id) ? { portrait: id } : {});
+
 const exposedTo = (state: State, crew: string): string[] => state.npcs.filter(n => n.exposedTo.includes(crew)).map(n => n.id);
 
 export function crewCards(world: ReadonlyWorld, state: State, selected: string | null): CrewVM[] {
@@ -48,6 +52,7 @@ export function crewCards(world: ReadonlyWorld, state: State, selected: string |
         id: c.id,
         name: c.name,
         colour: crewColour(i),
+        ...portraitOf(c.id),
         actionsLeft: c.actionsLeft,
         actionsMax: world.rules.actionsPerTurn,
         profile: 'unknown',
@@ -61,6 +66,50 @@ export function crewCards(world: ReadonlyWorld, state: State, selected: string |
 export interface HudExtras {
     undoEnabled?: boolean;
     overlays?: Partial<Record<OverlayId, boolean>>;
+    /** The action the player picked for the selected crew member before choosing a tile ('move' when none). */
+    mode?: ActionId;
+    /** The events the pending command's preview would emit (the player's preview), to colour Confirm. */
+    previewEvents?: readonly SimEvent[];
+    /** Whether the tactical map shows. */
+    mapOn?: boolean;
+}
+
+/** The actions M1 offers (§6.3): Move, Dash and Wait. Later packages add theirs. */
+export type ActionId = 'move' | 'dash' | 'wait';
+
+const ACTIONS: readonly { id: ActionId; label: string; icon: HudIcon; cost: number }[] = [
+    { id: 'move', label: 'Move', icon: 'move', cost: MOVE_ACTIONS },
+    { id: 'dash', label: 'Dash', icon: 'dash', cost: DASH_ACTIONS },
+    // Wait spends what is left of the turn (§6.3); it costs no pip of its own.
+    { id: 'wait', label: 'Wait', icon: 'wait', cost: 0 }
+];
+
+/** The action a command is, if it is one of `ACTIONS`. */
+const actionOf = (cmd: Command | null): ActionId | null => (cmd && ACTIONS.some(a => a.id === cmd.type) ? cmd.type as ActionId : null);
+
+/** The selected crew member's actions: what each costs, whether it can be done now, and which is being previewed. */
+export function actionsView(state: State, ui: UiState, mode: ActionId = 'move'): ActionVM[] {
+    const member = state.crew.find(c => c.id === ui.selected);
+    if (!member || state.phase !== 'crew') return [];
+    const active = actionOf(ui.pendingCommand) ?? mode;
+    return ACTIONS.map(a => {
+        let reason: string | undefined;
+        if (member.actionsLeft === 0) reason = 'No actions left';
+        else if (member.actionsLeft < a.cost) reason = `Needs ${a.cost} actions`;
+        else if (a.id === 'dash' && inHeavyArmour(member)) reason = "Can't dash in heavy armour";
+        return { id: a.id, label: a.label, icon: a.icon, cost: a.cost, enabled: !reason, ...(reason ? { reason } : {}), selected: a.id === active };
+    });
+}
+
+/**
+ * Confirm for the pending command: its name and cost, coloured by what it gives away (UI.md "Confirm's colour"): amber
+ * when someone hears it, cream otherwise. Dimmed while nothing is previewed.
+ */
+export function confirmView(ui: UiState, previewEvents: readonly SimEvent[] = []): ConfirmVM {
+    const action = ACTIONS.find(a => a.id === actionOf(ui.pendingCommand));
+    if (!action) return { kind: 'clean', label: '', cost: 0, enabled: false };
+    const kind: CommitKind = previewEvents.some(e => e.type === 'heard') ? 'costly' : 'clean';
+    return { kind, label: action.label.toUpperCase(), icon: action.icon, cost: action.cost, enabled: true };
 }
 
 export function hudView(world: ReadonlyWorld, state: State, ui: UiState, extras: HudExtras = {}): HudViewModel {
@@ -69,12 +118,12 @@ export function hudView(world: ReadonlyWorld, state: State, ui: UiState, extras:
         bank: bankView(state),
         crew: crewCards(world, state, ui.selected),
         selected: ui.selected,
-        // TODO(actions package): the selected crew member's actions and what Confirm commits to.
-        actions: [],
-        confirm: { kind: 'clean', label: '', cost: 0, enabled: false },
+        actions: actionsView(state, ui, extras.mode),
+        confirm: confirmView(ui, extras.previewEvents),
         undoEnabled: extras.undoEnabled ?? false,
         ledger: threatLedger(state),
-        overlays: Object.fromEntries(OVERLAY_IDS.map(id => [id, extras.overlays?.[id] ?? false])) as Record<OverlayId, boolean>
+        overlays: Object.fromEntries(OVERLAY_IDS.map(id => [id, extras.overlays?.[id] ?? false])) as Record<OverlayId, boolean>,
+        mapOn: extras.mapOn ?? false
     };
 }
 
@@ -83,33 +132,16 @@ export function hudView(world: ReadonlyWorld, state: State, ui: UiState, extras:
 /** How many events the recap card shows (§20.6). */
 export const RECAP_EVENTS = 3;
 
-/**
- * The turn each event happened in, worked out backwards from the current turn: a `phaseStarted` names its turn, and the
- * events before a crew phase's start belong to the previous turn's world phase.
- */
-function eventTurns(state: State, events: readonly SimEvent[]): number[] {
-    const turns = new Array<number>(events.length);
-    let turn = state.turn;
-    for (let i = events.length - 1; i >= 0; i--) {
-        const event = events[i]!;
-        if (event.type === 'phaseStarted') {
-            turns[i] = event.turn;
-            turn = event.phase === 'crew' ? event.turn - 1 : event.turn;
-        } else turns[i] = turn;
-    }
-    return turns;
-}
-
-/** The resume recap card (§20.6). */
-export function recapView(world: ReadonlyWorld, state: State, recent: readonly SimEvent[]): RecapVM {
-    const turns = eventTurns(state, recent), from = Math.max(0, recent.length - RECAP_EVENTS);
-    const events: RecapEventVM[] = recent.slice(from).map((event, i) => ({ turn: turns[from + i]!, text: describeEvent(world, state, event) }));
+/** The resume recap card (§20.6). `turns` is the turn each of `recent` happened in, as the Session recorded it. */
+export function recapView(world: ReadonlyWorld, state: State, recent: readonly SimEvent[], turns: readonly number[]): RecapVM {
+    const from = Math.max(0, recent.length - RECAP_EVENTS);
+    const events: RecapEventVM[] = recent.slice(from).map((event, i) => ({ turn: turns[from + i] ?? state.turn, text: describeEvent(world, state, event) }));
     return {
         turn: state.turn,
         bank: bankView(state),
         events,
         crew: state.crew.map((c, i) => ({
-            id: c.id, name: c.name, colour: crewColour(i),
+            id: c.id, name: c.name, colour: crewColour(i), ...portraitOf(c.id),
             status: c.actionsLeft > 0 ? 'ready' : 'done',
             actionsLeft: c.actionsLeft,
             exposed: exposedTo(state, c.id).length > 0,

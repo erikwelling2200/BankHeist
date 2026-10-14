@@ -1,4 +1,6 @@
-import type { Command, CommitResult, PreviewResult, ReadonlyWorld, State } from '../sim';
+import {
+    crewMoveOptions, dashBudget, moveBudget, pathTo, reachable, type Command, type CommitResult, type Pos, type PreviewResult, type ReadonlyWorld, type State
+} from '../sim';
 import type { PlayerPreview, Session } from './session';
 
 /*
@@ -19,6 +21,11 @@ export interface SimHandle {
     commit(cmd: Command): CommitResult;
     endTurn(): CommitResult;
     undo(): boolean;
+    /**
+     * The path a crew member's Move (or Dash) would take to `to` now, as a tap on it picks it, or undefined when it is out
+     * of reach; for scripted runs: `commit({ type: 'move', crew, path: sim.path(crew, to)! })`.
+     */
+    path(crew: string, to: Pos, mode?: 'move' | 'dash'): Pos[] | undefined;
 }
 
 declare global {
@@ -35,7 +42,13 @@ export function installDebugHandle(session: Session, target: { sim?: SimHandle }
         playerPreview: cmd => session.playerPreview(cmd),
         commit: cmd => session.commit(cmd),
         endTurn: () => session.endTurn(),
-        undo: () => session.undo()
+        undo: () => session.undo(),
+        path: (crew, to, mode = 'move') => {
+            const member = session.state.crew.find(c => c.id === crew);
+            if (!member) return undefined;
+            const budget = mode === 'dash' ? dashBudget(session.world) : moveBudget(session.world, member);
+            return pathTo(reachable(session.world, session.state, member.pos, budget, crewMoveOptions(member)), to);
+        }
     };
     target.sim = handle;
     return () => {

@@ -28,6 +28,8 @@ interface PersonSprite {
     facing: Facing;
     /** Mean brightness of the lit sprite (0-255), so tests can see the light change. */
     light: number;
+    /** A crew member's ground ring in their colour (UI.md "Crew"), under them. */
+    ring?: Phaser.GameObjects.Image;
     /** A walk along a line of waypoints (pixels) and back: the leg being walked, how far along it, which way. */
     patrol?: { points: [number, number][]; leg: number; t: number; dir: 1 | -1; wait: number };
 }
@@ -43,7 +45,11 @@ export class People {
 
     constructor(private readonly scene: Phaser.Scene, private readonly baker: Baker, private readonly hidden: (x: number, y: number) => boolean) {}
 
-    build(people: readonly LevelPerson[]): void {
+    /**
+     * Everyone in the bank, then the crew (play mode): each crew member is a person with a ground ring in their colour
+     * (a CSS colour), and follows the bank's people in the order of `move`'s indexes.
+     */
+    build(people: readonly LevelPerson[], crew: readonly (LevelPerson & { ring: string })[] = []): void {
         const { add, textures } = this.scene;
         if (!textures.exists(KEY.shadow)) {
             const shadow = personShadow();
@@ -53,7 +59,7 @@ export class People {
             const shadow = lyingShadow();
             this.baker.addPixels(KEY.lyingShadow, shadow.colors, shadow.width, shadow.height);
         }
-        people.forEach((p, i) => {
+        [...people, ...crew].forEach((p, i) => {
             const look = LOOKS[p.look];
             if (!look) throw new Error(`No look named '${p.look}'`);
             // A mask or a pose set on the person is drawn over their look.
@@ -71,7 +77,8 @@ export class People {
                 person: p, views, texture, x, y, facing: p.facing, light: 0,
                 image: add.image(0, 0, key).setOrigin(0, 0),
                 shadow: add.image(0, 0, p.pose ? KEY.lyingShadow : KEY.shadow).setDepth(DEPTH.shadows).setAlpha(0.55),
-                patrol: patrolOf(p, x, y)
+                patrol: patrolOf(p, x, y),
+                ring: 'ring' in p ? add.image(0, 0, this.ringTexture(i, p.ring as string)).setDepth(DEPTH.shadows + 0.5) : undefined
             });
             this.move(i, x, y);
         });
@@ -96,6 +103,7 @@ export class People {
         p.texture.refresh();
         p.image.setPosition(left, top).setDepth(DEPTH.standing + baseLine(box));
         p.shadow.setPosition(box.x + box.w / 2, box.y + box.d / 2 - (p.person.pose ? LYING_SHADOW_RISE : 0));
+        p.ring?.setPosition(box.x + box.w / 2, box.y + box.d / 2);
         p.light = meanBrightness(lit);
         this.showIfSeen(p);
     }
@@ -103,6 +111,30 @@ export class People {
     /** Walks everyone on patrol on by `deltaMs`. */
     update(deltaMs: number): void {
         for (const p of this.sprites) if (p.patrol) this.walk(p, deltaMs);
+    }
+
+    /** How many people (the crew included) there are. */
+    get count(): number {
+        return this.sprites.length;
+    }
+
+    /** Where person `index` stands (the middle of their footprint, map pixels) and which way they face. */
+    at(index: number): { x: number; y: number; facing: Facing } {
+        const p = this.sprites[index]!;
+        return { x: p.x, y: p.y, facing: p.facing };
+    }
+
+    /** Whether map point (x, y) is on person `index`: their drawing or their tile. */
+    hit(index: number, x: number, y: number): boolean {
+        const p = this.sprites[index];
+        if (!p || !p.image.visible) return false;
+        const b = p.image.getBounds();
+        return (x >= b.x && x < b.right && y >= b.y && y < b.bottom) || (Math.abs(x - p.x) <= TILE / 2 && Math.abs(y - p.y) <= TILE / 2);
+    }
+
+    /** A crew member's ring bright (selected) or quiet. */
+    highlight(index: number, on: boolean): void {
+        this.sprites[index]?.ring?.setAlpha(on ? 1 : 0.55);
     }
 
     /** Shows or hides everyone by where they stand, after what `hidden` says has changed. */
@@ -151,6 +183,24 @@ export class People {
         const hidden = this.hidden(p.x, p.y);
         p.image.setVisible(!hidden);
         p.shadow.setVisible(!hidden);
+        p.ring?.setVisible(!hidden);
+    }
+
+    /** A ground ring in `colour`, an ellipse two pixels thick round a person's feet, with an ink edge outside. */
+    private ringTexture(index: number, colour: string): string {
+        const key = `person-ring-${index}`;
+        if (this.scene.textures.exists(key)) this.scene.textures.remove(key);
+        const w = RING.w, h = RING.h, rgba = new Uint8ClampedArray(w * h * 4);
+        const c = parseInt(colour.replace('#', ''), 16), rgb = [(c >> 16) & 255, (c >> 8) & 255, c & 255];
+        const inside = (x: number, y: number, rx: number, ry: number) => ((x + 0.5 - w / 2) / rx) ** 2 + ((y + 0.5 - h / 2) / ry) ** 2 <= 1;
+        for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+            const i = (y * w + x) * 4, outer = inside(x, y, w / 2, h / 2), ring = inside(x, y, w / 2 - 1, h / 2 - 1), hole = inside(x, y, w / 2 - 2.6, h / 2 - 2);
+            if (!outer || hole) continue;
+            if (ring) rgba.set([...rgb, 235], i);
+            else rgba.set([13, 12, 20, 150], i);
+        }
+        this.baker.addPixels(key, rgba, w, h);
+        return key;
     }
 }
 
@@ -161,6 +211,9 @@ function patrolOf(p: LevelPerson, x: number, y: number): PersonSprite['patrol'] 
     const points: [number, number][] = [[x, y], ...tiles.map((t): [number, number] => [(t.tx + 0.5) * TILE, (t.ty + 0.5) * TILE])];
     return { points, leg: 0, t: 0, dir: 1, wait: PATROL_WAIT_MS };
 }
+
+/** A crew member's ground ring: a little wider than their shadow, foreshortened like the floor. */
+const RING = { w: 18, h: 9 };
 
 /** Mean brightness (0-255) of the opaque pixels of RGBA colours. */
 function meanBrightness(rgba: Uint8ClampedArray): number {

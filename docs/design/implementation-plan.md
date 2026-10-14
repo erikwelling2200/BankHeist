@@ -259,7 +259,7 @@ Each package lists its goal, the design sections it covers, the files, what it d
   - **Files:** `src/game/*`.
   - **Depends on:** M1-01. **∥** wave 1.
   - **Accept:** unit tests with a fake storage; resume restores selection and camera.
-- [ ] **M1-13 Scene integration.**
+- [x] **M1-13 Scene integration.**
   - **Covers:** §20.1, §20.2, §20.5, UI.md touch grammar.
   - **Work:**
     - Add `?play`.
