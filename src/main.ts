@@ -1,6 +1,7 @@
 import Phaser from 'phaser';
 import { registerSW } from 'virtual:pwa-register';
 import { bankFromAddress } from './bankSource';
+import { roomGallery } from './gen/gallery';
 import type { GeneratedBank } from './gen/model';
 import { Briefing } from './ui/Briefing';
 import { GeneratorBar } from './ui/GeneratorBar';
@@ -11,8 +12,10 @@ import { VaultScene } from './scenes/VaultScene';
 import { Fullscreen } from './ui/Fullscreen';
 import './style.css';
 
-const scene = new URLSearchParams(location.search).get('scene') ?? 'bank';
-const bank = ['props', 'officer', 'demo'].includes(scene) ? undefined : bankFromAddress();
+const params = new URLSearchParams(location.search), scene = params.get('scene') ?? 'bank';
+// `?scene=rooms` is the room gallery: every room type furnished in a few sizes (`?seed=` picks other parcels).
+const gallery = scene === 'rooms' ? roomGallery(Number(params.get('seed') ?? 1)) : undefined;
+const bank = gallery ? { data: gallery.data, generated: undefined } : ['props', 'officer', 'demo'].includes(scene) ? undefined : bankFromAddress();
 
 const game = new Phaser.Game({
     type: Phaser.WEBGL,
@@ -30,7 +33,7 @@ const game = new Phaser.Game({
     // A generated bank opens by default (`?bank=example` for the hand-made one); `?scene=props` shows every prop in its
     // four facings, `?scene=demo` the old stack demo, `?scene=officer` the police officer's animation preview.
     // `?scene=lobby` is an older link to the bank.
-    scene: [{ bank: BankScene, lobby: BankScene, props: PropSheetScene, officer: OfficerScene, demo: VaultScene }[scene] ?? BankScene],
+    scene: [{ bank: BankScene, lobby: BankScene, rooms: BankScene, props: PropSheetScene, officer: OfficerScene, demo: VaultScene }[scene] ?? BankScene],
     callbacks: { preBoot: g => g.registry.set('bankData', bank?.data) }
 });
 
@@ -70,12 +73,12 @@ function showAddressedBank(): void {
     }));
 }
 
-if (bank) {
+if (bank?.generated) {
     showPanels(bank.generated);
     window.addEventListener('popstate', showAddressedBank);
 }
 
-Object.assign(window, { game, Phaser });
+Object.assign(window, { game, Phaser, gallery: gallery?.cells });
 
 new Fullscreen();
 registerSW({ immediate: true });

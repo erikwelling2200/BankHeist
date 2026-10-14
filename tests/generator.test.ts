@@ -6,6 +6,7 @@ import { archetypesFor, buildShell, generateBank, parseSeed, rollShape, seedText
 import { REPEATABLE } from '../src/gen/layout';
 import { ARCHETYPES, PLOTS, TIERS, type GeneratedBank, type GenRoom, type RoomType, type Tier, type Archetype, type PlotKind } from '../src/gen/model';
 import { Nav } from '../src/gen/nav';
+import { GALLERY_TYPES, GALLERY_VARIANTS, roomGallery } from '../src/gen/gallery';
 import { PARCELS } from '../src/gen/parcels';
 import { Rng } from '../src/gen/rng';
 import { ROOM_RULES } from '../src/gen/rooms';
@@ -317,5 +318,17 @@ describe('interiors', () => {
             }
         }
         expect(count).toBeGreaterThan(0);
+    });
+});
+
+describe('the room gallery', () => {
+    it('builds every room type in every variant, each with a door, furnished by the parcels', () => {
+        const { data, cells } = roomGallery();
+        expect(cells.length).toBe(GALLERY_TYPES.length * GALLERY_VARIANTS.length);
+        // A way out through the front wall onto the corridor: a door, or an open doorway where the wall has a gap.
+        const front = (c: (typeof cells)[number]) => Array.from({ length: c.w }, (_, i) => data.level.walls.find(w => w.run === 'eastWest' && w.ty === c.y + c.h && w.tx === c.x + i));
+        for (const c of cells) expect(front(c).some(w => !w || w.kind.startsWith('door') || w.kind === 'vaultDoor' || w.kind === 'shutter'), `${c.type} ${c.variant}`).toBe(true);
+        expect(data.props.length).toBeGreaterThan(cells.length * 2);
+        expect(JSON.stringify(roomGallery().data)).toBe(JSON.stringify(data));
     });
 });

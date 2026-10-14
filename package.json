@@ -10,6 +10,7 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:e2e": "playwright test",
+    "sweep": "vitest run --config scripts/vitest.sweep.config.ts",
     "screenshot": "playwright test -g \"lit scene\""
   },
   "dependencies": {

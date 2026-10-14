@@ -9,7 +9,9 @@ Top-down 2D pixel-art stealth game. Phaser 4 + TypeScript + Vite, shipped as an 
   them (`/?bank=example`). The default page (`/`) is a generated bank: the procedural generator of §17 lives in
   `src/gen/` and `docs/design/generator.md` maps it to the design (seeds in the address, `?seed=layout-population`,
   plus `tier`, `archetype` and `plot`). The old stack demo is at `/?scene=demo`, the prop sheet at `/?scene=props`, the
-  police officer's animation preview at `/?scene=officer`.
+  police officer's animation preview at `/?scene=officer`, and the room gallery at `/?scene=rooms`: every room type the
+  generator furnishes, in four sizes and shapes, furnished and staffed by the real parcels (`src/gen/gallery.ts`;
+  `?seed=` picks other parcels). Check furnishing changes there first.
 - `docs/design/research.md` holds the key research findings behind each design decision, with the full notes per area in
   `docs/design/research/`.
 - The design's hard promises: the safe-floor overlay and every preview use the same rules as the real outcome; every
@@ -21,6 +23,9 @@ Top-down 2D pixel-art stealth game. Phaser 4 + TypeScript + Vite, shipped as an 
 - `npm run dev` – Vite dev server with hot reload.
 - `npm run typecheck` / `npm test` – TypeScript and Vitest unit tests (pure logic in `src/logic`, `src/level`, `src/gen`).
   `tests/generator.test.ts` builds every tier and archetype and checks §17.7 on each.
+- `npm run sweep` – generates every tier × archetype × plot from several seeds (`SWEEP_SEEDS`, default 4; pin one with
+  `SWEEP_TIER`, `SWEEP_ARCHETYPE`, `SWEEP_PLOT`) and prints validity, attempts, time per bank and per room type its
+  size against the program's target and max, how many are shaped and how full they are. Run it after generator changes.
 - `npm run test:e2e` – builds, serves the production build and drives it in Chromium with Playwright. Writes `screenshots/*.png`.
 - `npm run screenshot` – only the boot test; the fastest way to look at the current visuals.
 

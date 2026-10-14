@@ -419,6 +419,22 @@ test.describe('the generator bar', () => {
     });
 });
 
+test('shows every room type furnished in the room gallery', async ({ page }) => {
+    await page.setViewportSize({ width: 1600, height: 1000 });
+    const errors: string[] = [];
+    page.on('pageerror', e => errors.push(e.message));
+    page.on('console', m => { if (m.type() === 'error') errors.push(m.text()); });
+    await page.goto('/?scene=rooms');
+    await page.waitForFunction(() => (window as any).game?.scene.getScene('bank')?.sys.isActive(), null, { timeout: 60000 });
+    const cells = await page.evaluate(() => (window as any).gallery as { type: string; variant: string }[]);
+    expect(new Set(cells.map(c => c.type)).size).toBeGreaterThanOrEqual(15);
+    expect(new Set(cells.map(c => c.variant))).toEqual(new Set(['small', 'target', 'largest', 'L-shaped']));
+    await page.evaluate(() => (window as any).game.scene.getScene('bank').toggleMap());
+    await page.waitForTimeout(800);
+    await page.locator('canvas').screenshot({ path: 'screenshots/rooms.png' });
+    expect(errors).toEqual([]);
+});
+
 test('renders every prop in its four facings', async ({ page }) => {
     const errors: string[] = [];
     page.on('pageerror', e => errors.push(e.message));

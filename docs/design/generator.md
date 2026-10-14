@@ -115,6 +115,15 @@ parcel sized for a typical room furnishes it. The plan, from [research/procedura
 5. **Metrics.** Shape cost, floor seen from the doors and tall-cover tiles per room in the validation report, asserted
    in the tests, so a change that makes rooms read as empty again fails.
 
+## Tools
+
+- `npm run sweep` prints, for a few hundred banks, whether they pass §17.7, how many attempts and how long they took,
+  and per room type how many there are, their size against the program's target and max, how many are shaped and how
+  many tiles of floor each piece of furniture has (a high number means an empty room).
+- `/?scene=rooms` is the room gallery (`gallery.ts`): every room type in four variants (small, the target size, the
+  largest the program allows, an L), each opening onto a corridor, furnished by the parcels and staffed at their
+  stations. `window.gallery` lists where each room is.
+
 ## Where it simplifies
 
 - The population, schedules, key graph and opportunities are **data**. The stealth rules that act on them (vision,
