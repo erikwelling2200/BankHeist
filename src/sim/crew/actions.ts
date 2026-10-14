@@ -1,5 +1,5 @@
 import { IllegalCommand, registerCommand } from '../core/engine';
-import { facingToward, inBounds, samePos } from '../core/grid';
+import { facingToward, inBounds } from '../core/grid';
 import { crewMember, spendActions } from '../core/state';
 import { registerEvents } from '../core/undo';
 
@@ -21,10 +21,10 @@ registerCommand('move', (ctx, cmd) => {
         at = step;
     }
     spendActions(member, 1);
-    const from = member.pos, last = cmd.path.at(-2) ?? from;
-    member.pos = { ...to };
-    if (!samePos(last, to)) member.facing = facingToward(last, to) ?? member.facing;
-    ctx.emit({ type: 'moved', crew: member.id, from: { ...from }, to: { ...to } });
+    const from = member.pos;
+    member.facing = facingToward(cmd.path.at(-2) ?? from, to) ?? member.facing;
+    member.pos = { x: to.x, y: to.y };
+    ctx.emit({ type: 'moved', crew: member.id, from, to: member.pos });
 });
 
 registerCommand('wait', (ctx, cmd) => {

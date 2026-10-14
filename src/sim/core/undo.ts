@@ -1,3 +1,4 @@
+import { sortedIds } from './json';
 import type { EventType, State } from './types';
 
 /*
@@ -13,9 +14,18 @@ export interface EventClass {
 
 const EVENT_CLASSES = new Map<string, EventClass>();
 
-/** Classifies event types. Every event a reducer emits must be classified, or the engine throws. */
+/**
+ * Classifies event types. Every event a reducer emits must be classified, or the engine throws. Classifying a type
+ * again the same way is harmless; classifying it differently throws, since two systems disagree about undo.
+ */
 export function registerEvents(classes: { [K in EventType]?: EventClass }): void {
-    for (const [type, cls] of Object.entries(classes)) if (cls) EVENT_CLASSES.set(type, cls);
+    for (const type of sortedIds(classes)) {
+        const cls = classes[type as EventType]!, known = EVENT_CLASSES.get(type);
+        if (known && known.undoBlocking !== cls.undoBlocking) {
+            throw new Error(`Event '${type}' is already classified with undoBlocking ${known.undoBlocking}`);
+        }
+        EVENT_CLASSES.set(type, { undoBlocking: cls.undoBlocking });
+    }
 }
 
 export function eventClass(type: string): EventClass {

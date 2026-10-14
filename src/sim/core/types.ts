@@ -2,18 +2,27 @@
  * The rules engine's data (GAME_DESIGN §6, §14.1). Two halves:
  *
  * - `World` is the bank as it was built: the floor, the walls, the doors, the objects, the people's schedules. It never
- *   changes during a heist, so every function takes it read-only and the save stores it once.
+ *   changes during a heist: rules see it as `ReadonlyWorld`, it is frozen once built (`freezeWorld`), and the save
+ *   stores it once.
  * - `State` is everything that changes: whose turn it is, where everyone stands, what they know, which doors are open,
- *   the dice. It is plain JSON (no classes, no Maps, no functions) so it can be copied with `structuredClone`, hashed
- *   and saved after every action (§20.6).
+ *   the dice. It is plain JSON (no classes, no Maps, no undefined, no -0; `assertPlainJson` checks) so it can be
+ *   copied, hashed and saved after every action (§20.6). What changes about the World (a door, a hole in a wall, a dead
+ *   panel) is an override in `State`, keyed like the World's own record.
  *
- * Lists whose order matters (people resolve in order, §6.1) are arrays; lookups by id are records. Commands and events
- * are open unions: a later package adds its own by augmenting `CommandMap` or `EventMap`
+ * Lists whose order matters (people resolve in order, §6.1) are arrays; lookups by id are records, iterated through
+ * `sortedIds`. Open sets are interfaces a later package augments from its own module:
  *
- *     declare module '../core/types' { interface CommandMap { knockout: { crew: string; npc: string } } }
+ *     declare module '../core/types' {
+ *         interface CommandMap { knockout: { crew: string; npc: string } }
+ *         interface NpcStatusMap { surprised: true }
+ *     }
  *
- * and registering a reducer (`registerCommand`) or the event's undo class (`registerEvents`) from its own module.
+ * then registers what goes with it (`registerCommand`, `registerEvents`, `registerWorldHook`).
  */
+
+/** A type and everything in it read-only, all the way down. */
+export type DeepReadonly<T> = T extends (...args: never[]) => unknown ? T
+    : T extends object ? { readonly [K in keyof T]: DeepReadonly<T[K]> } : T;
 
 /** A tile position. x grows east, y grows south. */
 export interface Pos { x: number; y: number }
@@ -40,7 +49,7 @@ export interface Tile {
     zone: Zone;
     /** A raised tile (a mezzanine, a landing): its observers see over low objects (§14.7). */
     raised: boolean;
-    /** Lit at the start; darkness halves vision (§8.3). Power cuts change it through `State` later, not here. */
+    /** Lit at the start; darkness halves vision (§8.3). */
     lit: boolean;
     /** Something stands on it that nobody walks through (a desk, a counter, a column). */
     blocksMove: boolean;
@@ -58,30 +67,36 @@ export interface Edge { run: 'eastWest' | 'northSouth'; tx: number; ty: number }
 /** The key of an edge: `"<run> <tx> <ty>"`, the same string `src/gen/site.ts` uses. */
 export type EdgeKey = string;
 
-/**
- * A wall segment on an edge (§14.1). For a door these flags describe it closed; an open door lets everything through.
- * Glass blocks movement but not sight.
- */
-export interface WallEdge extends Edge {
+/** What passes an edge. */
+export interface EdgeProps {
     material: Material;
     blocksSight: boolean;
     blocksMove: boolean;
+}
+
+/**
+ * A wall segment on an edge (§14.1). For a door these flags describe it closed; an open or breached door lets
+ * everything through (`edgeNow`). Glass blocks movement but not sight.
+ */
+export interface WallEdge extends Edge, EdgeProps {
     /** The door that stands in this segment, if any. */
     door?: string;
 }
 
-/** A door as built: where it stands, how it locks and how it starts the heist. Its live state is in `State.doors`. */
+/** How a door starts the heist. */
+export type DoorStart = 'open' | 'closed' | 'locked';
+
+/** A door as built: where it stands, how it locks and how it starts. Its live state is in `State.doors`. */
 export interface DoorDef {
     id: string;
     edge: EdgeKey;
     lock: Lock;
-    open: boolean;
-    locked: boolean;
+    start: DoorStart;
 }
 
 /**
  * Something the crew can interact with (§6.3 Interact): a panel, a console, a drawer, loot. `kind` names what it is;
- * the package that handles a kind gives it its rules and, where it needs them, its own fields.
+ * the package that handles a kind gives it its rules, and its live state goes in `State.objects`.
  */
 export interface WorldObject {
     id: string;
@@ -131,7 +146,7 @@ export const DEFAULT_RULES: Readonly<Rules> = {
     minCarrierCountdown: 2
 };
 
-/** The bank as built. Never changes during a heist. */
+/** The bank as built. Rules only ever see it as `ReadonlyWorld`. */
 export interface World {
     width: number;
     height: number;
@@ -144,6 +159,8 @@ export interface World {
     cameras: CameraDef[];
     rules: Rules;
 }
+
+export type ReadonlyWorld = DeepReadonly<World>;
 
 // ---------------------------------------------------------------------------------------------------------- State
 
@@ -160,16 +177,28 @@ export interface CrewState {
 }
 
 /**
- * An NPC's state badge (§16.1). Curious and Investigating follow the highest suspicion it holds (§8.5); Alerted is for
- * the rest of the heist (§8.7); the last four are face down or out (§10).
+ * An NPC's state badges (§16.1). Curious and Investigating follow the highest suspicion it holds (§8.5); Alerted is for
+ * the rest of the heist (§8.7); the last four are face down or out (§10). Augment to add one.
  */
-export type NpcStatus = 'calm' | 'curious' | 'investigating' | 'alerted' | 'hostile' | 'commanded' | 'tied' | 'unconscious' | 'dead';
+export interface NpcStatusMap {
+    calm: true; curious: true; investigating: true; alerted: true; hostile: true;
+    commanded: true; tied: true; unconscious: true; dead: true;
+}
+export type NpcStatus = keyof NpcStatusMap;
 
-/** What an NPC will do in the next world phase, drawn on the map (§4 Intent). More kinds come with their packages. */
-export type Intent =
-    | { kind: 'idle' }
-    | { kind: 'move'; path: Pos[] }
-    | { kind: 'face'; facing: Facing };
+/** What an NPC does at the end of its intent's path, by kind (raise the alarm, frisk, open a door). Augment to add one. */
+export interface IntentActionMap {}
+export type IntentAction = { [K in keyof IntentActionMap]: { kind: K } & IntentActionMap[K] }[keyof IntentActionMap];
+
+/**
+ * What an NPC will do in the next world phase, drawn on the map (§4 Intent): walk `path` (empty to stay put), then face
+ * `facing` and do `action`, if given. Committed at the end of a world phase and carried out in the next (§6.2).
+ */
+export interface Intent {
+    path: Pos[];
+    facing?: Facing;
+    action?: IntentAction;
+}
 
 export interface NpcState {
     id: string;
@@ -183,7 +212,19 @@ export interface NpcState {
     intent: Intent;
 }
 
-export interface DoorState { open: boolean; locked: boolean }
+/** A door now: breached is open for good, jammed is shut for good (§14.3). */
+export type DoorStatus = 'open' | 'closed' | 'locked' | 'breached' | 'jammed';
+
+export interface DoorState { status: DoorStatus }
+
+/** What a heist changed about an edge (a hole, a shot-out pane); each field overrides the World's. */
+export type EdgeState = Partial<EdgeProps>;
+
+/** What a heist changed about an object (a disabled panel, an opened drawer). Augment to add fields. */
+export interface ObjectState {
+    disabled?: boolean;
+    open?: boolean;
+}
 
 export interface CameraState {
     /** Which of its `facings` it looks along now. */
@@ -191,19 +232,29 @@ export interface CameraState {
     live: boolean;
 }
 
-/** The alarm carriers of §9.1. */
-export type CarrierKind =
-    | 'tellerButton' | 'managerButton' | 'guardRadio' | 'operatorCamera' | 'phoneCall' | 'escapee' | 'missedCheckIn'
-    | 'seismicSensor' | 'motionSensor' | 'patrolCar';
+/** The alarm carriers of §9.1. Augment to add one. */
+export interface CarrierKindMap {
+    tellerButton: true; managerButton: true; guardRadio: true; operatorCamera: true; phoneCall: true; escapee: true;
+    missedCheckIn: true; seismicSensor: true; motionSensor: true; patrolCar: true;
+}
+export type CarrierKind = keyof CarrierKindMap;
 
-/** Someone or something in the middle of raising the Alarm (§9.1). It goes off when the countdown reaches 0. */
+/**
+ * Someone or something in the middle of raising the Alarm (§9.1). It goes off when the countdown reaches 0. The
+ * devices step ticks it, but never in the world phase that started it, so every carrier is seen at its full countdown.
+ */
 export interface Carrier {
     id: string;
     kind: CarrierKind;
     /** The NPC or object carrying it. */
     source: string;
-    /** World phases left, shown on the map; starts at `rules.minCarrierCountdown` or more. */
+    /** Where its icon and countdown are drawn. */
+    pos: Pos;
+    /** World phases left; starts at `rules.minCarrierCountdown` or more. */
     countdown: number;
+    started: { turn: number; phase: Phase };
+    /** A paused carrier doesn't tick (its holder is commanded, a jammer runs); a countered one never goes off. */
+    halted: 'paused' | 'countered' | null;
 }
 
 /** Loud and Alarm are separate (§4): an alarm is silent (§9.2), and a gunshot is loud without calling anyone. */
@@ -212,12 +263,13 @@ export interface BankState {
     alarm: boolean;
 }
 
-/** One roll of the dice, kept so a heist can be audited and its luck shown. */
+/** One roll of the dice, kept so a heist's luck can be shown. */
 export interface DiceRoll {
     turn: number;
     stream: string;
     /** What the roll was for, for the log ("hit jun", "resist"). */
     reason: string;
+    /** The raw draw in [0, 1), or the integer for `Dice.int`. */
     value: number;
 }
 
@@ -233,12 +285,17 @@ export interface State {
     /** In resolution order (§6.1). */
     npcs: NpcState[];
     doors: Record<string, DoorState>;
+    /** Overrides of the World's edges, by edge key. */
+    edges: Record<EdgeKey, EdgeState>;
+    /** Overrides of the World's objects, by object id. */
+    objects: Record<string, ObjectState>;
     cameras: Record<string, CameraState>;
     carriers: Carrier[];
     /** The heist's seed: a stream starts from it and its name the first time it is rolled. */
     seed: number;
     /** Each named random stream's position, uint32 (see `core/rng.ts`). */
     rng: Record<string, number>;
+    /** The last `DICE_WINDOW` rolls; the full log belongs to the session, not the state that is copied every action. */
     dice: DiceRoll[];
     /** The next number for ids made during play (carriers, evidence), so they are the same on every replay. */
     nextId: number;

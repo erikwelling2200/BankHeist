@@ -7,7 +7,7 @@
     "dev": "vite --host",
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview --host --port 4173",
-    "typecheck": "tsc --noEmit",
+    "typecheck": "tsc --noEmit && tsc --noEmit -p tsconfig.sim.json",
     "test": "vitest run",
     "test:e2e": "playwright test --grep-invert @visual",
     "test:smoke": "playwright test --grep @smoke",

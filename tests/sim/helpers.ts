@@ -1,7 +1,7 @@
-import { fixtureWorld, initialState, type Command, type State, type World } from '../../src/sim';
+import { assertPlainJson, commit, fixtureWorld, initialState, type Command, type CommitResult, type ReadonlyWorld, type State } from '../../src/sim';
 
 /** A small bank: a public lobby, a staff room behind a door and a secure closet behind glass. */
-export function smallBank(): { world: World; state: State } {
+export function smallBank(): { world: ReadonlyWorld; state: State } {
     const world = fixtureWorld([
         '......sss',
         '..#...sTs',
@@ -39,11 +39,14 @@ export const SCRIPT: Command[] = [
     { type: 'endTurn' }
 ];
 
-/** Deep-freezes plain data, so a test fails loudly if anything writes to it. */
-export function deepFreeze<T>(value: T): T {
-    if (value && typeof value === 'object') {
-        for (const v of Object.values(value)) deepFreeze(v);
-        Object.freeze(value);
-    }
-    return value;
+/** Commits a command and checks the new state is still plain JSON. */
+export function step(world: ReadonlyWorld, state: State, cmd: Command): CommitResult {
+    const result = commit(world, state, cmd);
+    assertPlainJson(result.state);
+    assertPlainJson(result.events);
+    return result;
+}
+
+export function play(world: ReadonlyWorld, state: State, commands: readonly Command[]): State {
+    return commands.reduce((s, cmd) => step(world, s, cmd).state, state);
 }

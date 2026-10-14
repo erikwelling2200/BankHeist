@@ -1,0 +1,16 @@
+import { assertPlainJson, deepFreeze } from '../core/json';
+import type { ReadonlyWorld, World } from '../core/types';
+
+/*
+ * Every World goes through here once built (the fixtures now, the generated bank's `worldFromBank` later, a loaded
+ * save): it is checked to be plain JSON with a whole grid, then frozen, so no rule can change the bank by accident.
+ */
+
+export function freezeWorld(world: World | ReadonlyWorld): ReadonlyWorld {
+    if (Object.isFrozen(world)) return world as ReadonlyWorld;
+    assertPlainJson(world, 'world');
+    if (world.tiles.length !== world.width * world.height) {
+        throw new Error(`The world is ${world.width}x${world.height} but has ${world.tiles.length} tiles`);
+    }
+    return deepFreeze(world) as ReadonlyWorld;
+}

@@ -28,7 +28,7 @@
 ### 2.1 Layers
 
 ```
-src/sim/      pure rules: no Phaser, no DOM, no Math.random, no Date (a test greps for these)
+src/sim/      pure rules: no Phaser, no DOM, no Math.random, no Date (tsconfig.sim.json and an AST test)
   core/       types.ts (World, State, Command, SimEvent), rng.ts, engine.ts, save.ts
   world/      fromBank.ts, fixture.ts (text maps for tests), materials.ts, tileProps.ts
   geo/        move.ts (reach, paths, costs), los.ts, cones.ts, sound.ts
@@ -50,8 +50,8 @@ src/ui/hud/   the HTML HUD from UI.md
 - **Engine.**
   - `commit(world, state, cmd) → { state, events, undoable }` copies the state, runs the reducer for the command and returns the events.
   - `endTurn` runs the world phase:
-    1. devices and carrier countdowns;
-    2. committed intents are carried out in the §6.1 order: passive NPCs move together, one tile per tick with sightings checked each tick, then NPCs in combat one at a time;
+    1. committed intents are carried out in the §6.1 order: passive NPCs move together, one tile per tick with sightings checked each tick, then NPCs in combat one at a time; the intents they carry out are a frozen snapshot taken at the start of the phase;
+    2. devices and carrier countdowns, last as in §6.1. A carrier ticks once per world phase but never in the world phase that created it, so it is always seen at its full countdown (at least 2) for a whole crew phase;
     3. decisions are made and intents committed.
   - NPCs never act on a decision made in the same world phase (§6.2). That is what makes the hatched preview exact.
 
