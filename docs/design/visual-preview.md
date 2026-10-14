@@ -109,7 +109,16 @@ say how it is lit; the lamps hang from them. Simplified, x in tiles:
 ```
 
 **Height is a tile property** (§14.7). The nest and the office beside it are raised tiles a storey up (3.5m,
-`RAISED_HEIGHT` in `plan.ts`), drawn in place on the grid like every other floor, so the overlays line up with them. The
+`RAISED_HEIGHT` in `plan.ts`), on the grid like every other floor but **drawn a storey up**, as the projection puts
+anything 3.5m high (`src/scenes/bank/raised.ts`, `heights.ts`): each raised tile is lifted up the screen by its height,
+its open south edge shows the storey below it down to the lower floor (the slab's edge as a band, then concrete, plaster
+or a scaffold's frame), a wall on its edge stands on it over the wall of the storey below in the same material, and
+stairs are drawn step by step. Everything on it (walls, doors, props, people, the blueprint's blocks) is lifted with it,
+lit where it really is. Like walls, a raised block is cut down, to a 0.6m plinth, while the middle of the screen is
+more than two tiles north of its north edge (it would hide the floor the camera looks at) and on the tactical map; it
+stands a full storey while the camera looks at it or past it to the south. The floor is cut rather than its faces
+because the lifted floor is what hides the ground behind it. Overlays on raised tiles go up with them
+(`Walls.liftAt`). The
 stairwell shows the height: a flight of stairs climbs north from the stairwell floor to a landing, a railing runs
 along the flight and across the landing's open edge, and the landing's drop shows the slab's face. `floorHeight` gives
 each tile's height; the tests walk from the sidewalk to the nest, never up or down more than a step, never over a

@@ -25,7 +25,7 @@ export interface AtlasPiece { frame: string; rgba: Uint8ClampedArray; w: number;
  * exposed for where each thing stands, and uploaded straight from memory.
  */
 export class Baker {
-    constructor(private readonly scene: Phaser.Scene, readonly lamps: readonly Lamp[], readonly reach: LampReach, readonly exposure: ExposureMap) {}
+    constructor(readonly scene: Phaser.Scene, readonly lamps: readonly Lamp[], readonly reach: LampReach, readonly exposure: ExposureMap) {}
 
     /** The exposure at a floor point (clamped to the map). */
     exposureAt(x: number, y: number): readonly [number, number, number] {
@@ -73,8 +73,11 @@ export class Baker {
         return texture;
     }
 
-    /** Packs baked pieces into one texture `width` wide, in rows, a pixel apart, each a named frame. */
-    packAtlas(key: string, pieces: AtlasPiece[], width = ATLAS_WIDTH): void {
+    /**
+     * Packs baked pieces into one texture `width` wide, in rows, a pixel apart, each a named frame; returns where each
+     * landed, for frames over part of one.
+     */
+    packAtlas(key: string, pieces: AtlasPiece[], width = ATLAS_WIDTH): Phaser.Textures.Texture {
         let x = 0, y = 0, row = 0;
         const spots = pieces.map(p => {
             if (x + p.w > width) {
@@ -94,13 +97,14 @@ export class Baker {
         });
         const texture = this.addPixels(key, pixels, width, y + row);
         pieces.forEach((p, i) => texture.add(p.frame, 0, spots[i]!.x, spots[i]!.y, p.w, p.h));
+        return texture;
     }
 
     /**
      * The shade (ambient occlusion, contact and sun shadows) multiplied over the floor, and the sun shafts through the
      * street glass added to it and, faintly, over everything.
      */
-    addLightMaps(level: Level, occluders: Occluder[], casters: Caster[]): void {
+    addLightMaps(level: Level, occluders: Occluder[], casters: Caster[]): { shade: Uint8ClampedArray } {
         const maps = buildLightMaps(level, occluders, casters), { add, textures } = this.scene;
         if (!textures.exists(KEY.shade)) this.addPixels(KEY.shade, maps.shade, maps.width, maps.height);
         if (!textures.exists(KEY.glow)) this.addPixels(KEY.glow, maps.glow, maps.width, maps.height);
@@ -108,6 +112,7 @@ export class Baker {
         add.image(0, 0, KEY.glow).setOrigin(0, 0).setDepth(DEPTH.sunFloor).setBlendMode(Phaser.BlendModes.ADD);
         // The same shafts, faint, over everything: the light in the air that also falls on people standing in it.
         add.image(0, 0, KEY.glow).setOrigin(0, 0).setDepth(DEPTH.haze).setBlendMode(Phaser.BlendModes.ADD).setAlpha(0.35);
+        return maps;
     }
 }
 

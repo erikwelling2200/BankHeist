@@ -229,6 +229,26 @@ test.describe('the hand-made example bank', () => {
         expect(errors).toEqual([]);
     });
 
+    test('draws the nest a storey up over the face of the tower below it, and cuts it down looking past it (§14.7)', async ({ page }) => {
+        const errors = await boot(page, 'example');
+        const nest = async () => {
+            const { raised, people } = await scene(page);
+            return { storey: raised.find((r: { north: number }) => r.north === 39).storey, sol: people.find((p: { look: string }) => p.look === 'crewSol') };
+        };
+        // Looking into the nest it stands a full storey (3.5m), and Sol at its window stands on it.
+        await lookAt(page, 32 * TILE, 41 * TILE);
+        await page.waitForFunction(() => (window as any).game.scene.getScene('bank').debugState.settled);
+        await page.locator('canvas').screenshot({ path: 'screenshots/raised-nest.png' });
+        expect((await nest()).storey).toBe(44);
+        expect((await nest()).sol.lift).toBe(44);
+        // From the street, north of it, it is cut down so the far sidewalk behind it shows.
+        await lookAt(page, 32 * TILE, 34 * TILE);
+        await page.waitForFunction(() => (window as any).game.scene.getScene('bank').debugState.settled);
+        await page.locator('canvas').screenshot({ path: 'screenshots/raised-nest-cut.png' });
+        expect((await nest()).storey).toBe(8);
+        expect(errors).toEqual([]);
+    });
+
     test('relights people as they move, and walks the guards and a passer-by on their patrols', async ({ page }) => {
         const errors = await boot(page, 'example');
         type Person = { look: string; x: number; y: number; facing: string; light: number };
@@ -346,6 +366,20 @@ test.describe('generated banks (§17)', () => {
         });
         await page.waitForTimeout(400);
         await page.locator('canvas').screenshot({ path: 'screenshots/generated-atrium.png' });
+        expect(errors).toEqual([]);
+    });
+
+    test('lifts the mezzanine a storey over the lobby, its stairs climbing to it (§14.7)', async ({ page }) => {
+        const errors = await boot(page, 'bank', 'seed=15838-2&tier=hq&archetype=mezzanineWatch&plot=stripMallEnd');
+        await page.evaluate(() => {
+            (window as any).game.scene.getScene('bank').lookAt(42 * 16, 22 * 16);
+            for (const e of document.querySelectorAll<HTMLElement>('.generator-bar, .briefing, .camera-controls')) e.style.display = 'none';
+        });
+        await page.waitForFunction(() => (window as any).game.scene.getScene('bank').debugState.settled);
+        await page.waitForTimeout(300);
+        await page.locator('canvas').screenshot({ path: 'screenshots/raised-mezzanine.png' });
+        const { raised } = await page.evaluate(() => (window as any).game.scene.getScene('bank').debugState);
+        expect(raised.some((r: { storey: number }) => r.storey === 44)).toBe(true);
         expect(errors).toEqual([]);
     });
 

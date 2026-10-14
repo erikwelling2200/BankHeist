@@ -5,9 +5,11 @@ import { propArt, type PropArt } from '../../art/bank/props';
 import type { PixelBitmap } from '../../art/PixelBitmap';
 import type { BankData } from '../../level/bankData';
 import { isOnTop, propBox, propSize } from '../../level/catalog';
+import { TILE } from '../../level/level';
 import type { LevelProp } from '../../level/plan';
 import { baseLine, drawLine, frontRow, GLOW_DEPTH, supportOf, type Box } from '../../level/space';
 import { EVERYWHERE, footprintPoints, type Baker } from './bake';
+import type { Heights } from './heights';
 import { DEPTH } from './layers';
 import type { Walls } from './walls';
 
@@ -43,8 +45,12 @@ export function bankLamps(bank: BankData, props: PlacedProp[]): Lamp[] {
  * lit by the lamps that reach its footprint and exposed for where it stands; dressing on a wall is hung on it. Returns
  * the floor footprints that shade and block the sun, and the props that cast sun shadows.
  */
-export function addProps(scene: Phaser.Scene, baker: Baker, walls: Walls, props: PlacedProp[]): { occluders: Occluder[]; casters: Caster[] } {
+export function addProps(scene: Phaser.Scene, baker: Baker, walls: Walls, props: PlacedProp[], heights?: Heights): { occluders: Occluder[]; casters: Caster[] } {
     const occluders: Occluder[] = [], casters: Caster[] = [];
+    // What stands on a raised floor is drawn lifted with it, and goes up and down with it as it is cut.
+    const lifted: { images: Phaser.GameObjects.Image[]; top: number; tx: number; ty: number; region: number }[] = [];
+    const lift = (l: (typeof lifted)[number]) => { for (const image of l.images) image.setY(l.top - heights!.lift(l.tx, l.ty)); };
+    heights?.onChange(region => { for (const l of lifted) if (l.region === region) lift(l); });
     props.forEach(({ p, box, art, left, top, under }, i) => {
         const key = `bank-prop-${i}`, depth = DEPTH.standing + drawLine(box, under);
         const lamps = baker.lampsReaching(footprintPoints(box)), exposure = baker.standingAt(box.x + box.w / 2, box.y + box.d / 2);
@@ -56,6 +62,11 @@ export function addProps(scene: Phaser.Scene, baker: Baker, walls: Walls, props:
             images.push(scene.add.image(left, top, `${key}-glow`).setOrigin(0, 0).setDepth(depth + GLOW_DEPTH));
             // A second, additive pass makes screens and lamps glow into the bloom.
             images.push(scene.add.image(left, top, `${key}-glow`).setOrigin(0, 0).setDepth(DEPTH.emissive).setBlendMode(Phaser.BlendModes.ADD).setAlpha(0.45));
+        }
+        const tx = Math.floor((box.x + box.w / 2) / TILE), ty = Math.floor((box.y + box.d / 2) / TILE), region = heights?.region(tx, ty) ?? -1;
+        if (region >= 0) {
+            lifted.push({ images, top, tx, ty, region });
+            lift(lifted.at(-1)!);
         }
         if (box.z === 0) occluders.push(floorOccluder(box));
         if (box.z > 0 && !isOnTop(p.kind) && !ALWAYS_SHOWN.includes(p.kind)) walls.hang(box, images);

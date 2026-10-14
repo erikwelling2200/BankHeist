@@ -3,10 +3,11 @@ import { bakeLighting } from '../../art/bank/lamps';
 import { LOOKS, person, PERSON_HEIGHT } from '../../art/bank/people';
 import { PixelBitmap } from '../../art/PixelBitmap';
 import { TILE } from '../../level/level';
-import type { LevelPerson, PersonFacing as Facing } from '../../level/plan';
+import type { LevelPerson, PersonFacing as Facing, PersonPose } from '../../level/plan';
 import { baseLine, PERSON_SIZE, px, type Box } from '../../level/space';
 import { AMBIENT, EVERYWHERE, footprintPoints, type Baker } from './bake';
-import { DEPTH, KEY } from './layers';
+import type { Heights } from './heights';
+import { DEPTH, KEY, RAISED_DEPTH } from './layers';
 
 /** People walk at about 1.4m/s and wait this long at each end of a patrol. */
 const WALK_SPEED = px(1.4);
@@ -28,6 +29,9 @@ interface PersonSprite {
     facing: Facing;
     /** Mean brightness of the lit sprite (0-255), so tests can see the light change. */
     light: number;
+    /** Where the sprite's top-left corner is, before a raised floor lifts it. */
+    left: number;
+    top: number;
     /** Off the map (an NPC gone home or out): not drawn. */
     away?: boolean;
     /** A crew member's ground ring in their colour (UI.md "Crew"), under them. */
@@ -45,7 +49,15 @@ interface PersonSprite {
 export class People {
     private readonly sprites: PersonSprite[] = [];
 
-    constructor(private readonly scene: Phaser.Scene, private readonly baker: Baker, private readonly hidden: (x: number, y: number) => boolean) {}
+    constructor(
+        private readonly scene: Phaser.Scene, private readonly baker: Baker, private readonly hidden: (x: number, y: number) => boolean,
+        private readonly heights?: Heights
+    ) {
+        // Someone standing on a raised floor goes up and down with it as it is cut.
+        heights?.onChange(region => {
+            for (const p of this.sprites) if (heights.region(Math.floor(p.x / TILE), Math.floor(p.y / TILE)) === region) this.place(p);
+        });
+    }
 
     /**
      * Everyone in the bank, then the crew (play mode): each crew member is a person with a ground ring in their colour
@@ -76,7 +88,7 @@ export class People {
             if (!texture) throw new Error(`Failed to create texture '${key}'`);
             const x = (p.tx + 0.5) * TILE, y = (p.ty + 0.5) * TILE;
             this.sprites.push({
-                person: p, views, texture, x, y, facing: p.facing, light: 0,
+                person: p, views, texture, x, y, facing: p.facing, light: 0, left: 0, top: 0,
                 image: add.image(0, 0, key).setOrigin(0, 0),
                 shadow: add.image(0, 0, p.pose ? KEY.lyingShadow : KEY.shadow).setDepth(DEPTH.shadows).setAlpha(0.55),
                 patrol: patrolOf(p, x, y),
@@ -103,11 +115,50 @@ export class People {
         const lit = bakeLighting(bitmap, left, top, AMBIENT, this.baker.lampsReaching(footprintPoints(box)), EVERYWHERE, this.baker.standingAt(x, y), normals);
         p.texture.context.putImageData(new ImageData(new Uint8ClampedArray(lit), bitmap.width, bitmap.height), 0, 0);
         p.texture.refresh();
-        p.image.setPosition(left, top).setDepth(DEPTH.standing + baseLine(box));
-        p.shadow.setPosition(box.x + box.w / 2, box.y + box.d / 2 - (p.person.pose ? LYING_SHADOW_RISE : 0));
-        p.ring?.setPosition(box.x + box.w / 2, box.y + box.d / 2);
+        p.left = left;
+        p.top = top;
         p.light = meanBrightness(lit);
+        this.place(p);
         this.showIfSeen(p);
+    }
+
+    /**
+     * Puts a person's sprite, drop shadow and ring where they stand, lifted with the raised floor under them if there is
+     * one; there the shadow and ring go just after the floor they lie on, as the ground's lie under everything standing.
+     */
+    private place(p: PersonSprite): void {
+        const tx = Math.floor(p.x / TILE), ty = Math.floor(p.y / TILE), lift = this.heights?.lift(tx, ty) ?? 0;
+        const raised = (this.heights?.region(tx, ty) ?? -1) >= 0, floorDepth = DEPTH.standing + ty * TILE + RAISED_DEPTH;
+        const x = Math.round(p.x - PERSON_SIZE.w / 2) + PERSON_SIZE.w / 2, y = Math.round(p.y - PERSON_SIZE.d / 2) + PERSON_SIZE.d / 2 - lift;
+        p.image.setPosition(p.left, p.top - lift).setDepth(DEPTH.standing + Math.round(p.y - PERSON_SIZE.d / 2) + PERSON_SIZE.d);
+        p.shadow.setPosition(x, y - (p.person.pose ? LYING_SHADOW_RISE : 0)).setDepth(raised ? floorDepth + 0.001 : DEPTH.shadows);
+        p.ring?.setPosition(x, y).setDepth(raised ? floorDepth + 0.002 : DEPTH.shadows + 0.5);
+    }
+
+    /**
+     * Lays person `index` down in `pose` (face down, hands on the head or zip-tied), or stands them up again with
+     * `undefined`: both views are drawn again in the pose, the shadow becomes one the length of the body, and they are
+     * relit where they are, as `move` does.
+     */
+    setPose(index: number, pose: PersonPose | undefined): void {
+        const p = this.sprites[index];
+        if (!p) throw new Error(`No person ${index} in the bank`);
+        if (p.person.pose === pose) return;
+        const look = LOOKS[p.person.look]!, spec = { ...look, mask: p.person.mask ?? look.mask, pose };
+        const view = (facing: Facing) => {
+            const bitmap = person(spec, facing);
+            return { bitmap, normals: bitmap.normalMap() };
+        };
+        p.person = { ...p.person, pose };
+        p.views = { front: view('front'), back: view('back') };
+        const { width, height } = p.views.front.bitmap;
+        if (p.texture.width !== width || p.texture.height !== height) p.texture.setSize(width, height);
+        if (pose && !this.scene.textures.exists(KEY.lyingShadow)) {
+            const shadow = lyingShadow();
+            this.baker.addPixels(KEY.lyingShadow, shadow.colors, shadow.width, shadow.height);
+        }
+        p.shadow.setTexture(pose ? KEY.lyingShadow : KEY.shadow);
+        this.move(index, p.x, p.y);
     }
 
     /** Walks everyone on patrol on by `deltaMs`. */
@@ -165,9 +216,11 @@ export class People {
         for (const p of this.sprites) this.showIfSeen(p);
     }
 
-    /** Each person, where they stand and how brightly they are lit, for tests. */
-    get state(): { look: string; x: number; y: number; facing: Facing; light: number; visible: boolean }[] {
-        return this.sprites.map(p => ({ look: p.person.look, x: p.x, y: p.y, facing: p.facing, light: p.light, visible: p.image.visible }));
+    /** Each person, where they stand, how brightly they are lit and how far a raised floor lifts them, for tests. */
+    get state(): { look: string; x: number; y: number; facing: Facing; light: number; visible: boolean; lift: number }[] {
+        return this.sprites.map(p => ({
+            look: p.person.look, x: p.x, y: p.y, facing: p.facing, light: p.light, visible: p.image.visible, lift: this.heights?.liftAt(p.x, p.y) ?? 0
+        }));
     }
 
     /**

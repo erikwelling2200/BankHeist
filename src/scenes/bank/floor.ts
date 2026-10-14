@@ -5,7 +5,8 @@ import { PixelBitmap } from '../../art/PixelBitmap';
 import { TILE } from '../../level/level';
 import { floorHeight, type Level } from '../../level/plan';
 import { wallFootprint } from '../../level/walls';
-import type { Baker } from './bake';
+import { bakeLighting } from '../../art/bank/lamps';
+import { AMBIENT, type Baker } from './bake';
 import { DEPTH, KEY } from './layers';
 import type { PlacedProp } from './props';
 
@@ -14,9 +15,10 @@ const EDGE_SHADOW = [0.55, 0.4, 0.27, 0.15, 0.06];
 
 /**
  * The floor as one image: every tile, with flat props (mats, a manhole cover) laid into it, lit per pixel by the lamps
- * that reach it and exposed for indoors or out.
+ * that reach it and exposed for indoors or out. Returns it as baked, for the raised floors (raised.ts), which are drawn
+ * lifted from it.
  */
-export function addFloor(baker: Baker, level: Level, flat: PlacedProp[]): void {
+export function addFloor(baker: Baker, level: Level, flat: PlacedProp[]): Uint8ClampedArray {
     const tiles = bankTileset(), floor = new PixelBitmap(level.tiles[0]!.length * TILE, level.tiles.length * TILE);
     // Copied a tile row at a time, the floor being a million pixels or more; every one is opaque.
     level.tiles.forEach((row, y) => row.forEach((_, x) => {
@@ -38,7 +40,10 @@ export function addFloor(baker: Baker, level: Level, flat: PlacedProp[]): void {
     }
     drawRaisedEdges(level, floor);
     for (const { art, left, top } of flat) floor.stamp(art.lit, left, top);
-    baker.addBaked(KEY.floor, floor, 0, 0, baker.lamps, baker.reach, baker.exposure).setDepth(DEPTH.floor);
+    const rgba = bakeLighting(floor, 0, 0, AMBIENT, baker.lamps, baker.reach, baker.exposure);
+    if (!baker.scene.textures.exists(KEY.floor)) baker.addPixels(KEY.floor, rgba, floor.width, floor.height);
+    baker.scene.add.image(0, 0, KEY.floor).setOrigin(0, 0).setDepth(DEPTH.floor);
+    return rgba;
 }
 
 /** The floor of every tile; walls stand on top of it along the edges. */
@@ -75,9 +80,9 @@ function tileName(level: Level, x: number, y: number): BankTileName {
 }
 
 /**
- * The edges of raised tiles and stairs where they drop to lower floor with no wall between (§14.7): seen from the
- * south, a drop on a raised tile's south side shows the slab's face, nosing on top, a shadow at its foot; on its east
- * or west side it throws a soft shadow on the lower floor and catches the light along its lip.
+ * The edges of raised tiles and stairs where they drop to lower floor with no wall between (§14.7): the raised tile
+ * catches the light along its lip, and the lower floor is in its shadow, at the foot of its south face and softly beside
+ * its east or west side. The raised tiles themselves are drawn lifted, from this floor (raised.ts).
  */
 function drawRaisedEdges(level: Level, floor: PixelBitmap): void {
     const { tiles, walls } = level;
@@ -90,13 +95,11 @@ function drawRaisedEdges(level: Level, floor: PixelBitmap): void {
         const x0 = tx * TILE, y0 = ty * TILE;
         // Within a flight, the steps drawn on the tiles already show the climb.
         const flight = tiles[ty]![tx] === 'z' && tiles[ty + 1]?.[tx] === 'z';
+        // Its face, lifted with it, is drawn with it (raised.ts); at its foot, the lower floor is in its shadow.
         if (lower(tx, ty + 1) && !flight && !closed.has(`eastWest ${tx} ${ty + 1}`)) {
-            const drop = h - floorHeight(tiles, tx, ty + 1), face = Math.max(2, Math.min(4, Math.round(drop / 10)));
             for (let x = x0; x < x0 + TILE; x++) {
-                floor.set(x, y0 + TILE, PAL.concrete[5], 0.8);
-                for (let k = 1; k < face; k++) floor.set(x, y0 + TILE + k, k === face - 1 ? PAL.concrete[1] : PAL.concrete[2], 0.5);
-                shadow(x, y0 + TILE + face, 0.45);
-                shadow(x, y0 + TILE + face + 1, 0.2);
+                shadow(x, y0 + TILE, 0.45);
+                shadow(x, y0 + TILE + 1, 0.2);
             }
         }
         for (const [dx, edge] of [[-1, tx], [1, tx + 1]] as const) {

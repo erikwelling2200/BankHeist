@@ -8,9 +8,11 @@ import { Atmosphere } from './bank/atmosphere';
 import { Baker, forgetLastBank } from './bank/bake';
 import { BankCamera } from './bank/camera';
 import { addFloor } from './bank/floor';
+import { Heights } from './bank/heights';
 import { Knowledge } from './bank/knowledge';
 import { People } from './bank/people';
 import { addProps, bankLamps, placeProps } from './bank/props';
+import { RaisedFloors } from './bank/raised';
 import { PlayMode, type PlayParts } from './bank/sim';
 import { Walls } from './bank/walls';
 import { M1_CREW } from '../game/heist';
@@ -37,6 +39,7 @@ export class BankScene extends Phaser.Scene {
     private baker!: Baker;
     private litTiles: boolean[][] = [];
     private walls!: Walls;
+    private heights!: Heights;
     private people!: People;
     private knowledge!: Knowledge;
     private atmosphere!: Atmosphere;
@@ -75,18 +78,21 @@ export class BankScene extends Phaser.Scene {
         const exposure = this.timed('exposure', () => buildExposure(level));
         const baker = (this.baker = new Baker(this, lamps, reach, exposure));
         const atmosphere = (this.atmosphere = new Atmosphere(this, level, this.still));
-        this.walls = new Walls(this, level, { front: y => atmosphere.frontTop(y), far: y => atmosphere.farTop(y) });
-        const knowledge = (this.knowledge = new Knowledge(this, this.bank.outlines ?? []));
-        this.people = new People(this, baker, (x, y) => knowledge.hides(x, y));
+        // Raised floors (§14.7) are drawn a storey up, and cut down as walls are; what stands on them goes with them.
+        const heights = (this.heights = new Heights(level)), raised = new RaisedFloors(this, level, heights);
+        this.walls = new Walls(this, level, heights, { front: y => atmosphere.frontTop(y), far: y => atmosphere.farTop(y) });
+        const knowledge = (this.knowledge = new Knowledge(this, this.bank.outlines ?? [], heights));
+        this.people = new People(this, baker, (x, y) => knowledge.hides(x, y), heights);
         this.camera = new BankCamera(this, this.mapWidth, this.mapHeight, !play);
 
-        this.timed('floor', () => addFloor(baker, level, props.filter(({ box }) => box.h === 0)));
+        const floor = this.timed('floor', () => addFloor(baker, level, props.filter(({ box }) => box.h === 0)));
         this.timed('walls', () => this.walls.build(baker));
-        const { occluders, casters } = this.timed('props', () => addProps(this, baker, this.walls, props.filter(({ box }) => box.h > 0)));
+        const { occluders, casters } = this.timed('props', () => addProps(this, baker, this.walls, props.filter(({ box }) => box.h > 0), heights));
         this.timed('people', () => this.people.build(this.bank.people, play ? play.session.state.crew.map((c, i) => ({
             look: M1_CREW.find(m => m.id === c.id)?.look ?? 'crewSol', tx: c.pos.x, ty: c.pos.y, facing: 'back' as const, ring: CREW_COLOURS[i % CREW_COLOURS.length]!
         })) : []));
-        this.timed('light maps', () => baker.addLightMaps(level, occluders, casters));
+        const { shade } = this.timed('light maps', () => baker.addLightMaps(level, occluders, casters));
+        this.timed('raised floors', () => raised.build(baker, floor, shade));
         this.timed('atmosphere', () => atmosphere.build(baker));
         this.timed('camera', () => {
             this.camera.setup((this.bank.focus.tx + 0.5) * TILE, (this.bank.focus.ty + 0.5) * TILE);
@@ -139,6 +145,8 @@ export class BankScene extends Phaser.Scene {
             lit: this.litTiles.map(row => row.map(lit => (lit ? '#' : '.')).join('')),
             people: this.people.state,
             walls: this.walls.state,
+            /** Each raised region (§14.7): its north edge (tile row) and the storey height it is drawn at now. */
+            raised: this.heights.state,
             /** Every wall has reached the height the view asks of it (as of the last frame), so a screenshot can be taken. */
             settled: this.walls.settled,
             /** Play mode's selection, preview, playback and doors (`?play`). */

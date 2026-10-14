@@ -535,6 +535,65 @@ export function wallArt(wall: Wall, look: WallLook, cut: number): PixelBitmap {
 }
 
 /**
+ * What the storey under a raised floor is built of where it shows, its face to the camera: the wall under a wall on the
+ * raised floor's edge, or an open edge's slab and what holds it up. Plaster and brick and stone as the wall above it,
+ * concrete for concrete, the vault's steel and the glass of an office tower (its floors are concrete slabs), an old
+ * bank's ashlar, a scaffold's open frame, and a stair's riser.
+ */
+export type SupportMaterial = 'plaster' | 'concrete' | 'brick' | 'stone' | 'ashlar' | 'scaffold' | 'riser';
+
+/** The material under a wall of `kind` on a raised floor's edge, the floor below it outdoors or not. */
+export function supportMaterial(kind: WallKind, outdoors: boolean): SupportMaterial {
+    switch (kind) {
+        case 'plaster': case 'doorWood': case 'doorKeycard': return 'plaster';
+        case 'brick': case 'brickPier': case 'boarded': case 'shutter': case 'doorBack': case 'tellerWindow': case 'fence': return 'brick';
+        case 'pier': case 'window': case 'doorGlass': case 'atm': case 'doorService': return outdoors ? 'stone' : 'plaster';
+        case 'thick': return 'ashlar';
+        default: return 'concrete';
+    }
+}
+
+/** For each material: the face it repeats (rows above a wall's height take that face's upper rows again, `period` of them). */
+const SUPPORT_FACES: Record<Exclude<SupportMaterial, 'scaffold' | 'riser'>, { look: WallLook; period: number; band: [number, number] }> = {
+    plaster: { look: 'plaster', period: 12, band: [mix(PAL.plaster[4], PAL.paper[1], 0.25), PAL.plaster[1]] },
+    concrete: { look: 'concrete', period: 8, band: [PAL.concrete[5], PAL.concrete[2]] },
+    brick: { look: 'brick', period: 6, band: [PAL.limestone[5], PAL.limestone[3]] },
+    stone: { look: 'pier', period: 8, band: [PAL.limestone[5], PAL.limestone[2]] },
+    ashlar: { look: 'thick', period: 12, band: [ashlar(5), ashlar(2)] }
+};
+
+/**
+ * Paints `height` rows of a raised floor's support, a tile wide: column u, z up from the lower floor (1 the lowest).
+ * Its top two rows are the edge of the floor slab, a band between the storeys; below them, its material. A scaffold is
+ * an open frame (tubes, a brace, the toe board), the floor under it showing between them; a stair's riser is plain.
+ */
+export function paintSupport(put: FacePaint, material: SupportMaterial, height: number): void {
+    if (material === 'riser') {
+        for (let z = 1; z <= height; z++) for (let u = 0; u < TILE; u++) put(u, z, z === height ? PAL.concrete[5] : z === 1 ? PAL.concrete[1] : PAL.concrete[2], z === height ? 0.8 : 0.4);
+        return;
+    }
+    if (material === 'scaffold') {
+        for (let z = 1; z <= height; z++) for (let u = 0; u < TILE; u++) {
+            const board = z >= height - 1, standard = u === 1 || u === 2, ledger = (height - z) % 13 === 4;
+            const brace = Math.abs(((u - 2) * (height - 3)) / (TILE - 3) - (z - 1)) < 0.75 && u > 2;
+            if (board) put(u, z, z === height ? PAL.plywood[3] : PAL.plywood[1], 0.7);
+            else if (standard) put(u, z, u === 1 ? PAL.steel[4] : PAL.steel[2], 0.75);
+            else if (ledger) put(u, z, PAL.steel[3], 0.7);
+            else if (brace) put(u, z, PAL.steel[3], 0.65);
+            else if (z === 1 && u >= 0 && u <= 3) put(u, z, PAL.plywood[2], 0.4);
+        }
+        return;
+    }
+    const { look, period, band } = SUPPORT_FACES[material], rows = new Map<number, Parameters<FacePaint>>();
+    PAINTERS[look].face((u, z, c, h, alpha) => { rows.set(z * TILE + u, [u, z, c, h, alpha]); }, mulberry32(look.length * 97));
+    for (let z = 1; z <= height; z++) for (let u = 0; u < TILE; u++) {
+        if (z >= height - 1) { put(u, z, z === height ? band[0] : band[1], z === height ? 0.85 : 0.5); continue; }
+        const from = z <= F ? z : F - period + 1 + ((z - F - 1) % period), px = rows.get(from * TILE + u);
+        if (px) put(u, z, px[2], px[3], px[4]);
+    }
+}
+
+/**
  * The colours, heights and alphas a segment's face painter puts at each column u and height z (1 to `WALL_HEIGHT`), the
  * same as `wallArt` paints them: for drawing a door's leaf, swung open, with its own face.
  */
@@ -544,6 +603,19 @@ export function faceColours(wall: Wall, look: WallLook): (u: number, z: number) 
     const grid = new Map<number, { c: number; h: number; a: number }>();
     painter.face((u, z, c, h, alpha) => { grid.set(z * TILE + u, { c, h, a: alpha ?? 255 }); }, rand);
     return (u, z) => grid.get(z * TILE + u);
+}
+
+/**
+ * Under a segment standing on a raised floor's edge, the wall of the storey below it, `height` rows from that floor down
+ * to the lower one: as wide as the segment's face (an east-west one) or its thickness (the end of a north-south one, all
+ * that shows of it). Its top rows are the floor slab's edge, so a shorter one is its top rows.
+ */
+export function supportArt(wall: Wall, material: SupportMaterial, height: number): PixelBitmap {
+    const t = WALL_THICKNESS[wall.kind], eastWest = wall.run === 'eastWest', bitmap = new PixelBitmap(eastWest ? TILE : t, height);
+    paintSupport((u, z, c, h, alpha) => {
+        if (eastWest || u < t) bitmap.set(u, height - z, c, h, alpha);
+    }, material, height);
+    return bitmap;
 }
 
 /**
