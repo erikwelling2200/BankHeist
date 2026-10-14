@@ -1,5 +1,6 @@
 import { PAL, deepen, mix, type Ramp } from '../palette';
 import { PixelBitmap } from '../PixelBitmap';
+import { inner, type Edge } from './edges';
 
 /** People are 16x24: about four heads tall, feet on the bottom row, so one stands on a tile and overlaps the row above. */
 export const PERSON_WIDTH = 16;
@@ -28,13 +29,20 @@ export interface PersonSpec {
     beard?: boolean;
 }
 
-const H = { hair: 1, face: 0.95, torso: 0.8, arm: 0.85, legs: 0.6, shoes: 0.35, outline: 0.15 };
+const H = { hair: 1, face: 0.95, torso: 0.8, arm: 0.85, legs: 0.6, shoes: 0.35 };
+
+/**
+ * How the cast's silhouettes are edged: the same inner edge as the furniture, so people and props read as one world.
+ * A dark ring outside the figure made them look like stickers on the scene (compared in
+ * `docs/pixel-art/examples/character-edges.png`).
+ */
+export const PERSON_EDGE: Edge = inner(0.3);
 
 /**
  * Draws one person facing the camera (`front`) or away from it (`back`). Clothes are shaded for light from above and
- * slightly left: shoulders take the light, the right side and the arms sit a step darker. A sel-out outline follows.
+ * slightly left: shoulders take the light, the right side and the arms sit a step darker. `PERSON_EDGE` edges it.
  */
-export function person(spec: PersonSpec, facing: 'front' | 'back'): PixelBitmap {
+export function person(spec: PersonSpec, facing: 'front' | 'back', edge: Edge = PERSON_EDGE): PixelBitmap {
     const b = new PixelBitmap(PERSON_WIDTH, PERSON_HEIGHT);
     const s = spec.short ?? 0;
     const top = 1 + s;
@@ -86,7 +94,7 @@ export function person(spec: PersonSpec, facing: 'front' | 'back'): PixelBitmap 
     b.rect(7, top + 5, 2, 1, skin[1]!, H.face);
     drawHead(b, spec, top, front);
     if (spec.carry && spec.carry !== 'none') drawCarry(b, spec.carry, front);
-    selOut(b);
+    edge(b);
     return b;
 }
 
@@ -288,19 +296,6 @@ function drawCarry(b: PixelBitmap, carry: Carry, front: boolean): void {
         case 'none':
             break;
     }
-}
-
-/** Sel-out: an outline one pixel outside the figure, coloured as a deepened version of the pixel it borders. */
-export function selOut(b: PixelBitmap): void {
-    const edge: [number, number, number][] = [];
-    for (let y = 0; y < b.height; y++) for (let x = 0; x < b.width; x++) {
-        if (b.opaque(x, y)) continue;
-        const neighbours = [[x, y + 1], [x, y - 1], [x - 1, y], [x + 1, y]].filter(([nx, ny]) => b.opaque(nx!, ny!));
-        if (!neighbours.length) continue;
-        const [nx, ny] = neighbours[0]!;
-        edge.push([x, y, deepen(b.color(nx!, ny!), 0.62)]);
-    }
-    for (const [x, y, c] of edge) b.set(x, y, c, H.outline);
 }
 
 const skin = PAL.skin, hair = PAL.hair, cloth = PAL.cloth;

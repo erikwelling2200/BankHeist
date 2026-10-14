@@ -1,6 +1,7 @@
 import { PAL, type Ramp } from '../palette';
 import { PixelBitmap } from '../PixelBitmap';
-import { selOut } from './people';
+import type { Edge } from './edges';
+import { PERSON_EDGE } from './people';
 
 /**
  * A police officer, animated. Every frame is a pose keyed by hand: where the hips, neck, hands and feet are, measured
@@ -201,8 +202,8 @@ export function muzzle(pose: Pose): Pt {
     return add(pose.hands[0], gun.muzzle);
 }
 
-/** Paints one pose into a frame-sized bitmap, outlined like the rest of the cast. */
-export function drawPose(pose: Pose): PixelBitmap {
+/** Paints one pose into a frame-sized bitmap, edged like the rest of the cast. */
+export function drawPose(pose: Pose, edge: Edge = PERSON_EDGE): PixelBitmap {
     const rig = new Rig();
     const side = pose.facing === 'east' || pose.facing === 'west';
     // Which of the left and right limbs is nearer the camera: drawn last, a step lighter.
@@ -299,7 +300,7 @@ export function drawPose(pose: Pose): PixelBitmap {
     if (!side) arm(order[0]!);
     arm(order[1]!);
     gun();
-    selOut(rig.bitmap);
+    edge(rig.bitmap);
     return rig.bitmap;
 }
 

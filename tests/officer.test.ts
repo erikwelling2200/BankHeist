@@ -75,7 +75,7 @@ describe('the preview sequence', () => {
         const bitmap = drawPose(OFFICER_POSES.coverEast);
         let back = Infinity;
         for (let py = 0; py < bitmap.height; py++) for (let px = 0; px < bitmap.width; px++) if (bitmap.opaque(px, py)) back = Math.min(back, px);
-        // The outline around the back is the pixel just east of the boxes.
+        // The back's outermost pixel is the one just east of the sofa.
         expect(x - OFFICER_FRAME.anchorX + back).toBe(COVER.x + COVER.w);
         expect(y).toBeGreaterThan(COVER.y);
         expect(y).toBeLessThan(COVER.y + COVER.d);

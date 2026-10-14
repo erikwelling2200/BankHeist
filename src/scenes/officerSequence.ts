@@ -58,7 +58,7 @@ export const OFFICER_CELS: Cel<OfficerFrame>[] = [
     { frame: 'landWest', ms: 80, step: [-5, 0], cue: 'land' },
     { frame: 'landWest', ms: 150, glide: [-4, 0] },
     // Hands at the sofa: a shuffle back and round, so the back comes to rest against it.
-    { frame: 'turnSouth', ms: 130, step: [-6, 0] },
+    { frame: 'turnSouth', ms: 130, step: [-7, 0] },
     { frame: 'coverEast', ms: 650 },
     { frame: 'coverEastBreath', ms: 350 },
     { frame: 'coverEast', ms: 350 },

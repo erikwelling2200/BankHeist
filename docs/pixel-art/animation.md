@@ -461,7 +461,7 @@ and rendering small without anti-aliasing. The equivalent here, with no 3D and n
    measurements drives every frame, as one set of measurements drives every facing of a prop in
    `src/art/bank/van.ts`.
 3. **Compose layers into one bitmap.** Body, then arm, then gun stamped at the hand, in an order that depends on the
-   facing (the gun goes behind the body facing north). Merge before the sel-out outline so it runs continuously over
+   facing (the gun goes behind the body facing north). Merge before the edge (`PERSON_EDGE`) so it runs continuously over
    arm and body. Separate runtime sprites would need their own bake and depth and can open 1 px seams *(medium
    confidence on the practice; the reasons are this project's)*.
 4. **Every colour keeps its height**, so `PixelBitmap.normalMap()` gives each frame its own matching normal map. Give
@@ -666,7 +666,7 @@ start. A plain cut pops the gun and the position. Two ways:
 
 A breathing sub-loop whose length doesn't divide the main loop hides any repetition.
 
-### Palette and outline
+### Palette and edge
 
 From `PAL` in `src/art/palette.ts`, as in `drawPose`:
 
@@ -683,10 +683,11 @@ From `PAL` in `src/art/palette.ts`, as in `drawPose`:
 
 Light falls from above and a little left, as on the rest of the cast: each limb pixel takes the ramp's second-lightest
 step, one lighter on the lit side and one darker on the far side. The **far limb** is the same ramp one step darker
-(`darker: 1`) and is drawn before the body; the near limb is drawn last. The **sel-out** outline (`selOut` from
-`people.ts`) runs once over the finished frame, after the gun, so it follows the arms and gun wherever they leave the
-body. Inside the silhouette there is no outline: an arm across the vest reads by its lighter ramp (sky shirt on
-charcoal) and the height step in the normal map.
+(`darker: 1`) and is drawn before the body; the near limb is drawn last. The **edge** (`PERSON_EDGE`, from `edges.ts`)
+runs once over the finished frame, after the gun: the figure's own outermost pixels on its sides and bottom go a shade
+darker, as on the furniture, so it follows the arms and gun wherever they leave the body without adding a ring around
+them. Inside the silhouette there is no line: an arm across the vest reads by its lighter ramp (sky shirt on charcoal)
+and the height step in the normal map.
 
 ### Key poses
 
