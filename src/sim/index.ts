@@ -13,8 +13,15 @@ import './crew/movement';
 import './geo/cones';
 import './geo/move';
 import './geo/sound';
+import './rules/actions/act';
+import './rules/actions/body';
+import './rules/actions/door';
+import './rules/actions/interact';
+import './rules/actions/knockout';
+import './rules/actions/wait';
 import './rules/carriers';
 import './rules/doors';
+import './rules/evidence';
 import './rules/knowledge';
 import './rules/npc/act';
 import './rules/npc/behaviour';
@@ -51,8 +58,8 @@ export { startCarrier } from './rules/carriers';
 export { freezeWorld } from './world/freeze';
 export { fixtureWorld, type FixtureOptions, type FixtureWall } from './world/fixture';
 export {
-    crewHasKey, crewMoveOptions, planningState, registerDashCheck, registerMoveHook, registerMoveLimit, registerPlanView, type DashCheck,
-    type MoveCut, type MoveHook, type MoveLimit, type MoveMode, type PlanView
+    crewBudget, crewHasKey, crewMoveOptions, dashRefusal, planningState, registerBudgetModifier, registerDashCheck, registerMoveHook, registerMoveLimit, registerPlanView, type DashCheck,
+    type BudgetModifier, type MoveCut, type MoveHook, type MoveLimit, type MoveMode, type PlanView
 } from './crew/movement';
 export {
     ABSENT_STATUSES, dashBudget, doorBetween, doorStatus, inHeavyArmour, LYING_STATUSES, moveBudget, occupancy, pathTo, reachable, reachAt, stepCost,
@@ -70,7 +77,17 @@ export {
     inArc, npcObserver, profilesOf, rangeOn, sees, seenTiles, seesOn, visionProfiles,
     type Arc, type Band, type HalfAngle, type Observer, type SightField, type VisionProfile, type VisionProfiles
 } from './geo/cones';
-export { worldFromBank, NOT_CARRIERS, OBJECT_KINDS } from './world/fromBank';
+export { worldFromBank, NOT_CARRIERS, OBJECT_KINDS, STASH_ROOMS } from './world/fromBank';
+export { inReach, lacksActions, legalActions, registerAction, whyNot, type ActionDef } from './rules/actions/act';
+export { besideDoor, DOOR_ACTIONS, doorActionBlocked, doorSides, type DoorAction } from './rules/actions/door';
+export { bodyAway, DRAGGABLE, draggedBy, releaseBody, STASH_KINDS, stashes } from './rules/actions/body';
+export { knockoutBlocked, knockoutIneligible, registerKnockoutWindow, type KnockoutWindow } from './rules/actions/knockout';
+export { interactionVerbs, reachesObject, registerInteraction, type InteractionHandler, type InteractionVerb } from './rules/actions/interact';
+export {
+    applyEvidence, bodyLying, clearEvidence, evidenceOnMap, evidenceWorldPhase, isMajor, MAJOR_EVIDENCE, notices, placeEvidence, registerEvidenceSource,
+    REPORT_CARRIERS, reportAssault, type CameraEvidence, type Evidence, type EvidenceKind, type EvidenceOptions, type EvidenceSighting, type EvidenceSource,
+    type EvidenceWant, type MajorEvidence, type MinorEvidence, type PlacedEvidence
+} from './rules/evidence';
 export { WALL_MATERIALS, DOOR_KINDS, type WallMaterial } from './world/materials';
 export { packWorld, unpackWorld, packTiles, unpackTiles, type PackedTiles, type PackedWorld } from './world/compact';
 export * from './data/items';
@@ -91,7 +108,7 @@ export {
     wayBackIn, type ScheduledActivity
 } from './rules/npc/schedule';
 export {
-    behaviourGoal, decidesFor, friskSatisfied, investigatorOf, pickInvestigator, reactionOf, registerReaction, ROUTINE_STATUSES, statusFor,
+    behaviourGoal, decidesFor, evidenceGoal, evidenceReport, friskSatisfied, investigatorOf, pickInvestigator, reactionOf, registerReaction, ROUTINE_STATUSES, statusFor,
     topWant, type Goal, type GoalKind, type Reaction as NpcReaction, type ReactionPlan, type RouteProgress, type Search
 } from './rules/npc/behaviour';
 export { committedEnd, reconsider } from './rules/npc/intent';

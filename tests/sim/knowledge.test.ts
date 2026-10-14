@@ -410,7 +410,8 @@ describe('routines and the bank going loud', () => {
         const s = initialState(rota, { seed: 3, crew: [{ id: 'jun', pos: P(25, 0) }] });
         const off = step(rota, patch(s, x => { x.npcs[0]!.wants = [{ kind: 'face', crew: 'jun', tile: P(25, 0), decided: { turn: 1, phase: 'crew' } }]; }), { type: 'wait', crew: 'jun' }).state;
         expect(markerKind(rota, off, 'guard')).toBe('ghost');
-        const back = step(rota, patch(off, x => { x.npcs[0]!.wants = []; }), { type: 'wait', crew: 'jun' });
+        // Waiting in view is a perception check (rules/actions/wait.ts), which re-planned the guard to face jun (Curious): put it back.
+        const back = step(rota, patch(off, x => { x.npcs[0]!.wants = []; x.npcs[0]!.goal = { kind: 'still' }; x.npcs[0]!.status = 'calm'; }), { type: 'wait', crew: 'jun' });
         expect(markerKind(rota, back.state, 'guard')).toBe('predicted');
         expect(revealed(back.events)).toEqual(['routine guard']);
     });

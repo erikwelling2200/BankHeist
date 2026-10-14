@@ -19,7 +19,8 @@ declare module '../core/types' {
         propped?: boolean;
     }
     interface EventMap {
-        doorClosed: { door: string };
+        /** A door shut: by itself at the end of the world phase, or by `by` (a crew member, rules/actions/door.ts). */
+        doorClosed: { door: string; by?: string };
     }
 }
 

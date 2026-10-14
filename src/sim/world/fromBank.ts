@@ -23,8 +23,9 @@ import { DOOR_KINDS, WALL_MATERIALS } from './materials';
  * - edges: every wall segment, with its material from `materials.ts` and the door that stands in it.
  * - doors: every door with a leaf (open doorways and counter gates are gaps, not doors): closed, or locked if it has a
  *   lock (§6.9).
- * - objects: the props the rules act on (panels, consoles, hatches; `OBJECT_KINDS`), the CCTV desk's recorder, the
+ * - objects: the props the rules act on (panels, consoles, hatches, dumpsters; `OBJECT_KINDS`), the CCTV desk's recorder, the
  *   manager's PC, the alarm buttons that start a §9.1 carrier, and the loot.
+ * - stash rooms: the cleaner's closet, where a body can be hidden (§8.10).
  * - people: their role, observer class and schedule (the typed `routine` with its tiles, run by rules/npc); cameras with
  *   their facings, two for a panning one.
  */
@@ -54,8 +55,13 @@ export const OBJECT_KINDS: Partial<Record<LevelProp['kind'], string>> = {
     skylight: 'skylight',
     wallLadder: 'ladder',
     // The back lot's generator: the building's backup power (§14.1 Powered).
-    generator: 'generator'
+    generator: 'generator',
+    // Somewhere to stash a body (§8.10, rules/actions/body.ts).
+    dumpster: 'dumpster'
 };
+
+/** Rooms a body can be stashed anywhere in (§8.10, `World.stashRooms`). */
+export const STASH_ROOMS: readonly GenRoom['type'][] = ['cleanersCloset'];
 
 /** The most a person climbs between neighbouring tiles without stairs: a step of a flight (as `src/gen/site.ts`). */
 const MAX_STEP = RAISED_HEIGHT / 3;
@@ -180,5 +186,6 @@ export function worldFromBank(bank: GeneratedBank): ReadonlyWorld {
         id: c.id, pos: { x: c.tx, y: c.ty }, facings: c.pan ? [c.pan[0], c.pan[1]] : [PROP_FACING[c.facing]], room: c.room
     }));
 
-    return freezeWorld({ width, height, tiles, edges, doors, objects, people, cameras, rules: defaultRules() });
+    const stashRooms = bank.rooms.filter(r => STASH_ROOMS.includes(r.type)).map(r => r.id).sort();
+    return freezeWorld({ width, height, tiles, edges, doors, objects, people, cameras, rules: defaultRules(), stashRooms });
 }

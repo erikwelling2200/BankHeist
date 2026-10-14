@@ -211,6 +211,8 @@ describe('suspicion and search', () => {
         expect(state.npcs[0]!.intent).toEqual({ path: [], facing: 'nw' });
         // Handing the investigation over starts no search: the nearest guard goes down, and the far one takes over.
         state.npcs[2]!.status = 'unconscious';
+        // Its body is major evidence the others would report first (rules/evidence.ts): say they have seen it already.
+        for (const n of state.npcs) n.noticed = ['body:near'];
         state.npcs[1]!.lastSeen = { jun: { tile: P(4, 4), turn: state.turn } };
         state = step(world, state, { type: 'endTurn' }).state;
         expect(state.npcs[1]!.goal.kind).toBe('investigate');

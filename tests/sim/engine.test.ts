@@ -168,8 +168,8 @@ describe('the rules engine', () => {
     it('runs the world phase in the order of §6.1 and starts the next crew phase', () => {
         expect(WORLD_STEPS).toEqual(['passiveNpcs', 'combatNpcs', 'devices', 'commitIntents', 'crewPhase']);
         expect(worldHooks()).toEqual({
-            passiveNpcs: ['perception.world', 'trespass.deadlines', 'npcs.passive'], combatNpcs: ['npcs.combat'],
-            devices: ['devices.carriers', 'test.dice', 'perception.decay', 'doors.swingShut'],
+            passiveNpcs: ['evidence.judge', 'perception.world', 'evidence.notice', 'trespass.deadlines', 'npcs.passive', 'evidence.tell'], combatNpcs: ['npcs.combat'],
+            devices: ['devices.carriers', 'test.dice', 'perception.decay', 'knockout.wake', 'evidence.settle', 'doors.swingShut'],
             commitIntents: ['npcs.intents'], crewPhase: ['crew.actions']
         });
         const { world, state } = smallBank();

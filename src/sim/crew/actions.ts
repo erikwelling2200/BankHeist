@@ -6,6 +6,7 @@ import { registerEvents } from '../core/undo';
 /*
  * The crew's simplest actions (§6.3). `move` is a placeholder that only checks the shape of the path: the movement
  * package's own `registerCommand('move', …)` takes its place (range, diagonals at 1.5, walls and corners, armour).
+ * Wait and the other actions are in rules/actions/.
  */
 
 registerCommand('move', (ctx, cmd) => {
@@ -26,12 +27,6 @@ registerCommand('move', (ctx, cmd) => {
     member.pos = { x: to.x, y: to.y };
     ctx.emit({ type: 'moved', crew: member.id, from, to: member.pos, path: cmd.path.map(p => ({ x: p.x, y: p.y })) });
 }, { placeholder: true });
-
-registerCommand('wait', (ctx, cmd) => {
-    const member = crewMember(ctx.state, cmd.crew);
-    member.actionsLeft = 0;
-    ctx.emit({ type: 'waited', crew: member.id });
-});
 
 registerEvents({
     moved: { undoBlocking: false },

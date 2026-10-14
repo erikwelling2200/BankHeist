@@ -39,7 +39,10 @@ import { isPresent, personOf, type Pace } from './walk';
  */
 
 /** What an NPC's intent was planned for. */
-export type GoalKind = 'still' | 'routine' | 'enter' | 'away' | 'face' | 'watch' | 'search' | 'investigate' | 'challenge' | 'escort' | 'react';
+export type GoalKind =
+    | 'still' | 'routine' | 'enter' | 'away' | 'face' | 'watch' | 'search' | 'investigate' | 'challenge' | 'escort' | 'react'
+    // Evidence (rules/evidence.ts): walk over to it, look at it, or report it.
+    | 'inspect' | 'look' | 'report';
 
 export interface Goal {
     kind: GoalKind;
@@ -49,6 +52,8 @@ export interface Goal {
     tile?: Pos;
     /** The schedule block it follows (routine, enter, away). */
     block?: number;
+    /** The evidence it is about (inspect, look, report). */
+    evidence?: string;
 }
 
 /** How far it is along a route: the next waypoint, the direction, and how many phases it couldn't get closer. */
@@ -233,15 +238,52 @@ registerReaction('*', (world, state, npc, want) => {
 export function behaviourGoal(world: ReadonlyWorld, state: State, npc: DeepReadonly<NpcState>): Goal | null {
     if (!decidesFor(npc) || !isPresent(npc)) return null;
     const top = topWant(npc);
+    // Reacting to an Exposed crew member comes first, then major evidence, then the crew wants, then minor evidence.
+    const evidence = top?.kind === 'react' ? null : evidenceGoal(world, state, npc);
+    if (evidence && npc.evidence!.major) return evidence;
     if (top && top.kind !== 'face') {
         const tile = { x: top.tile.x, y: top.tile.y };
         if (top.kind !== 'investigate') return { kind: top.kind, crew: top.crew, tile };
         if (!friskSatisfied(npc, top.crew) && investigatorOf(world, state, top.crew) === npc.id) return { kind: 'investigate', crew: top.crew, tile };
         return { kind: 'watch', crew: top.crew, tile };
     }
+    if (evidence) return evidence;
     if (npc.search && npc.search.until >= comingPhase(state)) return { kind: 'search', tile: { x: npc.search.tile.x, y: npc.search.tile.y } };
     if (top) return { kind: 'face', crew: top.crew, tile: { x: top.tile.x, y: top.tile.y } };
     return null;
+}
+
+/**
+ * What evidence the NPC deals with gives it to do (rules/evidence.ts): of the NPCs dealing with the same evidence, one
+ * is sent (`pickInvestigator`): to walk over to minor evidence (`inspect`) or to report major evidence (`report`); the
+ * others look at it (`look`).
+ */
+export function evidenceGoal(world: ReadonlyWorld, state: State, npc: DeepReadonly<NpcState>): Goal | null {
+    const ev = npc.evidence;
+    if (!ev) return null;
+    const tile = { x: ev.tile.x, y: ev.tile.y };
+    const sent = pickInvestigator(world, state.npcs.flatMap(n => (n.evidence?.id === ev.id && decidesFor(n) && isPresent(n) ? [{ npc: n, tile: n.evidence.tile }] : [])));
+    if (sent !== npc.id) return { kind: 'look', evidence: ev.id, tile };
+    return { kind: ev.major ? 'report' : 'inspect', evidence: ev.id, tile };
+}
+
+/**
+ * How an NPC reports major evidence (§8.10): a guard radios where it stands, anyone else walks to the nearest guard on
+ * the map who isn't down and tells them, or phones it in when there is none. M1-08 carries out `reportEvidence`.
+ */
+export function evidenceReport(world: ReadonlyWorld, state: State, npc: DeepReadonly<NpcState>): ReactionPlan {
+    const ev = npc.evidence!, facing = facingToward(npc.pos, ev.tile);
+    const inPlace = (carrier: CarrierKind): ReactionPlan =>
+        ({ tile: null, pace: 'hurry', ...(facing ? { facing } : {}), action: { kind: 'reportEvidence', evidence: ev.id, carrier }, onArrival: true });
+    if (personOf(world, npc.id).observer === 'enforcer') return inPlace('guardRadio');
+    let guard: DeepReadonly<NpcState> | undefined, best = Infinity;
+    for (const n of state.npcs) {
+        if (n.id === npc.id || personOf(world, n.id).observer !== 'enforcer' || isEyesDown(n) || !isPresent(n)) continue;
+        const dx = n.pos.x - npc.pos.x, dy = n.pos.y - npc.pos.y, d = dx * dx + dy * dy;
+        if (d < best) { best = d; guard = n; }
+    }
+    if (!guard) return inPlace('phoneCall');
+    return { tile: { x: guard.pos.x, y: guard.pos.y }, pace: 'hurry', action: { kind: 'tellEvidence', npc: guard.id, evidence: ev.id }, onArrival: false };
 }
 
 /** The turn of the coming world phase: this turn's in a crew phase, the next one's at the end of a world phase. */
@@ -250,9 +292,9 @@ export const comingPhase = (state: State): number => (state.phase === 'world' ? 
 /** The status badge a goal shows (§16.5), for an NPC whose status this module owns. */
 export function statusFor(npc: DeepReadonly<NpcState>, goal: Goal): NpcStatus {
     if (goal.kind === 'away' || goal.kind === 'enter') return 'away';
-    if (npc.alerted || goal.kind === 'react') return 'alerted';
-    if (goal.kind === 'investigate' || goal.kind === 'search' || goal.kind === 'challenge' || goal.kind === 'escort') return 'investigating';
-    if (goal.kind === 'face' || goal.kind === 'watch') return 'curious';
+    if (npc.alerted || goal.kind === 'react' || goal.kind === 'report') return 'alerted';
+    if (goal.kind === 'investigate' || goal.kind === 'search' || goal.kind === 'challenge' || goal.kind === 'escort' || goal.kind === 'inspect') return 'investigating';
+    if (goal.kind === 'face' || goal.kind === 'watch' || goal.kind === 'look') return 'curious';
     return 'calm';
 }
 

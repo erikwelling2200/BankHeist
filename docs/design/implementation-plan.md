@@ -238,6 +238,46 @@ Each package lists its goal, the design sections it covers, the files, what it d
   - **Files:** `src/sim/rules/actions/*`, `worldPhase.ts`, `evidence.ts`.
   - **Depends on:** M1-05, M1-06.
   - **Accept:** the §6.2 double takedown (a witness dropped in the same crew phase never acts); undo is allowed only when nothing was revealed, checked or rolled.
+  - **Notes (done):** `rules/actions/act.ts`: every action but Move and Dash is a `registerAction(type, { whyNot,
+    candidates, cost, illegal, run })`, whose reducer checks (`whyNot`, before anything changes or rolls), spends
+    (`spendActions`, the one helper, Move and Dash included), runs, has witnesses judge an illegal act (`witnessAct`)
+    and ends with `perceiveEnd`. `legalActions(world, state, crew)` lists every such command allowed now (the UI's
+    menu; the property test's random player) and `whyNot(world, state, cmd)` says why one isn't. Commands:
+    `door { crew, door, action: open|close|lock|unlock }` (beside the door; decision 25), `knockout { crew, npc }`
+    (`inReach`: a neighbour with no wall between; not Hostile unless a `registerKnockoutWindow` says so; quiet noise 2;
+    out cold `rules.knockoutPhases` (4) world phases, `NpcState.outCold`, intent cleared at once; wakes Alerted where it
+    lies at the end of the 4th, `knockout.wake` in devices, and reports its assault), `drag { crew, npc }` (a body or a
+    tied person in reach; `CrewState.dragging`, `carrying: 'body'` so Armed; half reach and no Dash through
+    `registerBudgetModifier` / `registerDashCheck` in crew/movement.ts; the body follows each step), `drop { crew }`,
+    `stash { crew, at? }` (a `dumpster`/`closet` object in reach, or anywhere in `World.stashRooms`, the cleaner's
+    closet; `NpcState.stashed`), `wait { crew }` (now ends an action in view), and the generic
+    `interact { crew, object, verb }` dispatched to `registerInteraction(kind, { verb: { cost, illegal, whyNot, run } })`
+    (no kinds yet: M1-08 adds the panels). The world phase order stays the engine's (§6.1); there is no worldPhase.ts.
+    `crewBudget(world, member, mode)` and `dashRefusal(world, state, crew)` are what the move/dash commands use: the
+    reach overlay and the dash band (src/game/movement.ts, debug.ts) should call them instead of `moveBudget` /
+    `dashBudget`, or a crew member dragging a body is shown twice the reach the commit allows. The scene should hide
+    stashed NPCs (`stashed !== null`) and draw a dragged one with its dragger.
+    - **Evidence** (`rules/evidence.ts`): sources (`registerEvidenceSource`) make `evidenceOnMap(world, state)`: bodies,
+      tied people, missing colleagues and empty teller windows (staff or guards down, stashed or dragged off while their
+      schedule has them standing somewhere), a Secure door left open with nobody in the doorway, holes (breached doors,
+      opened walls), dead cameras, and `State.evidence` items left on the floor (`placeEvidence`: weapon, blood, an
+      unattended loot bag, a drill); lights out waits for power (M4). Noticed only in the world phase (decision 26)
+      along the very walks perception judges (`worldPoses`): `evidenceWorldPhase(world, state, sight, options)` is both
+      the hatched overlay's answer (with `crew`/`tile` for a crew member elsewhere, on a copy) and what the
+      `evidence.judge` (−101) / `evidence.notice` (−95) hooks apply. Each NPC reacts once per item (`NpcState.noticed`);
+      a `bark { npc, cause, evidence, first }` names the kind the first time in the heist (`State.barked`). Minor: one
+      `inspect`s (`pickInvestigator`), the others `look` for a phase. Major: Alerted, one `report`s, the others look.
+      **For M1-08:** a guard's report is the intent action `reportEvidence { evidence, carrier: 'guardRadio' }` (and
+      `phoneCall` for anyone with no guard about); carry it out from `WorldPhase.intents` like `raiseAlarm`, then call
+      `clearEvidence(ctx, npc)`. Others walk to the nearest guard with `tellEvidence { npc, evidence }` (carried out
+      here, `evidence.tell`): the guard gets the evidence and reports it. Cameras' major evidence queues in
+      `State.cameraEvidence` (a `cameraSawEvidence` event), beside `cameraReports`, for the operator; a dead camera's
+      feed is noticed here only by someone seeing the camera, the operator's monitors are M1-08's.
+    - **Undo:** by the engine's rule. A door opened or closed through known space with nobody noticing stays
+      undoable, so does a wait out of view; knockouts, drags, drops and stashes are final (they change an NPC), and so is
+      a move while dragging a body (the body moves with it).
+    - Quiet noises (a knockout, a dash) are emitted with who heard them, but hearing still makes nobody Curious: that
+      reaction (§8.9) is in no package yet.
 - [ ] **M1-08 Alarm carriers, check-ins and cameras.**
   - **Covers:** §8.11, §8.12, §9.1 (the stealth carriers), §9.2, the patrol drive-by and dispatch in §16.4.
   - **Work:**
@@ -597,6 +637,17 @@ Later milestones: within each milestone, the `∥` notes in §3 apply. UI packag
     sees the tile during this crew phase. The fresh set restarts at the end of each world phase from what the crew sees
     then, and grows with every step and command. (The hatched world-phase overlay, about where NPCs walk next, still
     covers only the known NPCs' committed walks.)
+
+25. **Doors by hand (M1-07).** Closing a door eases it shut without latching it (closed, not locked); locking a
+    closed door needs no key (a latch or thumb-turn), unlocking a locked one does (keys come with the key graph), and
+    the vault door's time lock is neither. A door that swings shut by itself at the end of a world phase latches.
+26. **Evidence is noticed in the world phase only (M1-07).** NPCs look for evidence along the walks they take in the
+    world phase (from where they stand, so anything in view at the end of the crew phase counts), not after each crew
+    action. What they decide is committed at the end of that world phase and carried out in the next (§6.2), so the
+    crew always has a crew phase to stash the body or close the door. Seeing the act itself is the illegal act's `!`.
+27. **Dragging a body (M1-07).** Taking hold of a body and stashing it are the illegal act "dragging a body"; walking
+    with it is judged by the profile it gives (Armed), so a move's preview stays `assessPath`. The body lies on the
+    dragger's tile (a lying NPC, stepped over by the crew, never stood on).
 
 ### Critical files for implementation
 

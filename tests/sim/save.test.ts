@@ -78,7 +78,7 @@ describe('saving', () => {
  * NpcStatusMap, CarrierKindMap or adds a field must also fill it in below, or a change of shape goes unnoticed.
  */
 const SHAPE_HASHES: Record<number, string> = {
-    1: '53bfaf352519a4cd'
+    1: 'd627132891a505ca'
 };
 
 /** Paths whose objects are records by id, not structs. */
@@ -133,6 +133,15 @@ describe('the save format', () => {
         full.npcs[0]!.search = { tile: { x: 1, y: 1 }, until: 3 };
         full.npcs[0]!.frisked = { jun: 2 };
         full.npcs[0]!.reported = ['mara'];
+        full.npcs[0]!.stashed = 'dumpster-0';
+        full.npcs[0]!.outCold = 4;
+        full.npcs[0]!.noticed = ['body:guard'];
+        full.npcs[0]!.evidence = { id: 'body:guard', kind: 'body', major: true, tile: { x: 1, y: 1 }, decided: { turn: 1, phase: 'world' } };
+        full.npcs[1]!.intent = { path: [], action: { kind: 'tellEvidence', npc: 'teller', evidence: 'body:guard' } };
+        full.crew[1]!.dragging = 'guard';
+        full.evidence = [{ id: 'blood-7', kind: 'blood', pos: { x: 1, y: 1 } }];
+        full.barked = ['body'];
+        full.cameraEvidence = [{ camera: 'cam', evidence: 'body:guard', kind: 'body', tile: { x: 1, y: 1 }, turn: 2 }];
         full.cameraReports = [{ camera: 'cam', crew: 'jun', tile: { x: 0, y: 0 }, turn: 1, phase: 'crew' }];
         full.crew[0]!.notoriety = 2;
         full.edges['eastWest 0 1'] = { material: 'soft', blocksMove: false, blocksSight: false, blocksSound: false, midHeight: false };
@@ -154,6 +163,7 @@ describe('the save format', () => {
             world: {
                 ...world,
                 intel: { blueprints: true, guardRota: true },
+                stashRooms: ['closet'],
                 objects: [
                     { id: 'panel', kind: 'alarmPanel', pos: { x: 0, y: 0 }, facing: 's' },
                     { id: 'desk', kind: 'cctvDesk', pos: { x: 0, y: 0 }, facing: 's', name: 'CCTV desk', room: 'lobby', monitors: 4 },

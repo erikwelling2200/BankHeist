@@ -312,7 +312,7 @@ describe('observers', () => {
     const npc = (status: NpcState['status'], facing: Facing = 's', alerted = false): NpcState => ({
         id: 'guard', pos: P(4, 0), facing, status, suspicion: {}, exposedTo: [], intent: { path: [] }, alerted,
         alertCause: null, warned: [], challenges: [], wants: [], lastSeen: {}, goal: { kind: 'still' }, route: null, search: null,
-        frisked: {}, reported: []
+        frisked: {}, reported: [], stashed: null, evidence: null, noticed: [], outCold: null
     });
 
     it('build NPCs, cameras and crew from the state', () => {

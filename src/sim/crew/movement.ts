@@ -10,11 +10,13 @@ import {
 import { makeNoise } from '../geo/sound';
 
 /*
- * Move (1 action, 5 tiles, 4 in heavy armour) and Dash (2 actions, 10 tiles, not in heavy armour, a quiet noise of
- * radius 2 from every tile it crosses), §6.3. A move checks its path with `validatePath`, the same steps the reach
- * overlay uses, and opens the doors it walks through. It is undoable unless something it triggers reveals something:
- * perception (M1-05) hangs its checks on each step and on the end through `registerMoveHook`, and the events those
- * emit block undo; so does anyone hearing the dash (`heard`).
+ * Move (1 action, 5 tiles, 4 in heavy armour) and Dash (2 actions, 12 tiles, not in heavy armour, a quiet noise of
+ * radius 2 from every tile it crosses), §6.3. Carrying something Very Heavy (a body, rules/actions/body.ts) halves the
+ * reach and rules out the dash: a package changes the budgets through `registerBudgetModifier`, and the UI asks
+ * `crewBudget` and `dashRefusal`, the same numbers the commands use. A move checks its path with `validatePath`, the
+ * same steps the reach overlay uses, and opens the doors it walks through. It is undoable unless something it triggers
+ * reveals something: perception (M1-05) hangs its checks on each step and on the end through `registerMoveHook`, and
+ * the events those emit block undo; so does anyone hearing the dash (`heard`).
  *
  * **Moving in unknown space (§8.15).** A path is planned and checked against the bank as the crew pictures it
  * (`registerPlanView`: rules/knowledge.ts shows only the NPCs the crew sees or predicts), so a tile an unseen NPC stands
@@ -76,6 +78,42 @@ const DASH_CHECKS = new Map<string, DashCheck>([
 export function registerDashCheck(name: string, check: DashCheck): void {
     if (DASH_CHECKS.has(name)) throw new Error(`Dash check '${name}' already exists`);
     DASH_CHECKS.set(name, check);
+}
+
+/** Changes a crew member's Move or Dash budget in half-steps (carrying a body halves it). */
+export type BudgetModifier = (world: ReadonlyWorld, member: DeepReadonly<CrewState>, mode: MoveMode, budget: number) => number;
+
+const BUDGET_MODIFIERS = new Map<string, BudgetModifier>();
+
+/** Adds a named budget modifier; modifiers run by name. */
+export function registerBudgetModifier(name: string, modifier: BudgetModifier): void {
+    if (BUDGET_MODIFIERS.has(name)) throw new Error(`Budget modifier '${name}' already exists`);
+    BUDGET_MODIFIERS.set(name, modifier);
+}
+
+/**
+ * A crew member's budget in half-steps for a Move or a Dash, with every modifier: what the move and dash commands
+ * check paths against, and what the reach overlay should draw (rather than geo/move.ts `moveBudget`/`dashBudget`).
+ */
+export function crewBudget(world: ReadonlyWorld, member: DeepReadonly<CrewState>, mode: MoveMode): number {
+    let budget = mode === 'dash' ? dashBudget(world) : moveBudget(world, member);
+    for (const name of [...BUDGET_MODIFIERS.keys()].sort()) budget = BUDGET_MODIFIERS.get(name)!(world, member, mode, budget);
+    return budget;
+}
+
+/**
+ * Why a crew member can't dash now (fewer than 2 actions left, heavy armour, carrying a body, …), or null when they
+ * may: the dash command refuses with exactly this, so the UI can grey the dash band without a preview.
+ */
+export function dashRefusal(_world: ReadonlyWorld, state: State, crewId: string): string | null {
+    const member = state.crew.find(c => c.id === crewId);
+    if (!member) return `No crew member '${crewId}'`;
+    if (member.actionsLeft < DASH_ACTIONS) return `${member.name} has ${member.actionsLeft} of ${DASH_ACTIONS} actions left`;
+    for (const name of [...DASH_CHECKS.keys()].sort()) {
+        const reason = DASH_CHECKS.get(name)!(member);
+        if (reason) return reason;
+    }
+    return null;
 }
 
 /** The bank as the crew plans a move against (rules/knowledge.ts: only the NPCs it sees or predicts). Default: the truth. */
@@ -185,18 +223,16 @@ function check(ctx: Ctx, member: CrewState, path: readonly Pos[], budget: number
 
 registerCommand('move', (ctx, cmd) => {
     const member = crewMember(ctx.state, cmd.crew);
-    check(ctx, member, cmd.path, moveBudget(ctx.world, member));
+    check(ctx, member, cmd.path, crewBudget(ctx.world, member, 'move'));
     spendActions(member, MOVE_ACTIONS);
     walk(ctx, member, cmd.path, 'move');
 });
 
 registerCommand('dash', (ctx, cmd) => {
     const member = crewMember(ctx.state, cmd.crew);
-    for (const name of [...DASH_CHECKS.keys()].sort()) {
-        const reason = DASH_CHECKS.get(name)!(member);
-        if (reason) throw new IllegalCommand(reason);
-    }
-    check(ctx, member, cmd.path, dashBudget(ctx.world));
+    const refused = dashRefusal(ctx.world, ctx.state, member.id);
+    if (refused) throw new IllegalCommand(refused);
+    check(ctx, member, cmd.path, crewBudget(ctx.world, member, 'dash'));
     spendActions(member, DASH_ACTIONS);
     walk(ctx, member, cmd.path, 'dash');
 });

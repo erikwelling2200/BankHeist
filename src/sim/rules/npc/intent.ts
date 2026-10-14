@@ -6,7 +6,7 @@ import { registerStateInit } from '../../core/state';
 import type { DeepReadonly, Facing, Intent, NpcState, PersonDef, Pos, ReadonlyWorld, State } from '../../core/types';
 import { registerEvents } from '../../core/undo';
 import {
-    behaviourGoal, comingPhase, decidesFor, friskSatisfied, quarterTurn, reactionOf, settleFrisks, statusFor, topWant, type Goal, type RouteProgress
+    behaviourGoal, comingPhase, decidesFor, evidenceReport, friskSatisfied, quarterTurn, reactionOf, settleFrisks, statusFor, topWant, type Goal, type RouteProgress
 } from './behaviour';
 import { blockIndexAt, LEAVING_ACTIVITIES, ROUTE_ACTIVITIES, routeMode, wayBackIn } from './schedule';
 import { crewTiles, intentEnd, isPresent, npcMoveOptions, othersTiles, personOf, planWalk, type WalkTarget } from './walk';
@@ -135,7 +135,22 @@ function planGoal(world: ReadonlyWorld, state: State, npc: NpcState, goal: Goal,
         }
         case 'face':
         case 'watch':
+        case 'look':
             return face(goal.tile);
+        case 'inspect':
+            return walkIntent(world, state, npc, { tile: goal.tile!, pace: 'hurry' }, taken, { lookAt: goal.tile });
+        case 'report': {
+            const plan = evidenceReport(world, state, npc);
+            if (!plan.tile) {
+                const intent: Intent = { path: [] };
+                if (plan.facing) intent.facing = plan.facing;
+                if (plan.action) intent.action = plan.action;
+                return intent;
+            }
+            return walkIntent(world, state, npc, { tile: plan.tile, pace: plan.pace }, taken, {
+                lookAt: goal.tile, ...(plan.action ? { action: plan.action, onArrival: plan.onArrival } : {})
+            });
+        }
         case 'search': {
             // §16.1: it keeps watching where the crew member was for one more phase, then walks there and looks round.
             const search = npc.search!;

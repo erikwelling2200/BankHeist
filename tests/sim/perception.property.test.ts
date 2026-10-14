@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import { Rng } from '../../src/gen/rng';
 import {
-    assessPath, assessWorldPhase, commit, crewMoveOptions, dueChallenge, EYES_DOWN, FACINGS, fixtureWorld, initialState, moveBudget,
-    sightMap, validatePath, type CameraDef, type CrewStart, type FixtureWall, type Intent, type ObserverClass, type PersonDef, type Pos,
-    type ReadonlyWorld, type ScheduleBlock, type Sighting, type State
+    assessEnd, assessPath, assessWorldPhase, clonePlain, commit, crewBudget, crewMoveOptions, dueChallenge, evidenceWorldPhase, EYES_DOWN, FACINGS,
+    fixtureWorld, hashOf, initialState, legalActions, preview, sightMap, validatePath, witness, type CameraDef, type Command, type CrewStart,
+    type FixtureWall, type Intent, type ObserverClass, type PersonDef, type Pos, type ReadonlyWorld, type ScheduleBlock, type Sighting, type State
 } from '../../src/sim';
 import { scouted } from './helpers';
 
@@ -16,6 +16,10 @@ import { scouted } from './helpers';
  * told included); then the real outcome is compared with the prediction, NPC by NPC: exposure, challenges and pips.
  * Every NPC walks the intent it committed: all of it, or its start when a crew member stands in the way.
  * Whether a move stays undoable is predicted too (it does exactly when nothing would act).
+ * The random player also plays the crew actions of M1-07 (`legalActions`: doors, knockouts, dragging, dropping and
+ * stashing bodies, waiting): each one's preview must equal its commit, and a door's or a knockout's effect on perception
+ * is predicted from the witnesses and the end-of-action check on the state the action leaves; before each world phase
+ * `evidenceWorldPhase` must name exactly the evidence the NPCs and cameras then notice.
  *
  * PERCEPTION_PROBE_WORLDS=2000 npm test -- perception.property runs a larger sample.
  */
@@ -128,6 +132,38 @@ function predict(state: State, crew: string, sightings: readonly Sighting[]): Ef
     return e;
 }
 
+/**
+ * Plays one crew action: its preview must equal its commit. For doors and knockouts, what the NPCs make of it is
+ * predicted from the state the action leaves (the target down, the door moved): the witnesses of an illegal act, then
+ * the end-of-action check, read by the design's words (`predict`).
+ */
+function playAction(world: ReadonlyWorld, state: State, cmd: Command, failures: string[], at: string): State {
+    const seen = preview(world, state, cmd);
+    const result = commit(world, state, cmd);
+    if (JSON.stringify(seen.events) !== JSON.stringify(result.events) || hashOf(seen.state) !== hashOf(result.state)) {
+        failures.push(`${at} ${JSON.stringify(cmd)}: the preview differs from the commit`);
+    }
+    if (cmd.type === 'knockout' || cmd.type === 'door') {
+        const scratch = clonePlain(state);
+        const member = scratch.crew.find(c => c.id === cmd.crew)!;
+        if (cmd.type === 'knockout') {
+            const target = scratch.npcs.find(n => n.id === cmd.npc)!;
+            target.status = 'unconscious';
+            target.intent = { path: [] };
+        } else {
+            scratch.doors[cmd.door] = { status: result.state.doors[cmd.door]!.status };
+        }
+        const sight = sightMap(world, scratch);
+        const sightings = [
+            ...(cmd.type === 'knockout' ? witness(world, scratch, sight, member.id, 'knockout', member.pos) : []),
+            ...assessEnd(world, scratch, sight, member.id, member.pos)
+        ];
+        const expected = predict(scratch, member.id, sightings), got = effectOf(result.state, member.id);
+        if (JSON.stringify(expected) !== JSON.stringify(got)) failures.push(`${at} ${JSON.stringify(cmd)}: expected ${JSON.stringify(expected)}, got ${JSON.stringify(got)}`);
+    }
+    return result.state;
+}
+
 const occupiedBy = (state: State): Set<string> => new Set([...state.npcs, ...state.crew].map(p => `${p.pos.x},${p.pos.y}`));
 
 describe('perception previews (property)', () => {
@@ -135,7 +171,8 @@ describe('perception previews (property)', () => {
         const rng = new Rng(20261014);
         const failures: string[] = [];
         let quietUndoable = 0;
-        let moves = 0, acting = 0, deadlines = 0, worldActing = 0, walked = 0, frisks = 0, preCases = 0;
+        let moves = 0, acting = 0, deadlines = 0, worldActing = 0, walked = 0, frisks = 0, preCases = 0, noticedTotal = 0;
+        const actions: Record<string, number> = {};
         for (let w = 0; w < WORLDS; w++) {
             const { world, free } = makeWorld(rng);
             const crew = [0, 1].map(i => ({ id: `c${i}`, pos: free.splice(rng.int(0, free.length - 1), 1)[0]!, ...rng.pick(LOADOUTS) }));
@@ -155,8 +192,19 @@ describe('perception previews (property)', () => {
                 for (let k = 0; k < 3; k++) {
                     const member = rng.pick(state.crew);
                     if (member.actionsLeft < 1) continue;
+                    if (rng.chance(0.35)) {
+                        const options = legalActions(world, state, member.id).filter(c => c.type !== 'wait' || rng.chance(0.2));
+                        if (!options.length) continue;
+                        const cmd = rng.pick(options);
+                        const outcome = playAction(world, state, cmd, failures, `world ${w} turn ${turn}`);
+                        actions[cmd.type] = (actions[cmd.type] ?? 0) + 1;
+                        // The overlay's world phase was judged before this action changed the floor.
+                        lastPre = undefined;
+                        state = outcome;
+                        continue;
+                    }
                     const path = randomPath(rng, world, member.pos, rng.int(1, 6), occupiedBy(state));
-                    if (!path.length || !validatePath(world, state, member.pos, path, moveBudget(world, member), crewMoveOptions(member)).ok) continue;
+                    if (!path.length || !validatePath(world, state, member.pos, path, crewBudget(world, member, 'move'), crewMoveOptions(member)).ok) continue;
                     const judged = assessPath(world, state, member.id, path);
                     const all = [...judged.steps, ...judged.end];
                     const expected = predict(state, member.id, all);
@@ -171,8 +219,10 @@ describe('perception previews (property)', () => {
                     if (JSON.stringify(got) !== JSON.stringify(expected)) failures.push(`world ${w} move ${JSON.stringify(path)}: expected ${JSON.stringify(expected)}, got ${JSON.stringify(got)}`);
                     // Seeing something new (rules/knowledge.ts) makes a quiet move final too.
                     const revealed = result.events.some(e => e.type === 'revealed');
-                    if (quiet && !revealed) quietUndoable++;
-                    if ((quiet && !revealed) !== result.undoable) failures.push(`world ${w} move ${JSON.stringify(path)}: undoable ${result.undoable}, predicted ${quiet && !revealed}`);
+                    // Dragging a body moves an NPC with the crew member: final too (rules/actions/body.ts).
+                    const free = quiet && !revealed && member.dragging === null;
+                    if (free) quietUndoable++;
+                    if (free !== result.undoable) failures.push(`world ${w} move ${JSON.stringify(path)}: undoable ${result.undoable}, predicted ${free}`);
                     state = result.state;
                 }
                 const sight = sightMap(world, state);
@@ -196,7 +246,11 @@ describe('perception previews (property)', () => {
                     preCases++;
                 }
                 const committed: Record<string, Intent> = Object.fromEntries(state.npcs.map(n => [n.id, n.intent]));
+                const evidence = evidenceWorldPhase(world, state, sight).filter(e => e.by === 'npc').map(e => `${e.observer} ${e.evidence}`);
                 const result = commit(world, state, { type: 'endTurn' });
+                const noticed = result.events.flatMap(e => (e.type === 'evidenceNoticed' ? [`${e.npc} ${e.evidence}`] : []));
+                noticedTotal += noticed.length;
+                if (JSON.stringify(noticed) !== JSON.stringify(evidence)) failures.push(`world ${w} turn ${turn}: evidence predicted ${JSON.stringify(evidence)}, noticed ${JSON.stringify(noticed)}`);
                 // Every NPC walks its committed intent: all of it, or the start of it when the crew stood in its way.
                 const blocked = new Set(result.events.flatMap(e => (e.type === 'npcBlocked' ? [e.npc] : [])));
                 for (const e of result.events) {
@@ -233,5 +287,8 @@ describe('perception previews (property)', () => {
         expect(walked).toBeGreaterThan(WORLDS);
         expect(frisks).toBeGreaterThan(0);
         expect(preCases).toBeGreaterThan(WORLDS * 2);
+        // The crew actions are played, and NPCs find what they leave behind.
+        for (const type of ['door', 'knockout', 'drag', 'wait']) expect(actions[type] ?? 0, type).toBeGreaterThan(WORLDS / 20);
+        expect(noticedTotal).toBeGreaterThan(WORLDS / 10);
     }, Math.max(10_000, WORLDS * 20));
 });
