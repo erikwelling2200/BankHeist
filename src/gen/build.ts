@@ -318,7 +318,9 @@ export function shortcuts(site: Site, rooms: GenRoom[], rng: Rng): void {
     for (let n = 0; n < SHORTCUTS; n++) {
         let best: { a: GenRoom; b: GenRoom; edge: Edge; steps: number } | undefined;
         for (const [i, a] of rooms.entries()) for (const b of rooms.slice(i + 1)) {
-            if (NO_SHORTCUT.includes(a.type) || NO_SHORTCUT.includes(b.type) || isOpenPair(a.type, b.type)) continue;
+            // Never into a secure room either: its door is a hard lock (or sits behind one), and a second way in walks round
+            // it (a deposit-box room off the antechamber would bypass the mantrap).
+            if (NO_SHORTCUT.includes(a.type) || NO_SHORTCUT.includes(b.type) || a.zone === 'secure' || b.zone === 'secure' || isOpenPair(a.type, b.type)) continue;
             if (site.doors.some(d => (d.a === a.id && d.b === b.id) || (d.a === b.id && d.b === a.id))) continue;
             const edges = site.sharedEdges(a, b);
             const edge = edges.length >= 3 ? doorEdge(site, edges, rng)?.[0] : undefined;

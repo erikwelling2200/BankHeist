@@ -370,6 +370,37 @@ describe('regressions found by adversarial review', () => {
         }
     }, 300000);
 
+    it('never lets a shortcut walk round the mantrap or into any secure room', () => {
+        // A shortcut into the deposit-box room once let the crew reach the antechamber without the mantrap.
+        const pins = [{ layout: 68549, population: 8, tier: 'city', archetype: 'twoWing', plot: 'midBlock' }, { layout: 69665, population: 8, tier: 'city', archetype: 'twoWing', plot: 'stripMallEnd' }] as const;
+        let n = 0;
+        const banks = pins.map(pin => bank(pin.layout, pin.population, pin));
+        for (const tier of TIERS) for (const archetype of archetypesFor(tier)) for (const plot of PLOTS) banks.push(bank(3000 + n++, 1, { tier, archetype, plot }));
+        for (const b of banks) {
+            const secure = new Set(b.rooms.filter(r => r.bank && r.zone === 'secure').map(r => r.id));
+            expect(b.doors.filter(d => d.detour !== undefined && (secure.has(d.a) || secure.has(d.b))).map(d => d.id), `${b.tier} ${b.archetype} ${b.seed.layout}`).toEqual([]);
+            const lock = b.locks.find(l => l.id === 'mantrap'), ante = b.rooms.find(r => r.type === 'antechamber');
+            if (!lock || !ante) continue;
+            // With the mantrap's door walled up, nothing outside reaches the antechamber.
+            const reached = new Set(b.rooms.filter(r => !r.bank).map(r => r.id));
+            for (let grew = true; grew;) {
+                grew = false;
+                for (const d of b.doors) if (d.id !== lock.target) for (const [from, to] of [[d.a, d.b], [d.b, d.a]]) if (reached.has(from!) && !reached.has(to!)) { reached.add(to!); grew = true; }
+            }
+            expect(reached.has(ante.id), `mantrap bypassed in ${b.tier} ${b.archetype} ${b.plot} ${b.seed.layout}`).toBe(false);
+        }
+    }, 300000);
+
+    it('only names things the bank has in its opportunities', () => {
+        for (const pin of [{ layout: 95837, population: 12, tier: 'small', archetype: 'atrium', plot: 'midBlock' }, { layout: 48827, population: 5, tier: 'city', archetype: 'threeKeys', plot: 'stripMallEnd' },
+            { layout: 933146, population: 4, tier: 'hq', archetype: 'fortress', plot: 'plazaFront' }] as const) {
+            const b = bank(pin.layout, pin.population, pin), ids = b.opportunities.map(o => o.id);
+            if (ids.includes('vent')) expect(b.approaches.some(a => a.name.startsWith('Air duct')), JSON.stringify(pin)).toBe(true);
+            const keys = b.opportunities.find(o => o.id === 'cleaner-keys');
+            if (keys?.text.includes("cleaner's closet")) expect(b.rooms.some(r => r.type === 'cleanersCloset'), JSON.stringify(pin)).toBe(true);
+        }
+    }, 120000);
+
     it('makes the note on a desk part of how this vault opens', () => {
         const b = bank(1, 1, { tier: 'city', archetype: 'threeKeys' });
         const note = b.opportunities.find(o => o.id === 'sticky-note');

@@ -94,7 +94,8 @@ export function roomGallery(seed = 1): { data: BankData; cells: GalleryCell[] } 
 function size(type: RoomType, variant: GalleryVariant): { w: number; h: number } {
     const area = ROOM_RULES[type].area ?? { target: 24, max: 36 };
     const want = variant === 'small' ? Math.max(9, Math.round(area.target * 0.6)) : variant === 'largest' ? area.max : area.target;
-    const w = Math.max(3, Math.round(Math.sqrt(want * 1.25))), h = Math.max(3, Math.round(want / w));
+    // The largest stays within the most the program allows: rounding up would show a room no bank can have.
+    const w = Math.max(3, Math.round(Math.sqrt(want * 1.25))), h = Math.max(3, variant === 'largest' ? Math.floor(want / w) : Math.round(want / w));
     return variant === 'L-shaped' ? { w: Math.max(w, 5), h: Math.max(h, 5) } : { w, h };
 }
 
