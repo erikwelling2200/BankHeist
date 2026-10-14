@@ -2,7 +2,7 @@ import type { LevelProp } from '../../level/plan';
 import type { Facing, Size } from '../../level/space';
 import { atmScreen, camera, clock, crest, exitSign, keycardLed, noticeBoard, painting } from './dressing';
 import { backCounter, bin, brochureRack, coffeeTable, counter, filingCabinet, mat, plant, printer, queueRail, sofa, waterCooler, writingDesk } from './furniture';
-import { cafeCounter, cafeTable, dumpster, generator, menuBoard, wallLadder } from './outside';
+import { bench, cafeCounter, cafeTable, dumpster, generator, menuBoard, rifleCase, tree, wallLadder } from './outside';
 import { alarmPanel, atmBack, bookshelf, boxes, breakerPanel, cashCart, cashShelf, cctvDesk, chair, depositBoxes, desk, diningTable, fridge, kitchenCounter, lockers, mopBucket, officeChair, serverRack, shelving, toilet, vaultConsole, washbasin } from './rooms';
 import { bollard, hydrant, manhole, newsBox, streetBin, streetLamp } from './street';
 import { vanArt } from './van';
@@ -69,5 +69,8 @@ export function propArt(p: LevelProp, s: Size, facing: Facing): PropArt {
         case 'dumpster': return dumpster(s, facing);
         case 'generator': return generator(s, facing);
         case 'wallLadder': return wallLadder(s, facing);
+        case 'tree': return tree(s, facing);
+        case 'bench': return bench(s, facing);
+        case 'rifleCase': return rifleCase(s, facing);
     }
 }

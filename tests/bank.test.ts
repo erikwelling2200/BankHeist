@@ -3,7 +3,7 @@ import { buildExposure, buildLightMaps, streetFront, type Caster } from '../src/
 import { TILE } from '../src/level/level';
 import { propBox } from '../src/level/catalog';
 import { BANK_PEOPLE, BANK_PLAN, BANK_PROPS, BANK_ROOMS } from '../src/level/bank';
-import { isOffMap, parsePlan } from '../src/level/plan';
+import { floorHeight, isOffMap, parsePlan, RAISED_HEIGHT } from '../src/level/plan';
 import { boxesOverlap, CUT_HEIGHT, PERSON_SIZE, place, WALL_HEIGHT, type Box } from '../src/level/space';
 import { wallFootprint, wallInsets, WALL_THICKNESS, type Wall } from '../src/level/walls';
 
@@ -35,12 +35,14 @@ describe('bank plan', () => {
         // Every segment of the street front with a building behind it: all but the two in front of tiles off the map.
         expect(front.walls.length).toBe(tiles[0]!.filter((_, x) => !isOffMap(tiles[front.line / TILE - 1]![x]!)).length);
         expect(tiles[front.line / TILE]!.every(t => t === 's')).toBe(true);
-        expect(tiles.at(-1)!.every(t => t === 'r')).toBe(true);
+        // The road, then across it the far curb and sidewalk, in front of the office tower and its plazas.
+        expect([31, 32, 33, 34, 35].every(y => tiles[y]!.every(t => t === 'r' || t === 'l'))).toBe(true);
+        expect(tiles[36]!.every(t => t === 'c') && tiles[37]!.every(t => t === 's')).toBe(true);
         expect(tiles[1]!.every(t => t === 'a')).toBe(true);
     });
 
     it('names every room, each a rectangle of the floor its zone is drawn with, none overlapping', () => {
-        const zoneFloor: Record<string, string[]> = { public: ['.', '=', 't'], staff: [','], secure: ['q', 'v', ','], neighbour: ['t', 'f', 'u'], outdoors: ['a', 's', 'c', 'r', 'l'] };
+        const zoneFloor: Record<string, string[]> = { public: ['.', '=', 't'], staff: [','], secure: ['q', 'v', ','], neighbour: ['t', 'f', 'u', 'm', 'n', 'h', 'z', 'q'], outdoors: ['a', 's', 'c', 'r', 'l', 'y'] };
         const owner = new Map<string, string>();
         for (const room of BANK_ROOMS) for (let y = room.y; y < room.y + room.h; y++) for (let x = room.x; x < room.x + room.w; x++) {
             expect(owner.get(`${x},${y}`), `${room.name} at ${x},${y}`).toBeUndefined();
@@ -49,6 +51,50 @@ describe('bank plan', () => {
         }
         // Every tile on the map is a room or off the map.
         tiles.forEach((row, y) => row.forEach((t, x) => expect(owner.has(`${x},${y}`) || isOffMap(t), `${x},${y}`).toBe(true)));
+    });
+});
+
+describe('the sniper nest across the street (§14.5, §14.7)', () => {
+    const nest = BANK_ROOMS.find(r => r.name === 'sniper nest')!;
+    const DOORS = ['doorWood', 'doorKeycard', 'doorService', 'doorGlass', 'doorTower', 'vaultDoor'];
+    const edge = new Map(walls.map(w => [`${w.run} ${w.tx} ${w.ty}`, w]));
+
+    it('is a room of raised tiles with glass facing the bank', () => {
+        for (let y = nest.y; y < nest.y + nest.h; y++) for (let x = nest.x; x < nest.x + nest.w; x++) expect(floorHeight(tiles, x, y)).toBe(RAISED_HEIGHT);
+        for (let x = nest.x; x < nest.x + nest.w; x++) expect(edge.get(`eastWest ${x} ${nest.y}`)?.kind).toBe('curtain');
+        expect(nest.y).toBeGreaterThan(front.line / TILE);
+    });
+
+    it('climbs a flight of stairs a step at a time', () => {
+        const flight = tiles.flatMap((row, y) => row.map((t, x) => ({ t, x, y }))).filter(c => c.t === 'z');
+        expect(flight.length).toBeGreaterThan(0);
+        for (const { x, y } of flight) {
+            expect(floorHeight(tiles, x, y)).toBeGreaterThan(floorHeight(tiles, x, y + 1));
+            expect(floorHeight(tiles, x, y - 1)).toBeGreaterThan(floorHeight(tiles, x, y));
+        }
+    });
+
+    it('is reached from the sidewalk through doors and up the stairs, not over a railing or by jumping a storey', () => {
+        // Walk tile to tile: through no wall or a door, and never up or down more than a step.
+        const maxStep = RAISED_HEIGHT / 3;
+        const seen = new Set<string>(), queue: [number, number][] = [[20, 38]];
+        seen.add('20,38');
+        while (queue.length) {
+            const [x, y] = queue.shift()!;
+            for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]] as const) {
+                const nx = x + dx, ny = y + dy, t = tiles[ny]?.[nx];
+                if (t === undefined || isOffMap(t) || seen.has(`${nx},${ny}`)) continue;
+                const wall = dx ? edge.get(`northSouth ${Math.max(x, nx)} ${y}`) : edge.get(`eastWest ${x} ${Math.max(y, ny)}`);
+                if (wall && !DOORS.includes(wall.kind)) continue;
+                if (Math.abs(floorHeight(tiles, nx, ny) - floorHeight(tiles, x, y)) > maxStep) continue;
+                seen.add(`${nx},${ny}`);
+                queue.push([nx, ny]);
+            }
+        }
+        expect(seen.has(`${nest.x},${nest.y}`)).toBe(true);
+        // The railing keeps anyone from stepping off the landing onto the stairwell floor below.
+        const landing = BANK_ROOMS.find(r => r.name === 'stair landing')!;
+        expect(edge.get(`eastWest ${landing.x} ${landing.y + 1}`)?.kind).toBe('rail');
     });
 });
 

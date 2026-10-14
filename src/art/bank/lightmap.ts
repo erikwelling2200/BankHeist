@@ -65,6 +65,23 @@ export function streetFront(level: Level): { walls: Wall[]; line: number } {
     return { walls, line };
 }
 
+/**
+ * The fronts across the street, facing back at the bank: east-west segments south of the street front with open ground
+ * on their north side and a building on their south, and the line they stand on. A plot may have none.
+ */
+export function farFront(level: Level): { walls: Wall[]; line: number } | undefined {
+    const street = streetFront(level).line;
+    const walls = level.walls.filter(w => {
+        if (w.run !== 'eastWest' || w.ty * TILE <= street) return false;
+        const south = level.tiles[w.ty]?.[w.tx], north = level.tiles[w.ty - 1]?.[w.tx];
+        return south !== undefined && north !== undefined && isOutdoors(north) && !isOutdoors(south) && !isOffMap(south);
+    });
+    if (!walls.length) return undefined;
+    const line = walls[0]!.ty * TILE;
+    if (walls.some(w => w.ty * TILE !== line)) throw new Error('The far front has to run along one line');
+    return { walls, line };
+}
+
 /** Pixels taken by walls, and by tiles off the map. */
 function solidMask(level: Level, width: number, height: number): Uint8Array {
     const mask = new Uint8Array(width * height);
@@ -171,13 +188,14 @@ export function buildLightMaps(level: Level, occluders: Occluder[], casters: Cas
  */
 export function buildExposure(level: Level): { width: number; height: number; rgb: Float32Array } {
     const width = level.tiles[0]!.length * TILE, height = level.tiles.length * TILE;
-    const front = streetFront(level).line;
+    const front = streetFront(level).line, far = farFront(level)?.line;
     const rgb = new Float32Array(width * height * 3);
     for (let y = 0; y < height; y++) for (let x = 0; x < width; x++) {
         const t = level.tiles[Math.floor(y / TILE)]![Math.floor(x / TILE)]!;
         let factor = [2, 2, 2];
         if (!isOutdoors(t)) {
-            const near = y < front ? Math.max(0, 1 - (front - y) / WINDOW_REACH) : 0;
+            // Lifted towards the glass on the street: the bank's front below, the far front above a building across the street.
+            const near = y < front ? Math.max(0, 1 - (front - y) / WINDOW_REACH) : far !== undefined && y >= far ? Math.max(0, 1 - (y - far) / WINDOW_REACH) : 0;
             const r = 2 * (ROOF_DEEP + (ROOF_WINDOW - ROOF_DEEP) * band(near, 4, x, y));
             factor = [r * 0.9, r * 0.95, r];
         }

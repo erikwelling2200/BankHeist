@@ -320,6 +320,7 @@ export const LOOKS: Record<string, PersonSpec> = {
     passerby: { skin: skin.tan, hair: hair.auburn, hairStyle: 'long', top: cloth.teal, topKind: 'coat', legs: cloth.black, shoes: cloth.black, short: 1, carry: 'handbag' },
     crewMara: { skin: skin.pale, hair: hair.auburn, hairStyle: 'ponytail', top: cloth.olive, topKind: 'bomber', under: cloth.charcoal, legs: cloth.black, shoes: cloth.black, short: 1 },
     crewJun: { skin: skin.tan, hair: hair.black, hairStyle: 'short', top: cloth.black, topKind: 'bomber', under: cloth.charcoal, legs: cloth.denim, shoes: cloth.black, carry: 'duffel' },
+    crewSol: { skin: skin.brown, hair: hair.black, hairStyle: 'buzz', top: cloth.olive, topKind: 'hoodie', legs: cloth.charcoal, shoes: cloth.black, beard: true },
     manager: { skin: skin.tan, hair: hair.grey, hairStyle: 'short', top: cloth.navy, topKind: 'suit', tie: cloth.mustard, legs: cloth.navy, shoes: cloth.black, glasses: true, lanyard: true },
     operator: { skin: skin.pale, hair: hair.brown, hairStyle: 'buzz', top: cloth.charcoal, topKind: 'shirt', legs: cloth.charcoal, shoes: cloth.black, lanyard: true, beard: true },
     cleaner: { skin: skin.dark, hair: hair.black, hairStyle: 'bun', top: cloth.teal, topKind: 'uniform', legs: cloth.teal, shoes: cloth.white, short: 1 },

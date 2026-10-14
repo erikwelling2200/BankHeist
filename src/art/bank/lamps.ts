@@ -19,7 +19,7 @@ import { PixelBitmap } from '../PixelBitmap';
 export interface Lamp { x: number; y: number; z: number; radius: number; color: number; intensity: number; from: { x: number; y: number } }
 
 /** Glass lets light through; every other wall stops it. */
-const CLEAR: WallKind[] = ['window', 'doorGlass'];
+const CLEAR: WallKind[] = ['window', 'doorGlass', 'curtain', 'doorTower', 'rail'];
 
 /**
  * Pixels of the map that stop light (`blocks`: walls other than glass, and tiles off the map) and where lamp light
@@ -153,22 +153,28 @@ export function roomLamps(rooms: readonly Room[]): Lamp[] {
 }
 
 /**
- * Daylight bouncing off the floor just inside the street glass: a soft warm patch two tiles in behind each run of
- * windows, leaning up and to the left with the sun.
+ * Daylight bouncing off the floor just inside the street glass: a soft patch two tiles in behind each run of windows.
+ * Behind the bank's front (`side` north: the building lies north of the line) it is warm and leans up and to the left
+ * with the sun; behind a front facing away from the sun it is cool sky light.
  */
-export function windowPatches(level: Level, line: number): Lamp[] {
-    const glass = level.walls.filter(w => w.run === 'eastWest' && w.ty * TILE === line && (w.kind === 'window' || w.kind === 'doorGlass')).map(w => w.tx).sort((a, b) => a - b);
+export function windowPatches(level: Level, line: number, side: 'north' | 'south' = 'north'): Lamp[] {
+    const glass = level.walls.filter(w => w.run === 'eastWest' && w.ty * TILE === line && GLASS.includes(w.kind)).map(w => w.tx).sort((a, b) => a - b);
     const runs: number[][] = [];
     for (const tx of glass) {
         const run = runs.at(-1);
         if (run && run.at(-1) === tx - 1) run.push(tx);
         else runs.push([tx]);
     }
+    // Sunlight through the bank's front lands warm; a front facing away from the sun lets in cool sky light.
+    const into = side === 'north' ? -1 : 1, color = side === 'north' ? 0xffd9a0 : 0xd8e4ff;
     return runs.map(run => {
-        const x = ((run[0]! + run.at(-1)! + 1) / 2) * TILE - 20, y = line - 2 * TILE;
-        return { x, y, z: 30, radius: 52, color: 0xffd9a0, intensity: 0.6, from: { x: x + 20, y: y + 8 } };
+        const lean = side === 'north' ? 20 : 0, x = ((run[0]! + run.at(-1)! + 1) / 2) * TILE - lean, y = line + into * 2 * TILE;
+        return { x, y, z: 30, radius: 52, color, intensity: side === 'north' ? 0.6 : 0.45, from: { x: x + lean, y: y - into * 8 } };
     });
 }
+
+/** Glass in a front: windows, glass doors and curtain walls. */
+const GLASS: WallKind[] = ['window', 'doorGlass', 'curtain', 'doorTower'];
 
 /**
  * How much lamp light reaches the middle of each tile, on the scale of a lamp's intensity (a flat floor right under a

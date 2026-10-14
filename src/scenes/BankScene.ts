@@ -1,17 +1,17 @@
 import Phaser from 'phaser';
 import { bakeLighting, LampReach, lightBlockers, LIT, roomLamps, tileLight, windowPatches, type Exposure, type Lamp } from '../art/bank/lamps';
-import { buildExposure, buildLightMaps, streetFront, type Caster, type Occluder } from '../art/bank/lightmap';
+import { buildExposure, buildLightMaps, farFront, streetFront, type Caster, type Occluder } from '../art/bank/lightmap';
 import { LOOKS, person, PERSON_HEIGHT } from '../art/bank/people';
 import { propArt, type PropArt } from '../art/bank/props';
 import { BANK_TILE_INDEX, bankTileset, type BankTileName } from '../art/bank/tiles';
-import { wallArt, wallLook } from '../art/bank/walls';
-import { PAL } from '../art/palette';
+import { doorSill, wallArt, wallLook, wallMargin } from '../art/bank/walls';
+import { deepen, mix, PAL } from '../art/palette';
 import { PixelBitmap, toCanvas } from '../art/PixelBitmap';
 import { bayer4, mulberry32, valueNoise } from '../art/random';
 import { BANK_PEOPLE, BANK_PLAN, BANK_PROPS, BANK_ROOMS } from '../level/bank';
 import { propBox, propSize } from '../level/catalog';
 import { TILE } from '../level/level';
-import { isOffMap, parsePlan, type Level, type LevelPerson, type LevelProp, type PersonFacing as Facing } from '../level/plan';
+import { floorHeight, isOffMap, isOutdoors, parsePlan, type Level, type LevelPerson, type LevelProp, type PersonFacing as Facing } from '../level/plan';
 import { baseLine, PERSON_SIZE, px, WALL_STEPS, type Box } from '../level/space';
 import { wallFootprint, type Footprint, type Wall } from '../level/walls';
 import { mapZoom, nearestStep, zoomSteps } from '../logic/zoom';
@@ -82,8 +82,10 @@ interface WallSprite {
     target: number;
     /** Outer walls with nothing behind them always stand. */
     standing: boolean;
-    /** Part of the street front, whose height the cloud shadows follow. */
+    /** Part of the street front, whose height the cloud shadows' top follows. */
     front: boolean;
+    /** Part of the front across the street, whose height the cloud shadows' bottom follows. */
+    far: boolean;
     dressing: { top: number; images: Phaser.GameObjects.Image[] }[];
 }
 
@@ -108,10 +110,16 @@ export class BankScene extends Phaser.Scene {
     private wallClock = 0;
     private cursors?: Phaser.Types.Input.Keyboard.CursorKeys;
     /** Cloud shadows: a pre-tiled image, shifted and cropped as they drift (a TileSprite showed seams under MULTIPLY). */
-    private clouds!: Phaser.GameObjects.Image;
+    private clouds: Phaser.GameObjects.Image[] = [];
     private cloudDrift = { x: 0, y: 0 };
     /** Where the cloud shadows start: the top of the street front, so they fall on it and on the street. */
     private cloudTop = 0;
+    /**
+     * Where they stop: the top of the front across the street, whose face we see from inside. Beyond it they go on only
+     * over the open ground (`cloudSpans`, pixel ranges across the map) either side of the building.
+     */
+    private cloudBottom = 0;
+    private cloudSpans: [number, number][] = [];
     private controls?: CameraControls;
     /** The screen's size in device pixels. */
     private screen = { width: 0, height: 0 };
@@ -121,7 +129,10 @@ export class BankScene extends Phaser.Scene {
     private zoomLevels: number[] = [];
     /** While the tactical map shows: the view to go back to. */
     private mapView?: { zoom: number; x: number; y: number };
+    /** The fingers' spread, in screen pixels, when the pinch last zoomed. */
     private pinch?: number;
+    /** Where the dragging pointer was, in screen pixels: game pixels change size with the zoom, screen pixels don't. */
+    private dragFrom?: { x: number; y: number };
     private mapWidth = 0;
     private mapHeight = 0;
 
@@ -141,7 +152,11 @@ export class BankScene extends Phaser.Scene {
             const box = propBox(p, this.level.walls), art = propArt(p, propSize(p), box.facing);
             return { p, box, art, left: box.x - art.originX, top: baseLine(box) - box.z - art.lit.height };
         });
-        this.lamps = [...roomLamps(BANK_ROOMS), ...windowPatches(this.level, streetFront(this.level).line), ...props.flatMap(propLamps)];
+        const far = farFront(this.level);
+        this.lamps = [
+            ...roomLamps(BANK_ROOMS), ...windowPatches(this.level, streetFront(this.level).line), ...(far ? windowPatches(this.level, far.line, 'south') : []),
+            ...props.flatMap(propLamps)
+        ];
         this.reach = new LampReach(lightBlockers(this.level), this.lamps);
         this.exposure = buildExposure(this.level);
         this.litTiles = tileLight(this.level, this.lamps, this.reach).map(row => row.map(light => light >= LIT));
@@ -301,18 +316,23 @@ export class BankScene extends Phaser.Scene {
         const height = WALL_STEPS[step]!;
         w.image.setFrame(w.frames[step]!);
         for (const d of w.dressing) for (const image of d.images) image.setVisible(d.top <= height);
-        if (w.front) {
-            // Cloud shadows fall on the street and the fronts, not on the floor seen over a cut-down front.
-            this.cloudTop = wallFootprint(w.wall).y - height;
-            this.placeClouds();
-        }
+        // Cloud shadows fall on the street and the fronts, not on the floor seen over a cut-down front, nor on the inside
+        // of the front across the street.
+        if (w.front) this.cloudTop = wallFootprint(w.wall).y - height;
+        if (w.far) this.cloudBottom = wallFootprint(w.wall).y - height;
+        if (w.front || w.far) this.placeClouds();
     }
 
-    /** Shifts the cloud shadows by their drift, within one tile of the pattern, and crops them to the street and the fronts. */
+    /** Shifts the cloud shadows by their drift, within one tile of the pattern, and crops them to the open ground and the fronts. */
     private placeClouds(): void {
+        if (!this.clouds.length) return;
         const ox = Phaser.Math.Wrap(this.cloudDrift.x, 0, CLOUD_TILE), oy = Phaser.Math.Wrap(this.cloudDrift.y, 0, CLOUD_TILE);
         const x = ox - CLOUD_TILE, y = oy - CLOUD_TILE;
-        this.clouds.setPosition(x, y).setCrop(-x, this.cloudTop - y, this.mapWidth, this.mapHeight - this.cloudTop);
+        const rects = [
+            { x: 0, y: this.cloudTop, w: this.mapWidth, h: this.cloudBottom - this.cloudTop },
+            ...this.cloudSpans.map(([x0, x1]) => ({ x: x0, y: this.cloudBottom, w: x1 - x0, h: this.mapHeight - this.cloudBottom }))
+        ];
+        rects.forEach((r, i) => this.clouds[i]!.setPosition(x, y).setCrop(r.x - x, r.y - y, r.w, r.h));
     }
 
     /** The floor of every tile; walls stand on top of it along the edges. */
@@ -331,7 +351,12 @@ export class BankScene extends Phaser.Scene {
             case 'u': return variant(2) ? 'dusty1' : 'dusty0';
             case 'a': return variant(6) === 0 ? 'alley1' : 'alley0';
             case 's': return (['sidewalkTL', 'sidewalkTR', 'sidewalkBL', 'sidewalkBR'] as const)[(x % 2) + (y % 2) * 2]!;
-            case 'c': return 'curb';
+            case 'c': return tiles[y - 1]?.[x] === 'r' ? 'curbFar' : 'curb';
+            case 'm': return variant(2) ? 'granite1' : 'granite0';
+            case 'n': return (x + y) % 2 ? 'officeCarpet1' : 'officeCarpet0';
+            case 'h': return variant(2) ? 'concrete1' : 'concrete0';
+            case 'z': return 'stairs';
+            case 'y': return variant(2) ? 'pavers1' : 'pavers0';
             case 'r': return variant(5) === 0 ? 'road1' : 'road0';
             case 'l': return x % 2 === 0 ? 'roadDash' : 'roadGap';
         }
@@ -349,8 +374,55 @@ export class BankScene extends Phaser.Scene {
                 floor.set(x * TILE + i, y * TILE + j, tiles.color(index * TILE + i, j), tiles.heightAt(index * TILE + i, j));
             }
         }));
+        // Thresholds under the doors in north-south walls: seen side-on, the door itself barely shows.
+        for (const wall of this.level.walls) {
+            const sill = doorSill(wall), f = wallFootprint(wall);
+            if (sill !== undefined) for (let y = f.y + 1; y < f.y + f.d - 1; y++) for (let x = f.x - 3; x < f.x + f.w + 3; x++) {
+                const edge = x === f.x - 3 || x === f.x + f.w + 2 || y === f.y + f.d - 2;
+                floor.set(x, y, edge ? mix(sill, PAL.ink, 0.45) : sill, 1);
+            }
+        }
+        this.drawRaisedEdges(floor);
         for (const { art, left, top } of flat) floor.stamp(art.lit, left, top);
         this.addBaked(KEY.floor, floor, 0, 0, (lamp, x, y) => this.reach.reaches(lamp, x, y), (x, y) => this.exposureAt(x, y)).setDepth(DEPTH.floor);
+    }
+
+    /**
+     * The edges of raised tiles and stairs where they drop to lower floor with no wall between (§14.7): seen from the
+     * south, a drop on a raised tile's south side shows the slab's face, nosing on top, a shadow at its foot; on its east
+     * or west side it throws a shadow on the lower floor and catches the light along its lip.
+     */
+    private drawRaisedEdges(floor: PixelBitmap): void {
+        const { tiles, walls } = this.level;
+        const closed = new Set(walls.filter(w => w.kind !== 'rail').map(w => `${w.run} ${w.tx} ${w.ty}`));
+        const shadow = (x: number, y: number, amount: number) => floor.set(x, y, deepen(floor.color(x, y), amount), 0.3);
+        tiles.forEach((row, ty) => row.forEach((_, tx) => {
+            const h = floorHeight(tiles, tx, ty);
+            if (!h) return;
+            const lower = (nx: number, ny: number) => tiles[ny]?.[nx] !== undefined && floorHeight(tiles, nx, ny) < h;
+            const x0 = tx * TILE, y0 = ty * TILE;
+            // Within a flight, the steps drawn on the tiles already show the climb.
+            const flight = tiles[ty]![tx] === 'z' && tiles[ty + 1]?.[tx] === 'z';
+            if (lower(tx, ty + 1) && !flight && !closed.has(`eastWest ${tx} ${ty + 1}`)) {
+                const drop = h - floorHeight(tiles, tx, ty + 1), face = Math.max(2, Math.min(4, Math.round(drop / 10)));
+                for (let x = x0; x < x0 + TILE; x++) {
+                    floor.set(x, y0 + TILE, PAL.concrete[5], 0.8);
+                    for (let k = 1; k < face; k++) floor.set(x, y0 + TILE + k, k === face - 1 ? PAL.concrete[1] : PAL.concrete[2], 0.5);
+                    shadow(x, y0 + TILE + face, 0.45);
+                    shadow(x, y0 + TILE + face + 1, 0.2);
+                }
+            }
+            for (const [dx, edge] of [[-1, tx], [1, tx + 1]] as const) {
+                if (!lower(tx + dx, ty) || closed.has(`northSouth ${edge} ${ty}`)) continue;
+                const lip = dx < 0 ? x0 : x0 + TILE - 1, foot = dx < 0 ? x0 - 1 : x0 + TILE;
+                for (let y = y0; y < y0 + TILE; y++) {
+                    floor.set(lip, y, PAL.concrete[5], 0.8);
+                    shadow(foot, y, 0.45);
+                    shadow(foot + dx, y, 0.2);
+                }
+            }
+            if (lower(tx, ty - 1) && !closed.has(`eastWest ${tx} ${ty}`)) for (let x = x0; x < x0 + TILE; x++) floor.set(x, y0, PAL.concrete[5], 0.8);
+        }));
     }
 
     /** The exposure at a floor point (clamped to the map). */
@@ -392,7 +464,7 @@ export class BankScene extends Phaser.Scene {
      */
     private buildWalls(): void {
         const { tiles, walls } = this.level;
-        const { walls: front, line } = streetFront(this.level);
+        const { walls: front, line } = streetFront(this.level), far = farFront(this.level)?.walls ?? [];
         const fresh = !this.textures.exists(KEY.walls);
         const pieces: { frame: string; rgba: Uint8ClampedArray; w: number; h: number }[] = [];
         const placed = walls.map((wall, i) => {
@@ -404,7 +476,7 @@ export class BankScene extends Phaser.Scene {
                 const frame = `${i}-${height}`;
                 if (fresh) {
                     const art = wallArt(wall, look, height);
-                    pieces.push({ frame, rgba: bakeLighting(art, f.x, base - art.height, AMBIENT, this.lamps, reaches, exposure), w: art.width, h: art.height });
+                    pieces.push({ frame, rgba: bakeLighting(art, f.x - wallMargin(wall), base - art.height, AMBIENT, this.lamps, reaches, exposure), w: art.width, h: art.height });
                 }
                 return frame;
             });
@@ -412,14 +484,15 @@ export class BankScene extends Phaser.Scene {
         });
         if (fresh) this.packAtlas(KEY.walls, pieces);
         for (const { wall, f, base, frames } of placed) {
-            const image = this.add.image(f.x, base, KEY.walls, frames[0]!).setOrigin(0, 1).setDepth(DEPTH.standing + base);
+            const image = this.add.image(f.x - wallMargin(wall), base, KEY.walls, frames[0]!).setOrigin(0, 1).setDepth(DEPTH.standing + base);
             const north = wall.run === 'eastWest' ? tiles[wall.ty - 1]?.[wall.tx] : undefined;
             // The fronts on the street, and the piers at its ends that front tiles off the map, move as one.
             const isFront = front.includes(wall) || (wall.run === 'eastWest' && wall.ty * TILE === line);
             this.walls.push({
                 wall, image, frames, base, step: 0, target: 0, dressing: [],
                 standing: !isFront && (north === undefined || isOffMap(north)),
-                front: isFront
+                front: isFront,
+                far: far.includes(wall)
             });
         }
     }
@@ -521,9 +594,19 @@ export class BankScene extends Phaser.Scene {
     private buildAtmosphere(): void {
         const front = streetFront(this.level).line;
         if (!this.textures.exists(KEY.clouds)) this.textures.addCanvas(KEY.clouds, tiled(cloudCanvas(CLOUD_TILE), this.mapWidth + CLOUD_TILE, this.mapHeight + CLOUD_TILE));
-        // Slow cloud shadows drifting over the street and the fronts; their top follows the fronts' height.
-        this.clouds = this.add.image(0, 0, KEY.clouds).setOrigin(0, 0).setDepth(DEPTH.clouds).setBlendMode(Phaser.BlendModes.MULTIPLY);
+        // Slow cloud shadows drifting over the street and the fronts; their top follows the fronts' height. Across the
+        // street they stop at the far front and carry on over the open ground beside it.
+        const far = farFront(this.level), row = far ? this.level.tiles[far.line / TILE]! : [];
+        this.cloudSpans = [];
+        row.forEach((t, x) => {
+            if (!isOutdoors(t)) return;
+            const span = this.cloudSpans.at(-1);
+            if (span && span[1] === x * TILE) span[1] += TILE;
+            else this.cloudSpans.push([x * TILE, (x + 1) * TILE]);
+        });
+        this.clouds = Array.from({ length: 1 + this.cloudSpans.length }, () => this.add.image(0, 0, KEY.clouds).setOrigin(0, 0).setDepth(DEPTH.clouds).setBlendMode(Phaser.BlendModes.MULTIPLY));
         this.cloudTop = front;
+        this.cloudBottom = far?.line ?? this.mapHeight;
         this.placeClouds();
 
         if (!this.textures.exists(KEY.mote)) {
@@ -574,12 +657,20 @@ export class BankScene extends Phaser.Scene {
             else if (e.key === 'm' || e.key === 'M') this.toggleMap();
         });
         this.input.on(Phaser.Input.Events.POINTER_WHEEL, (p: Phaser.Input.Pointer, ...rest: [unknown, number, number]) => this.zoomStep(rest[2] > 0 ? -1 : 1, p.x, p.y));
-        this.input.on(Phaser.Input.Events.POINTER_UP, () => (this.pinch = undefined));
+        // A drag starts where a single pointer goes down; a second finger, or lifting one, starts over.
+        const restart = () => {
+            const down = this.input.manager.pointers.filter(q => q.isDown);
+            this.pinch = undefined;
+            this.dragFrom = down.length === 1 ? { x: down[0]!.x * this.zoom, y: down[0]!.y * this.zoom } : undefined;
+        };
+        this.input.on(Phaser.Input.Events.POINTER_DOWN, restart);
+        this.input.on(Phaser.Input.Events.POINTER_UP, restart);
         this.input.on(Phaser.Input.Events.POINTER_MOVE, (p: Phaser.Input.Pointer) => {
+            // Pointer positions are in game pixels, which change size with every zoom step; measure in screen pixels.
             const a = this.input.pointer1, b = this.input.pointer2;
             if (a.isDown && b.isDown) {
-                // A pinch zooms a step each time the fingers' spread changes by a quarter.
-                const spread = Phaser.Math.Distance.Between(a.x, a.y, b.x, b.y);
+                // A pinch zooms a step each time the fingers' spread changes by a quarter from where it last zoomed.
+                const spread = Phaser.Math.Distance.Between(a.x, a.y, b.x, b.y) * this.zoom;
                 this.pinch ??= spread;
                 if (spread > this.pinch * 1.25 || spread < this.pinch * 0.8) {
                     this.zoomStep(spread > this.pinch ? 1 : -1, (a.x + b.x) / 2, (a.y + b.y) / 2);
@@ -588,8 +679,12 @@ export class BankScene extends Phaser.Scene {
                 return;
             }
             if (!p.isDown) return;
-            cam.scrollX -= p.x - p.prevPosition.x;
-            cam.scrollY -= p.y - p.prevPosition.y;
+            const at = { x: p.x * this.zoom, y: p.y * this.zoom };
+            if (this.dragFrom) {
+                cam.scrollX -= (at.x - this.dragFrom.x) / this.zoom;
+                cam.scrollY -= (at.y - this.dragFrom.y) / this.zoom;
+            }
+            this.dragFrom = at;
         });
     }
 

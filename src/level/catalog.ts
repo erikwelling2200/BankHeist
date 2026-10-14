@@ -88,7 +88,12 @@ export const CATALOG: Record<LevelProp['kind'], ItemSpec> = {
     // The alley: a dumpster and the generator against the backs of the buildings, a ladder up to the roofs.
     dumpster: { size: fixed(1.8, 1.0, 1.3), alignY: 'south', span: () => [2, 1] },
     generator: { size: fixed(1.6, 0.9, 1.2), alignY: 'south', span: () => [2, 1] },
-    wallLadder: { size: fixed(0.5, 0.2, 1.9), facing: 'north', alignY: 'south' }
+    wallLadder: { size: fixed(0.5, 0.2, 1.9), facing: 'north', alignY: 'south' },
+    // Across the street: a plaza's street tree (its crown's reach and its height) and a bench; the sniper's open rifle
+    // case, its lid lying flat behind it.
+    tree: { size: fixed(2.5, 2.5, 4.6), span: () => [2, 2] },
+    bench: { size: fixed(1.8, 0.6, 0.85), span: () => [2, 1] },
+    rifleCase: { size: fixed(1.2, 0.9, 0.15) }
 };
 
 /** A prop's size in its own frame. */

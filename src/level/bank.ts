@@ -3,7 +3,9 @@ import type { LevelPerson, LevelProp, Room } from './plan';
 /**
  * The example bank: a city branch mid-block, mid-morning, with its neighbours. Fixed orientation (§17.1): the street
  * along the bottom, the public lobby at the front, the Secure core at the back, an alley behind. A café shares the
- * bank's west wall and a vacant shop its east wall (§17.5). The plan's legend is in `plan.ts`.
+ * bank's west wall and a vacant shop its east wall (§17.5). Across the street stands an office tower between two
+ * plazas; the crew has rented a room on its upper floor as a sniper nest (§14.5), its windows facing the bank. The
+ * plan's legend is in `plan.ts`.
  */
 export const BANK_PLAN = [
     '                                                                                                                         ',
@@ -79,6 +81,22 @@ export const BANK_PLAN = [
     '                                                                                                                         ',
     ' r r r r r r r r r r r r r r r r r r r r r r r r r r r r r r r r r r r r r r r r r r r r r r r r r r r r r r r r r r r r ',
     '                                                                                                                         ',
+    ' c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c ',
+    '                                                                                                                         ',
+    ' s s s s s s s s s s s s s s s s s s s s s s s s s s s s s s s s s s s s s s s s s s s s s s s s s s s s s s s s s s s s ',
+    '                                                                                                                         ',
+    ' s s s s s s s s s s s s s s s s s s s s s s s s s s s s s s s s s s s s s s s s s s s s s s s s s s s s s s s s s s s s ',
+    '                            +G+G+G+G+G+G+E+E+G+G+G+G+G+G+R+R+R+R+G+G+G+G+G+G+G+G+G+G+G+G+G+G+                            ',
+    ' y y y y y y y y y y y y y yRm m m m m m m m m m m m m m|h h h hdn n n n n n n|n n n n n n nRy y y y y y y y y y y y y y ',
+    '                            +                           +i+i+   +             +             +                            ',
+    ' y y y y y y y y y y y y y yRm m m m m m m m m m m m m m|q qiz zRn n n n n n n|n n n n n n nRy y y y y y y y y y y y y y ',
+    '                            +                           +   +   +             +             +                            ',
+    ' y y y y y y y y y y y y y yRm m m m m m m m m m m m m m|q qiz zRn n n n n n ndn n n n n n nRy y y y y y y y y y y y y y ',
+    '                            +                           +   +   +             +             +                            ',
+    ' y y y y y y y y y y y y y yRm m m m m m m m m m m m m mdq qiz zRn n n n n n n|n n n n n n nRy y y y y y y y y y y y y y ',
+    '                            +                           +   +   +             +             +                            ',
+    ' y y y y y y y y y y y y y yRm m m m m m m m m m m m m m|q q z zRn n n n n n n|n n n n n n nRy y y y y y y y y y y y y y ',
+    '                            +R+R+R+R+R+R+R+R+R+R+R+R+R+R+R+R+R+R+R+R+R+R+R+R+R+R+R+R+R+R+R+R+                            '
 ];
 
 /** The rooms, west to east and back to front. */
@@ -104,7 +122,15 @@ export const BANK_ROOMS: Room[] = [
     { name: "cleaner's closet", zone: 'staff', x: 44, y: 23, w: 6, h: 5, light: 'dim' },
     { name: 'vacant back room', zone: 'neighbour', x: 50, y: 4, w: 9, h: 6, light: 'none' },
     { name: 'vacant shop', zone: 'neighbour', x: 50, y: 10, w: 9, h: 18, light: 'none' },
-    { name: 'street', zone: 'outdoors', x: 0, y: 28, w: 60, h: 8, light: 'none' }
+    { name: 'street', zone: 'outdoors', x: 0, y: 28, w: 60, h: 8, light: 'none' },
+    { name: 'far sidewalk', zone: 'outdoors', x: 0, y: 36, w: 60, h: 3, light: 'none' },
+    { name: 'west plaza', zone: 'outdoors', x: 0, y: 39, w: 14, h: 5, light: 'none' },
+    { name: 'tower lobby', zone: 'neighbour', x: 14, y: 39, w: 14, h: 5, light: 'bright' },
+    { name: 'stair landing', zone: 'neighbour', x: 28, y: 39, w: 4, h: 1, light: 'dim' },
+    { name: 'stairwell', zone: 'neighbour', x: 28, y: 40, w: 4, h: 4, light: 'dim' },
+    { name: 'sniper nest', zone: 'neighbour', x: 32, y: 39, w: 7, h: 5, light: 'dim' },
+    { name: 'office to let', zone: 'neighbour', x: 39, y: 39, w: 7, h: 5, light: 'dim' },
+    { name: 'east plaza', zone: 'outdoors', x: 46, y: 39, w: 14, h: 5, light: 'none' }
 ];
 
 export const BANK_PROPS: LevelProp[] = [
@@ -255,6 +281,43 @@ export const BANK_PROPS: LevelProp[] = [
     { kind: 'newsBox', tx: 21, ty: 29, alignY: 'south' },
     { kind: 'streetBin', tx: 39, ty: 29, alignY: 'south' },
     { kind: 'van', tx: 14, ty: 31 },
+
+    // Across the street: lamps, a hydrant and a news box along the far curb.
+    ...[10, 28, 46].map((tx): LevelProp => ({ kind: 'streetLamp', tx, ty: 37, alignY: 'north', facing: 'north' })),
+    { kind: 'hydrant', tx: 52, ty: 37, alignY: 'north' },
+    { kind: 'newsBox', tx: 17, ty: 37 },
+    { kind: 'streetBin', tx: 34, ty: 37 },
+    // The plazas: street trees, benches under them, bins.
+    { kind: 'tree', tx: 2, ty: 40 },
+    { kind: 'tree', tx: 9, ty: 40 },
+    { kind: 'bench', tx: 5, ty: 40, facing: 'south' },
+    { kind: 'bench', tx: 5, ty: 43, facing: 'north' },
+    { kind: 'bin', tx: 12, ty: 43 },
+    { kind: 'tree', tx: 48, ty: 40 },
+    { kind: 'tree', tx: 55, ty: 40 },
+    { kind: 'bench', tx: 51, ty: 40, facing: 'south' },
+    { kind: 'bench', tx: 51, ty: 43, facing: 'north' },
+    { kind: 'bin', tx: 58, ty: 43 },
+    // The office tower's lobby: a mat inside the doors, the reception desk, a sofa, plants.
+    { kind: 'mat', tx: 20, ty: 39 },
+    { kind: 'desk', tx: 22, ty: 41, facing: 'north' },
+    { kind: 'sofa', tx: 15, ty: 43, facing: 'north', alignY: 'south' },
+    { kind: 'coffeeTable', tx: 15, ty: 42 },
+    { kind: 'plant', tx: 14, ty: 39 },
+    { kind: 'plant', tx: 27, ty: 39 },
+    { kind: 'plant', tx: 27, ty: 43 },
+    { kind: 'bin', tx: 25, ty: 43 },
+    // The sniper nest: a rented room upstairs, a desk dragged to the window, the rifle case open on the floor.
+    { kind: 'desk', tx: 34, ty: 39, alignY: 'north' },
+    { kind: 'rifleCase', tx: 37, ty: 41 },
+    { kind: 'officeChair', tx: 33, ty: 41 },
+    { kind: 'boxes', tx: 32, ty: 43, alignX: 'west', alignY: 'south' },
+    { kind: 'boxes', tx: 38, ty: 43, alignX: 'east', alignY: 'south' },
+    // The office next to it, still to let: a desk and stacked boxes left behind.
+    { kind: 'desk', tx: 42, ty: 41 },
+    { kind: 'boxes', tx: 40, ty: 39, alignY: 'north' },
+    { kind: 'boxes', tx: 45, ty: 43, alignX: 'east', alignY: 'south' },
+    { kind: 'chair', tx: 44, ty: 39, alignY: 'north' },
     { kind: 'manhole', tx: 44, ty: 33 }
 ];
 
@@ -282,5 +345,9 @@ export const BANK_PEOPLE: LevelPerson[] = [
     { look: 'customerHoodie', tx: 5, ty: 18, facing: 'front' },
     { look: 'customerCoat', tx: 8, ty: 23, facing: 'back' },
     // The street.
-    { look: 'passerby', tx: 1, ty: 28, facing: 'front', patrol: { tx: 58, ty: 28 } }
+    { look: 'passerby', tx: 1, ty: 28, facing: 'front', patrol: { tx: 58, ty: 28 } },
+    { look: 'customerSuit', tx: 57, ty: 38, facing: 'back', patrol: { tx: 2, ty: 38 } },
+    // Across the street: the tower's receptionist, and Sol in the nest at the window, watching the bank.
+    { look: 'tellerB', tx: 22, ty: 42, facing: 'back' },
+    { look: 'crewSol', tx: 35, ty: 40, facing: 'back' }
 ];

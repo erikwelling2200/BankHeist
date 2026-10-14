@@ -77,6 +77,32 @@ test.describe('on a phone', () => {
     });
 });
 
+test.describe('on a high-density phone', () => {
+    test.use({ viewport: { width: 844, height: 390 }, deviceScaleFactor: 3, hasTouch: true, isMobile: true });
+
+    test('pinches the zoom a step at a time and holds it while the fingers rest (§20.1)', async ({ page }) => {
+        const errors = await boot(page, 'bank');
+        const zoom = () => page.evaluate(() => (window as any).game.scene.getScene('bank').debugState.zoom as number);
+        const before = await zoom();
+        const cdp = await page.context().newCDPSession(page);
+        const touch = (type: 'touchStart' | 'touchMove' | 'touchEnd', spread: number) => cdp.send('Input.dispatchTouchEvent', {
+            type, touchPoints: type === 'touchEnd' ? [] : [{ x: 422 - spread / 2, y: 195, id: 0 }, { x: 422 + spread / 2, y: 195, id: 1 }]
+        });
+        await touch('touchStart', 100);
+        // Spreading the fingers by a third zooms in one step, then nothing more while they wobble on the glass.
+        const seen: number[] = [];
+        for (const spread of [104, 110, 116, 122, 128, 134, 133, 135, 132, 134, 136, 133, 135, 134]) {
+            await touch('touchMove', spread);
+            await page.waitForTimeout(30);
+            seen.push(await zoom());
+        }
+        await touch('touchEnd', 0);
+        expect(seen.at(-1)).toBe(before + 1);
+        expect(seen.slice(seen.indexOf(before + 1))).toEqual(seen.slice(seen.indexOf(before + 1)).map(() => before + 1));
+        expect(errors).toEqual([]);
+    });
+});
+
 test.describe('the bank', () => {
     const scene = (page: Page) => page.evaluate(() => (window as any).game.scene.getScene('bank').debugState);
     const lookAt = async (page: Page, x: number, y: number) => {
@@ -113,6 +139,21 @@ test.describe('the bank', () => {
         expect(state.lamps).toBeGreaterThan(0);
         expect(state.lit[11]).toContain('#');
         expect(state.lit[FRONT]).not.toContain('#');
+        expect(errors).toEqual([]);
+    });
+
+    test('stands an office tower across the street, with the sniper nest up its stairs (§14.5)', async ({ page }) => {
+        const errors = await boot(page, 'bank');
+        const TOWER = 39;
+        await lookAt(page, 32 * TILE, 41 * TILE);
+        await page.locator('canvas').screenshot({ path: 'screenshots/bank-nest.png' });
+        let state = await scene(page);
+        // Looking into the tower, its glass front stands behind what we look at; from the street it is cut down.
+        expect(heights(state.walls, TOWER)).toEqual([24]);
+        expect(state.people.some((p: { look: string }) => p.look === 'crewSol')).toBe(true);
+        await lookAt(page, 32 * TILE, 33 * TILE);
+        state = await scene(page);
+        expect(heights(state.walls, TOWER)).toEqual([8]);
         expect(errors).toEqual([]);
     });
 

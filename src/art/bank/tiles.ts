@@ -9,6 +9,7 @@ export const BANK_TILE_NAMES = [
     'runnerLeft', 'runnerRight', 'linoleum0', 'linoleum1',
     'sidewalkTL', 'sidewalkTR', 'sidewalkBL', 'sidewalkBR', 'curb', 'road0', 'road1', 'roadDash', 'roadGap',
     'concrete0', 'concrete1', 'steelPlate', 'whiteTile', 'floorboards0', 'floorboards1', 'dusty0', 'dusty1', 'alley0', 'alley1',
+    'granite0', 'granite1', 'officeCarpet0', 'officeCarpet1', 'stairs', 'pavers0', 'pavers1', 'curbFar',
     'offMap'
 ] as const;
 
@@ -168,6 +169,62 @@ const alley = (stain: boolean): Painter => (b, ox, rand) => {
     if (stain) b.ellipse(ox + 5 + rand() * 6, 5 + rand() * 6, 4, 2.5, PAL.asphalt[0], 0.35);
 };
 
+/** An office tower's lobby: big slabs of polished dark granite, finely flecked, a hairline joint. */
+const granite = (seed: number): Painter => (b, ox, rand) => {
+    const noise = valueNoise(mulberry32(seed), 2);
+    for (let y = 0; y < TILE; y++) for (let x = 0; x < TILE; x++) {
+        const fleck = rand(), n = noise(x / TILE, y / TILE);
+        let c = step(PAL.granite, n > 0.55 ? 2 : 1);
+        if (fleck > 0.96) c = step(PAL.granite, 3);
+        if (x === TILE - 1 || y === TILE - 1) c = PAL.granite[0];
+        b.set(ox + x, y, c, 0.55);
+    }
+};
+
+/** Office carpet tiles, laid with their pile turned alternately so the squares show. */
+const officeCarpet = (turned: boolean): Painter => (b, ox, rand) => {
+    for (let y = 0; y < TILE; y++) for (let x = 0; x < TILE; x++) {
+        const quarter = (x < 8) !== (y < 8) !== turned, pile = quarter ? (x + rand() * 2) % 3 < 1 : (y + rand() * 2) % 3 < 1;
+        b.set(ox + x, y, step(PAL.officeCarpet, pile ? 3 : 2), 0.45);
+    }
+};
+
+/**
+ * Stairs climbing to the north, five steps to a tile: each step's tread, its nosing catching the light, and below it the
+ * riser, which faces the camera. A flight's tiles all look alike; how high each is comes from the level.
+ */
+const stairs: Painter = (b, ox) => {
+    for (let y = 0; y < TILE; y++) for (let x = 0; x < TILE; x++) {
+        const k = (y + 1) % 3;
+        const c = k === 0 ? PAL.concrete[2] : k === 1 ? PAL.concrete[5] : PAL.concrete[4];
+        b.set(ox + x, y, x === 0 || x === TILE - 1 ? PAL.concrete[1] : c, k === 0 ? 0.3 : 0.6);
+    }
+};
+
+/** A plaza's clay pavers in basket weave: pairs of bricks, alternately lying and standing, a few weathered darker. */
+const pavers = (seed: number): Painter => (b, ox, rand) => {
+    const shade = Array.from({ length: 8 }, () => (rand() > 0.75 ? 2 : 3));
+    for (let y = 0; y < TILE; y++) for (let x = 0; x < TILE; x++) {
+        const bx = Math.floor(x / 8), by = Math.floor(y / 8), lying = (bx + by + seed) % 2 === 0;
+        const i = lying ? Math.floor((y % 8) / 4) : Math.floor((x % 8) / 4);
+        const joint = x % 8 === 7 || y % 8 === 7 || (lying ? y % 4 === 3 : x % 4 === 3);
+        const c = joint ? mix(PAL.concrete[2], PAL.brick[1], 0.3) : mix(PAL.brick[shade[(by * 2 + bx) * 2 + i]!]!, PAL.concrete[3], 0.45);
+        b.set(ox + x, y, c, joint ? 0.35 : 0.55);
+    }
+};
+
+/** The curb on the far side of the road: the gutter, then the curb's top edge and the sidewalk; its face looks away from us. */
+const curbFar: Painter = (b, ox, rand) => {
+    for (let y = 0; y < TILE; y++) for (let x = 0; x < TILE; x++) {
+        let c: number, h: number;
+        if (y < 3) { c = step(PAL.asphalt, y === 2 ? 0 : 1); h = 0.15; }
+        else if (y < 6) { c = step(PAL.limestone, y === 3 ? 3 : 4); h = 0.75; }
+        else { c = step(PAL.concrete, rand() > 0.85 ? 5 : 4); h = 0.6; }
+        if (x === TILE - 1 && y >= 3 && y < 6) c = deepen(c, 0.3);
+        b.set(ox + x, y, c, h);
+    }
+};
+
 /** Off the map (a neighbour's building): dark and hatched like the walls' sections, so it reads as solid, not as floor. */
 const offMap: Painter = (b, ox) => {
     for (let y = 0; y < TILE; y++) for (let x = 0; x < TILE; x++) b.set(ox + x, y, (x + y) % 4 === 0 ? deepen(PAL.plaster[1], 0.3) : deepen(PAL.plaster[0], 0.3), 1);
@@ -180,6 +237,8 @@ const PAINTERS: Record<BankTileName, Painter> = {
     road0: road(false), road1: road(true), roadDash: roadLine(true), roadGap: roadLine(false),
     concrete0: concrete(21), concrete1: concrete(22), steelPlate, whiteTile, floorboards0: floorboards(0), floorboards1: floorboards(7),
     dusty0: dusty(41), dusty1: dusty(42), alley0: alley(false), alley1: alley(true),
+    granite0: granite(51), granite1: granite(52), officeCarpet0: officeCarpet(false), officeCarpet1: officeCarpet(true), stairs,
+    pavers0: pavers(0), pavers1: pavers(4), curbFar,
     offMap
 };
 

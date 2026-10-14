@@ -1,4 +1,4 @@
-import type { Placement } from './space';
+import { px, type Placement } from './space';
 import type { Wall, WallKind } from './walls';
 
 /*
@@ -8,20 +8,23 @@ import type { Wall, WallKind } from './walls';
  *
  * Floor: `,` staff linoleum   `.` lobby marble   `=` carpet runner   `q` concrete (Secure)   `v` steel plate (the vault)
  *        `t` small white tiles (restrooms, the café kitchen)   `f` café floorboards   `u` a vacant shop's dusty floor
+ *        `m` an office tower's granite lobby   `n` office carpet, raised (an upper floor)   `h` a raised concrete landing
+ *        `z` stairs, rising to the north   `y` a plaza's brick pavers
  *        `s` sidewalk   `c` curb   `r` road   `l` road with the centre-line dashes   `a` alley
  *        `x` off the map (a neighbour's building, nothing to see)
  * Walls: `-` `|` plaster (Soft)   `R` concrete (Reinforced)   `V` the vault's steel   `O` the vault door
  *        `b` brick (outside walls)   `d` wood door   `k` keycard steel door   `S` steel service door in a front
  *        `p` stone pier   `P` brick pier   `g` window   `D` glass door   `A` through-the-wall ATM   `B` boarded-up window
- *        `H` rolling shutter
+ *        `H` rolling shutter   `G` an office tower's glass curtain wall   `E` its glass doors   `i` a railing
  */
 
-export type FloorTile = ',' | '.' | '=' | 'q' | 'v' | 't' | 'f' | 'u' | 's' | 'c' | 'r' | 'l' | 'a' | 'x';
+export type FloorTile = ',' | '.' | '=' | 'q' | 'v' | 't' | 'f' | 'u' | 'm' | 'n' | 'h' | 'z' | 'y' | 's' | 'c' | 'r' | 'l' | 'a' | 'x';
 
-const FLOOR = new Set<string>([',', '.', '=', 'q', 'v', 't', 'f', 'u', 's', 'c', 'r', 'l', 'a', 'x']);
+const FLOOR = new Set<string>([',', '.', '=', 'q', 'v', 't', 'f', 'u', 'm', 'n', 'h', 'z', 'y', 's', 'c', 'r', 'l', 'a', 'x']);
 const WALL_KINDS: Record<string, WallKind> = {
     '-': 'plaster', '|': 'plaster', R: 'concrete', V: 'vault', O: 'vaultDoor', b: 'brick', d: 'doorWood', k: 'doorKeycard',
-    S: 'doorService', p: 'pier', P: 'brickPier', g: 'window', D: 'doorGlass', A: 'atm', B: 'boarded', H: 'shutter'
+    S: 'doorService', p: 'pier', P: 'brickPier', g: 'window', D: 'doorGlass', A: 'atm', B: 'boarded', H: 'shutter',
+    G: 'curtain', E: 'doorTower', i: 'rail'
 };
 
 export interface Level { tiles: FloorTile[][]; walls: Wall[] }
@@ -53,7 +56,27 @@ export function parsePlan(plan: readonly string[]): Level {
 export const isOffMap = (tile: FloorTile): boolean => tile === 'x';
 
 /** Tiles under the open sky. */
-export const isOutdoors = (tile: FloorTile): boolean => tile === 's' || tile === 'c' || tile === 'r' || tile === 'l' || tile === 'a';
+export const isOutdoors = (tile: FloorTile): boolean => tile === 's' || tile === 'c' || tile === 'r' || tile === 'l' || tile === 'a' || tile === 'y';
+
+/**
+ * Height is a property of the tile, not a separate floor (§14.7): an upper-floor room in a neighbouring building is a
+ * block of raised tiles on the same grid, reached by stairs. Raised tiles stand at one storey.
+ */
+export const RAISED_HEIGHT = px(3.5);
+
+/**
+ * How high a tile's floor is: a storey for raised tiles, ground level for the rest. A flight of stairs climbs to the
+ * north, from just above the ground at its foot to just below the landing at its head.
+ */
+export function floorHeight(tiles: readonly (readonly FloorTile[])[], tx: number, ty: number): number {
+    const t = tiles[ty]?.[tx];
+    if (t === 'n' || t === 'h') return RAISED_HEIGHT;
+    if (t !== 'z') return 0;
+    let above = 0, below = 0;
+    while (tiles[ty - above - 1]?.[tx] === 'z') above++;
+    while (tiles[ty + below + 1]?.[tx] === 'z') below++;
+    return Math.round((RAISED_HEIGHT * (below + 1)) / (above + below + 2));
+}
 
 /**
  * A room: a rectangle of tiles, its zone (§8.1) and how it is lit. Lamps are hung from the rooms (`roomLamps`); rooms
@@ -91,6 +114,7 @@ export type LevelProp = Placed & (
     | { kind: 'diningTable' | 'chair' | 'fridge' | 'kitchenCounter' | 'toilet' | 'washbasin' }
     | { kind: 'cafeTable' | 'cafeCounter' }
     | { kind: 'dumpster' | 'generator' }
+    | { kind: 'tree' | 'bench' | 'rifleCase' }
 );
 
 export type PersonFacing = 'front' | 'back';

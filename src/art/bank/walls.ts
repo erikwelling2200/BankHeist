@@ -1,5 +1,5 @@
 import { TILE } from '../../level/level';
-import { WALL_HEIGHT } from '../../level/space';
+import { px, WALL_HEIGHT } from '../../level/space';
 import { WALL_THICKNESS, type Wall, type WallKind } from '../../level/walls';
 import { PAL, mix, step } from '../palette';
 import { PixelBitmap } from '../PixelBitmap';
@@ -234,6 +234,51 @@ const shutter: Painter['face'] = (put, rand) => {
     put(8, 3, PAL.brass[3], 0.8);
 };
 
+/** An office tower's curtain wall in section: aluminium mullions, the glass between them. */
+const curtainSection: Painter['section'] = (put, t, length) => {
+    for (let v = 0; v < t; v++) for (let u = 0; u < length; u++) put(u, v, u % 8 === 0 ? PAL.steel[3] : v === Math.floor(t / 2) ? PAL.glass[4] : PAL.steel[1]);
+};
+
+/**
+ * The curtain wall from inside: floor-to-ceiling glass in aluminium mullions, a transom at door height and a grey sill
+ * at the floor. Daylight from the street makes the glass pale; the sidewalk behind shows through it.
+ */
+const curtainFace: Painter['face'] = put => {
+    for (let z = 1; z <= F; z++) for (let u = 0; u < TILE; u++) {
+        if (z <= 2) { put(u, z, z === 2 ? PAL.steel[4] : PAL.steel[2], 0.7); continue; }
+        if (u % 8 === 0 || z === F - 3) { put(u, z, u % 8 === 0 ? PAL.steel[3] : PAL.steel[4], 0.75); continue; }
+        const streak = (u - z + 40) % 9 === 0;
+        put(u, z, streak ? PAL.glass[5] : PAL.glass[3], 0.5, streak ? REFLECTION_ALPHA : 120);
+    }
+};
+
+/** One leaf of the tower's glass doors: an aluminium frame, a push bar across, the glass. */
+const doorTower: Painter['face'] = put => {
+    for (let z = 1; z <= F; z++) for (let u = 0; u < TILE; u++) {
+        if (z >= F - 2 || z === 1 || u <= 1 || u >= TILE - 2) { put(u, z, z === F ? PAL.steel[5] : u === 1 || u === TILE - 2 ? PAL.steel[4] : PAL.steel[2], 0.75); continue; }
+        if (z === 9 && u >= 3 && u <= TILE - 4) { put(u, z, PAL.steel[5], 0.85); continue; }
+        const streak = (u - z + 40) % 9 === 0;
+        put(u, z, streak ? PAL.glass[5] : PAL.glass[3], 0.5, streak ? REFLECTION_ALPHA : 110);
+    }
+};
+
+/** A railing's height: a metre, so it never needs cutting down. */
+export const RAIL_HEIGHT = px(1.0);
+
+/** The handrail's top. */
+const railSection: Painter['section'] = (put, t, length) => {
+    for (let v = 0; v < t; v++) for (let u = 0; u < length; u++) put(u, v, PAL.steel[5]);
+};
+
+/** A steel railing across the view: posts every quarter tile, a mid-rail, the handrail on top; open between them. */
+const railFace: Painter['face'] = put => {
+    for (let z = 1; z <= RAIL_HEIGHT; z++) for (let u = 0; u < TILE; u++) {
+        if (z === RAIL_HEIGHT) put(u, z, PAL.steel[4], 0.8);
+        else if (z === 6) put(u, z, PAL.steel[3], 0.7);
+        else if (u % 4 === 1) put(u, z, u % 8 === 1 ? PAL.steel[3] : PAL.steel[2], 0.7);
+    }
+};
+
 const glyphs: Record<string, string[]> = { B: ['##.', '###', '##.'], A: ['.#.', '###', '#.#'], N: ['#.#', '###', '#.#'], K: ['#.#', '##.', '#.#'] };
 
 /** One leaf of the glass double doors, "BA" or "NK" in gold leaf on its transom. */
@@ -283,7 +328,10 @@ const PAINTERS: Record<Exclude<WallKind, 'doorGlass' | 'vaultDoor'>, Painter> & 
     window: { section: glassSection, face: windowFace },
     doorGlassLeft: { section: glassSection, face: doorGlass('left') },
     doorGlassRight: { section: glassSection, face: doorGlass('right') },
-    atm: { section: stoneSection, face: atmFace }
+    atm: { section: stoneSection, face: atmFace },
+    curtain: { section: curtainSection, face: curtainFace },
+    doorTower: { section: curtainSection, face: doorTower },
+    rail: { section: railSection, face: railFace }
 };
 
 export type WallLook = keyof typeof PAINTERS;
@@ -296,20 +344,70 @@ export function wallLook(wall: Wall, walls: readonly Wall[]): WallLook {
     return westIsSame ? 'doorGlassRight' : 'doorGlassLeft';
 }
 
+/** Doors whose casings and handles stand proud of the wall: seen side-on, they are what shows the door. */
+const SIDE_DOORS: Partial<Record<WallKind, { casing: number; edge: number; handle: number; sill: number }>> = {
+    doorWood: { casing: PAL.walnut[1], edge: PAL.walnut[4], handle: PAL.brass[5], sill: PAL.oak[4] },
+    doorKeycard: { casing: PAL.steel[1], edge: PAL.steel[4], handle: PAL.steel[5], sill: PAL.steel[4] }
+};
+
+/** The threshold under a north-south door, laid into the floor a little wider than the wall: its colour, if it has one. */
+export function doorSill(wall: Wall): number | undefined {
+    return wall.run === 'northSouth' ? SIDE_DOORS[wall.kind]?.sill : undefined;
+}
+
+/** How far a segment's art reaches past its footprint on each side: a north-south door's casing and handles. */
+export function wallMargin(wall: Wall): number {
+    return wall.run === 'northSouth' && SIDE_DOORS[wall.kind] ? 3 : 0;
+}
+
 /**
  * A wall segment cut at `height`. East-west: its section (as deep as the wall is thick) over its face. North-south:
  * its section a tile long, then the end of its face, which the next segment of the run covers. The bitmap's bottom edge
- * is the segment's south edge at floor level.
+ * is the segment's south edge at floor level; it reaches `wallMargin` past the footprint on each side.
  */
-export function wallArt(wall: Wall, look: WallLook, height: number): PixelBitmap {
+export function wallArt(wall: Wall, look: WallLook, cut: number): PixelBitmap {
+    // A railing is lower than any cut, so it always stands at its own height.
+    const height = wall.kind === 'rail' ? RAIL_HEIGHT : cut;
     const t = WALL_THICKNESS[wall.kind], painter = PAINTERS[look], rand = mulberry32(look.length * 97 + t);
-    const eastWest = wall.run === 'eastWest';
-    const top = eastWest ? t : TILE, bitmap = new PixelBitmap(eastWest ? TILE : t, top + height);
-    painter.section((u, v, c) => (eastWest ? bitmap.set(u, v, c, 1) : bitmap.set(v, u, c, 1)), t, TILE, rand);
+    const eastWest = wall.run === 'eastWest', m = wallMargin(wall);
+    const top = eastWest ? t : TILE, bitmap = new PixelBitmap(eastWest ? TILE : t + 2 * m, top + height);
+    painter.section((u, v, c) => (eastWest ? bitmap.set(u, v, c, 1) : bitmap.set(m + v, u, c, 1)), t, TILE, rand);
     painter.face((u, z, c, h, alpha) => {
         if (z > height) return;
         if (eastWest) bitmap.set(u, top + height - z, c, h, alpha);
-        else if (u < t) bitmap.set(u, top + height - z, c, h, alpha);
+        else if (u < t) bitmap.set(m + u, top + height - z, c, h, alpha);
     }, rand);
+    const door = SIDE_DOORS[wall.kind];
+    if (!eastWest && door) sideDoor(bitmap, door, t, m, height);
+    if (!eastWest && wall.kind === 'rail') sideRail(bitmap, m, height);
     return bitmap;
+}
+
+/**
+ * A railing running north-south, seen end-on: each post is its own upright, so each shows, a step further up the screen
+ * the further north it stands (a point at run position u and height z lands on row u + height + 1 - z).
+ */
+function sideRail(bitmap: PixelBitmap, m: number, height: number): void {
+    for (let u = 1; u < TILE; u += 4) for (let z = 1; z < height; z++) bitmap.set(m, u + height + 1 - z, z === 6 ? PAL.steel[3] : PAL.steel[2], 0.7);
+    for (let u = 0; u < TILE; u++) bitmap.set(m, u + 1, PAL.steel[5], 0.8);
+}
+
+/**
+ * A door in a north-south wall, seen side-on: its leaf is edge-on and hidden in the wall, so what shows are the casings
+ * round it on both faces (the jambs from the floor up, the head across the top) and a handle on each side. A point at
+ * run position u (north to south), height z, lands on bitmap row u + height + 1 - z; nearer (more southern) parts are
+ * drawn last.
+ */
+function sideDoor(bitmap: PixelBitmap, door: { casing: number; edge: number; handle: number; sill: number }, t: number, m: number, height: number): void {
+    const doorTop = Math.min(height, F - 1), row = (u: number, z: number) => u + height + 1 - z;
+    // Two pixels of casing on each face: the outer one dark, the one against the wall catching the light.
+    const sides: [number, boolean][] = [[m - 2, false], [m - 1, true], [m + t, true], [m + t + 1, false]];
+    for (let u = 1; u <= 14; u++) for (const [x, inner] of sides) {
+        const jamb = u <= 2 || u >= 13, c = inner ? door.edge : door.casing;
+        // The head casing across the top, when the wall is tall enough to show it; the jambs below it.
+        if (doorTop === F - 1) bitmap.set(x, row(u, doorTop), c, 0.8);
+        if (jamb) for (let z = 1; z <= doorTop; z++) bitmap.set(x, row(u, z), u === 2 || u === 13 ? door.casing : c, 0.75);
+    }
+    // Handles at waist height, a little way in from the latch-side jamb, sticking out past the casing.
+    if (height >= 9) for (const x of [m - 3, m - 2, m + t + 1, m + t + 2]) bitmap.set(x, row(10, 9), door.handle, 0.9);
 }

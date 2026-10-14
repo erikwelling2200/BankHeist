@@ -3,7 +3,8 @@
 A hand-made example level whose only job is to settle how the game looks. It has no rules yet. It is the default page
 (`/`, also `/?scene=bank`); the old stack demo lives on at `/?scene=demo`. Built: **the whole plot** (§17): a city
 branch mid-block with every room of a small bank, a café sharing its west wall, a vacant shop to the east, the alley
-behind and the street in front, about 60x36 tiles, furnished and peopled, with guards and a passer-by on patrol.
+behind, the street in front and, across it, an office tower between two plazas with the crew's **sniper nest** on its
+upper floor (§14.5). About 60x44 tiles, furnished and peopled, with guards and passers-by on patrol.
 
 ![In-game view of the lobby](../pixel-art/examples/bank-preview-lobby.png)
 
@@ -26,10 +27,12 @@ crisp at any zoom and a closer view draws fewer pixels. The camera's middle can 
    of it drop to a 0.6m stub, so the floor and anyone behind them stay in view. As the camera moves, a wall steps
    between the two over a tenth of a second, with a dead band so nudging the camera doesn't make it flicker; outer
    walls with nothing behind them always stand. Dressing hung on a cut wall goes with it, except what matters for play
-   (cameras, card readers). People are 16x24 and **stand in the middle of their tile**; depth follows each object's
-   base line. ([lobby](../pixel-art/examples/bank-preview-lobby.png), [looking past the back wall into the
+   (cameras, card readers). A door in a north-south wall is edge-on to the camera, so its leaf hides in the wall: its
+   casings stand proud of both faces, with a handle each side and a threshold on the floor, and those show the door.
+   People are 16x24 and **stand in the middle of their tile**; depth follows each object's base line. ([lobby](../pixel-art/examples/bank-preview-lobby.png), [looking past the back wall into the
    corridor](../pixel-art/examples/bank-preview-corridor.png), [the street, the fronts standing](../pixel-art/examples/bank-preview-street.png),
    [the vault](../pixel-art/examples/bank-preview-vault.png), [the café](../pixel-art/examples/bank-preview-cafe.png),
+   [the office tower and the nest](../pixel-art/examples/bank-preview-nest.png),
    [the tactical map](../pixel-art/examples/bank-preview-map.png).)
 2. **Every object is a box in a real scale** (`src/level/space.ts`, `src/level/catalog.ts`): 1px is about 8cm, so a
    tile is about 1.3m, people are 1.75m and walls are cut away at 1.9m. Each kind of object has its real width, depth
@@ -88,25 +91,38 @@ say how it is lit; the lamps hang from them. Simplified, x in tiles:
  └─glass───┴────┴────┴─pier window DOOR───┴───┴────┴─shutter─┘   street fronts, row 28
    sidewalk: street lamps, ATM in the wall, bollards, news box, hydrant, café tables
    road: parked van, centre line
+   far curb and sidewalk: street lamps, hydrant, news box                                rows 36-38
+ ┌──────────────┬──────────────┬────┬───────┬───────┬──────────────┐
+ │ west plaza   │ tower lobby  │sta-│ NEST  │office │ east plaza   │   glass curtain wall on the street
+ │ trees,       │ reception,   │irs │(up)   │to let │ trees,       │   rows 39-43
+ │ benches      │ sofa         │ ↑  │       │(up)   │ benches      │
+ └──────────────┴──────────────┴────┴───────┴───────┴──────────────┘
 ```
+
+**Height is a tile property** (§14.7). The nest and the office beside it are raised tiles a storey up (3.5m,
+`RAISED_HEIGHT` in `plan.ts`), drawn in place on the grid like every other floor, so the overlays line up with them. The
+stairwell shows the height: a flight of stairs climbs north from the stairwell floor to a landing, a railing runs
+along the flight and across the landing's open edge, and the landing's drop shows the slab's face. `floorHeight` gives
+each tile's height; the tests walk from the sidewalk to the nest, never up or down more than a step, never over a
+railing.
 
 ## Sprites
 
 Everything is generated in code (`src/art/bank/`): `tiles.ts` (tileset), `walls.ts` (every wall kind at each height,
-packed into one atlas), `furniture.ts`, `dressing.ts`, `rooms.ts` (back of house), `outside.ts` (the café and the
-alley), `street.ts` and `van.ts` (props, each with an unlit glow layer and the lights it gives off, dispatched by
+packed into one atlas), `furniture.ts`, `dressing.ts`, `rooms.ts` (back of house), `outside.ts` (the café, the
+alley, the plazas and the nest), `street.ts` and `van.ts` (props, each with an unlit glow layer and the lights it gives off, dispatched by
 `props.ts`), `people.ts` (one parametric `person()` for the whole cast).
 
 | Area | Done | Still to make |
 | --- | --- | --- |
-| Floors | lobby marble, red runner, linoleum, concrete, steel plate, white tiles, café floorboards, dusty boards, alley tarmac, sidewalk, curb, road, centre line | carpet for offices |
-| Walls | plaster with a walnut wainscot, painted concrete block, the vault's riveted steel and its round door, brick, wood door, keycard door, steel service door, each with its section on top and drawn at any height | broken and holed walls, open doors |
-| Fronts | stone and brick piers, windows with blinds, glass doors with gold leaf, the ATM, boarded windows, a rolling shutter | blinds down (§14.3), broken glass |
+| Floors | lobby marble, red runner, linoleum, concrete, steel plate, white tiles, café floorboards, dusty boards, granite, office carpet tiles, stairs, plaza pavers, alley tarmac, sidewalk, curbs on both sides, road, centre line | carpet for the bank's offices |
+| Walls | plaster with a walnut wainscot, painted concrete block, the vault's riveted steel and its round door, brick, wood door, keycard door, steel service door, a railing (never cut), each with its section on top and drawn at any height; side-on doors by their casings | broken and holed walls, open doors |
+| Fronts | stone and brick piers, windows with blinds, glass doors with gold leaf, the ATM, boarded windows, a rolling shutter, the tower's glass curtain wall and doors | blinds down (§14.3), broken glass |
 | Lobby | teller counter, back counter, filing cabinet, printer, water cooler, crest, clock, painting, notice board, exit sign, CCTV camera, queue rails, mat, writing desk, sofa, coffee table, plant, brochure rack, bin | flipped table (half cover), breakable dressing and its damage states (§20.9) |
 | Back of house | deposit boxes, cash shelves and cart, vault console, server racks, alarm and breaker panels, CCTV desk, desks and chairs, bookshelf, lockers, shelving, mop bucket, the ATM's back, boxes, dining table, fridge, kitchen counter, toilets, washbasins | |
-| Neighbours and alley | café tables, café counter, menu board, dumpster, generator, roof ladder | |
+| Neighbours and alley | café tables, café counter, menu board, dumpster, generator, roof ladder, street trees, benches, the sniper's rifle case | |
 | Street | street lamp, hydrant, news box, bin, bollard, manhole, panel van | police car, cones, barrier, scaffolding |
-| People | 17 looks, front and back: tellers, guards, manager, operator, cleaner, barista, customers, passer-by, two crew | side views, walk cycles, IT tech, police and SWAT, masked crew, downed and tied poses |
+| People | 18 looks, front and back: tellers, guards, manager, operator, cleaner, barista, customers, passer-by, three crew (Sol in the nest) | side views, walk cycles, IT tech, police and SWAT, masked crew, downed and tied poses |
 
 ## Lighting model
 
@@ -116,8 +132,10 @@ the job instead:
 - **Half exposure, then a baked exposure.** Light is worked out at half brightness (ambient is half the street's
   sunlight), which leaves the lamps headroom, and then each baked texture is multiplied by an exposure
   (`buildExposure`): twice for the street and the alley, the building's shade indoors, lifting towards the street
-  glass. Exposing each texture rather than the screen means a wall that stands in front of the street takes the
-  street's exposure along its whole face, and the cloud shadows' top edge follows the fronts' height.
+  glass (the bank's front, and the tower's front across the street, behind which a patch of cool sky light falls).
+  Exposing each texture rather than the screen means a wall that stands in front of the street takes the street's
+  exposure along its whole face. The cloud shadows' top edge follows the bank's front; they stop at the tower's front
+  (we see its inside face) and go on over the plazas either side of it.
 - **Lamps are baked, and walls block them** (`src/art/bank/lamps.ts`). When the level loads, each lamp's reach is
   traced across the floor against the walls (glass lets light through), and the floor, every wall segment at each of
   its heights, every prop and every person is lit with the same formula Light2D uses, normal maps included: a standing

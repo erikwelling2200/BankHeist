@@ -13,10 +13,11 @@ export type WallRun = 'eastWest' | 'northSouth';
 /**
  * What a segment is made of. Plaster, concrete and the vault's steel are solid walls (Soft, Reinforced and Vault in the
  * design), brick the outside walls; doors, and the fronts' piers, windows, glass doors, ATM, boarded windows and
- * shutters, are segments of their own.
+ * shutters, are segments of their own. An office tower fronts the street with a glass curtain wall. A railing runs along
+ * the open edge of raised tiles and stairs: half cover, see-through, never cut down.
  */
 export type WallKind = 'plaster' | 'concrete' | 'vault' | 'vaultDoor' | 'brick' | 'doorWood' | 'doorKeycard' | 'doorService'
-    | 'pier' | 'brickPier' | 'window' | 'doorGlass' | 'atm' | 'boarded' | 'shutter';
+    | 'pier' | 'brickPier' | 'window' | 'doorGlass' | 'atm' | 'boarded' | 'shutter' | 'curtain' | 'doorTower' | 'rail';
 
 export interface Wall { kind: WallKind; run: WallRun; tx: number; ty: number }
 
@@ -36,7 +37,10 @@ export const WALL_THICKNESS: Record<WallKind, number> = {
     doorGlass: px(0.3),
     atm: px(0.3),
     boarded: px(0.3),
-    shutter: px(0.3)
+    shutter: px(0.3),
+    curtain: px(0.2),
+    doorTower: px(0.2),
+    rail: px(0.1)
 };
 
 /** A wall segment's footprint on the floor, in pixels. */

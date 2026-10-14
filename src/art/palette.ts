@@ -28,6 +28,10 @@ export const PAL = {
     plywood: [0x4a3a2c, 0x6e573e, 0x8f7550, 0xac9264, 0xc4ad7e],
     /** Pale oak floorboards and café furniture. */
     oak: [0x3e2c22, 0x5e4430, 0x7c5d3e, 0x9a7a52, 0xb59668],
+    /** Polished dark granite: an office tower's lobby. */
+    granite: [0x24232b, 0x312f38, 0x403e47, 0x524f57, 0x67636a],
+    /** Blue-grey carpet tiles: offices. */
+    officeCarpet: [0x2c3245, 0x3a4257, 0x4a546a, 0x5c677c, 0x707b8e],
     /** A work van's off-white paint, a little grimy: cool in the shade, warm where the light catches it. */
     vanBody: [0x31323d, 0x50525c, 0x72737a, 0x8f8e8c, 0xa7a49c, 0xbcb7aa],
     tyre: [0x141319, 0x1f1d25, 0x2c2a33],
