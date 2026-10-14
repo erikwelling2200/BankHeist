@@ -57,7 +57,7 @@ src/ui/hud/   the HTML HUD from UI.md
 
 ### 2.2 How previews stay exact (§8.8)
 
-- **One set of functions.** A move is resolved by calling `assessStep` on each tile of the path and `assessEnd` on the last one. The world phase calls `sightingsAlong(intent)`. The safe-floor overlay calls exactly these functions, the same way. There is no second copy of any rule.
+- **One set of functions.** A move is resolved by calling `assessStep` on each tile of the path and `assessEnd` on the last one. The world phase calls `sightingsAlong(intent)`. The safe-floor overlay calls exactly these functions, the same way, directly per tile and never through `preview()` (see Overlay speed in §5). There is no second copy of any rule.
 - **No dice in previews.** The `rng` handle only works in commit mode. In preview mode, rolling throws an error. An action that rolls dice (a resister, a shot, a drill jam) returns its odds or its geometry for the preview and rolls only on confirm. The roll is saved in the state and the log, so reopening the game can't reroll it (§11.2).
 - **Property test (M1-09).**
   - Over many seeds, using pinned generated banks and the test fixtures, play random legal crew commands.
@@ -68,7 +68,7 @@ src/ui/hud/   the HTML HUD from UI.md
 ### 2.3 Determinism
 
 - Geometry is on whole tiles. Cone membership uses integer dot and cross products against precomputed thresholds; never `atan2` in the rules, because it can differ in the last bit between engines.
-- Iteration is always by sorted id. Copying is done with `structuredClone`.
+- Iteration is always by sorted id: rules walk records with `sortedIds` (the purity test bans `Object.keys/values/entries` under `src/sim/rules`). Copying is done with `clonePlain`, a plain-JSON copy (the engine's ES2022-only build has no `structuredClone`).
 - A test runs the same commands twice and requires identical state hashes. Another reloads a mid-heist save and requires the same continuation.
 
 ### 2.4 Saves (§6.6, §20.6)
@@ -199,6 +199,7 @@ Each package lists its goal, the design sections it covers, the files, what it d
     - `safeFloor(crew, path?)` with every tint: green, amber with a pip count, challenge, red, the hatched versions, camera, grey, hatched grey.
     - The eye icon on the first unsafe tile; "who and why"; the noise ring with an ear badge per NPC; a preview of the carriers an action would start.
     - The property test of §2.2.
+    - What the player sees is projected through the crew's knowledge (M1-10). A `PreviewResult` is engine-internal: it is the truth, including NPCs and decisions the crew can't know, so it is never shown as it is.
   - **Files:** `src/sim/preview/*`, `tests/sim/preview.property.test.ts`.
   - **Depends on:** M1-07, M1-08, M1-10.
   - **Accept:** 0 differences over 5,000 random commands across 20 seeds plus the fixtures. The test runs under 30 s in `npm test`, with a larger run behind an environment variable.
@@ -209,6 +210,7 @@ Each package lists its goal, the design sections it covers, the files, what it d
     - Known routines: an NPC watched for 3 turns becomes a predicted marker.
     - Unknown-risk tiles, for the hatched-grey overlay.
     - Sound pings; the blueprint layer as data.
+    - The projection from the engine's truth (states, events, `PreviewResult`s) to what the crew knows; the HUD and the overlay show only that.
   - **Files:** `src/sim/rules/knowledge.ts`.
   - **Depends on:** M1-04, M1-06. **∥** M1-08.
   - **Accept:** a predicted NPC knocked off its routine turns into a ghost; an unscouted tile is never safe.
@@ -434,6 +436,8 @@ Later milestones: within each milestone, the `∥` notes in §3 apply. UI packag
 - **The generator and the rules disagreeing about sight.** M1-02 shares the tile properties and M5-01 moves validation onto the rules' vision.
 - **Saves breaking when the generator changes.** Store the world in the save (decision Q22).
 - **Overlay speed.** The safe floor over about 300 reachable tiles must take under 16 ms on a phone. Precompute each NPC's sight for this phase and its committed path once per state change.
+  - The overlay calls the shared assess functions (§2.2) directly for each tile and never runs `preview()` per tile: a preview copies and checks the whole state. `preview()` is for the command the player tapped and for the oracle's sample.
+  - Big per-tile data (what the crew has seen) stays out of `State`, or is stored compactly (bitset strings), because the state is copied on every command.
 
 ## 6. Ambiguities, with recommended defaults
 

@@ -1,11 +1,56 @@
 import { IllegalCommand } from './engine';
 import { inBounds } from './grid';
-import { sortedIds } from './json';
-import type { CameraState, CrewState, DoorState, EdgeKey, EdgeProps, Facing, NpcState, Pos, ReadonlyWorld, State } from './types';
+import { isReservedKey, sortedIds } from './json';
+import {
+    DEFAULT_RULES, type CameraState, type CrewState, type DeepReadonly, type DoorState, type EdgeKey, type EdgeProps,
+    type Facing, type NpcState, type PersonDef, type Pos, type ReadonlyWorld, type Rules, type State
+} from './types';
 
 /*
  * The state a heist starts in, built from the World and the crew the player brought, and lookups reducers share.
+ * A package that adds fields to `State`, `NpcState` or `CrewState` (by augmenting them) fills them in from its own
+ * module with `registerStateInit`, `registerNpcInit` or `registerCrewInit`; they run in order of name, so the result
+ * doesn't depend on the order modules were imported in. A package that adds rule numbers registers their defaults.
  */
+
+export type StateInit = (world: ReadonlyWorld, state: State) => void;
+export type NpcInit = (world: ReadonlyWorld, person: DeepReadonly<PersonDef>, npc: NpcState) => void;
+export type CrewInit = (world: ReadonlyWorld, start: CrewStart, member: CrewState) => void;
+
+const STATE_INITS = new Map<string, StateInit>();
+const NPC_INITS = new Map<string, NpcInit>();
+const CREW_INITS = new Map<string, CrewInit>();
+const RULE_DEFAULTS: Record<string, unknown> = {};
+
+function register<F>(inits: Map<string, F>, kind: string, name: string, init: F): void {
+    if (inits.has(name)) throw new Error(`There is already a ${kind} init named '${name}'`);
+    inits.set(name, init);
+}
+
+/** Fills in a package's fields of a new heist's state, after every NPC and crew member is made. */
+export const registerStateInit = (name: string, init: StateInit): void => register(STATE_INITS, 'state', name, init);
+/** Fills in a package's fields of each new NPC. */
+export const registerNpcInit = (name: string, init: NpcInit): void => register(NPC_INITS, 'NPC', name, init);
+/** Fills in a package's fields of each crew member. */
+export const registerCrewInit = (name: string, init: CrewInit): void => register(CREW_INITS, 'crew', name, init);
+
+const inOrder = <F>(inits: Map<string, F>): F[] => [...inits.keys()].sort().map(k => inits.get(k)!);
+
+/** Registers a package's rule numbers; a number registered twice must have the same value. */
+export function registerRuleDefaults(defaults: Partial<Rules>): void {
+    for (const key of sortedIds(defaults)) {
+        const value = (defaults as Record<string, unknown>)[key];
+        if (Object.hasOwn(DEFAULT_RULES, key) || (Object.hasOwn(RULE_DEFAULTS, key) && RULE_DEFAULTS[key] !== value)) {
+            throw new Error(`The rule '${key}' already has a default`);
+        }
+        RULE_DEFAULTS[key] = value;
+    }
+}
+
+/** Every rule number at its default: the engine's and every registered package's. World builders start from this. */
+export function defaultRules(): Rules {
+    return { ...DEFAULT_RULES, ...RULE_DEFAULTS } as Rules;
+}
 
 export interface CrewStart { id: string; name?: string; pos: Pos; facing?: Facing; items?: string[] }
 
@@ -13,12 +58,14 @@ export function initialState(world: ReadonlyWorld, options: { seed: number; crew
     const ids = new Set<string>();
     const place = (kind: string, id: string, pos: Pos): void => {
         if (ids.has(id)) throw new Error(`Two people have the id '${id}'`);
+        if (isReservedKey(id)) throw new Error(`'${id}' can't be an id`);
         ids.add(id);
         if (!inBounds(world, pos)) throw new Error(`${kind} '${id}' starts off the map at (${pos.x}, ${pos.y})`);
     };
+    const crewInits = inOrder(CREW_INITS), npcInits = inOrder(NPC_INITS);
     const crew: CrewState[] = options.crew.map(c => {
         place('Crew member', c.id, c.pos);
-        return {
+        const member: CrewState = {
             id: c.id,
             name: c.name ?? c.id,
             pos: { x: c.pos.x, y: c.pos.y },
@@ -26,10 +73,12 @@ export function initialState(world: ReadonlyWorld, options: { seed: number; crew
             actionsLeft: world.rules.actionsPerTurn,
             loadout: { items: [...(c.items ?? [])] }
         };
+        for (const init of crewInits) init(world, c, member);
+        return member;
     });
     const npcs: NpcState[] = world.people.map(p => {
         place('NPC', p.id, p.pos);
-        return {
+        const npc: NpcState = {
             id: p.id,
             pos: { x: p.pos.x, y: p.pos.y },
             facing: p.facing,
@@ -38,12 +87,14 @@ export function initialState(world: ReadonlyWorld, options: { seed: number; crew
             exposedTo: [],
             intent: { path: [] }
         };
+        for (const init of npcInits) init(world, p, npc);
+        return npc;
     });
     const doors: Record<string, DoorState> = {};
     for (const id of sortedIds(world.doors)) doors[id] = { status: world.doors[id]!.start };
     const cameras: Record<string, CameraState> = {};
     for (const c of world.cameras) cameras[c.id] = { facing: 0, live: true };
-    return {
+    const state: State = {
         turn: 1,
         phase: 'crew',
         bank: { loud: false, alarm: false },
@@ -57,6 +108,8 @@ export function initialState(world: ReadonlyWorld, options: { seed: number; crew
         dice: [],
         nextId: 1
     };
+    for (const init of inOrder(STATE_INITS)) init(world, state);
+    return state;
 }
 
 /**
@@ -66,8 +119,9 @@ export function initialState(world: ReadonlyWorld, options: { seed: number; crew
 export function edgeNow(world: ReadonlyWorld, state: State, key: EdgeKey): EdgeProps | undefined {
     const built = world.edges[key];
     if (!built) return undefined;
-    const now: EdgeProps = { material: built.material, blocksSight: built.blocksSight, blocksMove: built.blocksMove, ...state.edges[key] };
-    const door = built.door && state.doors[built.door]?.status;
+    const now: EdgeProps = { material: built.material, blocksSight: built.blocksSight, blocksMove: built.blocksMove };
+    if (Object.hasOwn(state.edges, key)) Object.assign(now, state.edges[key]);
+    const door = built.door && Object.hasOwn(state.doors, built.door) ? state.doors[built.door]!.status : undefined;
     if (door === 'open' || door === 'breached') return { ...now, blocksSight: false, blocksMove: false };
     return now;
 }
