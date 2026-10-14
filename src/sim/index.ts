@@ -10,6 +10,7 @@
 import './core/engine';
 import './crew/actions';
 import './crew/movement';
+import './geo/cones';
 import './geo/move';
 import './geo/sound';
 import './rules/carriers';
@@ -51,3 +52,9 @@ export {
 } from './geo/sound';
 export * from './data/movement';
 export * from './data/noise';
+export { BLOCKS, buildSightMap, CLEAR, hasLineOfSight, lineOfSight, MID, sightInputs, sightMap, type SightMap } from './geo/los';
+export {
+    ALERTED_STATUSES, ARC_TAN, bandAt, bandOf, BLIND_STATUSES, cameraObserver, crewObserver, fieldOn,
+    inArc, npcObserver, profilesOf, rangeOn, sees, seenTiles, seesOn, visionProfiles,
+    type Arc, type Band, type HalfAngle, type Observer, type SightField, type VisionProfile, type VisionProfiles
+} from './geo/cones';

@@ -147,6 +147,11 @@ Each package lists its goal, the design sections it covers, the files, what it d
     - line of sight is symmetric;
     - the corner cases of §11.4 ("standing next to a corner doesn't expose anyone");
     - matches `Nav.sees` on the sample, except where §6 decision Q6 says otherwise.
+  - **Notes (done):** low objects (desks, counters, low walls, railings) never block sight (§8.3); things of middle
+    height (vehicles, wrecks: `Tile.midHeight`, `EdgeProps.midHeight`) do, except on a line with a raised end (§14.7).
+    Darkness is judged by the seen tile (§6 decision 10). Only cameras with `seesInDark` (Regional HQ and up) see an
+    unlit tile. Perception and the overlay take `sightMap(world, state)` once per evaluation and ask `seesOn`/`fieldOn`
+    on it; any state that changes sight must join `sightInputs` (los.ts).
 - [ ] **M1-05 Perception rules.**
   - **Covers:** §7.4, §8.2, §8.4–8.7, §8.14 (uniform flags only).
   - **Work:**
@@ -158,6 +163,8 @@ Each package lists its goal, the design sections it covers, the files, what it d
     - Alerted and on edge; eyes down.
   - **Files:** `src/sim/data/*`, `src/sim/rules/{profile,perceive,suspicion,trespass}.ts`.
   - **Depends on:** M1-04.
+  - **Note from M1-04:** Alerted must be a flag separate from the NPC's status: a commanded guard stays Alerted (§8.7).
+    `npcObserver` (geo/cones.ts) reads `alerted`/`hostile` statuses as Alerted until that flag exists; switch it over.
   - **Accept:** every cell of §8.4 is tested, Core and Peripheral, using cases taken from `scripts/ui-mockups/rules.py`; the trespass sequence; the on-edge reading.
 - [ ] **M1-06 NPC schedules and intents.**
   - **Covers:** §6.1, §6.4, §16.1, §16.3, §8.5 (Curious turns, Investigating walks), "one investigates, the others watch".
@@ -449,7 +456,7 @@ Later milestones: within each milestone, the `∥` notes in §3 apply. UI packag
    - "Within 2 tiles" (frisk range): Chebyshev.
 4. **NPC speed per world phase** (not in the design): routine walk 4 tiles, hurried or investigating 5, running (flee or escape) 8. The escapee's countdown is max(2, ceil(path ÷ 8)).
 5. **Cone tests.** Integer cross and dot products against precomputed cos² thresholds; no `atan2` in the rules.
-6. **Line of sight at corners.** A diagonal step needs both edge paths clear (so a corner never exposes anyone, §11.4). The rule is symmetric and shared with the generator, whose current check (`nav.ts:171`) only needs one path.
+6. **Line of sight at corners.** A diagonal step needs both edge paths clear (so a corner never exposes anyone, §11.4). The rule is symmetric and shared with the generator, whose current check (`nav.ts:171`) only needs one path. Low objects never block sight (§8.3); vehicles (middle height) do, except for a raised observer or target (§14.7).
 7. **Zones beyond the bank.** `outdoors` and `neighbour` count as Public. The mantrap is Secure, as ROOM_RULES already says.
 8. **Materials.**
    - plaster, doorWood, boarded, shutter → Soft
@@ -461,7 +468,7 @@ Later milestones: within each milestone, the `∥` notes in §3 apply. UI packag
    - Sound (§8.9, M1-03): Glass (windows, glass doors, curtains) counts as Soft, costing 3 tiles of reach; Teller glass is armoured and counts as Reinforced, stopping it. A closed door costs 3 whatever its material, except a vault door, which stops it.
    - rail → half cover, low
 9. **Doors.** Leaf doors start closed and close themselves at the end of the world phase unless propped (§3's staff door swings shut). Doors with a lock are locked. Staff carry the keys their role and the key graph give them.
-10. **Lit.** A room is lit unless its light is `none` and it is indoors; outdoors is lit by day. Power cuts and darkness come in M4, and the baked lamps are not a rules input.
+10. **Lit.** A room is lit unless its light is `none` and it is indoors; outdoors is lit by day. Power cuts and darkness come in M4, and the baked lamps are not a rules input. Darkness is judged by the *seen* tile: an unlit tile is seen only within half of each range (rounded down), so a guard in a dark room still sees the lit lobby.
 11. **Several observers per action.** Each NPC applies its matrix cell independently; the preview shows the worst tint plus a pip count per NPC.
 12. **Previews that involve dice.** They show odds or geometry, never an outcome. The property test checks only the parts that aren't rolled, plus that the shown odds equal the odds rolled with.
 13. **Undo.** Undoable only if the events contain movement and nothing else: no new tile seen, no perception check, no dice.

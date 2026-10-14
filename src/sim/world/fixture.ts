@@ -14,6 +14,7 @@ import { freezeWorld } from './freeze';
  *     ^  raised floor (a mezzanine, the loading dock, §14.7)
  *     /  stairs, and H  a ladder: ground-level climb tiles, the only way onto raised floor. Each leads to the one raised
  *        tile beside it (orthogonally); a climb tile with no raised neighbour, or more than one, is an error.
+ *        Raised floor is marked only this way (there is no position list for it), so movement and sight agree on it.
  *
  * Objects stand on public floor unless `zones` (the same grid, in `.`, `s` and `x` only) says otherwise. Walls stand
  * on the edges between two orthogonally neighbouring tiles and are listed apart, each with its material and, for a
@@ -26,6 +27,8 @@ export interface FixtureWall {
     material?: Material;
     /** False for a segment that carries sound for free (a fence). */
     blocksSound?: boolean;
+    /** A middle-height barrier (sight passes only for a raised end, see geo/los.ts); it doesn't block sight otherwise. */
+    midHeight?: boolean;
     door?: { id: string; lock?: Lock; start?: DoorStart };
 }
 
@@ -34,6 +37,8 @@ export interface FixtureOptions {
     zones?: readonly string[];
     /** Unlit tiles, by position. */
     dark?: readonly Pos[];
+    /** Tiles with something of middle height on them (a vehicle), by position. */
+    midHeight?: readonly Pos[];
     people?: readonly PersonDef[];
     cameras?: readonly CameraDef[];
     objects?: readonly WorldObject[];
@@ -78,6 +83,10 @@ export function fixtureWorld(map: readonly string[], options: FixtureOptions = {
         if (p.x < 0 || p.y < 0 || p.x >= width || p.y >= height) throw new Error(`Dark tile (${p.x}, ${p.y}) is off the map`);
         tiles[p.y * width + p.x]!.lit = false;
     }
+    for (const p of options.midHeight ?? []) {
+        if (p.x < 0 || p.y < 0 || p.x >= width || p.y >= height) throw new Error(`Middle-height tile (${p.x}, ${p.y}) is off the map`);
+        tiles[p.y * width + p.x]!.midHeight = true;
+    }
 
     const edges: Record<string, WallEdge> = {}, doors: Record<string, DoorDef> = {};
     for (const wall of options.walls ?? []) {
@@ -85,8 +94,9 @@ export function fixtureWorld(map: readonly string[], options: FixtureOptions = {
         for (const p of [a, b]) if (p.x < 0 || p.y < 0 || p.x >= width || p.y >= height) throw new Error(`Wall tile (${p.x}, ${p.y}) is off the map`);
         const edge = edgeBetween(a, b), key = edgeKey(edge), material = wall.material ?? 'soft';
         if (edges[key]) throw new Error(`Two walls on the edge '${key}'`);
-        const built: WallEdge = { ...edge, material, blocksSight: !SEE_THROUGH.includes(material), blocksMove: true };
+        const built: WallEdge = { ...edge, material, blocksSight: !wall.midHeight && !SEE_THROUGH.includes(material), blocksMove: true };
         if (wall.blocksSound !== undefined) built.blocksSound = wall.blocksSound;
+        if (wall.midHeight) built.midHeight = true;
         if (wall.door) {
             const { id, lock = 'none', start = 'closed' } = wall.door;
             if (doors[id]) throw new Error(`Two doors with the id '${id}'`);
