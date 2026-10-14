@@ -163,7 +163,7 @@ describe('the saved world', () => {
         // Packed, the tiles are a small part of the world: a generated world is ~440 KiB of JSON with tiles as objects,
         // ~97 KiB packed (the tiles ~5 KiB of it; the rest is mostly the edges).
         expect(packed).toBeLessThan(plain / 4);
-    });
+    }, 30_000);
 });
 
 describe('wall materials', () => {

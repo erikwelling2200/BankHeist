@@ -2,7 +2,8 @@ import { describe, expect, it } from 'vitest';
 import { generateBank } from '../../src/gen/generate';
 import type { Archetype, Tier } from '../../src/gen/model';
 import {
-    commit, hashOf, initialState, worldFromBank, type CrewStart, type Intent, type Pos, type ReadonlyWorld, type SimEvent, type State
+    commit, hashOf, initialState, npcCanPass, paceBudget, reachable, reachAt, worldFromBank, type CrewStart, type Intent, type Pos,
+    type ReadonlyWorld, type SimEvent, type State
 } from '../../src/sim';
 
 /*
@@ -130,8 +131,17 @@ describe('NPC routines on generated banks', () => {
                 const post = block.route!.at(-1)!;
                 const done = day.states.slice(block.from).findIndex(s => key(s.npcs.find(n => n.id === guard.id)!.pos) === key(post));
                 expect(done, `${spec.tier} ${spec.archetype} ${guard.id} sweep`).toBeGreaterThanOrEqual(0);
-                // About three phases a room, hurried, plus the way to the first one: nobody stalls on the way.
-                expect(done, `${spec.tier} ${spec.archetype} ${guard.id} sweep`).toBeLessThan(3 * block.route!.length + 10);
+                // As fast as the walk allows: the cost of the route from where it starts, at the hurried pace, plus a phase
+                // at each stop (a phase's walk ends there), and two to spare. Nobody stalls on the way.
+                const start = day.states[block.from - 1]!;
+                const options = { ignorePeople: true, canPassDoor: npcCanPass(guard) };
+                let cost = 0, at: Pos = start.npcs.find(n => n.id === guard.id)!.pos;
+                for (const stop of block.route!) {
+                    cost += reachAt(reachable(day.world, start, at, day.world.width * day.world.height * 3, options), stop)!.cost;
+                    at = stop;
+                }
+                const bound = Math.ceil(cost / paceBudget(day.world, 'hurry')) + block.route!.length + 2;
+                expect(done, `${spec.tier} ${spec.archetype} ${guard.id} sweep`).toBeLessThanOrEqual(bound);
             }
         }
         expect(missed).toEqual([]);
