@@ -1,3 +1,4 @@
+import { isReservedKey } from './json';
 import type { DiceRoll, State } from './types';
 
 /*
@@ -58,18 +59,18 @@ export class Dice {
 
     /** A float in [0, 1) from the named stream (mulberry32, as `src/gen/rng.ts`). */
     next(stream: string, reason: string): number {
-        return this.log(stream, reason, this.draw(stream, reason));
+        return this.log('next', stream, reason, this.draw(stream, reason));
     }
 
     /** An integer in [min, max], both included. Logs the integer. */
     int(stream: string, min: number, max: number, reason: string): number {
         if (max < min) throw new Error(`Empty range ${min}..${max}`);
-        return this.log(stream, reason, min + Math.floor(this.draw(stream, reason) * (max - min + 1)));
+        return this.log('int', stream, reason, min + Math.floor(this.draw(stream, reason) * (max - min + 1)));
     }
 
     /** True with probability `p`. Logs the raw draw. */
     chance(stream: string, p: number, reason: string): boolean {
-        return this.log(stream, reason, this.draw(stream, reason)) < p;
+        return this.log('chance', stream, reason, this.draw(stream, reason), p) < p;
     }
 
     /**
@@ -83,20 +84,23 @@ export class Dice {
             this.pending = { stream, p, reason };
             throw (this.stop = new OddsStop(this.pending));
         }
-        return this.chance(stream, p, reason);
+        return this.log('odds', stream, reason, this.draw(stream, reason), p) < p;
     }
 
     private draw(stream: string, reason: string): number {
         if (this.mode === 'preview') throw (this.refused ??= new PreviewRollError(stream, reason));
-        const s = ((this.state.rng[stream] ?? streamSeed(this.state.seed, stream)) + 0x6d2b79f5) | 0;
+        if (isReservedKey(stream)) throw new Error(`'${stream}' can't name a random stream`);
+        const rng = this.state.rng;
+        const s = ((Object.hasOwn(rng, stream) ? rng[stream]! : streamSeed(this.state.seed, stream)) + 0x6d2b79f5) | 0;
         this.state.rng[stream] = s >>> 0;
         let t = Math.imul(s ^ (s >>> 15), 1 | s);
         t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
         return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
     }
 
-    private log(stream: string, reason: string, value: number): number {
-        const roll = { turn: this.state.turn, stream, reason, value }, dice = this.state.dice;
+    private log(kind: DiceRoll['kind'], stream: string, reason: string, value: number, p?: number): number {
+        const roll: DiceRoll = p === undefined ? { turn: this.state.turn, kind, stream, reason, value } : { turn: this.state.turn, kind, stream, reason, value, p };
+        const dice = this.state.dice;
         this.rolled.push(roll);
         dice.push({ ...roll });
         if (dice.length > DICE_WINDOW) dice.splice(0, dice.length - DICE_WINDOW);

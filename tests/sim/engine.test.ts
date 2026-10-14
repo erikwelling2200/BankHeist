@@ -1,19 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import {
-    deepFreeze, Dice, DICE_WINDOW, hashOf, IllegalCommand, InvariantError, popUndo, preview, PreviewRollError, recordUndo,
-    registerCommand, registerEvents, registerWorldHook, worldHooks, WORLD_STEPS, type State, type UndoStack
+    assertPlainJson, deepFreeze, Dice, DICE_WINDOW, hashOf, IllegalCommand, InvariantError, popUndo, preview,
+    PreviewRollError, recordUndo, registerCommand, registerEvents, registerWorldHook, worldHooks, WORLD_STEPS, type State, type UndoStack
 } from '../../src/sim';
-import { play, SCRIPT, smallBank, step } from './helpers';
-
-declare module '../../src/sim/core/types' {
-    interface CommandMap {
-        testSwallow: { crew: string };
-        testOdds: { crew: string };
-        testOddsTwice: { crew: string };
-        testOddsThenIllegal: { crew: string };
-    }
-    interface EventMap { testTried: { crew: string } }
-}
+import { play, registerTestCommand, registerTestEvents, SCRIPT, smallBank, step, testCommand, testEvent } from './helpers';
 
 // Something in the world phase rolls, so the script exercises the dice like the real systems will.
 registerWorldHook('devices', 'test.dice', ctx => {
@@ -21,7 +11,7 @@ registerWorldHook('devices', 'test.dice', ctx => {
 }, { order: 10 });
 
 // A reducer that tries to hide a roll from the preview.
-registerCommand('testSwallow', (ctx, cmd) => {
+registerTestCommand('testSwallow', (ctx, cmd) => {
     try {
         ctx.dice.int('combat', 1, 6, 'hit');
     } catch {
@@ -30,20 +20,33 @@ registerCommand('testSwallow', (ctx, cmd) => {
 });
 
 // A reducer that shows its odds: an event, then a roll.
-registerCommand('testOdds', (ctx, cmd) => {
-    ctx.emit({ type: 'testTried', crew: cmd.crew });
+registerTestCommand('testOdds', (ctx, cmd) => {
+    ctx.emit(testEvent({ type: 'testTried', crew: cmd.crew! }));
     if (ctx.dice.odds('resist', 0.25, 'resist')) ctx.state.crew.find(c => c.id === cmd.crew)!.actionsLeft = 0;
 });
-registerEvents({ testTried: { undoBlocking: false } });
+registerTestEvents({ testTried: { undoBlocking: false } });
+
+// A reducer that refuses after rolling, one that moves an NPC without saying so, and one that writes to its command.
+registerTestCommand('testRollThenIllegal', ctx => {
+    ctx.dice.next('combat', 'hit');
+    throw new IllegalCommand('too late');
+});
+registerTestCommand('testNudge', ctx => {
+    ctx.state.npcs[0]!.facing = 'w';
+    ctx.emit(testEvent({ type: 'testTried', crew: 'jun' }));
+});
+registerTestCommand('testWriteCommand', (_ctx, cmd) => {
+    cmd.crew = 'someone else';
+});
 
 // Reducers that catch the preview's stop and carry on: to a second roll, or to an error the commit wouldn't raise.
-registerCommand('testOddsTwice', ctx => {
+registerTestCommand('testOddsTwice', ctx => {
     try {
         ctx.dice.odds('resist', 0.5, 'first');
     } catch { /* hiding the stop */ }
     ctx.dice.odds('resist', 0.5, 'second');
 });
-registerCommand('testOddsThenIllegal', ctx => {
+registerTestCommand('testOddsThenIllegal', ctx => {
     try {
         ctx.dice.odds('resist', 0.5, 'first');
     } catch {
@@ -103,23 +106,23 @@ describe('the rules engine', () => {
         const { world, state } = smallBank();
         expect(() => preview(world, state, { type: 'endTurn' })).toThrow(PreviewRollError);
         expect(() => new Dice(structuredClone(state), 'preview').int('combat', 1, 6, 'hit')).toThrow(PreviewRollError);
-        expect(() => preview(world, state, { type: 'testSwallow', crew: 'jun' })).toThrow(PreviewRollError);
-        expect(step(world, state, { type: 'testSwallow', crew: 'jun' }).undoable).toBe(false);
+        expect(() => preview(world, state, testCommand({ type: 'testSwallow', crew: 'jun' }))).toThrow(PreviewRollError);
+        expect(step(world, state, testCommand({ type: 'testSwallow', crew: 'jun' })).undoable).toBe(false);
     });
 
     it('stops a preview at a roll it shows the odds of, and rolls on commit', () => {
         const { world, state } = smallBank();
-        const seen = preview(world, state, { type: 'testOdds', crew: 'jun' });
+        const seen = preview(world, state, testCommand({ type: 'testOdds', crew: 'jun' }));
         expect(seen.pending).toEqual({ stream: 'resist', p: 0.25, reason: 'resist' });
         expect(seen.events).toEqual([{ type: 'testTried', crew: 'jun' }]);
         expect(seen.undoable).toBe(false);
-        const done = step(world, state, { type: 'testOdds', crew: 'jun' });
+        const done = step(world, state, testCommand({ type: 'testOdds', crew: 'jun' }));
         expect(done.state.dice).toHaveLength(1);
         expect(done.rolls).toEqual(done.state.dice);
         expect(done.undoable).toBe(false);
-        expect(() => preview(world, state, { type: 'testOddsTwice', crew: 'jun' })).toThrow(PreviewRollError);
-        expect(() => preview(world, state, { type: 'testOddsThenIllegal', crew: 'jun' })).toThrow(InvariantError);
-        expect(step(world, state, { type: 'testOddsThenIllegal', crew: 'jun' }).rolls).toHaveLength(1);
+        expect(() => preview(world, state, testCommand({ type: 'testOddsTwice', crew: 'jun' }))).toThrow(PreviewRollError);
+        expect(() => preview(world, state, testCommand({ type: 'testOddsThenIllegal', crew: 'jun' }))).toThrow(InvariantError);
+        expect(step(world, state, testCommand({ type: 'testOddsThenIllegal', crew: 'jun' })).rolls).toHaveLength(1);
         expect(() => new Dice(structuredClone(state), 'commit').odds('resist', 1.5, 'bad')).toThrow(/between 0 and 1/);
     });
 
@@ -153,8 +156,9 @@ describe('the rules engine', () => {
     });
 
     it('guards its registries', () => {
-        expect(() => registerCommand('wait', () => {})).toThrow(/already has a reducer/);
-        expect(() => registerWorldHook('devices', 'test.dice', () => {})).toThrow(/already in step/);
+        expect(() => registerCommand('wait', () => {})).toThrow(/already registered/);
+        expect(() => registerWorldHook('devices', 'test.dice', () => {})).toThrow(/already registered/);
+        expect(() => registerWorldHook('devices', 'test.nothing', () => {}, { replace: true })).toThrow(/no World hook/);
         expect(() => registerWorldHook('nowhere' as 'devices', 'x', () => {})).toThrow(/No world-phase step/);
         expect(() => registerEvents({ moved: { undoBlocking: true } })).toThrow(/already classified/);
         registerEvents({ moved: { undoBlocking: false } });
@@ -175,6 +179,41 @@ describe('the rules engine', () => {
             { type: 'phaseStarted', phase: 'world', turn: 1 },
             { type: 'phaseStarted', phase: 'crew', turn: 2 }
         ]);
+    });
+});
+
+describe('the engine\'s guards', () => {
+    it('treats a refusal after a roll as a bug', () => {
+        const { world, state } = smallBank();
+        expect(() => step(world, state, testCommand({ type: 'testRollThenIllegal' }))).toThrow(InvariantError);
+    });
+
+    it('never lets an action that changed an NPC be undone, whatever its events', () => {
+        const { world, state } = smallBank();
+        const result = step(world, state, testCommand({ type: 'testNudge' }));
+        expect(result.events).toEqual([{ type: 'testTried', crew: 'jun' }]);
+        expect(result.undoable).toBe(false);
+    });
+
+    it('gives the reducer its own frozen copy of the command', () => {
+        const { world, state } = smallBank();
+        const cmd = testCommand({ type: 'testWriteCommand', crew: 'jun' });
+        expect(() => step(world, state, cmd)).toThrow(TypeError);
+        expect(Object.isFrozen(cmd)).toBe(false);
+    });
+
+    it('logs what kind of roll each was, and its odds', () => {
+        const { world, state } = smallBank();
+        const rolls = step(world, state, testCommand({ type: 'testOdds', crew: 'jun' })).rolls;
+        expect(rolls).toEqual([{ turn: 1, kind: 'odds', stream: 'resist', reason: 'resist', value: rolls[0]!.value, p: 0.25 }]);
+        const dice = new Dice(structuredClone(state), 'commit');
+        dice.int('a', 1, 6, 'x');
+        expect(() => dice.next('toString', 'x')).toThrow(/can't name a random stream/);
+    });
+
+    it('rejects keys a record would find on its prototype', () => {
+        expect(() => assertPlainJson({ suspicion: { constructor: 1 } })).toThrow(/reserved key 'constructor'/);
+        expect(() => assertPlainJson(JSON.parse('{"__proto__": 1}'))).toThrow(/reserved key/);
     });
 });
 

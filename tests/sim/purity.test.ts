@@ -57,8 +57,12 @@ function isAugmentation(node: ts.Node): boolean {
         && !!node.body && ts.isModuleBlock(node.body) && node.body.statements.every(ts.isInterfaceDeclaration);
 }
 
+/** Rules iterate records by `sortedIds`, never in insertion order (implementation plan §2.3). */
+const ORDERED_DIRS = ['src/sim/rules/'];
+
 function problems(source: ts.SourceFile): string[] {
     const found: string[] = [];
+    const ordered = ORDERED_DIRS.some(d => relative(ROOT, source.fileName).split('\\').join('/').startsWith(d));
     const at = (node: ts.Node, what: string): void => {
         const { line } = source.getLineAndCharacterOfPosition(node.getStart(source));
         found.push(`${relative(ROOT, source.fileName)}:${line + 1}: ${what}`);
@@ -73,6 +77,8 @@ function problems(source: ts.SourceFile): string[] {
                 } else at(node, ts.isElementAccessExpression(p) ? 'computed Math access' : 'Math used as a value');
             }
         }
+        if (ordered && ts.isPropertyAccessExpression(node) && ts.isIdentifier(node.expression) && node.expression.text === 'Object'
+            && ['keys', 'values', 'entries'].includes(node.name.text)) at(node, `Object.${node.name.text} (use sortedIds)`);
         if (ts.isPropertyAccessExpression(node) && (node.name.text === 'localeCompare' || node.name.text.startsWith('toLocale'))) {
             at(node, `${node.name.text} (locale-dependent)`);
         }
@@ -142,6 +148,24 @@ describe('src/sim', () => {
             'localeCompare (locale-dependent)', 'toLocaleString (locale-dependent)', 'ambient declare', 'declare global', 'ambient declare'
         ]);
         // The second 'ambient declare' is the module that declares a value; the one that adds an interface is allowed.
+    });
+
+    it('has rules that iterate records in sorted order', () => {
+        const probe = ts.createSourceFile(join(ROOT, 'src/sim/rules/probe.ts'), 'for (const k of Object.keys(r)) f(Object.entries(r));', ts.ScriptTarget.ES2022, true);
+        expect(problems(probe).map(p => p.replace(/^.*: /, ''))).toEqual(['Object.keys (use sortedIds)', 'Object.entries (use sortedIds)']);
+    });
+
+    it('is not augmented by tests, so test commands and events never reach the production unions', () => {
+        const augmented = files(join(ROOT, 'tests')).filter(f => f.endsWith('.ts')).filter(f => {
+            let found = false;
+            const visit = (node: ts.Node): void => {
+                if (ts.isModuleDeclaration(node) && ts.isStringLiteral(node.name) && node.name.text.includes('src/sim')) found = true;
+                ts.forEachChild(node, visit);
+            };
+            visit(parse(f));
+            return found;
+        });
+        expect(augmented.map(f => relative(ROOT, f))).toEqual([]);
     });
 
     it('imports only the pure parts of the game, and every file of the engine is loaded', () => {

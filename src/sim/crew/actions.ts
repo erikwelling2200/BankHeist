@@ -4,8 +4,8 @@ import { crewMember, spendActions } from '../core/state';
 import { registerEvents } from '../core/undo';
 
 /*
- * The crew's simplest actions (§6.3). `move` is a stub that only checks the shape of the path: the movement package
- * replaces it with the real rules (range, diagonals at 1.5, walls and corners, heavy armour).
+ * The crew's simplest actions (§6.3). `move` is a placeholder that only checks the shape of the path: the movement
+ * package's own `registerCommand('move', …)` takes its place (range, diagonals at 1.5, walls and corners, armour).
  */
 
 registerCommand('move', (ctx, cmd) => {
@@ -25,7 +25,7 @@ registerCommand('move', (ctx, cmd) => {
     member.facing = facingToward(cmd.path.at(-2) ?? from, to) ?? member.facing;
     member.pos = { x: to.x, y: to.y };
     ctx.emit({ type: 'moved', crew: member.id, from, to: member.pos });
-});
+}, { placeholder: true });
 
 registerCommand('wait', (ctx, cmd) => {
     const member = crewMember(ctx.state, cmd.crew);
