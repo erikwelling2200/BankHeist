@@ -194,18 +194,19 @@ describe('the game session', () => {
             session.commit(MOVE_JUN);
             const heistWrites = storage.writesOf(HEIST_KEY);
             session.select('mara');
-            session.setCamera({ x: 1, y: 2, zoom: 3 });
+            session.setCamera({ x: 1, y: 2, zoom: 3, map: true });
             session.setPendingCommand(MOVE_MARA);
+            session.setAction('dash');
             expect(storage.writesOf(UI_KEY)).toBe(0);
             vi.advanceTimersByTime(1000);
             expect(storage.writesOf(UI_KEY)).toBe(1);
             expect(storage.writesOf(HEIST_KEY)).toBe(heistWrites);
             const resumed = Session.resume(storage)!;
-            expect(resumed.ui).toEqual({ selected: 'mara', camera: { x: 1, y: 2, zoom: 3 }, pendingCommand: MOVE_MARA });
+            expect(resumed.ui).toEqual({ selected: 'mara', camera: { x: 1, y: 2, zoom: 3, map: true }, pendingCommand: MOVE_MARA, action: 'dash' });
             // A commit clears the pending command; the heist save then carries the UI, and an older UI entry is ignored.
             session.commit(MOVE_MARA);
             expect(session.pendingCommand).toBeNull();
-            expect(Session.resume(storage)!.ui).toEqual({ selected: 'mara', camera: { x: 1, y: 2, zoom: 3 }, pendingCommand: null });
+            expect(Session.resume(storage)!.ui).toEqual({ selected: 'mara', camera: { x: 1, y: 2, zoom: 3, map: true }, pendingCommand: null, action: 'dash' });
         } finally {
             vi.useRealTimers();
         }
@@ -217,7 +218,7 @@ describe('the game session', () => {
         const heist = JSON.parse(storage.get(HEIST_KEY)!) as Record<string, unknown>;
         storage.set(HEIST_KEY, JSON.stringify({ ...heist, ui: { selected: 'ghost', camera: { x: 'a', y: 0, zoom: 1 }, pendingCommand: 5 }, undoRecent: [] }));
         const resumed = Session.resume(storage)!;
-        expect(resumed.ui).toEqual({ selected: null, camera: null, pendingCommand: null });
+        expect(resumed.ui).toEqual({ selected: null, camera: null, pendingCommand: null, action: null });
         expect(resumed.canUndo).toBe(false);
         expect(hashOf(resumed.state)).toBe(hashOf(session.state));
     });

@@ -25,7 +25,7 @@ import { hudView, recapView, type HudExtras } from './views';
  */
 
 /** Where the camera looks. Opaque to the Session: the scene sets it and gets it back on resume. */
-export interface CameraView { x: number; y: number; zoom: number }
+export interface CameraView { x: number; y: number; zoom: number; /** The tactical map shows (x, y and zoom are the view to go back to). */ map?: boolean }
 
 /** What the player had on screen, restored on resume (§20.6). */
 export interface UiState {
@@ -34,6 +34,8 @@ export interface UiState {
     camera: CameraView | null;
     /** The command being previewed and not yet confirmed, so a resume shows the same preview (§20.6). */
     pendingCommand: Command | null;
+    /** The action picked for the selected crew member before a tile (Dash), so a tap after a resume does the same. */
+    action: string | null;
 }
 
 export type SessionChange =
@@ -96,7 +98,7 @@ function checkUi(ui: Partial<UiState> | null | undefined, state: State): UiState
     const selected = typeof ui?.selected === 'string' && state.crew.some(c => c.id === ui.selected) ? ui.selected : null;
     const c = ui?.camera;
     const camera = c && typeof c === 'object' && [c.x, c.y, c.zoom].every(n => typeof n === 'number' && Number.isFinite(n)) && c.zoom > 0
-        ? { x: c.x, y: c.y, zoom: c.zoom } : null;
+        ? { x: c.x, y: c.y, zoom: c.zoom, ...(c.map === true ? { map: true } : {}) } : null;
     const p = ui?.pendingCommand;
     let pendingCommand: Command | null = null;
     if (p && typeof p === 'object' && typeof p.type === 'string') {
@@ -105,7 +107,8 @@ function checkUi(ui: Partial<UiState> | null | undefined, state: State): UiState
             pendingCommand = clonePlain(p);
         } catch { /* dropped */ }
     }
-    return { selected, camera, pendingCommand };
+    const action = typeof ui?.action === 'string' ? ui.action : null;
+    return { selected, camera, pendingCommand, action };
 }
 
 export class Session {
@@ -339,7 +342,7 @@ export class Session {
 
     /** Where the camera looks. */
     setCamera(camera: CameraView | null): void {
-        const next = camera && { x: camera.x, y: camera.y, zoom: camera.zoom };
+        const next = camera && { x: camera.x, y: camera.y, zoom: camera.zoom, ...(camera.map ? { map: true } : {}) };
         assertPlainJson(next, 'camera');
         this.setUi({ camera: next });
     }
@@ -349,6 +352,13 @@ export class Session {
         const next = cmd && clonePlain(cmd);
         assertPlainJson(next, 'pendingCommand');
         this.setUi({ pendingCommand: next });
+        this.emit({ kind: 'ui' });
+    }
+
+    /** The action picked before a tile (or null for the default, Move). */
+    setAction(action: string | null): void {
+        if (action === this._ui.action) return;
+        this.setUi({ action });
         this.emit({ kind: 'ui' });
     }
 

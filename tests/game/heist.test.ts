@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { crewOrigin, M1_CREW, newHeist, playHeist } from '../../src/game/heist';
-import { MemoryStorage } from '../../src/game';
+import { BANK_KEY, bankAddress, crewOrigin, M1_CREW, newHeist, playPlan, savedHeist, startHeist } from '../../src/game/heist';
+import { MemoryStorage, Session } from '../../src/game';
 import { generateBank } from '../../src/gen/generate';
 import { reachable, tileAt } from '../../src/sim';
 
@@ -32,16 +32,21 @@ describe('a heist in a generated bank', () => {
         }
     }, 120000);
 
-    it('resumes the heist of the same bank, and starts afresh for another bank or when asked', () => {
+    it('remembers the bank of the saved heist, and plans resuming or asking before overwriting it', () => {
         const storage = new MemoryStorage();
-        const first = playHeist(bank, storage).session;
-        expect(playHeist(bank, storage).resumed).toBe(true);
-        first.commit({ type: 'wait', crew: 'mara' });
-        const again = playHeist(bank, storage);
-        expect(again.resumed).toBe(true);
-        expect(again.session.state.crew[0]!.actionsLeft).toBe(0);
-        expect(playHeist(bank, storage, { fresh: true }).resumed).toBe(false);
-        const other = generateBank({ layout: 32, population: 2, tier: 'small', archetype: 'twoWing' });
-        expect(playHeist(other, storage).resumed).toBe(false);
+        const here = bankAddress(bank);
+        expect(playPlan(savedHeist(storage), { seeded: true, fresh: false }, here)).toBe('new');
+        const session = startHeist(bank, storage);
+        session.commit({ type: 'wait', crew: 'mara' });
+        const saved = savedHeist(storage)!;
+        expect(saved.address).toEqual(here);
+        expect(saved.name).toBe(bank.name);
+        expect(playPlan(saved, { seeded: false, fresh: false }, { ...here, seed: '1-1' })).toBe('resume');
+        expect(playPlan(saved, { seeded: true, fresh: false }, here)).toBe('resume');
+        expect(playPlan(saved, { seeded: true, fresh: false }, { ...here, seed: '1-1' })).toBe('ask');
+        expect(playPlan(saved, { seeded: false, fresh: true }, here)).toBe('ask');
+        expect(Session.resume(storage)!.state.crew[0]!.actionsLeft).toBe(0);
+        storage.set(BANK_KEY, '{oops');
+        expect(savedHeist(storage)).toEqual({ address: null, name: null });
     });
 });

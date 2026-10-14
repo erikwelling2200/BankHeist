@@ -200,6 +200,26 @@ Each package lists its goal, the design sections it covers, the files, what it d
     phase must rewrite `npc.intent` at once (in the same command), so its telegraph shows during that crew phase and
     the world phase's perception (`sightingsAlong`, judged on the intents frozen at the start of the phase) looks along
     the new facing and path. A want formed in a world phase becomes the intent committed at its end (§6.2).
+  - **Notes (done):** the generator writes typed blocks (`ScheduleBlock`: `Activity` post, window, break, lunch,
+    shiftChange, cashRun, inspection, smokeBreak, serviceVisit, queue, wait, counter, patrol, sweep, closingSweep,
+    leave, offMap; `at`/`facing` or `route`; `label` for the card). Its extra rolls (customers leaving and coming back)
+    are a `routines` stream, so timelines, the sweep and the visual baselines are unchanged. `rules/npc/`:
+    `schedule.ts` (queries: `activityAt`, `nextActivity` "vault inspection in 6", `scheduleTurns`/`nextScheduleTurn`
+    and `startingOn` for Wait for), `behaviour.ts` (goals from wants: Curious faces, Investigating walks hurried and an
+    enforcer frisks next to them, one investigates (`investigatorOf`/`pickInvestigator`) and the others watch, a lost
+    trail searches 2 phases, the challenger walks over, the escort keeps off the Public floor; statuses; reactions by
+    role through `registerReaction`), `intent.ts` (`npcs.intents` commits every NPC in resolution order, and at the
+    start of a heist; `reconsider` re-plans in the crew phase only the NPCs whose goal changed, called by
+    `applySightings`), `walk.ts` (paces 4/5/8, doors by observer class, `planWalk`, `resolveWalks`) and `act.ts`
+    (`npcs.passive`: walks exactly the frozen intents, stopping before a crew member or a door that became impassable,
+    then frisks and telling a guard; `npcActSightings` feeds both into `assessWorldPhase`). A committed walk never ends
+    on another NPC's tile or committed end, so NPCs never share a tile. NPCs keep out of the vault (M2-05). Off-map
+    people have the status `away` (absent from sight, sound, occupancy and doorways; the scene must hide them).
+    **For M1-08:** reactions that start carriers are intents `{ kind: 'raiseAlarm', carrier, crew }`, committed only
+    once the NPC is at its station; carry them out from `WorldPhase.intents` in a passiveNpcs hook ordered after
+    `npcs.passive` (0), then add the crew id to `NpcState.reported` so the reaction only watches; the guard's
+    "Hands up!" can replace the guard reaction with `registerReaction(role, …, { replace: true })`. Panicking
+    civilians commit `panic` (M2-02).
 - [ ] **M1-07 Turn loop and crew actions.**
   - **Covers:** §6.1–6.3, §6.6, §8.10, §11.10 (knockout).
   - **Work:**
@@ -244,6 +264,14 @@ Each package lists its goal, the design sections it covers, the files, what it d
     - Unknown-risk tiles, for the hatched-grey overlay.
     - Sound pings; the blueprint layer as data.
     - The projection from the engine's truth (states, events, `PreviewResult`s) to what the crew knows; the HUD and the overlay show only that.
+    - Leaks in play mode (M1-13) to route through the projection:
+      - Reach, tap snapping and drag validation (`src/scenes/bank/sim.ts`, `sim.path` in `src/game/debug.ts`) run on
+        the true state, so a tile an unseen NPC stands on reads as blocked instead of open: plan against the crew's
+        picture (unseen NPCs' tiles open), and let the commit say what happens.
+      - Confirm's colour comes from the preview's events (`heard` makes it amber, `confirmView` in `src/game/views.ts`):
+        filter them through the projection (`projectPreview` in `src/game/session.ts`) first.
+      - World-phase playback: the camera visits (and `describeEvent` lines) should cover only events the crew
+        perceived; today every important event is visited.
   - **Files:** `src/sim/rules/knowledge.ts`.
   - **Depends on:** M1-04, M1-06. **∥** M1-08.
   - **Accept:** a predicted NPC knocked off its routine turns into a ghost; an unscouted tile is never safe.
@@ -409,7 +437,7 @@ Each package lists its goal, the design sections it covers, the files, what it d
 | --- | --- |
 | Plots, archetypes, programs, shapes, parcels, furnishing, stories, metrics | none |
 | Key graph (text only) | Structured keys: M2-05 |
-| Population and schedule (text activities) | Typed activities: M1-06 |
+| Population and schedule (text activities) | Typed activities: M1-06 (done) |
 | Traits (strings) | Typed traits: M2-02 |
 | Validation §17.7, with its own vision constants | M5-01 |
 | Opportunities (text) | M5-02 |

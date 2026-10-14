@@ -55,3 +55,12 @@ body.play { --play-l: max(8px, env(safe-area-inset-left)); --play-b: max(8px, en
 }
 body.play .fullscreen-button { top: auto; bottom: var(--play-b); left: calc(var(--play-l) + 150px); width: 44px; height: 44px; border-radius: 6px; z-index: 6; }
 .play-speed { position: fixed; bottom: var(--play-b); left: calc(var(--play-l) + 100px); width: 44px; height: 44px; z-index: 6; padding: 0; border: 1px solid rgba(242, 230, 200, 0.25); border-radius: 6px; background: rgba(11, 13, 23, 0.72); color: #f2e6c8; font: 600 14px ui-monospace, Menlo, Consolas, monospace; text-shadow: 0 2px 0 #000; touch-action: manipulation; cursor: pointer; }
+/* `?play` asks before a saved heist is overwritten: a sheet in the HUD's night-blue glass. */
+.play-dialog-back { position: fixed; inset: 0; z-index: 30; display: flex; align-items: center; justify-content: center; background: rgba(11, 13, 23, 0.6); padding: 16px; }
+.play-dialog { max-width: 360px; padding: 14px 16px; border: 1px solid rgba(242, 230, 200, 0.35); border-radius: 8px; background: rgba(11, 13, 23, 0.9); color: #f2e6c8; font: 500 14px/1.45 ui-sans-serif, system-ui, sans-serif; }
+.play-dialog p { margin: 0 0 8px; }
+.play-dialog-title { font: 600 14px ui-monospace, Menlo, Consolas, monospace; letter-spacing: 0.06em; text-shadow: 0 2px 0 #000; }
+.play-dialog-buttons { display: flex; gap: 8px; justify-content: flex-end; margin-top: 12px; }
+.play-dialog button { min-width: 44px; min-height: 44px; padding: 0 14px; border-radius: 6px; font: 600 13px ui-monospace, Menlo, Consolas, monospace; letter-spacing: 0.06em; cursor: pointer; touch-action: manipulation; }
+.play-dialog-keep { border: 1px solid rgba(242, 230, 200, 0.35); background: rgba(242, 230, 200, 0.08); color: #f2e6c8; }
+.play-dialog-new { border: 0; background: #e2a240; color: #0b0d17; }

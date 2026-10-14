@@ -67,9 +67,11 @@ test('plays three turns of a heist through taps', SMOKE, async ({ page }) => {
     await expect(page.locator('.sh-rail .sh-crew')).toHaveCount(2);
     await page.screenshot({ path: 'screenshots/play-start.png' });
 
-    // Turn 1: select Mara on the map, tap a tile, then Confirm.
+    // Turn 1: select Mara on the map (the view zooms in to Act view), tap a tile, then Confirm.
+    const opening = (await scene(page)).zoom;
     await tapTile(page, start.crew[0]!.pos);
     expect((await play(page)).selected).toBe('mara');
+    expect((await scene(page)).zoom).toBeGreaterThan(opening);
     await page.waitForTimeout(400);
     const target = await previewNear(page, 'mara', AROUND);
     const preview = await play(page);
@@ -123,10 +125,35 @@ test('plays three turns of a heist through taps', SMOKE, async ({ page }) => {
     expect(now.turn).toBe(4);
     expect(now.crew.find(c => c.id === 'jun')!.pos).toEqual(third);
 
-    // Reloading resumes the same heist (the recap card shows first).
+    // Reloading resumes the same heist (the recap card shows first), with the camera exactly where it was.
+    await page.keyboard.press('-');
+    await page.waitForTimeout(300);
+    const view = await scene(page);
     await page.reload();
-    await page.waitForFunction(() => (window as any).sim, undefined, { timeout: 60000 });
+    await page.waitForFunction(() => (window as any).game?.scene.getScene('bank')?.debugState?.play, undefined, { timeout: 60000 });
     expect((await sim(page)).turn).toBe(4);
+    const back = await scene(page);
+    expect([back.zoom, Math.round(back.midX), Math.round(back.midY)]).toEqual([view.zoom, Math.round(view.midX), Math.round(view.midY)]);
+    await expect(page.locator('.sh-recap')).toBeVisible();
+    expect(errors).toEqual([]);
+});
+
+test('never overwrites a saved heist without asking', SMOKE, async ({ page }) => {
+    const errors = await boot(page);
+    await page.evaluate(() => { (window as any).sim.endTurn(); (window as any).sim.session.save(); });
+    expect(page.url()).toMatch(/\?play&seed=31-2&/);
+    // Another bank: the dialog asks; keeping the saved heist goes back to it, in its own bank.
+    await page.goto('/?play&seed=5-5');
+    await page.locator('.play-dialog-keep').click();
+    await page.waitForFunction(() => (window as any).sim, undefined, { timeout: 60000 });
+    expect((await sim(page)).turn).toBe(2);
+    expect(page.url()).toMatch(/seed=31-2/);
+    // Without a seed, the saved heist resumes; with &new, starting afresh needs a yes.
+    await page.goto('/?play&new');
+    await page.locator('.play-dialog-new').click();
+    await page.waitForFunction(() => (window as any).sim, undefined, { timeout: 60000 });
+    expect((await sim(page)).turn).toBe(1);
+    expect(page.url()).not.toMatch(/new/);
     expect(errors).toEqual([]);
 });
 

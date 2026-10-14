@@ -10,8 +10,9 @@ import { OfficerScene } from './scenes/OfficerScene';
 import { PropSheetScene } from './scenes/PropSheetScene';
 import { VaultScene } from './scenes/VaultScene';
 import { Fullscreen } from './ui/Fullscreen';
-import { installDebugHandle, MemoryStorage, webStorage } from './game';
-import { playHeist } from './game/heist';
+import { installDebugHandle, MemoryStorage, Session, webStorage } from './game';
+import { bankAddress, playPlan, savedHeist, startHeist } from './game/heist';
+import type { BankData } from './level/bankData';
 import type { PlaySetup } from './scenes/BankScene';
 
 /** The bank `?play` opens without a seed in the address: a small branch (decision Q1), pinned so every run is the same. */
@@ -20,23 +21,20 @@ export const PLAY_BANK = { seed: '31-2', tier: 'small', archetype: 'twoWing' } a
 /** Starts the game on the scene the address names (`?scene=`, default the generated bank). Loaded only off the HUD page. */
 export function startGame(params: URLSearchParams, scene: string): void {
     // `?play` is the game (implementation plan §2.5): the pinned bank (or `&seed=`), played through a Session that
-    // autosaves to this browser and resumes (`&new` starts afresh).
-    const play = params.has('play') && !params.has('scene');
-    if (play && !params.has('seed')) {
-        for (const [k, v] of Object.entries(PLAY_BANK)) params.set(k, v);
-        history.replaceState(null, '', `${location.pathname}?${params}`.replace(/=(?=&|$)/g, ''));
+    // autosaves to this browser and resumes (`&new` starts afresh, after asking).
+    if (params.has('play') && !params.has('scene')) {
+        void preparePlay(params).then(({ bank, setup }) => launch(params, scene, bank, setup));
+        return;
     }
     // `?scene=rooms` is the room gallery: every room type furnished in a few sizes (`?seed=` picks other parcels).
     const gallery = scene === 'rooms' ? roomGallery(Number(params.get('seed') ?? 1)) : undefined;
     const bank = gallery ? { data: gallery.data, generated: undefined } : ['props', 'officer', 'demo'].includes(scene) ? undefined : generateAddressed();
-    const playSetup = play && bank?.generated ? startHeist(bank.generated, params.has('new')) : undefined;
-    if (playSetup && params.has('new')) {
-        // Started afresh once: reloading the page resumes this heist rather than starting yet another.
-        const address = new URLSearchParams(location.search);
-        address.delete('new');
-        history.replaceState(null, '', `${location.pathname}?${address}`.replace(/=(?=&|$)/g, ''));
-    }
+    launch(params, scene, bank, undefined, gallery);
+}
 
+/** Starts Phaser on the scene, with the bank (and play mode's heist) handed over through the registry. */
+function launch(params: URLSearchParams, scene: string, bank: { data: BankData; generated?: GeneratedBank } | undefined, playSetup: PlaySetup | undefined,
+    gallery?: ReturnType<typeof roomGallery>): void {
     const game = new Phaser.Game({
         type: Phaser.WEBGL,
         parent: 'game',
@@ -94,13 +92,6 @@ export function startGame(params: URLSearchParams, scene: string): void {
         }));
     }
 
-    /** The addressed bank, its generating timed into the browser's performance timeline (`bank: generate`) for profiling. */
-    function generateAddressed(): ReturnType<typeof bankFromAddress> {
-        const start = performance.now(), next = bankFromAddress();
-        performance.measure('bank: generate', { start });
-        return next;
-    }
-
     if (bank?.generated && !playSetup) {
         showPanels(bank.generated);
         window.addEventListener('popstate', showAddressedBank);
@@ -112,16 +103,101 @@ export function startGame(params: URLSearchParams, scene: string): void {
     registerSW({ immediate: true });
 }
 
+/** The addressed bank, its generating timed into the browser's performance timeline (`bank: generate`) for profiling. */
+function generateAddressed(): ReturnType<typeof bankFromAddress> {
+    const start = performance.now(), next = bankFromAddress();
+    performance.measure('bank: generate', { start });
+    return next;
+}
+
+/** Writes play mode's address: `?play` first, then the bank's picks (no `play=`, no `new`). */
+function writePlayAddress(): void {
+    const params = new URLSearchParams(location.search);
+    params.delete('play');
+    params.delete('new');
+    const rest = params.toString();
+    history.replaceState(null, '', `${location.pathname}?play${rest ? `&${rest}` : ''}`);
+}
+
 /**
- * The heist in a generated bank: resumed from this browser's autosave if it was played in this bank (unless `fresh`),
- * with `window.sim` for debugging and the e2e tests, and saved whenever the page is hidden or left (§20.6).
+ * The heist `?play` opens (§20.6), never overwriting a saved one without the player's consent: without a seed in the
+ * address the saved heist resumes in its own bank; with another bank's seed, or `&new`, a dialog asks first, and
+ * declining goes back to the saved heist. A save that can't be read is only replaced after asking too; declining
+ * that plays without saving, so the save stays as it was. Sets up `window.sim` and saving when the page is hidden.
  */
-function startHeist(generated: GeneratedBank, fresh: boolean): PlaySetup {
+async function preparePlay(params: URLSearchParams): Promise<{ bank: ReturnType<typeof bankFromAddress>; setup: PlaySetup }> {
     const storage = webStorage() ?? new MemoryStorage();
-    const { session, resumed } = playHeist(generated, storage, { fresh });
+    const saved = savedHeist(storage), seeded = params.has('seed'), fresh = params.has('new');
+    if (!seeded) {
+        // The saved heist's bank, or the pinned one.
+        const address: Record<string, string> = !fresh && saved?.address ? { ...saved.address } : { ...PLAY_BANK };
+        const next = new URLSearchParams(location.search);
+        for (const k of ['seed', 'tier', 'archetype', 'plot']) next.delete(k);
+        for (const [k, v] of Object.entries(address)) next.set(k, v);
+        history.replaceState(null, '', `${location.pathname}?${next}`);
+    }
+    const bank = generateAddressed();
+    writePlayAddress();
+    const generated = bank.generated!;
+    const started = performance.now();
+    let plan = playPlan(saved, { seeded, fresh }, bankAddress(generated));
+    let session: Session | null = null;
+    let target = storage;
+    if (plan === 'ask') {
+        const name = saved?.name ? `in ${saved.name}` : 'in another bank';
+        if (!(await askPlayer(`A heist ${name} is saved on this device.`, 'Starting this one overwrites it.', 'Start new', 'Resume saved'))) {
+            location.replace(`${location.pathname}?play`);
+            return new Promise(() => undefined);
+        }
+        plan = 'new';
+    }
+    if (plan === 'resume') {
+        session = Session.resume(storage);
+        if (!session) {
+            console.warn("The saved heist can't be resumed", Session.lastResumeError);
+            if (!(await askPlayer("The saved heist can't be read.", 'Start a new one in its place?', 'Start new', 'Play without saving'))) target = new MemoryStorage();
+        }
+    }
+    const resumed = !!session;
+    session ??= startHeist(generated, target);
+    const setupMs = performance.measure('bank: heist', { start: started }).duration;
     installDebugHandle(session);
-    document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') session.save(); });
-    window.addEventListener('pagehide', () => session.save());
+    const s = session;
+    document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') s.save(); });
+    window.addEventListener('pagehide', () => s.save());
     Object.assign(window, { generated });
-    return { session, bank: generated, resumed };
+    return { bank, setup: { session, bank: generated, resumed, setupMs } };
+}
+
+/** A small dialog in the HUD's style; resolves true for `yes`. */
+function askPlayer(title: string, text: string, yes: string, no: string): Promise<boolean> {
+    return new Promise(resolve => {
+        const back = document.createElement('div');
+        back.className = 'play-dialog-back';
+        const box = document.createElement('div');
+        box.className = 'play-dialog';
+        box.setAttribute('role', 'alertdialog');
+        box.setAttribute('aria-modal', 'true');
+        const h = document.createElement('p');
+        h.className = 'play-dialog-title';
+        h.textContent = title;
+        const p = document.createElement('p');
+        p.textContent = text;
+        const row = document.createElement('div');
+        row.className = 'play-dialog-buttons';
+        const button = (label: string, answer: boolean, cls: string) => {
+            const b = document.createElement('button');
+            b.className = cls;
+            b.textContent = label;
+            b.addEventListener('click', () => { back.remove(); resolve(answer); });
+            row.append(b);
+            return b;
+        };
+        const keep = button(no, false, 'play-dialog-keep');
+        button(yes, true, 'play-dialog-new');
+        box.append(h, p, row);
+        back.append(box);
+        document.body.append(back);
+        keep.focus();
+    });
 }

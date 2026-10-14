@@ -71,7 +71,14 @@ export class PlayMode {
     private readonly sprite = new Map<string, number>();
     private readonly unsubscribe: () => void;
     private readonly chrome: HTMLElement[] = [];
-    private mode: ActionId = 'move';
+    /** The action picked before a tile (Move or Dash), kept in the Session's UI state so a resume does the same. */
+    private get mode(): ActionId {
+        return this.session.ui.action === 'dash' ? 'dash' : 'move';
+    }
+
+    private set mode(mode: ActionId) {
+        this.session.setAction(mode === 'move' ? null : mode);
+    }
     private mapOn = false;
     private overlays: Partial<Record<OverlayId, boolean>> = {};
     private recap: boolean;
@@ -139,9 +146,10 @@ export class PlayMode {
         this.session.playback.clear();
         const selected = session.selected;
         const at = selected ? session.state.crew.find(c => c.id === selected)?.pos : session.state.crew[0]?.pos;
-        if (session.camera) this.camera.centreOn(session.camera.x, session.camera.y);
-        // A new heist opens on the crew, a little north of them so the bank they face shows.
-        else if (at) this.camera.centreOn(centre(at)[0], centre(at)[1] - OPENING_LIFT * TILE);
+        const saved = session.camera;
+        if (saved) this.camera.restore(saved.zoom, saved.x, saved.y, saved.map);
+        // A new heist opens on the crew, a little north of them so the bank they face shows, kept on the plot.
+        else if (at) this.camera.centreOn(...this.camera.clampToPlot(centre(at)[0], centre(at)[1] - OPENING_LIFT * TILE));
         this.refresh();
         scene.events.once(Phaser.Scenes.Events.SHUTDOWN, () => this.destroy());
     }
@@ -182,9 +190,10 @@ export class PlayMode {
             this.refresh();
         }
         // Where the camera looks goes into the UI save (debounced), so a resume opens on the same view.
-        const mid = this.scene.cameras.main.midPoint, cam = this.session.camera;
-        if (!this.mapOn && (!cam || Math.abs(cam.x - mid.x) >= 1 || Math.abs(cam.y - mid.y) >= 1)) {
-            this.session.setCamera({ x: Math.round(mid.x), y: Math.round(mid.y), zoom: 1 });
+        const view = this.camera.view, cam = this.session.camera;
+        const x = Math.round(view.x), y = Math.round(view.y);
+        if (!cam || cam.x !== x || cam.y !== y || cam.zoom !== view.zoom || !!cam.map !== view.map) {
+            this.session.setCamera({ x, y, zoom: view.zoom, ...(view.map ? { map: true } : {}) });
         }
     }
 
@@ -307,8 +316,8 @@ export class PlayMode {
             this.session.select(id);
             this.session.setPendingCommand(null);
             this.mode = 'move';
-            // The camera centres on the newly selected crew member (§20.1), and only then.
-            this.camera.centreOn(...centre(member.pos), 250);
+            // The camera centres on the newly selected crew member, zooming in to Act view if further out (§20.1).
+            this.camera.actView(...centre(member.pos), 250);
         }
         this.refresh();
     }
@@ -330,8 +339,8 @@ export class PlayMode {
         // crew member can go.
         const drawn = this.crewAt(x, y);
         if (drawn && drawn.id !== this.session.selected && !same(target?.pos, tile)) return this.select(drawn.id);
-        if (!target) return;
-        if (pending && 'path' in pending && same(pending.path.at(-1), target.pos)) return this.confirm();
+        // Only a tap on the previewed tile itself commits; one that snaps to it from a tile beside it just previews again.
+        if (!target || (pending && 'path' in pending && same(pending.path.at(-1), target.pos))) return;
         this.preview(target.command);
     }
 
@@ -419,6 +428,7 @@ export class PlayMode {
 
     private pickAction(id: ActionId): void {
         if (this.busy) this.skip();
+        if (this.recap) return;
         const member = this.selectedMember();
         if (!member) return;
         if (id === 'wait') {
@@ -487,7 +497,7 @@ export class PlayMode {
 
     private overlayContent(): Parameters<WorldOverlay['set']>[0] {
         const member = this.selectedMember();
-        if (!member || this.busy || this.session.state.phase !== 'crew') return null;
+        if (!member || this.busy || this.recap || this.session.state.phase !== 'crew') return null;
         const colour = CREW_COLOURS[this.session.state.crew.indexOf(member) % CREW_COLOURS.length]!;
         if (this.dragPath) {
             const { world, state } = this.session, budget = member.actionsLeft >= DASH_ACTIONS ? dashBudget(world) : moveBudget(world, member);

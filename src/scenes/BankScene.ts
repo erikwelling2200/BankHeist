@@ -17,7 +17,7 @@ import { M1_CREW } from '../game/heist';
 import { CREW_COLOURS } from '../ui/hud/viewModels';
 
 /** What `?play` hands the scene through the registry (`play`): the Session and the bank it is played in. */
-export type PlaySetup = Pick<PlayParts, 'session' | 'bank' | 'resumed'>;
+export type PlaySetup = Pick<PlayParts, 'session' | 'bank' | 'resumed'> & { /** How long finding or making the heist took (ms). */ setupMs?: number };
 
 /**
  * The example bank and its block (bank.ts), or a generated one: the street, the bank with its neighbours, the alley
@@ -93,6 +93,7 @@ export class BankScene extends Phaser.Scene {
             this.walls.update(0, this.cameras.main.midPoint.y, this.camera.onMap);
             this.walls.settle();
         });
+        if (play?.setupMs !== undefined) this.timings.heist = play.setupMs;
         if (play) this.timed('play', () => {
             this.play = new PlayMode(this, { ...play, people: this.people, walls: this.walls, camera: this.camera });
             // Play mode opens on the crew: the walls stand as that view asks from the first frame.

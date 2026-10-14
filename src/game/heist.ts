@@ -1,8 +1,9 @@
 import type { GeneratedBank } from '../gen/model';
 import {
-    hashOf, initialState, reachable, tileAt, worldFromBank, type CrewStart, type Facing, type Pos, type ReadonlyWorld, type State
+    initialState, reachable, tileAt, worldFromBank, type CrewStart, type Facing, type Pos, type ReadonlyWorld, type State
 } from '../sim';
-import { Session, type ResumeOptions } from './session';
+import { seedText } from '../gen/generate';
+import { HEIST_KEY, Session, type ResumeOptions } from './session';
 import type { SaveStorage } from './storage';
 
 /*
@@ -72,15 +73,49 @@ export function newHeist(bank: GeneratedBank): { world: ReadonlyWorld; state: St
     return { world, state };
 }
 
-/**
- * The heist to play in `bank`: the autosaved one if it was played in this bank (and `fresh` isn't asked), else a new one,
- * which replaces any other heist in `storage`. `resumed` says which.
- */
-export function playHeist(bank: GeneratedBank, storage: SaveStorage, options: ResumeOptions & { fresh?: boolean } = {}): { session: Session; resumed: boolean } {
-    const { world, state } = newHeist(bank);
-    if (!options.fresh) {
-        const saved = Session.resume(storage, options);
-        if (saved && saved.worldId === hashOf(world)) return { session: saved, resumed: true };
+/** The storage key of the address of the bank the saved heist is played in, so `?play` can rebuild it to resume. */
+export const BANK_KEY = 'bank';
+
+/** What names a generated bank in the address (`?seed=…&tier=…&archetype=…&plot=…`). */
+export interface BankAddress { seed: string; tier: string; archetype: string; plot: string }
+
+export const bankAddress = (bank: GeneratedBank): BankAddress =>
+    ({ seed: seedText(bank.seed), tier: bank.tier, archetype: bank.archetype, plot: bank.plot });
+
+export const sameAddress = (a: BankAddress | null | undefined, b: BankAddress | null | undefined): boolean =>
+    !!a && !!b && a.seed === b.seed && a.tier === b.tier && a.archetype === b.archetype && a.plot === b.plot;
+
+/** The heist saved in `storage`, if there is one: its bank's address and name (null for a save from before they were kept). */
+export function savedHeist(storage: SaveStorage): { address: BankAddress | null; name: string | null } | null {
+    if (storage.get(HEIST_KEY) === null) return null;
+    try {
+        const data = JSON.parse(storage.get(BANK_KEY) ?? 'null') as { address?: BankAddress; name?: string } | null;
+        const a = data?.address;
+        const ok = !!a && ['seed', 'tier', 'archetype', 'plot'].every(k => typeof (a as unknown as Record<string, unknown>)[k] === 'string');
+        return { address: ok ? { seed: a!.seed, tier: a!.tier, archetype: a!.archetype, plot: a!.plot } : null, name: typeof data?.name === 'string' ? data.name : null };
+    } catch {
+        return { address: null, name: null };
     }
-    return { session: Session.start({ world, state, storage, genVersion: GEN_VERSION, uiSaveDelay: options.uiSaveDelay, onListenerError: options.onListenerError }), resumed: false };
+}
+
+/** A new heist in `bank`, replacing any heist saved in `storage`; call it only with the player's consent if there is one. */
+export function startHeist(bank: GeneratedBank, storage: SaveStorage, options: ResumeOptions = {}): Session {
+    const { world, state } = newHeist(bank);
+    const session = Session.start({ world, state, storage, genVersion: GEN_VERSION, ...options });
+    try {
+        storage.set(BANK_KEY, JSON.stringify({ address: bankAddress(bank), name: bank.name }));
+    } catch { /* a full quota: the heist is saved, only rebuilding its bank without a seed in the address fails */ }
+    return session;
+}
+
+/**
+ * What `?play` does about a saved heist: resume it, start a new one (nothing to lose), or ask before overwriting. Without
+ * a seed in the address the saved heist resumes, whatever its bank; with the saved bank's own address it resumes too;
+ * another bank, or `fresh` (`&new`), overwrites it only with the player's consent.
+ */
+export function playPlan(saved: ReturnType<typeof savedHeist>, request: { seeded: boolean; fresh: boolean }, target: BankAddress): 'resume' | 'new' | 'ask' {
+    if (!saved) return 'new';
+    if (request.fresh) return 'ask';
+    if (!request.seeded || sameAddress(saved.address, target)) return 'resume';
+    return 'ask';
 }

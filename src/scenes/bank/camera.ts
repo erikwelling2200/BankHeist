@@ -10,6 +10,8 @@ const PAN_SPEED = 480;
 const MAP_MARGIN = 8;
 /** The camera opens on the lobby, about this many tiles high. */
 const START_TILES = 17;
+/** Act view (§20.1): selecting a crew member zooms in to about this many tiles high if the view is wider. */
+const ACT_TILES = 13;
 
 /**
  * The bank's camera (§20.1). Zoom steps are whole screen pixels per art pixel: the canvas renders at the screen's size
@@ -174,6 +176,42 @@ export class BankCamera {
         }
         this.controls?.showMap(!!this.mapView);
         this.onMapChange?.(!!this.mapView);
+    }
+
+    /** Where the camera looks, as a save keeps it: on the tactical map, the view it goes back to. */
+    get view(): { x: number; y: number; zoom: number; map: boolean } {
+        if (this.mapView) return { ...this.mapView, map: true };
+        const mid = this.scene.cameras.main.midPoint;
+        return { x: mid.x, y: mid.y, zoom: this.zoom, map: false };
+    }
+
+    /** Goes back to a saved view: its zoom (the nearest step if this screen has no such step), its middle and the map. */
+    restore(zoom: number, x: number, y: number, map = false): void {
+        this.mapView = undefined;
+        this.applyZoom(this.zoomLevels.includes(zoom) ? zoom : nearestStep(this.zoomLevels, this.screen.height, TILE, this.screen.height / zoom / TILE));
+        this.scene.cameras.main.centerOn(x, y);
+        if (map) this.toggleMap();
+        else this.onMapChange?.(false);
+    }
+
+    /**
+     * Act view (§20.1): centres on map point (x, y), first zooming in to about `ACT_TILES` high if the view is further
+     * out (leaving the tactical map); a closer view stays as close and pans there over `ms`.
+     */
+    actView(x: number, y: number, ms = 0): void {
+        if (this.mapView) this.toggleMap();
+        const act = nearestStep(this.zoomLevels, this.screen.height, TILE, ACT_TILES);
+        if (this.zoom < act) {
+            this.applyZoom(act);
+            this.scene.cameras.main.centerOn(x, y);
+        } else this.centreOn(x, y, ms);
+    }
+
+    /** Map point (x, y) moved so a view centred on it stays on the plot along any axis the plot is wider than the view. */
+    clampToPlot(x: number, y: number): [number, number] {
+        const cam = this.scene.cameras.main;
+        const clamp = (v: number, view: number, size: number) => (size > view ? Math.min(size - view / 2, Math.max(view / 2, v)) : v);
+        return [clamp(x, cam.width, this.width), clamp(y, cam.height, this.height)];
     }
 
     /** Moves the view so map point (x, y) is in the middle: at once, or panning over `ms`. Leaves the tactical map first. */
