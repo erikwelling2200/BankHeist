@@ -61,7 +61,8 @@ describe('saving', () => {
  * NpcStatusMap, CarrierKindMap or adds a field must also fill it in below, or a change of shape goes unnoticed.
  */
 const SHAPE_HASHES: Record<number, string> = {
-    1: '560656ed11263e39'
+    1: '560656ed11263e39',
+    2: '1129e267e7efb084'
 };
 
 /** Paths whose objects are records by id, not structs. */
@@ -118,7 +119,7 @@ describe('the save format', () => {
                 objects: [{ id: 'panel', kind: 'alarmPanel', pos: { x: 0, y: 0 }, facing: 's' }],
                 cameras: [{ id: 'cam', pos: { x: 0, y: 0 }, facings: ['s', 'e'], room: 'lobby' }],
                 people: world.people.map(p => ({ ...p, schedule: [{ from: 1, activity: 'work', room: 'lobby' }] })),
-                tiles: world.tiles.map((t, i) => (i ? t : { ...t, room: 'lobby' }))
+                tiles: world.tiles.map((t, i) => (i === 1 ? { ...t, climb: 'stairs' as const } : i ? t : { ...t, room: 'lobby' }))
             },
             state: full,
             recent: [{ type: 'waited', crew: 'jun' }],

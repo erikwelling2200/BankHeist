@@ -9,6 +9,8 @@ import { freezeWorld } from './freeze';
  *     .  public floor     s  staff floor     x  secure floor
  *     #  a low object that blocks movement and gives half cover (a desk, a counter)
  *     T  a tall object that blocks movement and sight (a shelf, a column)
+ *     ^  raised floor (a mezzanine, the loading dock, §14.7)
+ *     /  stairs, and H  a ladder: ground-level climb tiles, the only way onto raised floor
  *
  * Objects stand on public floor unless `zones` (the same grid, in `.`, `s` and `x` only) says otherwise. Walls stand
  * on the edges between two orthogonally neighbouring tiles and are listed apart, each with its material and, for a
@@ -35,6 +37,8 @@ export interface FixtureOptions {
 
 const ZONES: Readonly<Record<string, Zone>> = { '.': 'public', s: 'staff', x: 'secure' };
 const OBJECTS = new Set(['#', 'T']);
+const CLIMB: Readonly<Record<string, 'stairs' | 'ladder'>> = { '/': 'stairs', H: 'ladder' };
+const FLOORS = new Set(['^', ...Object.keys(CLIMB)]);
 
 /** Materials that let sight through (§8.3: glass doesn't block it). */
 const SEE_THROUGH: readonly Material[] = ['glass', 'tellerGlass'];
@@ -50,11 +54,14 @@ export function fixtureWorld(map: readonly string[], options: FixtureOptions = {
     map.forEach((line, y) => {
         if (line.length !== width) throw new Error(`Fixture row ${y} has length ${line.length}, expected ${width}`);
         [...line].forEach((c, x) => {
-            if (!(c in ZONES) && !OBJECTS.has(c)) throw new Error(`Unknown fixture tile '${c}' at (${x}, ${y})`);
+            if (!(c in ZONES) && !OBJECTS.has(c) && !FLOORS.has(c)) throw new Error(`Unknown fixture tile '${c}' at (${x}, ${y})`);
             const z = zones ? zones[y]![x]! : c in ZONES ? c : '.';
             const zone = ZONES[z];
             if (!zone) throw new Error(`Unknown zone '${z}' at (${x}, ${y}): zones are '.', 's' and 'x'`);
-            tiles.push({ zone, raised: false, lit: true, blocksMove: OBJECTS.has(c), tall: c === 'T', halfCover: c === '#', room: null });
+            const tile: Tile = { zone, raised: c === '^', lit: true, blocksMove: OBJECTS.has(c), tall: c === 'T', halfCover: c === '#', room: null };
+            const climb = CLIMB[c];
+            if (climb) tile.climb = climb;
+            tiles.push(tile);
         });
     });
     for (const p of options.dark ?? []) {

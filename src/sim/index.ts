@@ -22,3 +22,11 @@ export { assertPlainJson, clonePlain, deepFreeze, hashOf, sortedIds, stableJson 
 export { startCarrier } from './rules/carriers';
 export { freezeWorld } from './world/freeze';
 export { fixtureWorld, type FixtureOptions, type FixtureWall } from './world/fixture';
+export { registerMoveHook, type MoveHook, type MoveMode } from './crew/actions';
+export {
+    dashBudget, inHeavyArmour, LYING_STATUSES, moveBudget, occupancy, pathTo, reachable, reachAt, stepCost, validatePath,
+    type MoveOptions, type Occupant, type PathCheck, type Reach, type ReachTile
+} from './geo/move';
+export { DEAF_STATUSES, inRing, makeNoise, npcsInside, soundEdgeCost, soundRing, type Ring, type SoundTile } from './geo/sound';
+export * from './data/movement';
+export * from './data/noise';

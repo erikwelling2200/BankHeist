@@ -10,7 +10,7 @@ import type { UndoStack } from './undo';
  * another format is refused with a clear error rather than half-loaded.
  */
 
-export const SAVE_FORMAT = 1;
+export const SAVE_FORMAT = 2;
 
 /** How many recent events a save keeps for the resume recap. */
 export const RECENT_EVENTS = 10;
