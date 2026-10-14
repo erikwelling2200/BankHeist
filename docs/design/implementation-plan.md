@@ -204,8 +204,12 @@ Each package lists its goal, the design sections it covers, the files, what it d
     `Activity` post, window, break, lunch, shiftChange, cashRun, inspection, smokeBreak, serviceVisit, queue, wait,
     counter, patrol, sweep, closingSweep, leave, offMap; `at`/`facing` or `route`; `label` for the card), which
     `worldFromBank` turns into `PersonDef.schedule`. Its rolls (customers leaving and coming back) are a `routines`
-    stream; population.ts is untouched, and the sweep and the visual baselines are unchanged. A person's event that
-    clashes with an earlier one of theirs waits until they are free, its timeline entry with it. `rules/npc/`:
+    stream; population.ts is untouched, and the sweep and the visual baselines are unchanged. Event blocks carry a
+    `setOff` (travel time, so the NPC is there on the timeline's turn); an event that clashes with an earlier one of the
+    same person moves to the nearest free turn before closing (its timeline entry with it) or is called off; an IT
+    visit without a technician is dropped. World-phase sightings are judged along the walks as they will be taken
+    (`worldWalks`: a crew member in the way or a newly locked door limits sight), and `assessWorldPhase` for a tile the
+    crew member isn't on applies ending the move there first (sightings, then `reconsider`) on a copy. `rules/npc/`:
     `schedule.ts` (queries: `activityAt`, `nextActivity` "vault inspection in 6", `scheduleTurns`/`nextScheduleTurn`
     and `startingOn` for Wait for), `behaviour.ts` (goals from wants: Curious faces, Investigating walks hurried and an
     enforcer frisks next to them, one investigates (`investigatorOf`/`pickInvestigator`) and the others watch, a lost

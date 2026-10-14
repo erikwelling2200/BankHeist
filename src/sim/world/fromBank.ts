@@ -69,6 +69,7 @@ export const NOT_CARRIERS: ReadonlySet<string> = new Set(['Alarm panel', 'CCTV c
 /** A schedule block in the rules' terms: tiles as positions. */
 function scheduleBlock(b: RoutineBlock): ScheduleBlock {
     const out: ScheduleBlock = { from: b.from, activity: b.activity, label: b.label, room: b.room };
+    if (b.setOff !== undefined) out.setOff = b.setOff;
     if (b.at) out.at = { x: b.at.tx, y: b.at.ty };
     if (b.facing) out.facing = b.facing;
     if (b.route) out.route = b.route.map(t => ({ x: t.tx, y: t.ty }));

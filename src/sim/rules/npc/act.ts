@@ -1,4 +1,4 @@
-import { COMBAT_STATUSES, registerWorldHook, type Ctx, type WorldPhase } from '../../core/engine';
+import { registerWorldHook, type Ctx, type WorldPhase } from '../../core/engine';
 import { facingToward, tileAt } from '../../core/grid';
 import { crewMember } from '../../core/state';
 import type { DeepReadonly, Intent, Pos, ReadonlyWorld, State } from '../../core/types';
@@ -8,7 +8,7 @@ import { doorBetween, doorStatus } from '../../geo/move';
 import type { Sighting } from '../perceive';
 import { crewLook, friskFinds, type CrewLook } from '../profile';
 import { expose, isEyesDown, isExposedTo, pipsOf } from '../suspicion';
-import { crewTiles, isPresent, resolveWalks, walksIntent, type Walked } from './walk';
+import { isPresent, worldWalks, type Walked } from './walk';
 
 /*
  * The passive NPCs act (§6.1 step 2): civilians, staff and guards who aren't fighting carry out the intents frozen
@@ -33,8 +33,11 @@ declare module '../../core/types' {
     interface EventMap {
         /** An NPC walked `path` from `from` in the world phase (all of its committed path unless it was stopped). */
         npcWalked: { npc: string; from: Pos; path: Pos[] };
-        /** An NPC's walk stopped short of its committed path at `at`: the next step, `next`, couldn't be taken. */
-        npcBlocked: { npc: string; at: Pos; next: Pos };
+        /**
+         * An NPC's walk stopped short of its committed path at `at`: the next step, onto `next`, couldn't be taken
+         * because of `by`: a crew member or an NPC (by id) on it, a door (by id) or a wall in the way.
+         */
+        npcBlocked: { npc: string; at: Pos; next: Pos; by: string };
         npcLeft: { npc: string; at: Pos };
         npcEntered: { npc: string; at: Pos };
         /** An enforcer frisked a crew member (§8.5). */
@@ -42,15 +45,6 @@ declare module '../../core/types' {
         /** An NPC told a guard about a crew member (§8.7). */
         told: { npc: string; guard: string; crew: string };
     }
-}
-
-/** The NPCs that walk in this world phase's passive group, in resolution order. */
-function movers(state: State, intents: Readonly<Record<string, DeepReadonly<Intent>>>, passive: readonly string[]): string[] {
-    const byId = new Map(state.npcs.map(n => [n.id, n]));
-    return passive.filter(id => {
-        const npc = byId.get(id);
-        return !!npc && Object.hasOwn(intents, id) && walksIntent(npc, intents[id]!);
-    });
 }
 
 const near = (a: DeepReadonly<Pos>, b: DeepReadonly<Pos>): boolean => Math.max(Math.abs(a.x - b.x), Math.abs(a.y - b.y)) <= 1;
@@ -111,10 +105,8 @@ export function npcActSightings(world: ReadonlyWorld, state: State, crewId: stri
         if ((kind === 'frisk' || kind === 'tell') && n.intent.action!.crew === crewId) any = true;
     }
     if (!any) return [];
-    // The passive group as the world phase will freeze it (engine.ts).
-    const passive = state.npcs.filter(n => !COMBAT_STATUSES.has(n.status)).map(n => n.id);
-    const walking = movers(state, intents, passive);
-    const walks = resolveWalks(world, state, intents, walking, crewTiles(world, state, { crew: crewId, tile }));
+    const walks = worldWalks(world, state, intents, null, { crew: crewId, tile }).walks;
+    const walking = walks.map(w => w.npc);
     const endOf = ends(state, walks);
     const crewAt = (crew: string): Pos | null => (crew === crewId ? tile : state.crew.find(c => c.id === crew)?.pos ?? null);
     const seen = look ?? crewLook(crewMember(state, crewId));
@@ -134,8 +126,8 @@ export function npcActSightings(world: ReadonlyWorld, state: State, crewId: stri
 /** Carries out the walks of the passive group (see the header). */
 function walk(ctx: Ctx, phase: WorldPhase): void {
     const { world, state } = ctx;
-    const walking = movers(state, phase.intents, phase.passive);
-    const walks = resolveWalks(world, state, phase.intents, walking, crewTiles(world, state));
+    const walks = worldWalks(world, state, phase.intents, phase.passive).walks;
+    const walking = walks.map(w => w.npc);
     const endOf = ends(state, walks);
     const crewAt = (crew: string): Pos | null => state.crew.find(c => c.id === crew)?.pos ?? null;
     // Judged before anyone is moved, like the overlay: on where the walks end.
@@ -168,9 +160,9 @@ function walk(ctx: Ctx, phase: WorldPhase): void {
         }
         if (w.steps.length) ctx.emit({ type: 'npcWalked', npc: npc.id, from, path: w.steps.map(p => ({ x: p.x, y: p.y })) });
         if (!w.complete) {
-            const next = intent.path[w.steps.length]!;
+            const next = w.stop?.next ?? intent.path[w.steps.length]!;
             npc.facing = facingToward(npc.pos, next) ?? npc.facing;
-            ctx.emit({ type: 'npcBlocked', npc: npc.id, at: { x: npc.pos.x, y: npc.pos.y }, next: { x: next.x, y: next.y } });
+            ctx.emit({ type: 'npcBlocked', npc: npc.id, at: { x: npc.pos.x, y: npc.pos.y }, next: { x: next.x, y: next.y }, by: w.stop?.by ?? 'wall' });
             continue;
         }
         if (intent.facing) npc.facing = intent.facing;

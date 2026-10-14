@@ -1,8 +1,9 @@
-import { FACING_STEP, FACINGS, inBounds, samePos, tileAt } from '../../core/grid';
+import { COMBAT_STATUSES } from '../../core/engine';
+import { FACING_STEP, FACINGS, facingToward, inBounds, samePos, tileAt } from '../../core/grid';
 import { registerRuleDefaults } from '../../core/state';
 import type { DeepReadonly, DoorDef, DoorStatus, Intent, NpcState, PersonDef, Pos, ReadonlyWorld, State, Zone } from '../../core/types';
 import { DIAGONAL_COST, HALF_STEPS_PER_TILE, ORTHOGONAL_COST } from '../../data/movement';
-import { ABSENT_STATUSES, LYING_STATUSES, occupancy, stepCost, type MoveOptions } from '../../geo/move';
+import { ABSENT_STATUSES, doorBetween, LYING_STATUSES, occupancy, stepCost, type MoveOptions } from '../../geo/move';
 
 /*
  * How NPCs walk (§6.1, §6.3, implementation plan §6 decisions 4 and 9): one rule for planning a walk when an intent is
@@ -241,6 +242,8 @@ export interface Walked {
     complete: boolean;
     /** It came onto the map (an `enter` intent). */
     entered: boolean;
+    /** Why it stopped short: the next tile of its path, and who or what was in the way (a crew member, an NPC, a door). */
+    stop: { next: Pos; by: string } | null;
 }
 
 /** Whether an NPC walks its intent in the passive group: standing on the map, or away with a way back in. */
@@ -251,11 +254,11 @@ export function walksIntent(npc: DeepReadonly<NpcState>, intent: DeepReadonly<In
 
 /**
  * Carries out the committed walks of `movers` (NPC ids, in resolution order) on paper (see the header): `blocked`
- * are the tiles standing crew members are on. Changes nothing. NPCs not among the movers stay where they are.
+ * are the tiles standing crew members are on, with who. Changes nothing. NPCs not among the movers stay where they are.
  */
 export function resolveWalks(
     world: ReadonlyWorld, state: State, intents: Readonly<Record<string, DeepReadonly<Intent>>>, movers: readonly string[],
-    blocked: ReadonlySet<number>
+    blocked: ReadonlyMap<number, string>
 ): Walked[] {
     const byId = new Map(state.npcs.map(n => [n.id, n]));
     const walks: Walked[] = [];
@@ -263,21 +266,31 @@ export function resolveWalks(
         const npc = byId.get(id), intent = Object.hasOwn(intents, id) ? intents[id]! : undefined;
         if (!npc || !intent || !walksIntent(npc, intent)) continue;
         const steps: Pos[] = [];
+        let stop: Walked['stop'] = null;
         if (!isPresent(npc)) {
             const p = intent.path[0];
-            const free = p && intent.path.length === 1 && inBounds(world, p) && !tileAt(world, p)!.blocksMove && !blocked.has(indexOf(world, p));
-            if (free) steps.push({ x: p.x, y: p.y });
-            walks.push({ npc: id, steps, complete: steps.length === intent.path.length, entered: true });
+            if (p && intent.path.length === 1 && inBounds(world, p) && !tileAt(world, p)!.blocksMove) {
+                const crew = blocked.get(indexOf(world, p));
+                if (crew === undefined) steps.push({ x: p.x, y: p.y });
+                else stop = { next: { x: p.x, y: p.y }, by: crew };
+            }
+            walks.push({ npc: id, steps, complete: steps.length === intent.path.length, entered: true, stop });
             continue;
         }
         const options = npcMoveOptions(world, npc);
         let prev: DeepReadonly<Pos> = npc.pos;
         for (const p of intent.path) {
-            if (!inBounds(world, p) || blocked.has(indexOf(world, p)) || stepCost(world, state, prev, p, options) === undefined) break;
+            const crew = inBounds(world, p) ? blocked.get(indexOf(world, p)) : undefined;
+            if (crew !== undefined) stop = { next: { x: p.x, y: p.y }, by: crew };
+            else if (!inBounds(world, p) || stepCost(world, state, prev, p, options) === undefined) {
+                const door = Math.abs(p.x - prev.x) + Math.abs(p.y - prev.y) === 1 ? doorBetween(world, prev, p) : undefined;
+                stop = { next: { x: p.x, y: p.y }, by: door ? door.id : 'wall' };
+            }
+            if (stop) break;
             steps.push({ x: p.x, y: p.y });
             prev = p;
         }
-        walks.push({ npc: id, steps, complete: steps.length === intent.path.length, entered: false });
+        walks.push({ npc: id, steps, complete: steps.length === intent.path.length, entered: false, stop });
     }
     // Where everyone ends: nobody shares a tile (see the header).
     const moving = new Set(walks.map(w => w.npc));
@@ -300,9 +313,11 @@ export function resolveWalks(
                 continue;
             }
             const back = typeof other !== 'string' && w.steps.length === 0 && !w.entered ? other : w;
+            const holder = back === w ? (typeof other === 'string' ? other : other.npc) : w.npc;
             if (!back.steps.length) throw new Error(`NPCs '${w.npc}' and '${typeof other === 'string' ? other : other.npc}' can't both stand on one tile`);
-            back.steps.pop();
+            const next = back.steps.pop()!;
             back.complete = false;
+            back.stop = { next, by: holder };
             changed = true;
             break;
         }
@@ -310,9 +325,48 @@ export function resolveWalks(
     return walks;
 }
 
-/** The tiles the crew stand on, by index: NPCs never walk through them. */
-export function crewTiles(world: ReadonlyWorld, state: State, moved?: { crew: string; tile: Pos }): Set<number> {
-    const out = new Set<number>();
-    for (const c of state.crew) out.add(indexOf(world, moved && c.id === moved.crew ? moved.tile : c.pos));
+/** The tiles the crew stand on, by index, with who: NPCs never walk through them. `moved` puts one elsewhere. */
+export function crewTiles(world: ReadonlyWorld, state: State, moved?: { crew: string; tile: Pos }): Map<number, string> {
+    const out = new Map<number, string>();
+    for (const c of state.crew) out.set(indexOf(world, moved && c.id === moved.crew ? moved.tile : c.pos), c.id);
     return out;
+}
+
+/** The NPCs that walk in a world phase's passive group, in resolution order (`passive` as the phase froze it). */
+export function passiveMovers(state: State, intents: Readonly<Record<string, DeepReadonly<Intent>>>, passive: readonly string[]): string[] {
+    const byId = new Map(state.npcs.map(n => [n.id, n]));
+    return passive.filter(id => {
+        const npc = byId.get(id);
+        return !!npc && Object.hasOwn(intents, id) && walksIntent(npc, intents[id]!);
+    });
+}
+
+/** The passive group as the next world phase will freeze it (engine.ts): everyone not in combat. */
+export const passiveNow = (state: State): string[] => state.npcs.filter(n => !COMBAT_STATUSES.has(n.status)).map(n => n.id);
+
+/**
+ * An intent as it will be carried out: all of it, or the steps taken and a look at whatever stopped it. Perception
+ * judges what an NPC sees along this, never along steps it won't take.
+ */
+export function walkedIntent(npc: DeepReadonly<NpcState>, intent: DeepReadonly<Intent>, walk: Walked | undefined): DeepReadonly<Intent> {
+    if (!walk || walk.complete) return intent;
+    const end = walk.steps[walk.steps.length - 1] ?? npc.pos, facing = walk.stop ? facingToward(end, walk.stop.next) : undefined;
+    return facing ? { path: walk.steps, facing } : { path: walk.steps };
+}
+
+/**
+ * Every NPC's walk in the coming world phase, as carried out (`resolveWalks`), with `moved` putting a crew member on
+ * another tile (the overlay asking about it): the intents as walked, by NPC, and the walks themselves.
+ */
+export function worldWalks(
+    world: ReadonlyWorld, state: State, intents: Readonly<Record<string, DeepReadonly<Intent>>> | null, passive: readonly string[] | null,
+    moved?: { crew: string; tile: Pos }
+): { walks: Walked[]; walked: Record<string, DeepReadonly<Intent>> } {
+    const all: Record<string, DeepReadonly<Intent>> = {};
+    for (const n of state.npcs) all[n.id] = intents && Object.hasOwn(intents, n.id) ? intents[n.id]! : n.intent;
+    const walks = resolveWalks(world, state, all, passiveMovers(state, all, passive ?? passiveNow(state)), crewTiles(world, state, moved));
+    const byNpc = new Map(walks.map(w => [w.npc, w]));
+    const walked: Record<string, DeepReadonly<Intent>> = {};
+    for (const n of state.npcs) walked[n.id] = walkedIntent(n, all[n.id]!, byNpc.get(n.id));
+    return { walks, walked };
 }

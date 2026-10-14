@@ -20,8 +20,9 @@ import { isPresent, personOf, type Pace } from './walk';
  *   of all the NPCs that want to investigate the same crew member, only the nearest of the right role walks
  *   (enforcers, then staff, then civilians; nearest to its last known tile, then first in resolution order); the
  *   others turn to watch (`watch`, Curious).
- *   When it loses the trail (its suspicion falls below 2 before it found anyone), it searches where it is for
- *   `rules.searchPhases` (2) world phases, looking round, then goes back to its routine (§16.1 cautious search).
+ *   When it loses the trail (its suspicion falls below 2 before it found anyone), it searches for `rules.searchPhases`
+ *   (2) world phases (§16.1 cautious search): it keeps watching the last known tile for one more phase, then walks
+ *   there and looks round, then goes back to its routine. A clean frisk or another NPC sent instead starts no search.
  * - **Trespass** (§8.6): the challenger (`challenge`) walks toward the crew member and keeps watching them; after
  *   they comply, it escorts (`escort`): follows them to the boundary of the Public floor without stepping onto it,
  *   watches them for one more world phase, then returns to its routine (the escort want runs out, suspicion.ts).

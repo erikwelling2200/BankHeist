@@ -6,7 +6,7 @@ import { registerStateInit } from '../../core/state';
 import type { DeepReadonly, Facing, Intent, NpcState, PersonDef, Pos, ReadonlyWorld, State } from '../../core/types';
 import { registerEvents } from '../../core/undo';
 import {
-    behaviourGoal, comingPhase, decidesFor, quarterTurn, reactionOf, settleFrisks, statusFor, topWant, type Goal, type RouteProgress
+    behaviourGoal, comingPhase, decidesFor, friskSatisfied, quarterTurn, reactionOf, settleFrisks, statusFor, topWant, type Goal, type RouteProgress
 } from './behaviour';
 import { blockIndexAt, LEAVING_ACTIVITIES, ROUTE_ACTIVITIES, routeMode, wayBackIn } from './schedule';
 import { crewTiles, intentEnd, isPresent, npcMoveOptions, othersTiles, personOf, planWalk, type WalkTarget } from './walk';
@@ -124,7 +124,9 @@ function planGoal(world: ReadonlyWorld, state: State, npc: NpcState, goal: Goal,
             const routeEnd = ROUTE_ACTIVITIES.has(block.activity) && block.route && samePos(goal.tile!, block.route[block.route.length - 1]!) && routeMode(block.activity) === 'once';
             const stands = !ROUTE_ACTIVITIES.has(block.activity) || routeEnd;
             // The way out is a door, not a spot: anyone who reaches it or the tiles around it leaves.
-            const intent = walkIntent(world, state, npc, { tile: goal.tile!, pace: 'walk' }, taken, {
+            // The closing sweep goes briskly: every room before the night.
+            const pace = block.activity === 'closingSweep' ? 'hurry' : 'walk';
+            const intent = walkIntent(world, state, npc, { tile: goal.tile!, pace }, taken, {
                 facing: stands ? block.facing : undefined,
                 ...(LEAVING_ACTIVITIES.has(block.activity) ? { action: { kind: 'leave' } as const, onArrival: true, within: 1 } : {})
             });
@@ -134,8 +136,13 @@ function planGoal(world: ReadonlyWorld, state: State, npc: NpcState, goal: Goal,
         case 'face':
         case 'watch':
             return face(goal.tile);
-        case 'search':
-            return { path: [], facing: quarterTurn(npc.facing) };
+        case 'search': {
+            // §16.1: it keeps watching where the crew member was for one more phase, then walks there and looks round.
+            const search = npc.search!;
+            if (search.until > comingPhase(state)) return face(goal.tile);
+            if (samePos(npc.pos, search.tile)) return { path: [], facing: quarterTurn(npc.facing) };
+            return walkIntent(world, state, npc, { tile: search.tile, pace: 'hurry' }, taken, {});
+        }
         case 'investigate': {
             const enforcer = person.observer === 'enforcer';
             return walkIntent(world, state, npc, { tile: goal.tile!, pace: 'hurry' }, taken, {
@@ -178,9 +185,10 @@ function setStatus(emit: Emit, npc: NpcState, goal: Goal): void {
  */
 function decide(world: ReadonlyWorld, state: State, npc: NpcState): Goal {
     let goal = behaviourGoal(world, state, npc);
-    // Lost the trail (§16.1): an investigator whose suspicion fell below 2 searches where it stands, then goes back.
+    // Lost the trail (§16.1): an investigator whose suspicion fell below 2 searches for two phases, then goes back. A
+    // clean frisk, or another NPC sent in its place, is no lost trail: it only watches.
     const was = npc.goal;
-    if (was.kind === 'investigate' && (!goal || goal.kind === 'face' || goal.kind === 'watch') && !npc.search) {
+    if (was.kind === 'investigate' && (!goal || goal.kind === 'face') && !npc.search && !friskSatisfied(npc, was.crew!)) {
         npc.search = { tile: was.tile ?? { x: npc.pos.x, y: npc.pos.y }, until: state.turn + world.rules.searchPhases };
         goal = behaviourGoal(world, state, npc);
     }
@@ -197,8 +205,13 @@ function settle(state: State, npc: NpcState): void {
 function commitAll(world: ReadonlyWorld, state: State, emit: Emit): void {
     const deciding = state.npcs.filter(decidesFor);
     for (const npc of state.npcs) {
-        // Eyes down: they stay put. Combat decides its own (§13.6).
-        if (!decidesFor(npc) && isPresent(npc) && !COMBAT_STATUSES.has(npc.status)) npc.intent = { path: [] };
+        // Eyes down: they stay put and forget what they were doing. Combat decides its own (§13.6).
+        if (!decidesFor(npc) && isPresent(npc) && !COMBAT_STATUSES.has(npc.status)) {
+            npc.intent = { path: [] };
+            npc.goal = { kind: 'still' };
+            npc.route = null;
+            npc.search = null;
+        }
     }
     for (const npc of deciding) settle(state, npc);
     const goals = new Map(deciding.map(npc => [npc.id, decide(world, state, npc)]));

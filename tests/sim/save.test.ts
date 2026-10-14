@@ -78,7 +78,7 @@ describe('saving', () => {
  * NpcStatusMap, CarrierKindMap or adds a field must also fill it in below, or a change of shape goes unnoticed.
  */
 const SHAPE_HASHES: Record<number, string> = {
-    1: '979a8d01b56a79eb'
+    1: '9ef369d5145c4ee8'
 };
 
 /** Paths whose objects are records by id, not structs. */
@@ -162,7 +162,7 @@ describe('the save format', () => {
                 people: world.people.map(p => ({
                     ...p,
                     schedule: [
-                        { from: 1, activity: 'post' as const, label: 'at post', room: 'lobby', at: { x: 0, y: 0 }, facing: 's' as const },
+                        { from: 3, setOff: 1, activity: 'post' as const, label: 'at post', room: 'lobby', at: { x: 0, y: 0 }, facing: 's' as const },
                         { from: 2, activity: 'patrol' as const, label: 'patrol', room: '', route: [{ x: 0, y: 0 }, { x: 1, y: 0 }] }
                     ]
                 })),

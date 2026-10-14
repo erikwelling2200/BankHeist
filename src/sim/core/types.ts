@@ -144,7 +144,10 @@ export type Activity =
 
 /** What someone does from a turn on (§16.3). Blocks are in order of `from`; a block lasts until the next one. */
 export interface ScheduleBlock {
+    /** The turn it happens from (what the timeline and an NPC's card say). */
     from: number;
+    /** The turn to set off for it, when getting there takes time: they are there on `from`. */
+    setOff?: number;
     activity: Activity;
     /** What an NPC's card says it is doing ("lunch (out of the building)"). */
     label: string;

@@ -22,10 +22,16 @@ export const LEAVING_ACTIVITIES: ReadonlySet<Activity> = new Set<Activity>(['lea
 /** How a route is walked: back and forth, or once through and then stay at its end. */
 export const routeMode = (activity: Activity): 'pingPong' | 'once' => (activity === 'closingSweep' ? 'once' : 'pingPong');
 
-/** The index of the block a person's schedule is in on `turn`, or -1 before the first one. */
+/** The turn someone sets off for a block: travel time before it starts, so they are there on its turn. */
+export const setOffOf = (b: DeepReadonly<ScheduleBlock>): number => b.setOff ?? b.from;
+
+/**
+ * The index of the block a person is following on `turn` (on the way to it, or at it), or -1 before the first one: the
+ * last block, in schedule order, they have set off for.
+ */
 export function blockIndexAt(person: DeepReadonly<PersonDef>, turn: number): number {
     let at = -1;
-    person.schedule.forEach((b, i) => { if (b.from <= turn) at = i; });
+    person.schedule.forEach((b, i) => { if (setOffOf(b) <= turn) at = i; });
     return at;
 }
 

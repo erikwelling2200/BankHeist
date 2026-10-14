@@ -133,7 +133,7 @@ describe('perception previews (property)', () => {
     it(`match the outcome over ${WORLDS} random worlds`, () => {
         const rng = new Rng(20261014);
         const failures: string[] = [];
-        let moves = 0, acting = 0, deadlines = 0, worldActing = 0, walked = 0, frisks = 0;
+        let moves = 0, acting = 0, deadlines = 0, worldActing = 0, walked = 0, frisks = 0, preCases = 0;
         for (let w = 0; w < WORLDS; w++) {
             const { world, free } = makeWorld(rng);
             const crew = [0, 1].map(i => ({ id: `c${i}`, pos: free.splice(rng.int(0, free.length - 1), 1)[0]!, ...rng.pick(LOADOUTS) }));
@@ -145,6 +145,8 @@ describe('perception previews (property)', () => {
                 npc.intent = rng.chance(0.5) ? { path, facing: rng.pick(FACINGS) } : { path };
             }
             for (let turn = 0; turn < 4; turn++) {
+                // The hatched overlay of the turn's last move, taken before it: its tile's world phase.
+                let lastPre: { crew: string; found: Sighting[] } | undefined;
                 for (let k = 0; k < 3; k++) {
                     const member = rng.pick(state.crew);
                     if (member.actionsLeft < 1) continue;
@@ -153,7 +155,10 @@ describe('perception previews (property)', () => {
                     const judged = assessPath(world, state, member.id, path);
                     const all = [...judged.steps, ...judged.end];
                     const expected = predict(state, member.id, all);
+                    const pre = { crew: member.id, found: assessWorldPhase(world, state, sightMap(world, state), member.id, path[path.length - 1]!) };
                     const result = commit(world, state, { type: 'move', crew: member.id, path });
+                    // The overlay knows the tile, not the way there: a door the move leaves open is the path's (M1-09).
+                    lastPre = result.events.some(e => e.type === 'doorOpened') ? undefined : pre;
                     moves++;
                     const quiet = !all.some(s => s.outcome !== '-');
                     if (!quiet) acting++;
@@ -177,6 +182,13 @@ describe('perception previews (property)', () => {
                     const due = dueChallenge(state, c.id);
                     if (due) expected[c.id]![due.npc.id]!.challenged = false;
                 }
+                if (lastPre) {
+                    expected.pre = predict(state, lastPre.crew, lastPre.found);
+                    const due = dueChallenge(state, lastPre.crew);
+                    if (due) expected.pre[due.npc.id]!.challenged = false;
+                    before.pre = effectOf(state, lastPre.crew);
+                    preCases++;
+                }
                 const committed: Record<string, Intent> = Object.fromEntries(state.npcs.map(n => [n.id, n.intent]));
                 const result = commit(world, state, { type: 'endTurn' });
                 // Every NPC walks its committed intent: all of it, or the start of it when the crew stood in its way.
@@ -189,14 +201,15 @@ describe('perception previews (property)', () => {
                         : JSON.stringify(path) === JSON.stringify(e.path);
                     if (!ok) failures.push(`world ${w} turn ${turn} ${e.npc}: walked ${JSON.stringify(e.path)}, committed ${JSON.stringify(path)}`);
                 }
-                for (const c of state.crew) {
-                    const got = effectOf(result.state, c.id);
+                const checks = [...state.crew.map(c => ({ key: c.id, crew: c.id })), ...(lastPre ? [{ key: 'pre', crew: lastPre.crew }] : [])];
+                for (const c of checks) {
+                    const got = effectOf(result.state, c.crew);
                     for (const id of Object.keys(got)) {
-                        const g = got[id]!, e = expected[c.id]![id]!, b = before[c.id]![id]!;
+                        const g = got[id]!, e = expected[c.key]![id]!, b = before[c.key]![id]!;
                         // Pips that weren't raised may decay; raised ones must be exactly as predicted.
                         const pipsWrong = e.pips > b.pips ? g.pips !== e.pips : g.pips > b.pips;
                         if (g.exposed !== e.exposed || g.challenged !== e.challenged || pipsWrong) {
-                            failures.push(`world ${w} turn ${turn} ${c.id}/${id}: before ${JSON.stringify(b)}, expected ${JSON.stringify(e)}, got ${JSON.stringify(g)}`);
+                            failures.push(`world ${w} turn ${turn} ${c.key}/${id}: before ${JSON.stringify(b)}, expected ${JSON.stringify(e)}, got ${JSON.stringify(g)}`);
                         }
                     }
                 }
@@ -212,5 +225,6 @@ describe('perception previews (property)', () => {
         // NPCs walk their schedules and their investigations, and the overlay foresees frisks.
         expect(walked).toBeGreaterThan(WORLDS);
         expect(frisks).toBeGreaterThan(0);
+        expect(preCases).toBeGreaterThan(WORLDS * 2);
     }, Math.max(10_000, WORLDS * 20));
 });

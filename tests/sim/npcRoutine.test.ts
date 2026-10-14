@@ -20,7 +20,7 @@ const BANKS: { tier: Tier; archetype: Archetype; layout: number; population: num
     { tier: 'hq', archetype: 'fortress', layout: 2000, population: 1 }
 ];
 
-const TURNS = 45;
+const TURNS = 90;
 /** How many phases an NPC may stand still short of where its routine sends it before it counts as stuck. */
 const STUCK = 8;
 
@@ -97,32 +97,45 @@ describe('NPC routines on generated banks', () => {
         }, 60_000);
     }
 
-    it('start the day\'s events on their turns', () => {
+    it('have people at their events on the timeline\'s turn, for as long as they last', () => {
+        const EVENTS = ['lunch', 'cashRun', 'inspection', 'offMap', 'shiftChange', 'smokeBreak', 'serviceVisit'];
         const all: string[] = [];
+        const missed: string[] = [];
         for (const spec of BANKS) {
             const day = runDay(spec);
-            const checked = new Set<string>();
             for (const person of day.world.people) {
                 person.schedule.forEach((block, index) => {
-                    if (block.from < 2 || block.from > TURNS || !['lunch', 'cashRun', 'inspection', 'closingSweep', 'offMap', 'shiftChange', 'smokeBreak'].includes(block.activity)) return;
-                    // A block that starts on turn T is the intent committed for T's world phase: shown in T's crew phase.
-                    const state = day.states[block.from - 1]!;
-                    expect(state.turn).toBe(block.from);
-                    const npc = state.npcs.find(n => n.id === person.id)!;
-                    const later = person.schedule.findIndex((b, i) => i > index && b.from === block.from);
-                    if (later >= 0) return;
-                    expect(npc.goal.block, `${person.id} ${block.activity} on turn ${block.from}`).toBe(index);
-                    checked.add(block.activity);
+                    if (!EVENTS.includes(block.activity)) return;
+                    const next = person.schedule[index + 1];
+                    const until = next ? next.setOff ?? next.from : TURNS;
+                    if (block.from < 2 || until > TURNS) return;
+                    // From the crew phase of its turn to the end of it, they are there (away, for lunch out).
+                    for (let turn = block.from; turn < until; turn++) {
+                        const npc = day.states[turn - 1]!.npcs.find(n => n.id === person.id)!;
+                        const there = block.activity === 'offMap' ? npc.status === 'away' : key(npc.pos) === key(block.at!);
+                        if (!there) {
+                            missed.push(`${spec.tier} ${spec.archetype} ${person.id} ${block.activity} turn ${turn} (${block.from}–${until}) at ${key(npc.pos)}`);
+                            return;
+                        }
+                    }
+                    all.push(block.activity);
                 });
             }
-            expect(checked.has('closingSweep'), `${spec.tier} ${spec.archetype}`).toBe(true);
-            expect(checked.has('lunch') || checked.has('offMap'), `${spec.tier} ${spec.archetype}: lunch`).toBe(true);
-            expect(checked.has('shiftChange'), `${spec.tier} ${spec.archetype}: shift change`).toBe(true);
-            all.push(...checked);
+            // The closing sweep starts at closing, and is done in good time (the guards back at their posts).
+            const sweeps = day.world.people.filter(p => p.schedule.some(b => b.activity === 'closingSweep'));
+            expect(sweeps.length, `${spec.tier} ${spec.archetype}`).toBeGreaterThan(0);
+            for (const guard of sweeps) {
+                const block = guard.schedule.find(b => b.activity === 'closingSweep')!;
+                expect(day.states[block.from - 1]!.npcs.find(n => n.id === guard.id)!.goal.block).toBe(guard.schedule.indexOf(block));
+                const post = block.route!.at(-1)!;
+                const done = day.states.slice(block.from).findIndex(s => key(s.npcs.find(n => n.id === guard.id)!.pos) === key(post));
+                expect(done, `${spec.tier} ${spec.archetype} ${guard.id} sweep`).toBeGreaterThanOrEqual(0);
+                // About three phases a room, hurried, plus the way to the first one: nobody stalls on the way.
+                expect(done, `${spec.tier} ${spec.archetype} ${guard.id} sweep`).toBeLessThan(3 * block.route!.length + 10);
+            }
         }
-        // Across the sample: the cash run and the manager's inspection too.
-        expect(all).toContain('cashRun');
-        expect(all).toContain('inspection');
+        expect(missed).toEqual([]);
+        for (const activity of ['lunch', 'cashRun', 'inspection', 'shiftChange']) expect(all, activity).toContain(activity);
     }, 120_000);
 
     it('send people where their schedule says', () => {
@@ -132,10 +145,13 @@ describe('NPC routines on generated banks', () => {
         let checked = 0;
         for (const person of day.world.people) {
             person.schedule.forEach((block, i) => {
-                const next = person.schedule[i + 1]?.from ?? TURNS;
-                if (!block.at || next - block.from < 4 || next > TURNS || block.activity === 'leave' || block.activity === 'offMap') return;
+                const start = block.setOff ?? block.from, after = person.schedule[i + 1];
+                const next = after ? after.setOff ?? after.from : TURNS;
+                // Coming back in from the street takes its own time.
+                const fromOutside = i > 0 && ['leave', 'offMap'].includes(person.schedule[i - 1]!.activity);
+                if (!block.at || next - start < 4 || next > TURNS || fromOutside || block.activity === 'leave' || block.activity === 'offMap') return;
                 // Walking at 4 tiles a phase, anyone gets anywhere in a bank this size within a few turns.
-                expect(arrived(person.id, block.at, block.from, next), `${person.id} to ${block.activity} at ${key(block.at)} turns ${block.from}–${next}`).toBe(true);
+                expect(arrived(person.id, block.at, start, next), `${person.id} to ${block.activity} at ${key(block.at)} turns ${start}–${next}`).toBe(true);
                 checked++;
             });
         }

@@ -116,12 +116,32 @@ describe('schedules', () => {
         state = step(world, state, { type: 'move', crew: 'jun', path: [P(2, 0)] }).state;
         expect(state.npcs[0]!.intent.path).toEqual([P(1, 0), P(2, 0), P(3, 0), P(4, 0)]);
         const result = step(world, state, { type: 'endTurn' });
-        expect(events(result.events, 'npcBlocked')).toEqual([{ type: 'npcBlocked', npc: 'customer', at: P(1, 0), next: P(2, 0) }]);
+        expect(events(result.events, 'npcBlocked')).toEqual([{ type: 'npcBlocked', npc: 'customer', at: P(1, 0), next: P(2, 0), by: 'jun' }]);
         expect(result.state.npcs[0]!.pos).toEqual(P(1, 0));
         expect(result.state.npcs[0]!.facing).toBe('e');
         // Next phase it walks round him.
         const round = step(world, result.state, { type: 'endTurn' }).state;
         expect(round.npcs[0]!.pos).toEqual(P(4, 0));
+    });
+});
+
+describe('blocked walks', () => {
+    it('limit what an NPC sees to where it gets, in the overlay and the outcome alike', () => {
+        // A guard walks east along row 1; the street (row 0) is open to it only through the gap at x = 5.
+        const walls: FixtureWall[] = [];
+        for (let x = 0; x < 20; x++) if (x !== 5) walls.push({ between: [P(x, 1), P(x, 2)] });
+        const world = fixtureWorld(['....................', '....................', 'ssssssssssssssssssss'], {
+            walls, people: [person('g', 'guard', 'enforcer', P(1, 1), 'e', [{ from: 1, activity: 'patrol', label: 'patrol', room: '', route: [P(1, 1), P(5, 1)] }])]
+        });
+        let state = start(world, [{ id: 'gun', pos: P(10, 0), items: ['assaultRifle'] }, { id: 'blocker', pos: P(6, 0) }]);
+        // Unblocked, the guard would see the rifle from the end of its walk.
+        expect(assessWorldPhase(world, state, sightMap(world, state), 'gun', P(10, 0)).map(s => s.observer)).toEqual(['g']);
+        // Someone steps into its way: it stops short, and sees nothing.
+        state = step(world, state, { type: 'move', crew: 'blocker', path: [P(5, 0), P(4, 0), P(3, 1)] }).state;
+        expect(assessWorldPhase(world, state, sightMap(world, state), 'gun', P(10, 0))).toEqual([]);
+        const r = step(world, state, { type: 'endTurn' });
+        expect(events(r.events, 'npcBlocked')).toEqual([{ type: 'npcBlocked', npc: 'g', at: P(2, 1), next: P(3, 1), by: 'blocker' }]);
+        expect(r.state.npcs[0]!.exposedTo).toEqual([]);
     });
 });
 
@@ -159,10 +179,11 @@ describe('suspicion and search', () => {
             const g = result.state.npcs[0]!;
             expect(g.exposedTo).toEqual(found ? ['jun'] : []);
             if (!found) {
-                // Satisfied: it watches instead of investigating again, until its suspicion rises.
+                // Satisfied: it watches instead of investigating again, until its suspicion rises; no search either.
                 expect(g.frisked).toEqual({ jun: 2 });
                 expect(g.goal.kind).toBe('watch');
                 expect(g.intent.action).toBeUndefined();
+                expect(g.search).toBeNull();
             }
         }
     });
@@ -188,6 +209,32 @@ describe('suspicion and search', () => {
         expect(state.npcs[2]!.intent.path).toEqual([P(8, 8), P(7, 7)]);
         expect(state.npcs[2]!.intent.action).toEqual({ kind: 'frisk', crew: 'jun' });
         expect(state.npcs[0]!.intent).toEqual({ path: [], facing: 'nw' });
+        // Handing the investigation over starts no search: the nearest guard goes down, and the far one takes over.
+        state.npcs[2]!.status = 'unconscious';
+        state.npcs[1]!.lastSeen = { jun: { tile: P(4, 4), turn: state.turn } };
+        state = step(world, state, { type: 'endTurn' }).state;
+        expect(state.npcs[1]!.goal.kind).toBe('investigate');
+        expect(state.npcs[2]!.search).toBeNull();
+        expect(state.npcs[2]!.goal).toEqual({ kind: 'still' });
+    });
+
+    it('search a lost trail: watch it one more phase, then walk to the last known tile, then back to routine', () => {
+        const world = floor([person('g', 'guard', 'enforcer', P(7, 7), 'n', [post(1, P(7, 7), 'n')])]);
+        let state = start(world, [{ id: 'jun', pos: P(0, 14) }]);
+        const g = () => state.npcs[0]!;
+        g().suspicion = { jun: 2 };
+        g().wants = [{ kind: 'investigate', crew: 'jun', tile: P(7, 2), decided: { turn: 1, phase: 'crew' } }];
+        g().goal = { kind: 'investigate', crew: 'jun', tile: P(7, 2) };
+        // Unseen this phase: its suspicion falls to 1, and it searches.
+        state = step(world, state, { type: 'endTurn' }).state;
+        expect(g().search).toEqual({ tile: P(7, 2), until: 3 });
+        expect(g().intent).toEqual({ path: [], facing: 'n' });
+        state = step(world, state, { type: 'endTurn' }).state;
+        expect(g().intent.path.at(-1)).toEqual(P(7, 2));
+        expect(g().status).toBe('investigating');
+        state = step(world, state, { type: 'endTurn' }).state;
+        expect(g().search).toBeNull();
+        expect(g().goal.kind).toBe('routine');
     });
 });
 

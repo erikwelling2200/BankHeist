@@ -141,6 +141,8 @@ export interface TilePos { tx: number; ty: number }
 /** A typed time block of someone's routine, in order of `from`; it lasts until the next one. */
 export interface RoutineBlock {
     from: number;
+    /** When to set off for it, if earlier than `from`: travel time, so they are there on `from`. */
+    setOff?: number;
     activity: Activity;
     /** What the briefing and an NPC's card say about it ("lunch (out of the building)"). */
     label: string;
