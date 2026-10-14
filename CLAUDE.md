@@ -26,14 +26,31 @@ Top-down 2D pixel-art stealth game. Phaser 4 + TypeScript + Vite, shipped as an 
 - `npm run sweep` – generates every tier × archetype × plot from several seeds (`SWEEP_SEEDS`, default 4; pin one with
   `SWEEP_TIER`, `SWEEP_ARCHETYPE`, `SWEEP_PLOT`) and prints validity, attempts, time per bank and per room type its
   size against the program's target and max, how many are shaped and how full they are. Run it after generator changes.
-- `npm run test:e2e` – builds, serves the production build and drives it in Chromium with Playwright. Writes `screenshots/*.png`.
+- `npm run test:e2e` – builds, serves the production build and drives it in Chromium with Playwright (all but the visual
+  regression tests). Writes `screenshots/*.png`. `E2E_PORT` serves it on another port than 4173, so two checkouts can
+  test at once without one reusing the other's server.
+- `npm run test:smoke` – only the e2e tests tagged `@smoke` (boot, a generated bank, regenerating in the page, the room
+  gallery, the prop sheet): a minute or so here, build included. Tag a test with `SMOKE` to add it.
+- `npm run test:visual` – visual regression: the canvas of fixed views (the example bank and three generated banks at
+  their start view and on the tactical map, the room gallery, the prop sheet) against the baselines in
+  `e2e/visual.spec.ts-snapshots/`. Pages open with `?still`, so no cloud drifts, nobody patrols and no dust flies, and
+  the HTML over the canvas is hidden. `npm run test:visual:update` rewrites the baselines.
 - `npm run screenshot` – only the boot test; the fastest way to look at the current visuals.
 
 ## Verifying changes
-- Run typecheck, unit tests and e2e before pushing. For any visual change, read `screenshots/start.png` (and add a
-  screenshot to the relevant e2e test when a new feature isn't visible at boot) – don't call visual work done unseen.
+- Run typecheck, unit tests and e2e before pushing (`test:smoke` for a quick check while working). For any visual
+  change, read `screenshots/start.png` (and add a screenshot to the relevant e2e test when a new feature isn't visible at
+  boot) – don't call visual work done unseen.
+- Changing the art, the lighting or the generator changes the visual baselines on purpose: run `npm run test:visual`,
+  look at the `-diff.png` (and `-actual.png`) images it leaves in `test-results/`, and when every change is one you meant,
+  run `npm run test:visual:update` and commit the new baselines. A change that must not alter the look (a refactor, a
+  speed-up) has to pass `VISUAL_EXACT=1 npm run test:visual`, which allows no pixel of difference. CI doesn't run the
+  visual tests: the baselines come from this sandbox's software renderer.
 - `window.game` and `window.Phaser` are exposed; `game.scene.getScene('vault').debugState` gives test-friendly state,
-  and `window.generated` the generated bank (its rooms, people, keys, ways in and validation report).
+  and `window.generated` the generated bank (its rooms, people, keys, ways in and validation report). The bank scene's
+  `debugState.timings` gives the milliseconds each stage of building the bank took (also in the browser's performance
+  timeline as `bank: <stage>`, with `bank: generate` for the generator), and `settled` whether the walls have reached
+  their height.
 - The generator only places what fits: give a new prop a catalog entry and art first, then place it through a parcel
   (`src/gen/parcels.ts`) with the `Furnisher`, which rejects props that don't fit between walls or touch another box.
 - In the cloud sandbox Playwright uses the preinstalled Chromium at `/opt/pw-browsers`, which is why `@playwright/test`
@@ -42,13 +59,19 @@ Top-down 2D pixel-art stealth game. Phaser 4 + TypeScript + Vite, shipped as an 
 ## Rendering
 - Internal resolution is 320x180 with `pixelArt: true`, scaled to fit with nearest-neighbour filtering. Keep art on a
   16px grid (`TILE`).
-- The bank scene sets its own resolution: the screen's device pixels over a whole-number zoom (`BankScene.applyZoom`,
+- The bank scene sets its own resolution: the screen's device pixels over a whole-number zoom (`BankCamera.applyZoom`,
   steps from `src/logic/zoom.ts`, §20.1), by changing the game config's base size and calling `scale.refresh()` – a
   plain `setGameSize` is undone by `EXPAND`. Pan, zoom and the tactical map buttons are HTML (`src/ui/CameraControls.ts`).
 - Lighting: Phaser's Light2D (objects opt in with `setLighting(true)`; normal maps are the texture's data source;
   `render.maxLights` is 32 and lights beyond that are silently dropped) shines through walls, so the bank doesn't use
   it. Its lamps are baked with Light2D's formula in `src/art/bank/lamps.ts`, traced against the walls; light anything
-  new in the bank through `BankScene.bake`, and move people with `BankScene.movePerson`, which relights only them. The demo and the prop sheet still use Light2D.
+  new in the bank through `Baker.bake`, and move people with `BankScene.movePerson`, which relights only them. The demo and the prop sheet still use Light2D.
+- `BankScene` only puts the bank together from its parts in `src/scenes/bank/`: `bake.ts` (the `Baker`: lighting,
+  exposure, texture upload, light maps), `floor.ts`, `walls.ts` (and their cut-away heights), `props.ts`, `people.ts`
+  (patrols, relighting), `knowledge.ts` (the blueprint layer), `atmosphere.ts` (clouds, dust) and `camera.ts` (zoom,
+  map, pan, pinch). Building a bank is the wait the player feels, so keep it fast: textures go up as raw pixels
+  (`Baker.addPixels`, not canvases, which once took a third of it), lamp reach is traced only where it is asked for, and
+  normals are worked out only where light falls.
 - All art is generated in `src/art` from palette grids, with a height per colour that becomes the normal map. Real art
   can replace it by loading PNGs plus `-n.png` normal maps in a preload scene and keeping the `TEX` keys.
 - Every object is a box at a real scale (`src/level/space.ts`: 1px ≈ 8cm, people 1.75m, walls cut at 1.9m). Floor tiles
@@ -67,7 +90,7 @@ Top-down 2D pixel-art stealth game. Phaser 4 + TypeScript + Vite, shipped as an 
 - Walls stand on the edges between tiles at their real thickness (`src/level/walls.ts`), never on tiles; the level plan
   is drawn at double resolution (`src/level/bank.ts`, legend in `src/level/plan.ts`). Their tops follow the floor grid, unforeshortened,
   and always show the wall in section (dark, hatched). Walls north of the middle of the screen stand full height; the
-  rest are cut down to `CUT_HEIGHT` (`BankScene.updateWalls`), so paint wall faces by height above the floor, and
+  rest are cut down to `CUT_HEIGHT` (`Walls.update`), so paint wall faces by height above the floor, and
   anything whose look depends on a wall's height (its exposure, the cloud shadows, dressing hung on it) has to follow it.
 - Before generating or restyling art, read `docs/pixel-art/PROMPTING.md` (rules) and `docs/pixel-art/README.md`
   (findings, example scripts in `scripts/pixel-art/`); before animating, `docs/pixel-art/animation.md`.
