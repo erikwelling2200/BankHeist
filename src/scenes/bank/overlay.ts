@@ -27,7 +27,13 @@ export interface OverlayContent {
     /** The index of the first step that can't be taken; it and those after it are drawn red. */
     badFrom?: number;
     /** The NPCs' committed walks for the next world phase: a dotted line and a pin where each ends. */
-    intents?: { from: Pos; path: Pos[] }[];
+    intents?: { from: Pos; path: Pos[]; predicted?: boolean }[];
+    /** Which tiles the crew has seen (row-major, 1 = seen); the rest are unscouted, drawn grey (§8.15). */
+    seen?: { width: number; bits: Uint8Array };
+    /** Ghosts: where an NPC was last seen, and how long ago. */
+    ghosts?: { pos: Pos; seenAgo: number }[];
+    /** Loud noises the crew heard (§8.15). */
+    pings?: { at: Pos }[];
 }
 
 const SAGE = 'rgba(128, 190, 138, 0.16)';
@@ -37,6 +43,9 @@ const INK = 'rgba(13, 12, 20, 0.85)';
 const CREAM = '#f2e6c8';
 const RED = '#d44638';
 const INTENT = 'rgba(242, 230, 200, 0.7)';
+const INTENT_PREDICTED = 'rgba(242, 230, 200, 0.4)';
+const UNSCOUTED = 'rgba(96, 98, 110, 0.45)';
+const PING = 'rgba(226, 162, 64, 0.8)';
 
 export class WorldOverlay {
     readonly canvas: HTMLCanvasElement;
@@ -92,6 +101,30 @@ export class WorldOverlay {
         const left = (p: Pos) => (p.x * TILE - vx) * UI_SCALE, top = (p: Pos) => (p.y * TILE - vy) * UI_SCALE;
         const mid = (p: Pos): [number, number] => [left(p) + S / 2, top(p) + S / 2];
 
+        if (c.seen) {
+            // Unscouted: a grey veil over every tile in view the crew hasn't seen.
+            const { width, bits } = c.seen, height = bits.length / width;
+            ctx.fillStyle = UNSCOUTED;
+            const x0 = Math.max(0, Math.floor(vx / TILE)), y0 = Math.max(0, Math.floor(vy / TILE));
+            const x1 = Math.min(width - 1, Math.floor((vx + w / UI_SCALE) / TILE)), y1 = Math.min(height - 1, Math.floor((vy + h / UI_SCALE) / TILE));
+            for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) if (!bits[y * width + x]) ctx.fillRect(left({ x, y }), top({ x, y }), S, S);
+        }
+
+        for (const p of c.pings ?? []) {
+            const [x, y] = mid(p.at);
+            ctx.lineWidth = 2;
+            for (const r of [10, 20]) {
+                ctx.strokeStyle = INK;
+                ctx.beginPath();
+                ctx.arc(x, y + 2, r, 0, Math.PI * 2);
+                ctx.stroke();
+                ctx.strokeStyle = PING;
+                ctx.beginPath();
+                ctx.arc(x, y, r, 0, Math.PI * 2);
+                ctx.stroke();
+            }
+        }
+
         if (c.reach) {
             ctx.fillStyle = CREAM_FAINT;
             for (const p of c.reach.dash) ctx.fillRect(left(p) + 1, top(p) + 1, S - 2, S - 2);
@@ -112,8 +145,8 @@ export class WorldOverlay {
         for (const intent of c.intents ?? []) {
             const points = [intent.from, ...intent.path].map(mid);
             ctx.lineWidth = 2;
-            ctx.setLineDash([4, 4]);
-            for (const [colour, dy] of [[INK, 2], [INTENT, 0]] as const) {
+            ctx.setLineDash(intent.predicted ? [2, 6] : [4, 4]);
+            for (const [colour, dy] of [[INK, 2], [intent.predicted ? INTENT_PREDICTED : INTENT, 0]] as const) {
                 ctx.strokeStyle = colour;
                 ctx.beginPath();
                 points.forEach(([x, y], i) => (i ? ctx.lineTo(x, y + dy) : ctx.moveTo(x, y + dy)));
@@ -126,6 +159,16 @@ export class WorldOverlay {
             ctx.strokeRect(x - 4, y - 3, 8, 8);
             ctx.strokeStyle = INTENT;
             ctx.strokeRect(x - 4, y - 5, 8, 8);
+        }
+
+        ctx.font = '600 10px ui-monospace, Menlo, Consolas, monospace';
+        ctx.textAlign = 'center';
+        for (const g of c.ghosts ?? []) {
+            const [x] = mid(g.pos), y = top(g.pos) - 30, text = `seen ${g.seenAgo} turn${g.seenAgo === 1 ? '' : 's'} ago`;
+            ctx.fillStyle = INK;
+            ctx.fillText(text, x, y + 2);
+            ctx.fillStyle = INTENT;
+            ctx.fillText(text, x, y);
         }
 
         if (c.from && c.path?.length) {

@@ -4,14 +4,14 @@ import type { GeneratedBank } from '../../gen/model';
 import { TILE } from '../../level/level';
 import type { PersonFacing } from '../../level/plan';
 import {
-    COMBAT_STATUSES, crewMoveOptions, dashBudget, doorStatus, DASH_ACTIONS, MOVE_ACTIONS, moveBudget, pathTo, reachable, reachAt, validatePath,
-    type Command, type CrewState, type Facing, type Pos, type Reach, type SimEvent
+    COMBAT_STATUSES, crewMoveOptions, crewPicture, dashBudget, IllegalCommand, knownView, doorStatus, DASH_ACTIONS, MOVE_ACTIONS, moveBudget, pathTo, reachable, reachAt, validatePath,
+    type Command, type CrewState, type KnownView, type MarkerKind, type State, type Facing, type Pos, type Reach, type SimEvent
 } from '../../sim';
 import { mountHud } from '../../ui/hud/mountHud';
 import { CREW_COLOURS, type HudHandle, type OverlayId } from '../../ui/hud/viewModels';
 import type { BankCamera } from './camera';
 import { MapInput } from './input';
-import { WorldOverlay } from './overlay';
+import { WorldOverlay, type OverlayContent } from './overlay';
 import type { People } from './people';
 import type { Walls } from './walls';
 
@@ -35,6 +35,8 @@ const NPC_WALK_BUDGET_MS = 1200;
 const SNAP_TILES = 1.5;
 /** How many tiles north of the crew the first view of a heist is centred. */
 const OPENING_LIFT = 3;
+/** How solid an NPC the crew knows of is drawn: seen now, predicted from its routine, or a ghost of where it was. */
+const MARKER_ALPHA: Record<MarkerKind, number> = { live: 1, predicted: 0.55, ghost: 0.3 };
 const SPEEDS: readonly PlaybackSpeed[] = ['1x', '2x', 'instant'];
 const SPEED_LABEL: Record<PlaybackSpeed, string> = { '1x': '1×', '2x': '2×', instant: '⏭' };
 
@@ -98,6 +100,8 @@ export class PlayMode {
     private playing = false;
     /** The door states shown, by door id. */
     private shownDoors = new Map<string, boolean>();
+    private knownFor?: State;
+    private knownCache?: KnownView;
 
     constructor(private readonly scene: Phaser.Scene, parts: PlayParts) {
         const { session, bank, people, walls, camera } = parts;
@@ -167,6 +171,11 @@ export class PlayMode {
             selected: this.session.selected, pending: this.session.pendingCommand, mode: this.mode, playing: this.busy,
             speed: this.session.playback.speed, path: this.overlay.state.path, dash: this.overlay.state.dash, reach: this.overlay.state.reach,
             intents: this.overlay.state.intents,
+            /** The NPC markers the crew knows of (§8.15), in the order of `state.npcs`; null for one it doesn't. */
+            npcs: this.session.state.npcs.map(n => {
+                const m = this.known().npcs.find(k => k.id === n.id);
+                return m ? { id: m.id, kind: m.kind, pos: m.pos } : null;
+            }),
             doorsOpen: [...this.shownDoors].filter(([, open]) => open).map(([id]) => id)
         };
     }
@@ -318,12 +327,24 @@ export class PlayMode {
     private syncAll(): void {
         this.walk = undefined;
         const { state, world } = this.session;
-        for (const p of [...state.npcs, ...state.crew]) {
-            const index = this.sprite.get(p.id);
-            if (index === undefined) continue;
-            const [x, y] = centre(p.pos), now = this.people.at(index), facing = drawnFacing(p.facing, now.facing);
+        // The crew where they are; the NPCs as the crew knows them (§8.15): live ones where they stand, predicted ones
+        // where their routine puts them (translucent), ghosts where they were last seen (faded), the rest not at all.
+        const markers = new Map(this.known().npcs.map(m => [m.id, m]));
+        const place = (index: number, pos: Pos, f: Facing) => {
+            const [x, y] = centre(pos), now = this.people.at(index), facing = drawnFacing(f, now.facing);
             if (now.x !== x || now.y !== y || now.facing !== facing) this.people.move(index, x, y, facing);
-            if ('status' in p) this.people.setAway(index, p.status === 'away');
+        };
+        for (const c of state.crew) {
+            const index = this.sprite.get(c.id);
+            if (index !== undefined) place(index, c.pos, c.facing);
+        }
+        for (const n of state.npcs) {
+            const index = this.sprite.get(n.id), m = markers.get(n.id);
+            if (index === undefined) continue;
+            this.people.setAway(index, !m || n.status === 'away');
+            if (!m) continue;
+            place(index, m.pos, m.facing);
+            this.people.setAlpha(index, MARKER_ALPHA[m.kind]);
         }
         for (const id of Object.keys(world.doors)) {
             const status = doorStatus(world, state, id);
@@ -401,7 +422,7 @@ export class PlayMode {
 
     /** The reach of the selected member for both moves: Dash's when they have the actions, else Move's. */
     private reach(member: CrewState): { reach: Reach; move: number; dash: number | null } {
-        const { world, state } = this.session, move = moveBudget(world, member);
+        const { world } = this.session, state = this.picture(), move = moveBudget(world, member);
         const dash = member.actionsLeft >= DASH_ACTIONS ? dashBudget(world) : null;
         const reach = reachable(world, state, member.pos, Math.max(move, dash ?? 0), crewMoveOptions(member));
         return { reach, move, dash };
@@ -424,12 +445,26 @@ export class PlayMode {
         return { pos: best.pos, command: { type, crew: member.id, path } };
     }
 
-    /** Shows `cmd` as the pending preview, if the rules allow it. */
+    /**
+     * The state as the crew pictures it (§8.15): only the NPCs it sees or predicts stand anywhere. Reach, snapping and
+     * drags are planned on it, so a tile an unseen NPC stands on reads as open; the commit, on the truth, may refuse.
+     */
+    private picture(): State {
+        return crewPicture(this.session.world, this.session.state);
+    }
+
+    /**
+     * Shows `cmd` as the pending preview, if the rules allow it. A move the crew's picture allows is shown even when the
+     * truth refuses it (someone unseen stands in the way): committing it then says it is blocked.
+     */
     private preview(cmd: Command): boolean {
         try {
             this.session.playerPreview(cmd);
         } catch {
-            return false;
+            const member = this.selectedMember();
+            const pictured = !!member && (cmd.type === 'move' || cmd.type === 'dash') &&
+                validatePath(this.session.world, this.picture(), member.pos, cmd.path, cmd.type === 'dash' ? dashBudget(this.session.world) : moveBudget(this.session.world, member), crewMoveOptions(member)).ok;
+            if (!pictured) return false;
         }
         this.session.setPendingCommand(cmd);
         if (cmd.type === 'move' || cmd.type === 'dash') this.mode = cmd.type;
@@ -464,7 +499,7 @@ export class PlayMode {
         const member = this.selectedMember(), path = this.dragPath;
         this.dragPath = undefined;
         if (cancelled || !member || !path?.length) return this.refresh();
-        const { world, state } = this.session, options = crewMoveOptions(member);
+        const { world } = this.session, state = this.picture(), options = crewMoveOptions(member);
         const asMove = this.mode !== 'dash' && validatePath(world, state, member.pos, path, moveBudget(world, member), options);
         const asDash = member.actionsLeft >= DASH_ACTIONS ? validatePath(world, state, member.pos, path, dashBudget(world), options) : undefined;
         if (asMove && asMove.ok) this.preview({ type: 'move', crew: member.id, path });
@@ -504,7 +539,9 @@ export class PlayMode {
         try {
             this.session.commit(cmd);
         } catch (e) {
+            // Refused on the truth: someone the crew didn't know of is in the way (M1-07 will stop the move short).
             console.warn(`Can't do that: ${(e as Error).message}`);
+            this.toast(e instanceof IllegalCommand ? 'Blocked' : "Can't do that");
             this.session.setPendingCommand(null);
         }
         this.mode = 'move';
@@ -551,22 +588,24 @@ export class PlayMode {
     }
 
     private overlayContent(): Parameters<WorldOverlay['set']>[0] {
-        if (this.busy || this.recap || this.session.state.phase !== 'crew') return null;
+        if (this.recap) return null;
+        const layer = this.knowledgeLayer();
+        if (this.busy || this.session.state.phase !== 'crew') return { colour: '', ...layer };
         const intents = this.intents(), member = this.selectedMember();
-        if (!member) return { colour: '', intents };
+        if (!member) return { colour: '', intents, ...layer };
         const colour = CREW_COLOURS[this.session.state.crew.indexOf(member) % CREW_COLOURS.length]!;
         if (this.dragPath) {
-            const { world, state } = this.session, budget = member.actionsLeft >= DASH_ACTIONS ? dashBudget(world) : moveBudget(world, member);
+            const { world } = this.session, state = this.picture(), budget = member.actionsLeft >= DASH_ACTIONS ? dashBudget(world) : moveBudget(world, member);
             const check = validatePath(world, state, member.pos, this.dragPath, budget, crewMoveOptions(member));
-            return { colour, intents, from: member.pos, path: this.dragPath, badFrom: check.ok ? undefined : check.at };
+            return { colour, intents, ...layer, from: member.pos, path: this.dragPath, badFrom: check.ok ? undefined : check.at };
         }
         const pending = this.session.pendingCommand;
-        if (pending && 'path' in pending) return { colour, intents, from: member.pos, path: pending.path as Pos[], dash: pending.type === 'dash' };
-        if (member.actionsLeft === 0 || pending) return { colour, intents };
+        if (pending && 'path' in pending) return { colour, intents, ...layer, from: member.pos, path: pending.path as Pos[], dash: pending.type === 'dash' };
+        if (member.actionsLeft === 0 || pending) return { colour, intents, ...layer };
         const { reach, move } = this.reach(member);
         const ends = reach.tiles.filter(t => t.canEnd && t.cost > 0);
         return {
-            colour, intents,
+            colour, intents, ...layer,
             reach: { move: ends.filter(t => t.cost <= move && this.mode !== 'dash').map(t => t.pos), dash: ends.filter(t => t.cost > move || this.mode === 'dash').map(t => t.pos) }
         };
     }
@@ -575,12 +614,43 @@ export class PlayMode {
      * The walks the NPCs on screen have committed to for the next world phase (§4 Intent, §6.2), hostile ones aside.
      * TODO(M1-10): only those the crew can know; TODO(M1-14): the overlay's own intent arrows.
      */
-    private intents(): { from: Pos; path: Pos[] }[] {
-        return this.session.state.npcs.flatMap(n => {
-            const index = this.sprite.get(n.id);
-            if (index === undefined || !this.people.shown(index) || n.status === 'hostile' || n.status === 'away' || !n.intent.path.length) return [];
-            return [{ from: n.pos, path: n.intent.path.map(p => ({ x: p.x, y: p.y })) }];
+    private intents(): { from: Pos; path: Pos[]; predicted: boolean }[] {
+        return this.known().npcs.flatMap(m => {
+            const index = this.sprite.get(m.id);
+            if (index === undefined || !this.people.shown(index) || m.kind === 'ghost' || m.status === 'hostile' || !m.intent?.path.length) return [];
+            return [{ from: m.pos, path: m.intent.path.map(p => ({ x: p.x, y: p.y })), predicted: m.kind === 'predicted' }];
         });
+    }
+
+    /** What the crew knows now (§8.15), worked out once per state. */
+    private known(): KnownView {
+        const state = this.session.state;
+        if (this.knownFor !== state) {
+            this.knownFor = state;
+            this.knownCache = knownView(this.session.world, state);
+        }
+        return this.knownCache!;
+    }
+
+    /** The overlay's knowledge layer: unscouted tiles, ghosts' "seen N turns ago", the sound pings. */
+    private knowledgeLayer(): Pick<OverlayContent, 'seen' | 'ghosts' | 'pings'> {
+        const view = this.known();
+        return {
+            seen: { width: view.width, bits: view.seen },
+            ghosts: view.npcs.filter(m => m.kind === 'ghost' && this.people.shown(this.sprite.get(m.id) ?? -1)).map(m => ({ pos: m.pos, seenAgo: m.seenAgo })),
+            pings: view.pings.map(p => ({ at: p.at }))
+        };
+    }
+
+    /** A short message over the map that fades by itself ("Blocked"). */
+    private toast(text: string): void {
+        const el = document.createElement('div');
+        el.className = 'play-toast';
+        el.setAttribute('role', 'status');
+        el.textContent = text;
+        document.body.append(el);
+        this.chrome.push(el);
+        window.setTimeout(() => el.remove(), 1600);
     }
 
     /** Play mode's own buttons beside the HUD's camera tools: the playback speed (§20.5). */

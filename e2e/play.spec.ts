@@ -98,11 +98,17 @@ test('plays three turns of a heist through taps', SMOKE, async ({ page }) => {
     await tapTile(page, junTarget);
     await idle(page);
     expect((await member(page, 'jun')).pos).toEqual(junTarget);
-    // Undo takes it back; Z on the keyboard.
+    // Undo (Z) takes it back, unless the move showed the crew something new (§6.6): then Undo is off.
+    const undoable = await page.evaluate(() => (window as any).sim.session.canUndo);
     await page.keyboard.press('z');
     await idle(page);
-    expect((await member(page, 'jun')).actionsLeft).toBe(2);
-    expect((await member(page, 'jun')).pos).not.toEqual(junTarget);
+    if (undoable) {
+        expect((await member(page, 'jun')).actionsLeft).toBe(2);
+        expect((await member(page, 'jun')).pos).not.toEqual(junTarget);
+    } else {
+        await expect(page.locator('.sh-undo')).toHaveAttribute('aria-disabled', 'true');
+        expect((await member(page, 'jun')).pos).toEqual(junTarget);
+    }
     await endTurn(page);
     await idle(page);
     expect((await sim(page)).turn).toBe(3);
@@ -168,17 +174,27 @@ test('plays the NPCs\' world phase: people on screen stand where the state says'
     const after = await npcs();
     expect((await sim(page)).turn).toBe(4);
     expect(after.some((n: any, i: number) => n.pos.x !== before[i].pos.x || n.pos.y !== before[i].pos.y || n.status !== before[i].status)).toBe(true);
-    const people = (await scene(page)).people;
+    // On screen, each NPC is drawn as the crew knows it (§8.15): where its marker is, or not at all.
+    const shown = await scene(page);
     after.forEach((n: any, i: number) => {
-        if (n.status === 'away') expect(people[i].visible, n.id).toBe(false);
-        else expect([people[i].x, people[i].y], n.id).toEqual([(n.pos.x + 0.5) * 16, (n.pos.y + 0.5) * 16]);
+        const marker = shown.play.npcs[i], person = shown.people[i];
+        if (!marker || n.status === 'away') expect(person.visible, n.id).toBe(false);
+        else {
+            expect([person.x, person.y], n.id).toEqual([(marker.pos.x + 0.5) * 16, (marker.pos.y + 0.5) * 16]);
+            if (marker.kind === 'live') expect(marker.pos, n.id).toEqual(n.pos);
+        }
     });
+    expect(shown.play.npcs.some((m: any) => m)).toBe(true);
     // Look at whoever walked furthest, with the intents for the next phase drawn.
     const moved = after.map((n: any, i: number) => ({ n, d: Math.hypot(n.pos.x - before[i].pos.x, n.pos.y - before[i].pos.y) }))
-        .filter((m: any) => m.n.status !== 'away').sort((a: any, b: any) => b.d - a.d)[0].n;
+        .filter((m: any, i: number) => m.n.status !== 'away' && shown.play.npcs[i]).sort((a: any, b: any) => b.d - a.d)[0].n;
     await page.evaluate(([x, y]) => (window as any).game.scene.getScene('bank').lookAt((x + 0.5) * 16, (y + 0.5) * 16), [moved.pos.x, moved.pos.y]);
     await page.waitForTimeout(800);
     await page.screenshot({ path: 'screenshots/play-npcs.png' });
+    // The knowledge layer: unscouted tiles grey, predicted and remembered NPCs translucent, on the tactical map.
+    await page.keyboard.press('m');
+    await page.waitForTimeout(1200);
+    await page.screenshot({ path: 'screenshots/play-knowledge.png' });
     expect(errors).toEqual([]);
 });
 

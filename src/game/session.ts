@@ -1,5 +1,5 @@
 import {
-    assertPlainJson, clonePlain, commit, deepFreeze, hashOf, popUndo, preview, RECENT_EVENTS, recordUndo, SaveFormatError, stableJson,
+    assertPlainJson, clonePlain, commit, deepFreeze, hashOf, popUndo, preview, projectEvents, RECENT_EVENTS, recordUndo, SaveFormatError, stableJson,
     type Command, type CommitResult, type PreviewResult, type ReadonlyWorld, type SimEvent, type State, type UndoStack
 } from '../sim';
 import { deserialiseHeist, deserialiseUi, heistWorldId, serialiseHeist, serialiseUi, serialiseWorld } from './persist';
@@ -63,9 +63,13 @@ type Cached = { result: PreviewResult } | { error: unknown };
  */
 export type PlayerPreview = PreviewResult;
 
-/** What of a preview the player sees. TODO(M1-09/M1-10: project through crew knowledge); passes everything for now. */
-export function projectPreview(result: PreviewResult, _state: State, _world: ReadonlyWorld): PlayerPreview {
-    return result;
+/**
+ * What of a preview the player sees (§8.15): its events projected through the crew's knowledge (`projectEvents`), so
+ * nothing about an NPC the crew neither sees nor predicts shows (an unseen listener doesn't turn Confirm amber). The
+ * state is the engine's, for the session's own checks; the HUD and overlays read only the events.
+ */
+export function projectPreview(result: PreviewResult, before: State, world: ReadonlyWorld): PlayerPreview {
+    return { ...result, events: projectEvents(world, result.state, result.events, before) };
 }
 
 export interface SessionOptions {
@@ -298,11 +302,13 @@ export class Session {
      */
     commit(cmd: Command): CommitResult {
         const before = this._state, result = deepFreeze(commit(this.world, before, cmd));
-        const queued = this.playback.push(result.events, result.state, before.turn);
+        // The player is told only what the crew perceives (§8.15): playback, the event log and the recap get the projection.
+        const shown = deepFreeze(projectEvents(this.world, result.state, result.events, before));
+        const queued = this.playback.push(shown, result.state, before.turn);
         this._undo = deepFreeze(recordUndo(this._undo, before, result.undoable));
         this.undoExtra = result.undoable ? [...this.undoExtra, { recent: this._recent, recentTurns: this._recentTurns, seqs: queued.map(i => i.seq) }] : [];
         // Each event's turn is the one the playback queue gave it: a world phase's events belong to the turn that ended.
-        this._recent = deepFreeze([...this._recent, ...result.events].slice(-RECENT_EVENTS));
+        this._recent = deepFreeze([...this._recent, ...shown].slice(-RECENT_EVENTS));
         this._recentTurns = deepFreeze([...this._recentTurns, ...queued.map(i => i.turn)].slice(-RECENT_EVENTS));
         this.setState(result.state);
         this.save();

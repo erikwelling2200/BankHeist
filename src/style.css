@@ -64,3 +64,6 @@ body.play .fullscreen-button { top: auto; bottom: var(--play-b); left: calc(var(
 .play-dialog button { min-width: 44px; min-height: 44px; padding: 0 14px; border-radius: 6px; font: 600 13px ui-monospace, Menlo, Consolas, monospace; letter-spacing: 0.06em; cursor: pointer; touch-action: manipulation; }
 .play-dialog-keep { border: 1px solid rgba(242, 230, 200, 0.35); background: rgba(242, 230, 200, 0.08); color: #f2e6c8; }
 .play-dialog-new { border: 0; background: #e2a240; color: #0b0d17; }
+/* A short message over the map ("Blocked"), fading by itself. */
+.play-toast { position: fixed; left: 50%; top: 30%; transform: translateX(-50%); z-index: 7; padding: 8px 14px; border: 1px solid rgba(212, 70, 56, 0.7); border-radius: 6px; background: rgba(11, 13, 23, 0.85); color: #f2e6c8; font: 600 14px ui-monospace, Menlo, Consolas, monospace; letter-spacing: 0.06em; text-shadow: 0 2px 0 #000; pointer-events: none; animation: play-toast 1.6s forwards; }
+@keyframes play-toast { 0%, 70% { opacity: 1; } 100% { opacity: 0; } }

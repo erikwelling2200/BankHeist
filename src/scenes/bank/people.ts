@@ -142,6 +142,14 @@ export class People {
         this.showIfSeen(p);
     }
 
+    /** How solid person `index` is drawn (a predicted or remembered NPC is translucent). */
+    setAlpha(index: number, alpha: number): void {
+        const p = this.sprites[index];
+        if (!p || p.image.alpha === alpha) return;
+        p.image.setAlpha(alpha);
+        p.shadow.setAlpha(0.55 * alpha);
+    }
+
     /** Whether person `index` is drawn (on the map and not in a room the blueprint only outlines). */
     shown(index: number): boolean {
         return this.sprites[index]?.image.visible ?? false;
