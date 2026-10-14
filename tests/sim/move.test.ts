@@ -213,10 +213,12 @@ describe('the move and dash commands', () => {
         const result = commit(world, state, { type: 'dash', crew: 'jun', path: along(12) });
         expect(result.state.crew[0]!.pos).toEqual(P(12, 0));
         expect(result.state.crew[0]!.actionsLeft).toBe(0);
-        expect(result.events.slice(1)).toEqual([
+        expect(result.events.slice(1, 3)).toEqual([
             { type: 'noise', sources: along(12), radius: 2, kind: 'quiet', cause: 'dash jun', heard: ['teller'] },
             { type: 'heard', cause: 'dash jun', kind: 'quiet', npcs: ['teller'] }
         ]);
+        // The teller reacts at once (rules/evidence.ts hearing): it goes to look.
+        expect(result.events.slice(3).map(e => e.type)).toEqual(['bark', 'npcStatus']);
         // Someone heard it: it can't be taken back.
         expect(result.undoable).toBe(false);
         expect(preview(world, state, { type: 'dash', crew: 'jun', path: along(12) }).events).toEqual(result.events);
@@ -233,7 +235,7 @@ describe('the move and dash commands', () => {
         const world = fixtureWorld(['..........', '..........'], { people: [npc('clerk', P(1, 1))] });
         const state = initialState(world, { seed: 1, crew: [{ id: 'jun', pos: P(0, 0) }] });
         const result = commit(world, state, { type: 'dash', crew: 'jun', path: along(8) });
-        expect(result.events.at(-1)).toEqual({ type: 'heard', cause: 'dash jun', kind: 'quiet', npcs: ['clerk'] });
+        expect(result.events.find(e => e.type === 'heard')).toEqual({ type: 'heard', cause: 'dash jun', kind: 'quiet', npcs: ['clerk'] });
     });
 
     // TODO(M2 carrying): register the 'heavyLoot' dash check (registerDashCheck) and fill this in.

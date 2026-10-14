@@ -15,6 +15,7 @@ import { doorStatus, LYING_STATUSES } from '../geo/move';
 import { inRing, registerNoiseHook } from '../geo/sound';
 import { sightsAlongWalk } from './perceive';
 import { isPresent } from './npc/walk';
+import { bodyPos, onFloor } from './place';
 import { bitsCount, decodeBits, encodeBits } from './knowledgeBits';
 
 /*
@@ -361,7 +362,7 @@ function learnRoomsAndCameras(world: ReadonlyWorld, k: Knowledge, bits: Uint8Arr
 function learnNpcs(world: ReadonlyWorld, state: State, fields: readonly SightField[], passed: ReadonlyMap<string, Passed>, emit: (event: SimEvent) => void): void {
     const k = state.knowledge, rules = world.rules, turn = state.turn, stealth = inStealth(state);
     for (const npc of state.npcs) {
-        const live = isPresent(npc) && seenBy(fields, npc.pos);
+        const pos = bodyPos(state, npc), live = isPresent(npc) && seenBy(fields, pos);
         const on = passed.get(npc.id);
         let rec = Object.hasOwn(k.npcs, npc.id) ? k.npcs[npc.id] : undefined;
         if (!rec && !live && !on) continue;
@@ -374,7 +375,7 @@ function learnNpcs(world: ReadonlyWorld, state: State, fields: readonly SightFie
         }
         if (live || on) {
             if (!shown) emit({ type: 'revealed', what: 'npc', id: npc.id });
-            const where = live ? npc : on!;
+            const where = live ? { pos, facing: npc.facing } : on!;
             rec ??= k.npcs[npc.id] = { at: { x: 0, y: 0 }, facing: 'n', turn, live: false, routine: false, rota: false, watched: 0, watchedTurn: 0, tick: 0 };
             rec.at = { x: where.pos.x, y: where.pos.y };
             rec.facing = where.facing;
@@ -753,7 +754,9 @@ export function knownBlockers(world: ReadonlyWorld, state: State): Pos[] {
  * be; a tile an unseen NPC stands on reads as open, and the move bumps into whoever is there.
  */
 export function crewPicture(world: ReadonlyWorld, state: State): State {
-    const npcs = state.npcs.filter(n => isKnownNow(world, state, n.id));
+    // Dragged bodies are with their draggers, not on the floor.
+    const floor = onFloor(state);
+    const npcs = floor.npcs.filter(n => isKnownNow(world, state, n.id));
     return npcs.length === state.npcs.length ? state : { ...state, npcs };
 }
 

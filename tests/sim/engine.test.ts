@@ -170,7 +170,7 @@ describe('the rules engine', () => {
         expect(worldHooks()).toEqual({
             passiveNpcs: ['evidence.judge', 'perception.world', 'evidence.notice', 'trespass.deadlines', 'npcs.passive', 'evidence.tell'], combatNpcs: ['npcs.combat'],
             devices: ['devices.carriers', 'test.dice', 'perception.decay', 'knockout.wake', 'evidence.settle', 'doors.swingShut'],
-            commitIntents: ['npcs.intents'], crewPhase: ['crew.actions']
+            commitIntents: ['npcs.intents'], crewPhase: ['crew.actions', 'evidence.forget']
         });
         const { world, state } = smallBank();
         const { state: next, events } = step(world, play(world, state, [SCRIPT[2]!]), { type: 'endTurn' });

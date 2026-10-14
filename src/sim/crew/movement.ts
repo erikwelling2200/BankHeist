@@ -8,6 +8,7 @@ import {
     ABSENT_STATUSES, dashBudget, doorBetween, doorStatus, inHeavyArmour, moveBudget, occupancy, validatePath, type MoveOptions
 } from '../geo/move';
 import { makeNoise } from '../geo/sound';
+import { onFloor } from '../rules/place';
 
 /*
  * Move (1 action, 5 tiles, 4 in heavy armour) and Dash (2 actions, 12 tiles, not in heavy armour, a quiet noise of
@@ -145,7 +146,7 @@ export function registerMoveLimit(name: string, limit: MoveLimit, options: { rep
 
 /** The bump: the step before the first NPC standing on the path, or before the last tile when anyone is on it. */
 const bump: MoveLimit = (ctx, member, path) => {
-    const { world, state } = ctx;
+    const { world } = ctx, state = onFloor(ctx.state);
     const people = occupancy(world, state, { mover: member.id });
     for (let i = 0; i < path.length; i++) {
         const p = path[i]!, who = people.get(p.y * world.width + p.x);
@@ -165,7 +166,7 @@ function cutPath(ctx: Ctx, member: CrewState, path: readonly Pos[], mode: MoveMo
     }
     if (cut) {
         // Nobody ends a move on anyone's tile: back up to one free.
-        const people = occupancy(ctx.world, ctx.state, { mover: member.id });
+        const people = occupancy(ctx.world, onFloor(ctx.state), { mover: member.id });
         while (keep > 0 && (people.get(path[keep - 1]!.y * ctx.world.width + path[keep - 1]!.x) ?? 'none') !== 'none') keep--;
     }
     return { walked: path.slice(0, keep).map(p => ({ x: p.x, y: p.y })), cut };
@@ -217,7 +218,7 @@ function walk(ctx: Ctx, member: CrewState, planned: readonly Pos[], mode: MoveMo
 }
 
 function check(ctx: Ctx, member: CrewState, path: readonly Pos[], budget: number): void {
-    const result = validatePath(ctx.world, planningState(ctx.world, ctx.state), member.pos, path, budget, crewMoveOptions(member));
+    const result = validatePath(ctx.world, onFloor(planningState(ctx.world, ctx.state)), member.pos, path, budget, crewMoveOptions(member));
     if (!result.ok) throw new IllegalCommand(result.reason);
 }
 

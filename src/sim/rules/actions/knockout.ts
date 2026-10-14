@@ -1,24 +1,26 @@
 import { registerWorldHook } from '../../core/engine';
-import { FACING_STEP, FACINGS, inBounds, tileAt } from '../../core/grid';
 import { registerNpcInit, registerRuleDefaults } from '../../core/state';
 import type { DeepReadonly, NpcState, Pos, ReadonlyWorld, State } from '../../core/types';
 import { registerEvents } from '../../core/undo';
-import { ABSENT_STATUSES } from '../../geo/move';
+import { HALF_STEPS_PER_TILE } from '../../data/movement';
+import { ABSENT_STATUSES, reachable } from '../../geo/move';
 import { makeNoise } from '../../geo/sound';
 import { reportAssault } from '../evidence';
 import { alertNpc } from '../suspicion';
 import { inReach, lacksActions, registerAction } from './act';
-import { releaseBody } from './body';
+import { bodyPos, releaseBody } from './body';
 
 /*
  * Knockout (§6.3, §11.10): 1 action, on an NPC in reach (a neighbour with no wall in between, `inReach`) that isn't
- * Hostile, or is Hostile but caught off guard (`registerKnockoutWindow`: Surprised, Suppressed, when they exist). It is
- * an illegal act (§8.4: `!` for anyone who sees it) and a quiet noise of radius 2 (§8.9) on the target's tile.
+ * Hostile, or is Hostile but caught off guard (`registerKnockoutWindow`: Surprised, Suppressed, when they exist), and
+ * isn't already down (tied or commanded NPCs are refused: they are face down and compliant). Not while dragging a
+ * body. It is an illegal act (§8.4: `!` for anyone who sees the attacker's tile or the victim's) and a quiet noise of
+ * radius 2 (§8.9) on the target's tile.
  *
  * The target is **out cold for `rules.knockoutPhases` (4) world phases**: unconscious (eyes down, blind and deaf), its
  * intent cleared at once, so whatever it saw or meant to do it never does (§6.2: a witness dropped in the same crew
  * phase never acts). At the end of the 4th world phase (its devices step) it **wakes Alerted where it lies** (or on the
- * nearest free tile, when someone stands there or it was being dragged), let go by whoever dragged it and out of any
+ * nearest free tile by legal steps, when someone stands there or drags it), let go by whoever dragged it and out of any
  * stash, and reports its own assault like major evidence (rules/evidence.ts `reportAssault`): its intent, committed at
  * the end of that world phase, is telegraphed in the next crew phase.
  */
@@ -64,6 +66,9 @@ export function registerKnockoutWindow(name: string, opening: KnockoutWindow): v
 export function knockoutIneligible(npc: DeepReadonly<NpcState>): string | undefined {
     if (ABSENT_STATUSES.has(npc.status)) return 'They aren\'t here';
     if (npc.status === 'unconscious' || npc.status === 'dead') return 'They are already down';
+    // Face down and doing as they are told: there is nothing to knock out (and nothing to give back when they wake).
+    if (npc.status === 'tied') return 'They are tied up already';
+    if (npc.status === 'commanded') return 'They are already on the floor';
     if (npc.status === 'hostile' && ![...WINDOWS.keys()].sort().some(k => WINDOWS.get(k)!(npc))) return 'They are hostile and ready for it';
     return undefined;
 }
@@ -74,6 +79,7 @@ export function knockoutBlocked(world: ReadonlyWorld, state: State, crewId: stri
     if (!member) return `No crew member '${crewId}'`;
     const lack = lacksActions(member, 1);
     if (lack) return lack;
+    if (member.dragging !== null) return `${member.name}'s hands are full`;
     const npc = state.npcs.find(n => n.id === npcId);
     if (!npc) return `No one called '${npcId}'`;
     const why = knockoutIneligible(npc);
@@ -87,7 +93,11 @@ registerAction('knockout', {
     whyNot: (world, state, cmd) => knockoutBlocked(world, state, cmd.crew, cmd.npc),
     candidates: (_world, state, member) => state.npcs.map(n => ({ type: 'knockout', crew: member.id, npc: n.id })),
     cost: () => 1,
-    illegal: () => ({ act: 'knockout' }),
+    // Seen on either tile: whoever sees the attacker or the victim.
+    illegal: (_world, state, cmd) => ({
+        act: 'knockout',
+        tiles: [state.crew.find(c => c.id === cmd.crew)!.pos, state.npcs.find(n => n.id === cmd.npc)!.pos].map(p => ({ x: p.x, y: p.y }))
+    }),
     run(ctx, member, cmd) {
         const { state, world } = ctx;
         const npc = state.npcs.find(n => n.id === cmd.npc)!;
@@ -104,19 +114,21 @@ registerAction('knockout', {
     }
 });
 
-/** The tile nearest `p` (itself first, then its neighbours in facing order) nobody stands on and anyone may stand on. */
-function freeTileNear(world: ReadonlyWorld, state: State, npcId: string, p: Pos): Pos {
-    const taken = (q: Pos): boolean => state.crew.some(c => c.pos.x === q.x && c.pos.y === q.y)
-        || state.npcs.some(n => n.id !== npcId && !ABSENT_STATUSES.has(n.status) && n.pos.x === q.x && n.pos.y === q.y);
-    const ok = (q: Pos): boolean => inBounds(world, q) && !tileAt(world, q)!.blocksMove && !taken(q);
-    if (ok(p)) return p;
-    for (let r = 1; r <= 3; r++) {
-        for (const f of FACINGS) {
-            const q = { x: p.x + FACING_STEP[f].x * r, y: p.y + FACING_STEP[f].y * r };
-            if (ok(q)) return q;
-        }
+/**
+ * Where someone coming round at `p` gets up: `p` if nobody stands or lies there, else the nearest tile by NPC steps
+ * from it (`stepCost`: never across a wall, a closed door or a ledge; then row-major) that is free, within 4 tiles. If
+ * there is none, `p`.
+ */
+function wakeTile(world: ReadonlyWorld, state: State, npcId: string, p: Pos): Pos {
+    const taken = new Set<number>();
+    for (const c of state.crew) taken.add(c.pos.y * world.width + c.pos.x);
+    for (const n of state.npcs) if (n.id !== npcId && !ABSENT_STATUSES.has(n.status)) {
+        const at = bodyPos(state, n);
+        taken.add(at.y * world.width + at.x);
     }
-    return p;
+    const reach = reachable(world, state, p, 4 * HALF_STEPS_PER_TILE, { ignorePeople: true });
+    const free = reach.tiles.find(t => !taken.has(t.pos.y * world.width + t.pos.x));
+    return free ? { x: free.pos.x, y: free.pos.y } : p;
 }
 
 // Waking up (§11.10), with the devices, after everyone has acted: Alerted where it lies, reporting its assault.
@@ -126,10 +138,10 @@ registerWorldHook('devices', 'knockout.wake', (ctx, phase) => {
         if (npc.outCold === null || npc.outCold > phase.turn) continue;
         npc.outCold = null;
         if (npc.status !== 'unconscious') continue;
-        const dragger = state.crew.find(c => c.dragging === npc.id);
+        const where = bodyPos(state, npc), dragger = state.crew.find(c => c.dragging === npc.id);
         if (dragger) releaseBody(state, dragger);
         npc.stashed = null;
-        npc.pos = freeTileNear(world, state, npc.id, npc.pos);
+        npc.pos = wakeTile(world, state, npc.id, where);
         npc.status = 'alerted';
         ctx.emit({ type: 'woke', npc: npc.id, at: { x: npc.pos.x, y: npc.pos.y } });
         ctx.emit({ type: 'npcStatus', npc: npc.id, status: 'alerted' });

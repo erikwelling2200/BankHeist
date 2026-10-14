@@ -3,7 +3,7 @@ import type { CrewState, DeepReadonly, ObserverClass, Rules } from '../core/type
 import {
     CARRIED, DUFFEL_ITEM, itemDef, MASK_PROFILE, PACKED_PROFILE, profileRank, raiseProfile, type Profile
 } from '../data/items';
-import { UNIFORMS, type Uniform } from '../data/matrix';
+import { UNIFORMS, type IllegalAct, type Uniform } from '../data/matrix';
 
 /*
  * A crew member's profile (§7.4): their most conspicuous visible item, raised by Notoriety (§19.7). The profile icon,
@@ -13,7 +13,8 @@ import { UNIFORMS, type Uniform } from '../data/matrix';
  * - `Loadout.items` are the things carried and visible as the item table says (a pistol under a jacket shows as
  *   Concealed); `Loadout.packed` are out of sight in their case or the duffel and show as Concealed at most (§7.3).
  *   Heavy armour slows a crew member only while worn (in `items`, geo/move.ts).
- * - A worn mask makes them Heavy; carrying a loot bag or a body makes them Armed (§7.4).
+ * - A worn mask makes them Heavy; carrying a loot bag or a body makes them Armed (§7.4). Dragging an NPC's body is
+ *   also an illegal act seen on them (`CrewLook.act`, §8.4): `!` for anyone who sees them (perceive.ts `reaction`).
  * - A uniform (§8.14) is clothing: it changes which zone the tile reads as, not the profile. It holds only while the
  *   profile without it is Concealed or less: armour above a light vest, long guns, loot bags, a visible drill and masks
  *   all break it.
@@ -92,6 +93,11 @@ export interface CrewLook {
     shows: string;
     /** The uniform worn, if it holds (§8.14); null otherwise. */
     uniform: Uniform | null;
+    /**
+     * An illegal act seen on them whatever else shows (§8.4): dragging a body (rules/actions/body.ts). `!` for every
+     * observer, in any zone, Core and Peripheral, mid-move too. Absent when none.
+     */
+    act?: IllegalAct;
 }
 
 /** A crew member's look from their loadout (§7.4). The first item of the highest profile, in loadout order, is named. */
@@ -112,7 +118,8 @@ export function crewLook(member: DeepReadonly<CrewState>): CrewLook {
     if (loadout.carrying !== null) consider(CARRIED[loadout.carrying] ?? 'armed', `carrying:${loadout.carrying}`);
     if (loadout.masked) consider(MASK_PROFILE, 'mask');
     const uniform = loadout.uniform !== null && profileRank(profile) <= profileRank('concealed') ? loadout.uniform : null;
-    return { profile, shows, uniform };
+    // Dragging an NPC's body is an illegal act for as long as it lasts (carrying a downed crew member is only Armed).
+    return member.dragging ? { profile, shows, uniform, act: 'dragBody' } : { profile, shows, uniform };
 }
 
 /** A crew member's profile as the HUD shows it (§7.4): before any observer's reading. */

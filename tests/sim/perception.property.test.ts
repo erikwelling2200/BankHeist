@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { Rng } from '../../src/gen/rng';
 import {
-    assessEnd, assessPath, assessWorldPhase, clonePlain, commit, crewBudget, crewMoveOptions, dueChallenge, evidenceWorldPhase, EYES_DOWN, FACINGS,
-    fixtureWorld, hashOf, initialState, legalActions, preview, sightMap, validatePath, witness, type CameraDef, type Command, type CrewStart,
+    assessEnd, assessPath, assessWorldPhase, clonePlain, commit, crewBudget, crewMoveOptions, dashRefusal, dueChallenge, evidenceWorldPhase, EYES_DOWN, FACINGS,
+    fixtureWorld, hashOf, initialState, legalActions, preview, sightMap, validatePath, witnessOn, type CameraDef, type Command, type CrewStart,
     type FixtureWall, type Intent, type ObserverClass, type PersonDef, type Pos, type ReadonlyWorld, type ScheduleBlock, type Sighting, type State
 } from '../../src/sim';
 import { scouted } from './helpers';
@@ -19,12 +19,15 @@ import { scouted } from './helpers';
  * The random player also plays the crew actions of M1-07 (`legalActions`: doors, knockouts, dragging, dropping and
  * stashing bodies, waiting): each one's preview must equal its commit, and a door's or a knockout's effect on perception
  * is predicted from the witnesses and the end-of-action check on the state the action leaves; before each world phase
- * `evidenceWorldPhase` must name exactly the evidence the NPCs and cameras then notice.
+ * `evidenceWorldPhase` must name exactly the evidence the NPCs and cameras then notice. Dashes are played too: their
+ * noise makes hearers react at once, so a dash's overlay is judged on its preview, as M1-09's overlay must; moves while
+ * dragging a body keep the body with the crew member in the overlay.
  *
- * PERCEPTION_PROBE_WORLDS=2000 npm test -- perception.property runs a larger sample.
+ * PERCEPTION_PROBE_WORLDS=2000 npm test -- perception.property runs a larger sample (PERCEPTION_PROBE_SEED another one).
  */
 
 const WORLDS = Number(process.env.PERCEPTION_PROBE_WORLDS ?? 120);
+const SEED = Number(process.env.PERCEPTION_PROBE_SEED ?? 20261014);
 const W = 14, H = 10;
 
 const LOADOUTS: readonly Partial<CrewStart>[] = [
@@ -155,7 +158,7 @@ function playAction(world: ReadonlyWorld, state: State, cmd: Command, failures: 
         }
         const sight = sightMap(world, scratch);
         const sightings = [
-            ...(cmd.type === 'knockout' ? witness(world, scratch, sight, member.id, 'knockout', member.pos) : []),
+            ...(cmd.type === 'knockout' ? witnessOn(world, scratch, member.id, 'knockout', [member.pos, state.npcs.find(n => n.id === cmd.npc)!.pos]) : []),
             ...assessEnd(world, scratch, sight, member.id, member.pos)
         ];
         const expected = predict(scratch, member.id, sightings), got = effectOf(result.state, member.id);
@@ -168,11 +171,12 @@ const occupiedBy = (state: State): Set<string> => new Set([...state.npcs, ...sta
 
 describe('perception previews (property)', () => {
     it(`match the outcome over ${WORLDS} random worlds`, () => {
-        const rng = new Rng(20261014);
+        const rng = new Rng(SEED);
         const failures: string[] = [];
         let quietUndoable = 0;
         let moves = 0, acting = 0, deadlines = 0, worldActing = 0, walked = 0, frisks = 0, preCases = 0, noticedTotal = 0;
         const actions: Record<string, number> = {};
+        let heardDashes = 0, dragMoves = 0;
         for (let w = 0; w < WORLDS; w++) {
             const { world, free } = makeWorld(rng);
             const crew = [0, 1].map(i => ({ id: `c${i}`, pos: free.splice(rng.int(0, free.length - 1), 1)[0]!, ...rng.pick(LOADOUTS) }));
@@ -203,15 +207,41 @@ describe('perception previews (property)', () => {
                         state = outcome;
                         continue;
                     }
+                    if (rng.chance(0.15) && !dashRefusal(world, state, member.id)) {
+                        // A dash: its noise makes hearers react at once, so the overlay of its end is judged on the
+                        // dash's preview (what M1-09's overlay does for a tile), and so is the evidence.
+                        const run = randomPath(rng, world, member.pos, rng.int(3, 10), occupiedBy(state));
+                        if (!run.length || !validatePath(world, state, member.pos, run, crewBudget(world, member, 'dash'), crewMoveOptions(member)).ok) continue;
+                        const cmd = { type: 'dash' as const, crew: member.id, path: run };
+                        const judged = assessPath(world, state, member.id, run);
+                        const expected = predict(state, member.id, [...judged.steps, ...judged.end]);
+                        const after = preview(world, state, cmd).state, tile = run[run.length - 1]!;
+                        const pre = { crew: member.id, found: assessWorldPhase(world, after, sightMap(world, after), member.id, tile) };
+                        const evidencePre = JSON.stringify(evidenceWorldPhase(world, state, sightMap(world, state), { move: cmd }));
+                        const result = commit(world, state, cmd);
+                        if (JSON.stringify(evidenceWorldPhase(world, result.state, sightMap(world, result.state))) !== evidencePre) {
+                            failures.push(`world ${w} dash ${JSON.stringify(run)}: the evidence overlay differs from the outcome's state`);
+                        }
+                        const got = effectOf(result.state, member.id);
+                        if (JSON.stringify(got) !== JSON.stringify(expected)) failures.push(`world ${w} dash ${JSON.stringify(run)}: expected ${JSON.stringify(expected)}, got ${JSON.stringify(got)}`);
+                        if (result.events.some(e => e.type === 'heard')) heardDashes++;
+                        lastPre = pre;
+                        state = result.state;
+                        continue;
+                    }
                     const path = randomPath(rng, world, member.pos, rng.int(1, 6), occupiedBy(state));
                     if (!path.length || !validatePath(world, state, member.pos, path, crewBudget(world, member, 'move'), crewMoveOptions(member)).ok) continue;
+                    if (member.dragging !== null) dragMoves++;
                     const judged = assessPath(world, state, member.id, path);
                     const all = [...judged.steps, ...judged.end];
                     const expected = predict(state, member.id, all);
-                    const pre = { crew: member.id, found: assessWorldPhase(world, state, sightMap(world, state), member.id, path[path.length - 1]!) };
-                    const result = commit(world, state, { type: 'move', crew: member.id, path });
-                    // The overlay knows the tile, not the way there: a door the move leaves open is the path's (M1-09).
-                    lastPre = result.events.some(e => e.type === 'doorOpened') ? undefined : pre;
+                    // The hatched overlay of a planned path is judged on the move's preview (the doors it opens, what
+                    // its steps make NPCs want); asked about the bare tile it would miss a `!` mid-path (M1-09).
+                    const moveCmd = { type: 'move' as const, crew: member.id, path };
+                    const after = preview(world, state, moveCmd).state;
+                    const pre = { crew: member.id, found: assessWorldPhase(world, after, sightMap(world, after), member.id, path[path.length - 1]!) };
+                    const result = commit(world, state, moveCmd);
+                    lastPre = pre;
                     moves++;
                     const quiet = !all.some(s => s.outcome !== '-');
                     if (!quiet) acting++;
@@ -219,8 +249,7 @@ describe('perception previews (property)', () => {
                     if (JSON.stringify(got) !== JSON.stringify(expected)) failures.push(`world ${w} move ${JSON.stringify(path)}: expected ${JSON.stringify(expected)}, got ${JSON.stringify(got)}`);
                     // Seeing something new (rules/knowledge.ts) makes a quiet move final too.
                     const revealed = result.events.some(e => e.type === 'revealed');
-                    // Dragging a body moves an NPC with the crew member: final too (rules/actions/body.ts).
-                    const free = quiet && !revealed && member.dragging === null;
+                    const free = quiet && !revealed;
                     if (free) quietUndoable++;
                     if (free !== result.undoable) failures.push(`world ${w} move ${JSON.stringify(path)}: undoable ${result.undoable}, predicted ${free}`);
                     state = result.state;
@@ -290,5 +319,8 @@ describe('perception previews (property)', () => {
         // The crew actions are played, and NPCs find what they leave behind.
         for (const type of ['door', 'knockout', 'drag', 'wait']) expect(actions[type] ?? 0, type).toBeGreaterThan(WORLDS / 20);
         expect(noticedTotal).toBeGreaterThan(WORLDS / 10);
+        // Noises heard and reacted to, and bodies dragged under the overlay's eye.
+        expect(heardDashes).toBeGreaterThan(WORLDS / 20);
+        expect(dragMoves).toBeGreaterThan(WORLDS / 20);
     }, Math.max(10_000, WORLDS * 20));
 });

@@ -1,16 +1,21 @@
-import { registerWorldHook, type Ctx } from '../core/engine';
+import { preview, registerWorldHook, type Ctx } from '../core/engine';
 import { samePos, tileAt } from '../core/grid';
-import { clonePlain, sortedIds } from '../core/json';
+import { sortedIds } from '../core/json';
 import { newId, registerNpcInit, registerRuleDefaults, registerStateInit } from '../core/state';
-import type { CarrierKind, DeepReadonly, Intent, NpcState, ObserverClass, Phase, Pos, ReadonlyWorld, State } from '../core/types';
+import type { CarrierKind, Command, DeepReadonly, Intent, NpcState, ObserverClass, Phase, Pos, ReadonlyWorld, State } from '../core/types';
 import { registerEvents } from '../core/undo';
+import { NOISES, type NoiseKind, type NoiseSource } from '../data/noise';
 import { bandAt, cameraObserver, fieldOn } from '../geo/cones';
+import { noiseRadius, npcsInside, registerNoiseHook, soundRing, type Ring } from '../geo/sound';
 import { sightMap, type SightMap } from '../geo/los';
 import { doorStatus, LYING_STATUSES } from '../geo/move';
 import { bodyAway, draggedBy } from './actions/body';
+import { decidesFor, pickInvestigator } from './npc/behaviour';
 import { activityAt, LEAVING_ACTIVITIES, ROUTE_ACTIVITIES } from './npc/schedule';
 import { isPresent } from './npc/walk';
 import { worldPoses, type WorldPoses } from './perceive';
+import { isKnownNow } from './knowledge';
+import { reconsider } from './npc/intent';
 import { alertNpc, EYES_DOWN } from './suspicion';
 
 /*
@@ -39,19 +44,27 @@ import { alertNpc, EYES_DOWN } from './suspicion';
  *   out by M1-08, which then calls `clearEvidence`), anyone else walks to the nearest guard and tells them
  *   (`tellEvidence`, carried out here: the guard is Alerted and has the evidence to report), or phones it in when no
  *   guard is about (`reportEvidence` with `phoneCall`).
- * - **First-time barks** (§8.10): each NPC that notices something emits `bark` with the cause; `first` is true the
- *   first time that kind of evidence is barked in the heist (`State.barked`), for the text naming it.
- * - **The hatched overlay** asks `evidenceWorldPhase`, the same function the world phase applies (with a crew member on
- *   another tile when asked, on a copy).
+ * - **Noises** (§8.9) are heard as evidence too, at once, in the crew phase and the world phase alike (`hearing`, a
+ *   noise hook): a quiet one is minor (`quietNoise`: Curious, the one sent walks to the source, the others face it), a
+ *   loud one major (`loudNoise`: Alerted, cause unknown, one reports it). In a crew phase the hearers' intents are
+ *   rewritten at once (§6.2), so the arrows redraw; `noiseReactions` gives the noise ring's ear badges from the same
+ *   function.
+ * - **Per occurrence**: once something is gone (a door shut, a body up again) NPCs forget they noticed it
+ *   (`evidence.forget`, as each crew phase begins), so the next time is news; every noise is its own.
+ * - **First-time barks** (§8.10): each NPC that notices something emits `bark` with the cause; `first` is true until
+ *   the crew has seen an NPC bark that kind of evidence (`State.barked`), for the text naming it.
+ * - **The hatched overlay** asks `evidenceWorldPhase`, the same function the world phase applies; about a tile, it
+ *   passes the move there (`move`), judged on the move's preview. What the player is shown of it goes through
+ *   `projectEvidenceSightings` (NPCs and cameras the crew knows).
  */
 
 /** Minor evidence (§8.10): makes the NPC Curious and sends one to look. */
-export type MinorEvidence = 'secureDoor' | 'emptyWindow' | 'missingColleague' | 'cameraDown' | 'lightsOut';
+export type MinorEvidence = 'secureDoor' | 'emptyWindow' | 'missingColleague' | 'cameraDown' | 'lightsOut' | 'quietNoise';
 /** Major evidence (§8.10): makes the NPC Alerted and has one report it. */
-export type MajorEvidence = 'body' | 'tied' | 'hole' | 'weapon' | 'blood' | 'lootBag' | 'drill' | 'assault';
+export type MajorEvidence = 'body' | 'tied' | 'hole' | 'weapon' | 'blood' | 'lootBag' | 'drill' | 'assault' | 'loudNoise';
 export type EvidenceKind = MinorEvidence | MajorEvidence;
 
-export const MAJOR_EVIDENCE: ReadonlySet<EvidenceKind> = new Set<EvidenceKind>(['body', 'tied', 'hole', 'weapon', 'blood', 'lootBag', 'drill', 'assault']);
+export const MAJOR_EVIDENCE: ReadonlySet<EvidenceKind> = new Set<EvidenceKind>(['body', 'tied', 'hole', 'weapon', 'blood', 'lootBag', 'drill', 'assault', 'loudNoise']);
 
 export const isMajor = (kind: EvidenceKind): boolean => MAJOR_EVIDENCE.has(kind);
 
@@ -186,7 +199,9 @@ registerEvidenceSource('missing', (world, state) => state.npcs.flatMap((n): Evid
 
 registerEvidenceSource('doors', (world, state) => {
     const out: Evidence[] = [];
-    const standing = new Set<string>([...state.crew.map(c => `${c.pos.x},${c.pos.y}`), ...state.npcs.filter(isPresent).map(n => `${n.pos.x},${n.pos.y}`)]);
+    // Someone standing in the doorway holds the door: a body lying there doesn't.
+    const standing = new Set<string>([...state.crew.map(c => `${c.pos.x},${c.pos.y}`),
+        ...state.npcs.filter(n => isPresent(n) && n.status !== 'unconscious' && n.status !== 'dead').map(n => `${n.pos.x},${n.pos.y}`)]);
     for (const id of sortedIds(world.doors)) {
         const def = world.doors[id]!, status = doorStatus(world, state, id), tiles = sides(world, def.edge);
         if (status === 'breached') { out.push({ id: `hole:${def.edge}`, kind: 'hole', tiles }); continue; }
@@ -237,9 +252,11 @@ export interface EvidenceOptions {
     passive?: readonly string[];
     /** The walks worked out once (`worldPoses` on the same state and sight map). */
     poses?: WorldPoses;
-    /** Ask with this crew member on `tile` instead (the overlay asking about a tile): judged on a copy. */
-    crew?: string;
-    tile?: Pos;
+    /**
+     * Ask about the world phase after this move or dash (the overlay asking about a tile): judged on its preview's
+     * state, with the doors the path opens, what ending there makes NPCs want and any noise it makes.
+     */
+    move?: Extract<Command, { type: 'move' | 'dash' }>;
 }
 
 /**
@@ -248,18 +265,12 @@ export interface EvidenceOptions {
  * phase applies exactly this; the hatched overlay shows it.
  */
 export function evidenceWorldPhase(world: ReadonlyWorld, state: State, sight: SightMap, options: EvidenceOptions = {}): EvidenceSighting[] {
-    if (options.crew !== undefined && options.tile) {
-        const member = state.crew.find(c => c.id === options.crew);
-        if (member && !samePos(member.pos, options.tile)) {
-            const scratch = clonePlain(state), moved = scratch.crew.find(c => c.id === options.crew)!;
-            moved.pos = { x: options.tile.x, y: options.tile.y };
-            const body = moved.dragging !== null ? scratch.npcs.find(n => n.id === moved.dragging) : undefined;
-            if (body) body.pos = { ...moved.pos };
-            const rest: EvidenceOptions = {};
-            if (options.intents) rest.intents = options.intents;
-            if (options.passive) rest.passive = options.passive;
-            return evidenceWorldPhase(world, scratch, sightMap(world, scratch), rest);
-        }
+    if (options.move) {
+        const after = preview(world, state, options.move).state;
+        const rest: EvidenceOptions = {};
+        if (options.intents) rest.intents = options.intents;
+        if (options.passive) rest.passive = options.passive;
+        return evidenceWorldPhase(world, after, sightMap(world, after), rest);
     }
     const items = evidenceOnMap(world, state);
     if (!items.length) return [];
@@ -314,11 +325,20 @@ export function applyEvidence(ctx: Ctx, sightings: readonly EvidenceSighting[]):
         const npc = state.npcs.find(n => n.id === s.observer);
         if (!npc || EYES_DOWN.has(npc.status) || npc.noticed.includes(s.evidence)) continue;
         ctx.emit({ type: 'evidenceNoticed', npc: npc.id, evidence: s.evidence, kind: s.kind, major: s.major });
-        const first = !state.barked.includes(s.kind);
-        if (first) state.barked.push(s.kind);
-        ctx.emit({ type: 'bark', npc: npc.id, cause: s.kind, evidence: s.evidence, first });
+        bark(ctx, npc, s.kind, s.evidence);
         takeEvidence(ctx, npc, s.kind, s.evidence, s.tile);
     }
+}
+
+/**
+ * An NPC says what it noticed. The first bark of a kind names it (§8.10): only one the crew can see or predict uses
+ * that up, so the player hears the named version at least once.
+ */
+function bark(ctx: Ctx, npc: NpcState, kind: EvidenceKind, evidence: string): void {
+    const { state } = ctx;
+    const first = !state.barked.includes(kind);
+    if (first && isKnownNow(ctx.world, state, npc.id)) state.barked.push(kind);
+    ctx.emit({ type: 'bark', npc: npc.id, cause: kind, evidence, first });
 }
 
 /** An NPC that woke from a knockout reports its own assault (rules/actions/knockout.ts). */
@@ -381,6 +401,86 @@ registerWorldHook('devices', 'evidence.settle', (ctx, phase) => {
         if (done) clearEvidence(ctx, npc);
     }
 }, { order: 45 });
+
+// Evidence is per occurrence: once something is gone (the door shut, the body up again, the noise over) the NPCs
+// forget they noticed it, so the next time it happens is news. Runs as the next crew phase begins.
+registerWorldHook('crewPhase', 'evidence.forget', ctx => {
+    const { world, state } = ctx;
+    const now = new Set(evidenceOnMap(world, state).map(e => e.id));
+    for (const npc of state.npcs) {
+        const keep = npc.noticed.filter(id => now.has(id));
+        if (keep.length !== npc.noticed.length) npc.noticed = keep;
+    }
+    if (state.cameraEvidence.some(r => !now.has(r.evidence))) state.cameraEvidence = state.cameraEvidence.filter(r => now.has(r.evidence));
+});
+
+// ---------------------------------------------------------------------------------------------------------- Hearing
+
+/** What one NPC makes of a noise it heard (§8.9): what it will deal with, and whether it is the one sent to look. */
+export interface Hearing {
+    npc: string;
+    /** The noise, as evidence: one id per noise made. */
+    noise: string;
+    kind: 'quietNoise' | 'loudNoise';
+    /** The source tile nearest it: where it looks, or goes. */
+    tile: Pos;
+    /** Quiet: it is the one who goes to look (the others turn to face it). Loud: the one who reports it. */
+    sent: boolean;
+    /** The badge it ends up with for the ear on the noise ring: Curious, Investigating or Alerted. */
+    status: 'curious' | 'investigating' | 'alerted';
+}
+
+/**
+ * What the NPCs who hear a noise make of it (§8.9): a quiet noise makes them Curious and one of them (the nearest of
+ * the right role, `pickInvestigator`) goes to the source; a loud one makes them Alerted, cause unknown, and one reports
+ * it (a guard's radio, someone telling a guard: the evidence reports, M1-08's carriers). NPCs face down (commanded, tied)
+ * hear but don't react. The noise hook applies exactly this; the noise ring's preview labels each ear with `status`.
+ */
+export function hearing(world: ReadonlyWorld, state: State, ring: Ring, kind: NoiseKind, cause: string): Hearing[] {
+    const noise = `noise:${state.turn}:${state.phase}:${cause}`, ev: EvidenceKind = kind === 'loud' ? 'loudNoise' : 'quietNoise';
+    const hearers = npcsInside(state, ring).map(id => state.npcs.find(n => n.id === id)!).filter(n => !EYES_DOWN.has(n.status) && isPresent(n));
+    const tileFor = (n: DeepReadonly<NpcState>): Pos => {
+        let best = ring.sources[0]!, d = Infinity;
+        for (const p of ring.sources) {
+            const dx = p.x - n.pos.x, dy = p.y - n.pos.y, e = dx * dx + dy * dy;
+            if (e < d) { d = e; best = p; }
+        }
+        return { x: best.x, y: best.y };
+    };
+    const tiles = new Map(hearers.map(n => [n.id, tileFor(n)]));
+    const sent = pickInvestigator(world, hearers.filter(n => decidesFor(n)).map(n => ({ npc: n, tile: tiles.get(n.id)! })));
+    return hearers.map(n => ({
+        npc: n.id, noise, kind: ev, tile: tiles.get(n.id)!, sent: n.id === sent,
+        status: kind === 'loud' || n.alerted ? 'alerted' : n.id === sent ? 'investigating' : 'curious'
+    }));
+}
+
+/** What a noise from the table would make the NPCs who hear it do: the ring's ear badges, by the same function. */
+export function noiseReactions(world: ReadonlyWorld, state: State, what: NoiseSource, sources: Pos | readonly Pos[], cause: string, radius?: number): Hearing[] {
+    const ring = soundRing(world, state, sources, noiseRadius(what, radius));
+    return hearing(world, state, ring, NOISES[what].kind, cause);
+}
+
+registerNoiseHook('hearing', (ctx, ring, kind, cause) => {
+    const heard = hearing(ctx.world, ctx.state, ring, kind, cause);
+    if (!heard.length) return;
+    for (const h of heard) {
+        const npc = ctx.state.npcs.find(n => n.id === h.npc)!;
+        if (h.kind === 'loudNoise') alertNpc(ctx, npc, 'noise');
+        bark(ctx, npc, h.kind, h.noise);
+        takeEvidence(ctx, npc, h.kind, h.noise, h.tile);
+    }
+    // In a crew phase the hearers' new intents are telegraphed at once (§6.2).
+    reconsider(ctx);
+});
+
+/**
+ * What the player may be shown of evidence sightings (a prediction or the overlay): only those of NPCs the crew sees
+ * or predicts, and of cameras it knows. The outcome itself is the full truth.
+ */
+export function projectEvidenceSightings(world: ReadonlyWorld, state: State, sightings: readonly EvidenceSighting[]): EvidenceSighting[] {
+    return sightings.filter(s => (s.by === 'npc' ? isKnownNow(world, state, s.observer) : state.knowledge.cameras.includes(s.observer)));
+}
 
 /** Whether a lying NPC's body lies where it can be found (not dragged or stashed). */
 export const bodyLying = (state: DeepReadonly<State>, npc: DeepReadonly<NpcState>): boolean =>

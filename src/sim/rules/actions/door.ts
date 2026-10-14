@@ -1,6 +1,6 @@
-import { samePos } from '../../core/grid';
+import { samePos, tileAt } from '../../core/grid';
 import { sortedIds } from '../../core/json';
-import type { CrewState, DeepReadonly, DoorDef, DoorStatus, Pos, ReadonlyWorld, State } from '../../core/types';
+import type { CrewState, DeepReadonly, DoorDef, DoorStatus, Pos, ReadonlyWorld, State, Zone } from '../../core/types';
 import { registerEvents } from '../../core/undo';
 import { crewHasKey } from '../../crew/movement';
 import { doorStatus } from '../../geo/move';
@@ -11,8 +11,9 @@ import { lacksActions, registerAction } from './act';
  *
  * - **open** a closed door; a locked one only with its key (`crewHasKey`, crew/movement.ts: no keys yet).
  * - **close** an open door (a propped one too: the wedge comes out). Breached and jammed doors stay as they are.
- * - **lock** a closed door that has a lock (not the vault door): from the inside a latch or a thumb-turn needs no key,
- *   so an unlocked door can always be locked (implementation plan §6 decision 25).
+ * - **lock** a closed door: with its key, or without one a mechanical lock from its inner side (the side of the higher
+ *   zone, Public < Staff < Secure; either side between equals), where a thumb-turn needs none. Keycards, maglocks and
+ *   the vault's time lock need their key (implementation plan §6 decision 25).
  * - **unlock** a locked door: only with its key. Picking the lock is the lockpick's (an illegal act, later).
  *
  * Closing a door by hand eases it shut without latching it: it stays closed, not locked, until someone locks it (doors
@@ -47,11 +48,21 @@ export function doorSides(world: ReadonlyWorld, door: DeepReadonly<DoorDef>): [P
 export const besideDoor = (world: ReadonlyWorld, door: DeepReadonly<DoorDef>, p: DeepReadonly<Pos>): boolean =>
     !!doorSides(world, door)?.some(s => samePos(s, p));
 
-/** Whether a door has a lock the crew can turn without a key (not the vault's time lock). */
-const lockable = (door: DeepReadonly<DoorDef>): boolean => door.lock !== 'none' && door.lock !== 'vault';
+const ZONE_RANK: Readonly<Record<Zone, number>> = { public: 0, staff: 1, secure: 2 };
 
-/** Why a door action isn't possible for the door as it is now, or undefined. */
-export function doorActionBlocked(member: DeepReadonly<CrewState>, door: DeepReadonly<DoorDef>, status: DoorStatus, action: DoorAction): string | undefined {
+/** Whether `p` is on a door's inner side: the side of the higher zone, or either side between two of one zone. */
+export function innerSide(world: ReadonlyWorld, door: DeepReadonly<DoorDef>, p: DeepReadonly<Pos>): boolean {
+    const both = doorSides(world, door);
+    if (!both) return false;
+    const [a, b] = both.map(q => ZONE_RANK[tileAt(world, q)!.zone]) as [number, number];
+    const mine = samePos(both[0], p) ? a : samePos(both[1], p) ? b : -1;
+    return mine >= 0 && mine >= Math.max(a, b);
+}
+
+/** Why a door action isn't possible for the door as it is now, from `at`, or undefined. */
+export function doorActionBlocked(
+    world: ReadonlyWorld, member: DeepReadonly<CrewState>, door: DeepReadonly<DoorDef>, status: DoorStatus, action: DoorAction, at: DeepReadonly<Pos> = member.pos
+): string | undefined {
     if (status === 'breached') return 'The door is breached: there is nothing left to move';
     if (status === 'jammed') return 'The door is jammed shut';
     switch (action) {
@@ -61,9 +72,12 @@ export function doorActionBlocked(member: DeepReadonly<CrewState>, door: DeepRea
         case 'close':
             return status !== 'open' ? 'The door is already shut' : undefined;
         case 'lock':
-            if (!lockable(door)) return 'The door has no lock to turn';
+            if (door.lock === 'none') return 'The door has no lock';
             if (status === 'open') return 'Close the door first';
-            return status === 'locked' ? 'The door is already locked' : undefined;
+            if (status === 'locked') return 'The door is already locked';
+            if (crewHasKey(member, door)) return undefined;
+            if (door.lock !== 'mechanical') return `${member.name} has no key to this door`;
+            return innerSide(world, door, at) ? undefined : 'It locks with a key from this side';
         case 'unlock':
             if (status !== 'locked') return 'The door isn\'t locked';
             return crewHasKey(member, door) ? undefined : `${member.name} has no key to this door`;
@@ -79,7 +93,7 @@ registerAction('door', {
         const door = Object.hasOwn(world.doors, cmd.door) ? world.doors[cmd.door]! : undefined;
         if (!door) return `No door '${cmd.door}'`;
         if (!besideDoor(world, door, member.pos)) return `${member.name} isn't beside the door`;
-        return doorActionBlocked(member, door, doorStatus(world, state, door.id), cmd.action);
+        return doorActionBlocked(world, member, door, doorStatus(world, state, door.id), cmd.action);
     },
     candidates(world, _state: State, member) {
         const out: { type: 'door'; crew: string; door: string; action: DoorAction }[] = [];

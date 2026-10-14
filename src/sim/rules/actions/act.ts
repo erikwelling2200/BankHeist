@@ -1,9 +1,10 @@
 import { IllegalCommand, registerCommand, type Ctx } from '../../core/engine';
-import { cornerEdges, edgeBetween, edgeKey, inBounds } from '../../core/grid';
+import { cornerEdges, edgeBetween, edgeKey, FACING_STEP, inBounds, tileAt } from '../../core/grid';
 import { crewMember, edgeNow, spendActions } from '../../core/state';
-import type { Command, CommandOf, CommandType, CrewState, DeepReadonly, Pos, ReadonlyWorld, State } from '../../core/types';
+import type { Command, CommandOf, CommandType, CrewState, DeepReadonly, Pos, ReadonlyWorld, State, Tile } from '../../core/types';
 import type { IllegalAct } from '../../data/matrix';
-import { perceiveEnd, witnessAct } from '../perceive';
+import { sightMap } from '../../geo/los';
+import { applySightings, perceiveEnd, witness, witnessAct, type Sighting } from '../perceive';
 
 /*
  * The crew phase's bookkeeping (§6.1, §6.3): every crew member has `rules.actionsPerTurn` (2) actions a turn, spent in
@@ -33,8 +34,11 @@ export interface ActionDef<K extends CommandType> {
     candidates?(world: ReadonlyWorld, state: State, member: DeepReadonly<CrewState>): CommandOf<K>[];
     /** Actions it costs. */
     cost(world: ReadonlyWorld, state: State, cmd: DeepReadonly<CommandOf<K>>): number;
-    /** The illegal act it is (§8.4), if any, and where it is seen (default: the crew member's tile). */
-    illegal?: (world: ReadonlyWorld, state: State, cmd: DeepReadonly<CommandOf<K>>) => { act: IllegalAct; tile?: Pos } | undefined;
+    /**
+     * The illegal act it is (§8.4), if any, and the tiles it is seen on (default: the crew member's): anyone who sees
+     * any of them witnesses it (a knockout is seen on the attacker's tile and the victim's).
+     */
+    illegal?: (world: ReadonlyWorld, state: State, cmd: DeepReadonly<CommandOf<K>>) => { act: IllegalAct; tiles?: Pos[] } | undefined;
     /** Does it (after the check and the spend). */
     run(ctx: Ctx, member: CrewState, cmd: CommandOf<K>): void;
 }
@@ -63,7 +67,7 @@ export function registerAction<K extends CommandType>(type: K, def: ActionDef<K>
         const cost = def.cost(ctx.world, ctx.state, cmd as DeepReadonly<CommandOf<K>>);
         spendActions(member, cost);
         def.run(ctx, member, cmd);
-        if (illegal) witnessAct(ctx, member.id, illegal.act, illegal.tile);
+        if (illegal) witnessActOn(ctx, member.id, illegal.act, illegal.tiles ?? [member.pos]);
         // An action that spent nothing (waiting with none left) ends nothing in view.
         if (perceive && cost > 0) perceiveEnd(ctx, member.id);
     }, options.replace ? { replace: true } : {});
@@ -71,6 +75,28 @@ export function registerAction<K extends CommandType>(type: K, def: ActionDef<K>
         whyNot: def.whyNot as Entry['whyNot'],
         ...(def.candidates ? { candidates: def.candidates as Entry['candidates'] } : {})
     });
+}
+
+/**
+ * The sightings of an illegal act seen on any of `tiles` (§8.4): each observer once, at the first tile it sees. Pure;
+ * `witnessActOn` applies exactly this.
+ */
+export function witnessOn(world: ReadonlyWorld, state: State, crewId: string, act: IllegalAct, tiles: readonly DeepReadonly<Pos>[]): Sighting[] {
+    const sight = sightMap(world, state), out: Sighting[] = [], seen = new Set<string>();
+    for (const tile of tiles) {
+        for (const s of witness(world, state, sight, crewId, act, { x: tile.x, y: tile.y })) {
+            if (seen.has(s.observer)) continue;
+            seen.add(s.observer);
+            out.push(s);
+        }
+    }
+    return out;
+}
+
+/** An illegal act seen on any of `tiles`: every observer who sees one of them Exposes the crew member. */
+export function witnessActOn(ctx: Ctx, crewId: string, act: IllegalAct, tiles: readonly DeepReadonly<Pos>[]): void {
+    if (tiles.length === 1) return witnessAct(ctx, crewId, act, { x: tiles[0]!.x, y: tiles[0]!.y });
+    applySightings(ctx, witnessOn(ctx.world, ctx.state, crewId, act, tiles));
 }
 
 /** Why a crew action command isn't allowed now (as its reducer would refuse it), or undefined. */
@@ -103,13 +129,22 @@ export function lacksActions(member: DeepReadonly<CrewState>, cost: number): str
     return member.actionsLeft < cost ? `${member.name} has ${member.actionsLeft} of ${cost} actions left` : undefined;
 }
 
+/** Whether `a` and `b` (neighbours) are on one level: the same height, or a climb tile leading to the other (§14.7). */
+function sameLevel(world: ReadonlyWorld, a: Pos, b: Pos): boolean {
+    const ta = tileAt(world, a)!, tb = tileAt(world, b)!;
+    if (ta.raised === tb.raised) return true;
+    const leads = (t: DeepReadonly<Tile>, p: Pos, q: Pos): boolean => !!t.climb && p.x + FACING_STEP[t.climb.to].x === q.x && p.y + FACING_STEP[t.climb.to].y === q.y;
+    return leads(ta, a, b) || leads(tb, b, a);
+}
+
 /** Whether a wall that blocks movement now stands on the edge between two orthogonal neighbours. */
 const wallBetweenNow = (world: ReadonlyWorld, state: State, a: Pos, b: Pos): boolean => !!edgeNow(world, state, edgeKey(edgeBetween(a, b)))?.blocksMove;
 
 /**
  * Whether someone on `from` can reach something on `to` with their hands (a person, a body, an object on a furniture
- * tile): the same tile, or a neighbour with no wall in between (for a diagonal, none on the corner's four edges, like
- * a diagonal step, §6.3). Furniture on `to` doesn't matter; a closed door or a pane of glass does.
+ * tile): the same tile, or a neighbour they could step to but for what stands there: no wall in between (for a
+ * diagonal, none on the corner's four edges, like a diagonal step, §6.3) and on the same level (not across a storey's
+ * ledge, only up or down a climb, §14.7). Furniture on `to` doesn't matter; a closed door or a pane of glass does.
  */
 export function inReach(world: ReadonlyWorld, state: State, from: DeepReadonly<Pos>, to: DeepReadonly<Pos>): boolean {
     if (!inBounds(world, from) || !inBounds(world, to)) return false;
@@ -117,6 +152,7 @@ export function inReach(world: ReadonlyWorld, state: State, from: DeepReadonly<P
     if (Math.abs(dx) > 1 || Math.abs(dy) > 1) return false;
     if (!dx && !dy) return true;
     const a = { x: from.x, y: from.y }, b = { x: to.x, y: to.y };
+    if (!sameLevel(world, a, b)) return false;
     if (!dx || !dy) return !wallBetweenNow(world, state, a, b);
     return cornerEdges(a, b).every(e => !edgeNow(world, state, edgeKey(e))?.blocksMove);
 }

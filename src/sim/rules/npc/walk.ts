@@ -4,6 +4,7 @@ import { registerRuleDefaults } from '../../core/state';
 import type { DeepReadonly, DoorDef, DoorStatus, Intent, NpcState, PersonDef, Pos, ReadonlyWorld, State, Zone } from '../../core/types';
 import { DIAGONAL_COST, HALF_STEPS_PER_TILE, ORTHOGONAL_COST } from '../../data/movement';
 import { ABSENT_STATUSES, doorBetween, LYING_STATUSES, occupancy, stepCost, type MoveOptions } from '../../geo/move';
+import { onFloor } from '../place';
 
 /*
  * How NPCs walk (§6.1, §6.3, implementation plan §6 decisions 4 and 9): one rule for planning a walk when an intent is
@@ -91,7 +92,7 @@ export function othersTiles(
     world: ReadonlyWorld, state: State, npcId: string, intents?: Readonly<Record<string, DeepReadonly<Intent>>>
 ): (index: number) => boolean {
     const taken = new Set<number>();
-    for (const n of state.npcs) {
+    for (const n of onFloor(state).npcs) {
         if (n.id === npcId) continue;
         const intent = intents && Object.hasOwn(intents, n.id) ? intents[n.id]! : n.intent;
         if (isPresent(n)) taken.add(indexOf(world, n.pos));
@@ -127,7 +128,7 @@ interface Node { pos: Pos; cost: number; parent: number; canEnd: boolean }
  * time). Stops when `to` is settled; if it can't be reached, settles everything that can. People as `occupancy`.
  */
 function search(world: ReadonlyWorld, state: State, from: Pos, to: Pos, options: MoveOptions): { nodes: Map<number, Node>; found: boolean } {
-    const people = occupancy(world, state, options);
+    const people = occupancy(world, onFloor(state), options);
     const goal = indexOf(world, to);
     const h = (p: Pos): number => {
         const ax = Math.abs(p.x - to.x), ay = Math.abs(p.y - to.y), lo = Math.min(ax, ay);
@@ -295,7 +296,7 @@ export function resolveWalks(
     // Where everyone ends: nobody shares a tile (see the header).
     const moving = new Set(walks.map(w => w.npc));
     const fixed = new Map<number, string>();
-    for (const n of state.npcs) if (!moving.has(n.id) && isPresent(n)) fixed.set(indexOf(world, n.pos), n.id);
+    for (const n of onFloor(state).npcs) if (!moving.has(n.id) && isPresent(n)) fixed.set(indexOf(world, n.pos), n.id);
     const finalOf = (w: Walked): number | null => {
         const last = w.steps[w.steps.length - 1];
         if (last) return indexOf(world, last);

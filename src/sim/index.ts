@@ -78,15 +78,17 @@ export {
     type Arc, type Band, type HalfAngle, type Observer, type SightField, type VisionProfile, type VisionProfiles
 } from './geo/cones';
 export { worldFromBank, NOT_CARRIERS, OBJECT_KINDS, STASH_ROOMS } from './world/fromBank';
-export { inReach, lacksActions, legalActions, registerAction, whyNot, type ActionDef } from './rules/actions/act';
-export { besideDoor, DOOR_ACTIONS, doorActionBlocked, doorSides, type DoorAction } from './rules/actions/door';
-export { bodyAway, DRAGGABLE, draggedBy, releaseBody, STASH_KINDS, stashes } from './rules/actions/body';
+export { inReach, lacksActions, legalActions, registerAction, whyNot, witnessActOn, witnessOn, type ActionDef } from './rules/actions/act';
+export { besideDoor, DOOR_ACTIONS, doorActionBlocked, doorSides, innerSide, type DoorAction } from './rules/actions/door';
+export { bodyAway, DRAGGABLE, releaseBody, STASH_KINDS, stashes } from './rules/actions/body';
+export { bodyPos, draggedBy, onFloor, placeCrew } from './rules/place';
 export { knockoutBlocked, knockoutIneligible, registerKnockoutWindow, type KnockoutWindow } from './rules/actions/knockout';
 export { interactionVerbs, reachesObject, registerInteraction, type InteractionHandler, type InteractionVerb } from './rules/actions/interact';
 export {
-    applyEvidence, bodyLying, clearEvidence, evidenceOnMap, evidenceWorldPhase, isMajor, MAJOR_EVIDENCE, notices, placeEvidence, registerEvidenceSource,
+    applyEvidence, bodyLying, clearEvidence, evidenceOnMap, evidenceWorldPhase, hearing, isMajor, MAJOR_EVIDENCE, noiseReactions, notices, placeEvidence,
+    projectEvidenceSightings, registerEvidenceSource,
     REPORT_CARRIERS, reportAssault, type CameraEvidence, type Evidence, type EvidenceKind, type EvidenceOptions, type EvidenceSighting, type EvidenceSource,
-    type EvidenceWant, type MajorEvidence, type MinorEvidence, type PlacedEvidence
+    type EvidenceWant, type Hearing, type MajorEvidence, type MinorEvidence, type PlacedEvidence
 } from './rules/evidence';
 export { WALL_MATERIALS, DOOR_KINDS, type WallMaterial } from './world/materials';
 export { packWorld, unpackWorld, packTiles, unpackTiles, type PackedTiles, type PackedWorld } from './world/compact';

@@ -1,10 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import {
-    commit, crewBudget, crewLook, dashRefusal, evidenceOnMap, evidenceWorldPhase, fixtureWorld, hashOf, IllegalCommand, initialState, legalActions,
+    assessPath, bodyPos, commit, crewBudget, makeNoise, noiseReactions, projectEvidenceSightings, witnessOn, crewLook, dashRefusal, evidenceOnMap, evidenceWorldPhase, fixtureWorld, hashOf, IllegalCommand, initialState, legalActions,
     preview, registerInteraction, registerKnockoutWindow, sightMap, type Command, type CrewStart, type Facing, type FixtureOptions, type ObserverClass,
     type PersonDef, type Pos, type ReadonlyWorld, type SimEvent, type State, type WorldObject
 } from '../../src/sim';
-import { scouted, step } from './helpers';
+import { registerTestCommand, scouted, step, testCommand } from './helpers';
 
 /*
  * The crew actions of M1-07 (§6.1–6.3, §8.10, §11.10): doors, knockout, dragging and stashing bodies, waiting and the
@@ -198,7 +198,7 @@ describe('dragging and stashing bodies', () => {
         map
     );
 
-    it('drag a body: half the reach, no dash, Armed, the body following every step', () => {
+    it('drag a body: half the reach, no dash, Armed, the body with its dragger', () => {
         const { world, state } = scene();
         let s = commit(world, state, { type: 'knockout', crew: 'jun', npc: 'clerk' }).state;
         const lifted = act(world, s, { type: 'drag', crew: 'jun', npc: 'clerk' });
@@ -207,16 +207,19 @@ describe('dragging and stashing bodies', () => {
         const jun = s.crew[0]!;
         expect(jun.dragging).toBe('clerk');
         expect(crewLook(jun).profile).toBe('armed');
-        expect(npc(s, 'clerk').pos).toEqual(P(5, 4));
+        // The body is where its dragger is; its own position is where it was lifted from until it is put down.
+        expect(bodyPos(s, npc(s, 'clerk'))).toEqual(P(5, 4));
+        expect(npc(s, 'clerk').pos).toEqual(P(5, 3));
         s = endTurn(world, s).state;
         expect(crewBudget(world, s.crew[0]!, 'move')).toBe(5);
         expect(dashRefusal(world, s, 'jun')).toMatch(/dragging a body/);
         expect(() => commit(world, s, { type: 'dash', crew: 'jun', path: [P(6, 4)] })).toThrow(/dragging a body/);
         expect(() => commit(world, s, { type: 'move', crew: 'jun', path: [P(6, 4), P(7, 4), P(8, 4)] })).toThrow(/out of reach/);
         s = commit(world, s, { type: 'move', crew: 'jun', path: [P(6, 4), P(7, 4)] }).state;
-        expect(npc(s, 'clerk').pos).toEqual(P(7, 4));
+        expect(bodyPos(s, npc(s, 'clerk'))).toEqual(P(7, 4));
         const dropped = act(world, s, { type: 'drop', crew: 'jun' });
         expect(dropped.state.crew[0]!.dragging).toBeNull();
+        expect(npc(dropped.state, 'clerk').pos).toEqual(P(7, 4));
         expect(dropped.state.crew[0]!.loadout.carrying).toBeNull();
         expect(crewBudget(world, dropped.state.crew[0]!, 'move')).toBe(10);
         expect(() => commit(world, state, { type: 'drag', crew: 'jun', npc: 'clerk' })).toThrow(/Only a body/);
@@ -289,8 +292,7 @@ describe('evidence (§8.10)', () => {
         expect(guard.alerted).toBe(true);
         expect(guard.goal.kind).toBe('report');
         expect(guard.intent.action).toEqual({ kind: 'reportEvidence', evidence: 'body:clerk', carrier: 'guardRadio' });
-        // Each noticed once.
-        expect(guard.noticed).toContain('body:clerk');
+        expect(guard.evidence?.id).toBe('body:clerk');
     });
 
     it('later barks about the same kind are generic', () => {
@@ -336,8 +338,9 @@ describe('evidence (§8.10)', () => {
         expect(next.events).toContainEqual({ type: 'evidenceDropped', npc: 'clerk', evidence: 'door:vault' });
         expect(npc(next.state, 'guard').goal.kind).toBe('still');
         expect(npc(next.state, 'guard').status).toBe('calm');
-        // Noticed once: the door closed itself, and it isn't news again.
-        expect(npc(next.state, 'guard').noticed).toEqual(['door:vault']);
+        // The door closed itself: forgotten, so opening it again would be news again.
+        expect(next.state.doors.vault!.status).toBe('closed');
+        expect(npc(next.state, 'guard').noticed).toEqual([]);
     });
 
     it('a missing colleague at their window, and a dead camera, are minor evidence', () => {
@@ -352,6 +355,186 @@ describe('evidence (§8.10)', () => {
         const dragged = commit(world, { ...out, crew: [{ ...out.crew[0]!, pos: P(5, 4) }] }, { type: 'drag', crew: 'jun', npc: 'teller' }).state;
         expect(evidenceOnMap(world, dragged).map(e => [e.id, e.kind])).toEqual([['camera:cam', 'cameraDown'], ['missing:teller', 'emptyWindow']]);
         expect(evidenceOnMap(world, out).map(e => e.id)).toEqual(['body:teller', 'camera:cam']);
+    });
+});
+
+describe('review fixes', () => {
+    it('dragging a body is `!` for anyone who sees it, Peripheral and Public too, mid-move as well', () => {
+        // A customer looking away to the side sees Jun only in Peripheral, on Public floor.
+        const { world, state } = setup([person('clerk', 'clerk', 'staff', P(2, 1), 'n'), person('cust', 'customer', 'civilian', P(6, 6), 's')],
+            [{ id: 'jun', pos: P(2, 2) }]);
+        // The customer faces away while Jun knocks the clerk out and takes hold of the body.
+        let s = commit(world, state, { type: 'knockout', crew: 'jun', npc: 'clerk' }).state;
+        s = endTurn(world, s).state;
+        s = commit(world, s, { type: 'drag', crew: 'jun', npc: 'clerk' }).state;
+        expect(npc(s, 'cust').exposedTo).toEqual([]);
+        npc(s, 'cust').facing = 'w';
+        const judged = assessPath(world, s, 'jun', [P(3, 2), P(4, 2)]);
+        expect(judged.steps.map(x => [x.observer, x.band, x.outcome, x.why])).toContainEqual(['cust', 'peripheral', '!', ['illegal']]);
+        expect(commit(world, s, { type: 'move', crew: 'jun', path: [P(3, 2), P(4, 2)] }).state.npcs[1]!.exposedTo).toEqual(['jun']);
+    });
+
+    it('taking hold of a body and walking with it unseen can be taken back; dropping it is final', () => {
+        const { world, state } = setup([person('clerk', 'clerk', 'staff', P(5, 3), 'n')], [{ id: 'jun', pos: P(5, 4) }]);
+        let s = commit(world, state, { type: 'knockout', crew: 'jun', npc: 'clerk' }).state;
+        s = scouted(world, endTurn(world, s).state);
+        const lifted = act(world, s, { type: 'drag', crew: 'jun', npc: 'clerk' });
+        expect(lifted.undoable).toBe(true);
+        const walked = act(world, scouted(world, endTurn(world, lifted.state).state), { type: 'move', crew: 'jun', path: [P(5, 5)] });
+        expect(walked.undoable).toBe(true);
+        expect(act(world, walked.state, { type: 'drop', crew: 'jun' }).undoable).toBe(false);
+    });
+
+    it('a knocked-out NPC comes round on the nearest free tile it could step to, never across a wall', () => {
+        // The body lies in a nook walled on three sides; Jun stands on it, so it gets up south of him.
+        const { world, state } = setup([person('clerk', 'clerk', 'staff', P(5, 3), 'n')], [{ id: 'jun', pos: P(5, 4) }], {
+            walls: [{ between: [P(5, 3), P(5, 2)] }, { between: [P(5, 3), P(4, 3)] }, { between: [P(5, 3), P(6, 3)] }]
+        });
+        let s = commit(world, state, { type: 'knockout', crew: 'jun', npc: 'clerk' }).state;
+        s = commit(world, s, { type: 'drag', crew: 'jun', npc: 'clerk' }).state;
+        s = endTurn(world, s).state;
+        s = commit(world, s, { type: 'move', crew: 'jun', path: [P(5, 3)] }).state;
+        for (let i = 0; i < 3; i++) s = endTurn(world, s).state;
+        expect(npc(s, 'clerk').status).toBe('alerted');
+        expect(npc(s, 'clerk').pos).toEqual(P(5, 4));
+        expect(s.crew[0]!.dragging).toBeNull();
+    });
+
+    it('refuses to knock out the tied or the commanded, or with a body in hand', () => {
+        const { world, state } = setup([person('a', 'clerk', 'staff', P(5, 3), 'n'), person('b', 'clerk', 'staff', P(6, 4), 'n')], [{ id: 'jun', pos: P(5, 4) }]);
+        for (const [status, why] of [['tied', /tied up/], ['commanded', /on the floor/]] as const) {
+            const s = structuredClone(state);
+            npc(s, 'a').status = status;
+            expect(() => commit(world, s, { type: 'knockout', crew: 'jun', npc: 'a' })).toThrow(why);
+        }
+        let s = commit(world, state, { type: 'knockout', crew: 'jun', npc: 'a' }).state;
+        s = commit(world, s, { type: 'drag', crew: 'jun', npc: 'a' }).state;
+        s = endTurn(world, s).state;
+        expect(() => commit(world, s, { type: 'knockout', crew: 'jun', npc: 'b' })).toThrow(/hands are full/);
+    });
+
+    it('reaches nobody across a storey\'s ledge, only up or down a climb', () => {
+        const map = ['............', '.....^^.....', '.....^^.....', '....../.....'];
+        const below = setup([person('g', 'guard', 'enforcer', P(5, 1), 'n')], [{ id: 'jun', pos: P(5, 0) }], {}, map);
+        expect(() => commit(below.world, below.state, { type: 'knockout', crew: 'jun', npc: 'g' })).toThrow(/can't reach/);
+        const stairs = setup([person('g', 'guard', 'enforcer', P(6, 2), 'n')], [{ id: 'jun', pos: P(6, 3) }], {}, map);
+        expect(commit(stairs.world, stairs.state, { type: 'knockout', crew: 'jun', npc: 'g' }).state.npcs[0]!.status).toBe('unconscious');
+    });
+
+    it('a knockout is witnessed by whoever sees the victim\'s tile, even without seeing the attacker', () => {
+        // A wall along the row hides Jun (south of it) from the teller, not the guard he reaches over it.
+        const walls = [0, 1, 2, 3, 4, 6, 7, 8, 9, 10, 11].map(x => ({ between: [P(x, 3), P(x, 4)] as [Pos, Pos] }));
+        const { world, state } = setup([person('guard', 'guard', 'enforcer', P(5, 3), 'n'), person('teller', 'teller', 'staff', P(1, 1), 'e')],
+            [{ id: 'jun', pos: P(5, 4) }], { walls });
+        expect(witnessOn(world, state, 'jun', 'knockout', [P(5, 4)]).map(x => x.observer)).toEqual([]);
+        // (The guard itself is down by the time anyone witnesses it.)
+        expect(witnessOn(world, state, 'jun', 'knockout', [P(5, 4), P(5, 3)]).map(x => x.observer).filter(o => o !== 'guard')).toEqual(['teller']);
+        const done = commit(world, state, { type: 'knockout', crew: 'jun', npc: 'guard' });
+        expect(npc(done.state, 'teller').exposedTo).toEqual(['jun']);
+    });
+
+    it('locks a mechanical lock from its inner side only, and nothing else, without a key', () => {
+        const map = FLOOR.map(row => `${row.slice(0, 5)}sssssss`);
+        const make = (lock: 'mechanical' | 'keycard', at: Pos) => setup([], [{ id: 'jun', pos: at }],
+            { walls: [{ between: [P(4, 2), P(5, 2)], door: { id: 'd', lock, start: 'closed' } }] }, map);
+        const inside = make('mechanical', P(5, 2));
+        expect(commit(inside.world, inside.state, { type: 'door', crew: 'jun', door: 'd', action: 'lock' }).state.doors.d!.status).toBe('locked');
+        const outside = make('mechanical', P(4, 2));
+        expect(() => commit(outside.world, outside.state, { type: 'door', crew: 'jun', door: 'd', action: 'lock' })).toThrow(/key from this side/);
+        const card = make('keycard', P(5, 2));
+        expect(() => commit(card.world, card.state, { type: 'door', crew: 'jun', door: 'd', action: 'lock' })).toThrow(/no key/);
+    });
+
+    it('a body in the doorway doesn\'t hold a door open', () => {
+        const { world, state } = setup([person('clerk', 'clerk', 'staff', P(5, 2), 'n')], [{ id: 'jun', pos: P(4, 2) }],
+            { walls: [{ between: [P(4, 2), P(5, 2)], door: { id: 'd', start: 'closed' } }] });
+        let s = commit(world, state, { type: 'door', crew: 'jun', door: 'd', action: 'open' }).state;
+        s = commit(world, s, { type: 'knockout', crew: 'jun', npc: 'clerk' }).state;
+        s = structuredClone(s);
+        s.crew[0]!.pos = P(2, 6);
+        expect(endTurn(world, s).state.doors.d!.status).toBe('closed');
+    });
+
+    it('evidence is per occurrence: knocked out again after waking is news again', () => {
+        const { world, state } = setup([person('clerk', 'clerk', 'staff', P(5, 3), 'n'), person('teller', 'teller', 'staff', P(9, 3), 'w')], [{ id: 'jun', pos: P(5, 4) }]);
+        let s = structuredClone(state);
+        npc(s, 'clerk').status = 'unconscious';
+        npc(s, 'clerk').outCold = 1;
+        s = endTurn(world, s).state;
+        expect(npc(s, 'teller').noticed).toEqual([]);
+        expect(npc(s, 'clerk').status).toBe('alerted');
+        // The teller saw the body before it got up; now it is gone, so it is forgotten.
+        s = structuredClone(s);
+        npc(s, 'clerk').status = 'unconscious';
+        npc(s, 'clerk').outCold = 9;
+        npc(s, 'teller').evidence = null;
+        const again = endTurn(world, s);
+        expect(again.events).toContainEqual({ type: 'evidenceNoticed', npc: 'teller', evidence: 'body:clerk', kind: 'body', major: true });
+    });
+
+    it('the overlay about a move judges the world phase on the move\'s preview', () => {
+        const map = FLOOR.map(row => `${row.slice(0, 7)}xxxxx`);
+        const { world, state } = setup([person('guard', 'guard', 'enforcer', P(1, 6), 'w')], [{ id: 'jun', pos: P(7, 4) }],
+            { walls: [{ between: [P(6, 2), P(7, 2)], door: { id: 'vault', start: 'closed' } }] }, map);
+        const s = structuredClone(state);
+        npc(s, 'guard').intent = { path: [P(2, 5), P(3, 4)], facing: 'ne' };
+        // Out through the vault door, which the move leaves open behind it.
+        const move = { type: 'move' as const, crew: 'jun', path: [P(7, 3), P(7, 2), P(6, 2), P(5, 3)] };
+        const predicted = evidenceWorldPhase(world, s, sightMap(world, s), { move });
+        expect(predicted.map(e => e.evidence)).toEqual(['door:vault']);
+        const after = endTurn(world, commit(world, s, move).state);
+        expect(after.events.filter(e => e.type === 'evidenceNoticed').map(e => (e as { evidence: string }).evidence)).toEqual(['door:vault']);
+    });
+
+    it('a barker the crew can\'t see doesn\'t use up the named bark; the player sees only known observers', () => {
+        const { world, state } = setup([person('a', 'clerk', 'staff', P(5, 3), 'n'), person('teller', 'teller', 'staff', P(9, 3), 'w')], [{ id: 'jun', pos: P(0, 7) }],
+            { walls: Array.from({ length: 8 }, (_, y) => ({ between: [P(3, y), P(4, y)] as [Pos, Pos] })) });
+        const s = structuredClone(state);
+        npc(s, 'a').status = 'unconscious';
+        npc(s, 'a').outCold = 9;
+        const found = evidenceWorldPhase(world, s, sightMap(world, s));
+        expect(found.map(e => e.observer)).toEqual(['teller']);
+        expect(projectEvidenceSightings(world, s, found)).toEqual([]);
+        const phase = endTurn(world, s);
+        expect(phase.events).toContainEqual({ type: 'bark', npc: 'teller', cause: 'body', evidence: 'body:a', first: true });
+        expect(phase.state.barked).toEqual([]);
+    });
+});
+
+describe('hearing (§8.9)', () => {
+    registerTestCommand('test.shot', (ctx, cmd) => {
+        makeNoise(ctx, 'pistol', ctx.state.crew.find(c => c.id === cmd.crew)!.pos, `pistol ${cmd.crew}`);
+    });
+
+    it('a quiet noise: hearers Curious, the one sent goes to look, at once in the crew phase; the ring\'s ears say so first', () => {
+        const { world, state } = setup([person('guard', 'guard', 'enforcer', P(5, 6), 'e'), person('clerk', 'clerk', 'staff', P(4, 7), 'e')],
+            [{ id: 'jun', pos: P(0, 2) }]);
+        const path = [P(1, 3), P(2, 4), P(3, 5)];
+        expect(noiseReactions(world, state, 'dash', path, 'dash jun').map(h => [h.npc, h.status, h.sent])).toEqual([
+            ['guard', 'investigating', true], ['clerk', 'curious', false]
+        ]);
+        const done = act(world, state, { type: 'dash', crew: 'jun', path });
+        expect([npc(done.state, 'guard').goal.kind, npc(done.state, 'guard').status]).toEqual(['inspect', 'investigating']);
+        expect(npc(done.state, 'guard').intent.path.length).toBeGreaterThan(0);
+        expect([npc(done.state, 'clerk').goal.kind, npc(done.state, 'clerk').status]).toEqual(['look', 'curious']);
+        expect(npc(done.state, 'clerk').alerted).toBe(false);
+        expect(done.undoable).toBe(false);
+    });
+
+    it('a loud noise: hearers Alerted, cause unknown, and one reports it', () => {
+        const { world, state } = setup([person('guard', 'guard', 'enforcer', P(6, 5), 'e'), person('clerk', 'clerk', 'staff', P(4, 7), 'e')],
+            [{ id: 'jun', pos: P(0, 2) }]);
+        const done = step(world, state, testCommand({ type: 'test.shot', crew: 'jun' }));
+        for (const id of ['guard', 'clerk']) expect([npc(done.state, id).alerted, npc(done.state, id).alertCause]).toEqual([true, 'noise']);
+        expect(npc(done.state, 'guard').intent.action).toEqual({ kind: 'reportEvidence', evidence: 'noise:1:crew:pistol jun', carrier: 'guardRadio' });
+        expect(npc(done.state, 'clerk').goal.kind).toBe('look');
+    });
+
+    it('nobody face down reacts, though they hear it', () => {
+        const { world, state } = setup([person('clerk', 'clerk', 'staff', P(4, 7), 'w')], [{ id: 'jun', pos: P(0, 2) }]);
+        const s = structuredClone(state);
+        npc(s, 'clerk').status = 'commanded';
+        expect(noiseReactions(world, s, 'pistol', P(0, 2), 'x')).toEqual([]);
     });
 });
 

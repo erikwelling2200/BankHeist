@@ -9,7 +9,7 @@ import { registerEvents } from '../core/undo';
  * open door swings shut, and one with a lock latches locked again, unless
  * - it is propped (`DoorState.propped`, or it was built open: a door wedged open from the start stays so),
  * - it is the vault door (not a leaf door), or
- * - someone (crew or NPC) stands on either tile beside it, in the doorway.
+ * - someone (crew or NPC) stands on either tile beside it, in the doorway (a body lying there doesn't hold it).
  * Breached and jammed doors stay as they are. It runs in the devices step, after everyone has acted.
  */
 
@@ -29,7 +29,8 @@ registerWorldHook('devices', 'doors.swingShut', ctx => {
     const standing = new Set<string>();
     const at = (p: Pos): string => `${p.x},${p.y}`;
     for (const c of state.crew) standing.add(at(c.pos));
-    for (const n of state.npcs) if (!ABSENT_STATUSES.has(n.status)) standing.add(at(n.pos));
+    // A body in the doorway doesn't hold the door (nor one being dragged, whose tile is its dragger's).
+    for (const n of state.npcs) if (!ABSENT_STATUSES.has(n.status) && n.status !== 'unconscious' && n.status !== 'dead') standing.add(at(n.pos));
     for (const id of sortedIds(world.doors)) {
         const def = world.doors[id]!, door = state.doors[id];
         if (!door || door.status !== 'open' || door.propped || def.start === 'open' || def.lock === 'vault') continue;

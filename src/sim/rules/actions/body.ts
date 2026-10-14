@@ -2,8 +2,9 @@ import { tileAt } from '../../core/grid';
 import { registerCrewInit, registerNpcInit } from '../../core/state';
 import type { CrewState, DeepReadonly, NpcState, NpcStatus, Pos, ReadonlyWorld, State } from '../../core/types';
 import { registerEvents } from '../../core/undo';
-import { registerBudgetModifier, registerDashCheck, registerMoveHook } from '../../crew/movement';
+import { registerBudgetModifier, registerDashCheck } from '../../crew/movement';
 import { isPresent } from '../npc/walk';
+import { draggedBy } from '../place';
 import { inReach, lacksActions, registerAction } from './act';
 
 /*
@@ -12,9 +13,14 @@ import { inReach, lacksActions, registerAction } from './act';
  *
  * - **Dragging** is a Very Heavy carry: the crew member's Move reaches half as far (`registerBudgetModifier`, in
  *   half-steps, rounded down), they can't Dash, and they show as Armed (`Loadout.carrying` 'body', data/items.ts
- *   `CARRIED`). The body lies on the dragger's tile and follows every step (the move hook). Taking hold of a body and
- *   stashing it are the illegal act "dragging a body" (§8.4): `!` for anyone who sees it. Walking with it is judged by
- *   the profile (Armed) like any other move, so the move overlay stays exact (implementation plan §6 decision 27).
+ *   `CARRIED`). Dragging is an illegal act (§8.4) for as long as it lasts: taking hold, every tile walked with it,
+ *   every action ended with it and the stash are `!` for anyone who sees them, Core or Peripheral, in any zone
+ *   (`CrewLook.act`, read by perception's `reaction`, so a move's preview and the hatched overlay judge it too).
+ * - **Where the body is** while dragged is where its dragger stands (`bodyPos`): `NpcState.pos` keeps the tile it was
+ *   lifted from and is set only when it is dropped, stashed or comes round (decision 27). So a crew member and their
+ *   body are always placed together (an overlay asking about another tile moves just the crew member), and taking hold
+ *   of a body or walking with it changes no NPC: unseen, it can be taken back (§6.6). Dropping and stashing put the
+ *   body somewhere and are final. Draw a dragged NPC with its dragger; its own `pos` is stale.
  * - **Stashing** needs a stash in reach: an object of a `STASH_KINDS` kind (a dumpster, a closet) or a room the World
  *   tags as one (`World.stashRooms`: the cleaner's closet), standing anywhere in it. The body then lies in the stash:
  *   on the object's tile when it can be stood on, else where the crew member stood. `NpcState.stashed` names the
@@ -63,8 +69,7 @@ registerNpcInit('body', (_world, _person, npc) => {
     npc.stashed = null;
 });
 
-/** Who drags this NPC's body, if anyone. */
-export const draggedBy = (state: DeepReadonly<State>, npc: string): DeepReadonly<CrewState> | undefined => state.crew.find(c => c.dragging === npc);
+export { bodyPos, draggedBy, placeCrew } from '../place';
 
 /** Whether an NPC's body is in a stash or being dragged: not lying anywhere to be found. */
 export const bodyAway = (state: DeepReadonly<State>, npc: DeepReadonly<NpcState>): boolean => npc.stashed !== null || !!draggedBy(state, npc.id);
@@ -105,7 +110,6 @@ registerAction('drag', {
         const npc = ctx.state.npcs.find(n => n.id === cmd.npc)!;
         member.dragging = npc.id;
         member.loadout.carrying = 'body';
-        npc.pos = { x: member.pos.x, y: member.pos.y };
         ctx.emit({ type: 'bodyLifted', crew: member.id, npc: npc.id });
     }
 });
@@ -120,6 +124,7 @@ registerAction('drop', {
     run(ctx, member) {
         const id = member.dragging!;
         releaseBody(ctx.state, member);
+        ctx.state.npcs.find(n => n.id === id)!.pos = { x: member.pos.x, y: member.pos.y };
         ctx.emit({ type: 'bodyDropped', crew: member.id, npc: id, at: { x: member.pos.x, y: member.pos.y } });
     }
 });
@@ -162,22 +167,14 @@ export function releaseBody(_state: State, member: CrewState): void {
 registerBudgetModifier('dragging', (_world, member, _mode, budget) => (member.dragging !== null ? Math.floor(budget / 2) : budget));
 registerDashCheck('dragging', m => (m.dragging !== null ? `${m.name} can't dash dragging a body` : undefined));
 
-// The body follows the dragger step by step.
-registerMoveHook('body', {
-    step(ctx, member) {
-        if (member.dragging === null) return;
-        const npc = ctx.state.npcs.find(n => n.id === member.dragging);
-        if (npc) npc.pos = { x: member.pos.x, y: member.pos.y };
-    }
-});
-
 /** The stash objects and rooms of a world, for the UI's hints. */
 export function stashes(world: ReadonlyWorld): { objects: string[]; rooms: string[] } {
     return { objects: world.objects.filter(o => STASH_KINDS.has(o.kind)).map(o => o.id), rooms: [...(world.stashRooms ?? [])].sort() };
 }
 
 registerEvents({
-    bodyLifted: { undoBlocking: true },
+    // Unseen, taking hold changes no NPC (its body is where its dragger is): it can be taken back.
+    bodyLifted: { undoBlocking: false },
     bodyDropped: { undoBlocking: true },
     bodyStashed: { undoBlocking: true }
 });

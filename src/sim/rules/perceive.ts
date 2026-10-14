@@ -16,6 +16,7 @@ import { bandAt, cameraObserver, fieldOn, npcObserver, type Band, type Observer,
 import { sightMap, type SightMap } from '../geo/los';
 import { doorBetween, doorStatus } from '../geo/move';
 import { npcActSightings } from './npc/act';
+import { placeCrew } from './place';
 import { reconsider } from './npc/intent';
 import { worldWalks } from './npc/walk';
 import { crewLook, readProfile, type CrewLook } from './profile';
@@ -103,6 +104,8 @@ export interface Reaction {
 
 /** One observer's reading of one sighting (§8.4). The matrix lives in data/matrix.ts; this is its only reader. */
 export function reaction(rules: DeepReadonly<Rules>, input: ReactionInput): Reaction {
+    // An illegal act seen on them (dragging a body): `!` for anyone, in any zone, Core and Peripheral (§8.4).
+    if (input.look.act !== undefined) return { profile: input.look.profile, readAs: input.zone, cell: '!', outcome: '!', why: ['illegal'] };
     const why: Why[] = [];
     const reader: ObserverClass = input.camera ? 'enforcer' : input.observer;
     const plain = readProfile(rules, input.look, input.notoriety, reader, false);
@@ -443,9 +446,8 @@ export function assessWorldPhase(world: ReadonlyWorld, state: State, sight: Sigh
         // the world phase that follows is judged on that state.
         const end = assessEnd(world, state, sight, crewId, tile, options);
         if (end.length) {
-            const scratch = clonePlain(state);
-            const moved = crewMember(scratch, crewId);
-            moved.pos = { x: tile.x, y: tile.y };
+            // The crew member (and any body they drag) on the tile, on a copy.
+            const scratch = clonePlain(placeCrew(state, crewId, tile));
             applySightings({ world, state: scratch, dice: new Dice(scratch, 'preview'), emit: () => {} }, end);
             return assessWorldPhase(world, scratch, sightMap(world, scratch), crewId, tile, options.look ? { look: options.look } : {});
         }

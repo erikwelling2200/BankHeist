@@ -274,10 +274,25 @@ Each package lists its goal, the design sections it covers, the files, what it d
       `State.cameraEvidence` (a `cameraSawEvidence` event), beside `cameraReports`, for the operator; a dead camera's
       feed is noticed here only by someone seeing the camera, the operator's monitors are M1-08's.
     - **Undo:** by the engine's rule. A door opened or closed through known space with nobody noticing stays
-      undoable, so does a wait out of view; knockouts, drags, drops and stashes are final (they change an NPC), and so is
-      a move while dragging a body (the body moves with it).
-    - Quiet noises (a knockout, a dash) are emitted with who heard them, but hearing still makes nobody Curious: that
-      reaction (§8.9) is in no package yet.
+      undoable, so do a wait out of view, taking hold of a body and walking with it unseen; knockouts, drops and stashes
+      are final (they change an NPC).
+    - **Hearing** (§8.9, `rules/evidence.ts` `hearing`, a noise hook, crew and world phase alike): a quiet noise is
+      minor evidence (`quietNoise`: hearers Curious, the nearest of the right role `inspect`s the source, the others
+      look), a loud one major (`loudNoise`: Alerted, cause `noise`, one reports it: carriers for M1-08). Face-down NPCs
+      hear but don't react. In a crew phase intents are rewritten at once. `noiseReactions(world, state, what, sources,
+      cause)` labels the noise ring's ears (`status`) by the same function.
+    - **Review fixes.** Dragging is an illegal act for as long as it lasts (`CrewLook.act`, `!` in `reaction` for any
+      observer, Core or Peripheral, mid-move too). A dragged body is where its dragger is (`rules/place.ts`
+      `bodyPos`; `onFloor` takes dragged NPCs out of occupancy and walks, `placeCrew` is how overlays move a crew
+      member), so taking hold and walking unseen stay undoable; drop and stash are final. Knockouts: not on the tied or
+      the commanded, not while dragging, witnessed on the attacker's and the victim's tiles (`witnessOn`); waking
+      searches outward by legal steps (`reachable`, no walls, doors or ledges) for a free tile. `inReach` respects
+      levels (only up or down a climb). Evidence is per occurrence (`evidence.forget` drops what is gone from
+      `noticed` as each crew phase begins); bodies don't hold doors open; a bark only uses up its named first time when
+      the crew can see the barker; `projectEvidenceSightings` filters predictions to NPCs and cameras the crew knows.
+    - **The hatched overlay of a planned move is judged on its preview** (`assessWorldPhase(world, preview.state,
+      …)`, `evidenceWorldPhase(…, { move })`): the bare-tile form misses a `!` mid-path, the doors the path opens and
+      a dash's noise. The property test does so for moves and dashes.
 - [ ] **M1-08 Alarm carriers, check-ins and cameras.**
   - **Covers:** §8.11, §8.12, §9.1 (the stealth carriers), §9.2, the patrol drive-by and dispatch in §16.4.
   - **Work:**
@@ -638,16 +653,23 @@ Later milestones: within each milestone, the `∥` notes in §3 apply. UI packag
     then, and grows with every step and command. (The hatched world-phase overlay, about where NPCs walk next, still
     covers only the known NPCs' committed walks.)
 
-25. **Doors by hand (M1-07).** Closing a door eases it shut without latching it (closed, not locked); locking a
-    closed door needs no key (a latch or thumb-turn), unlocking a locked one does (keys come with the key graph), and
-    the vault door's time lock is neither. A door that swings shut by itself at the end of a world phase latches.
+25. **Doors by hand (M1-07).** Closing a door eases it shut without latching it (closed, not locked). Without a key,
+    the crew can lock only a mechanical lock, and only from its inner side (the higher zone's, Public < Staff < Secure;
+    either side between equal zones), where a thumb-turn needs none; keycards and maglocks need the key, and the vault
+    door's time lock is neither. Unlocking always needs the key (keys come with the key graph). A door that swings shut
+    by itself at the end of a world phase latches.
 26. **Evidence is noticed in the world phase only (M1-07).** NPCs look for evidence along the walks they take in the
     world phase (from where they stand, so anything in view at the end of the crew phase counts), not after each crew
     action. What they decide is committed at the end of that world phase and carried out in the next (§6.2), so the
     crew always has a crew phase to stash the body or close the door. Seeing the act itself is the illegal act's `!`.
-27. **Dragging a body (M1-07).** Taking hold of a body and stashing it are the illegal act "dragging a body"; walking
-    with it is judged by the profile it gives (Armed), so a move's preview stays `assessPath`. The body lies on the
-    dragger's tile (a lying NPC, stepped over by the crew, never stood on).
+27. **Dragging a body (M1-07).** Dragging is the illegal act "dragging a body" for as long as it lasts (§8.4): taking
+    hold, every tile walked, every action ended and the stash are `!` for anyone who sees them, Core or Peripheral, any
+    zone; carrying a downed crew member is only Armed (§7.4, §11.12). The body is where its dragger is: its own
+    `pos` is the tile it was lifted from, set again only when it is dropped, stashed or comes round, so dragging
+    unseen changes no NPC and stays undoable (§6.6).
+28. **Knockout targets (M1-07 review).** Tied and commanded NPCs can't be knocked out: they are face down and do as
+    they are told, and there would be no status to give back when they wake. Nor can a crew member with a body in
+    hand. A knockout is witnessed from the attacker's tile and the victim's.
 
 ### Critical files for implementation
 
