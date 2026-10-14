@@ -1,5 +1,5 @@
 import {
-    assertPlainJson, clonePlain, commit, deepFreeze, hashOf, popUndo, preview, projectEvents, RECENT_EVENTS, recordUndo, SaveFormatError, stableJson,
+    assertPlainJson, clonePlain, commit, deepFreeze, hashOf, noticedUnseen, popUndo, preview, projectEvents, projectPreviewEvents, RECENT_EVENTS, recordUndo, SaveFormatError, stableJson,
     type Command, type CommitResult, type PreviewResult, type ReadonlyWorld, type SimEvent, type State, type UndoStack
 } from '../sim';
 import { deserialiseHeist, deserialiseUi, heistWorldId, serialiseHeist, serialiseUi, serialiseWorld } from './persist';
@@ -37,7 +37,11 @@ export interface UiState {
 }
 
 export type SessionChange =
-    | { kind: 'commit' | 'endTurn'; command: Command; result: CommitResult; queued: PlaybackItem[] }
+    | {
+        kind: 'commit' | 'endTurn'; command: Command; result: CommitResult; queued: PlaybackItem[];
+        /** The commit is final because someone the crew doesn't know of noticed it (`noticedUnseen`): "something stirred". */
+        noticedUnseen: boolean;
+    }
     | { kind: 'undo' }
     | { kind: 'ui' };
 
@@ -67,7 +71,7 @@ export type PlayerPreview = PreviewResult;
  * state is the engine's, for the session's own checks; the HUD and overlays read only the events.
  */
 export function projectPreview(result: PreviewResult, before: State, world: ReadonlyWorld): PlayerPreview {
-    return { ...result, events: projectEvents(world, result.state, result.events, before) };
+    return { ...result, events: projectPreviewEvents(world, before, result) };
 }
 
 export interface SessionOptions {
@@ -310,7 +314,7 @@ export class Session {
         this._recentTurns = deepFreeze([...this._recentTurns, ...queued.map(i => i.turn)].slice(-RECENT_EVENTS));
         this.setState(result.state);
         this.save();
-        this.emit({ kind: cmd.type === 'endTurn' ? 'endTurn' : 'commit', command: cmd, result, queued });
+        this.emit({ kind: cmd.type === 'endTurn' ? 'endTurn' : 'commit', command: cmd, result, queued, noticedUnseen: noticedUnseen(this.world, before, result) });
         return result;
     }
 

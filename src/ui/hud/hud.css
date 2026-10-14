@@ -235,3 +235,10 @@ span.sh-p { font-size: 16px; }
 .sh-chip { display: flex; align-items: center; gap: 4px; padding: 3px 6px 3px 3px; border-radius: 2px; background: rgba(226, 218, 198, 0.04); }
 .sh-chip .sh-n { width: 26px; height: 26px; }
 .sh-resume { position: relative; right: auto; bottom: auto; width: 100%; }
+
+/* Play mode's world barks (a crew member stopped by someone unseen) and the "Something stirred…" hint beside Undo. */
+.play-bark, .play-stirred { position: fixed; z-index: 7; transform: translate(-50%, -100%); padding: 4px 9px; border-radius: 6px; background: rgba(11, 13, 23, 0.85); color: #f2e6c8; font: 600 12px ui-monospace, Menlo, Consolas, monospace; letter-spacing: 0.04em; text-shadow: 0 2px 0 #000; white-space: nowrap; pointer-events: none; }
+.play-bark { border: 1px solid rgba(226, 162, 64, 0.8); animation: play-fade 1.8s forwards; }
+.play-stirred { border: 1px solid rgba(242, 230, 200, 0.45); font-style: italic; animation: play-fade 2.4s forwards; }
+.play-stirred:not([style]) { left: auto; right: 200px; bottom: 90px; transform: none; }
+@keyframes play-fade { 0%, 70% { opacity: 1; } 100% { opacity: 0; } }

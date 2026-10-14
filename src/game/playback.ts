@@ -7,7 +7,7 @@ import type { EventType, SimEvent, State } from '../sim';
  */
 
 /** Why the camera should visit an event (§20.5). */
-export type ImportantReason = 'suspicion' | 'carrier' | 'arrival' | 'shotAtCrew' | 'escape' | 'twitchy';
+export type ImportantReason = 'suspicion' | 'carrier' | 'arrival' | 'shotAtCrew' | 'escape' | 'twitchy' | 'surprise';
 
 /** Decides whether one event of a type is important; null when it isn't. `state` is the state after the events. */
 export type ImportanceRule<E extends SimEvent = SimEvent> = (event: E, state: State) => ImportantReason | null;
@@ -32,6 +32,8 @@ export function importance(event: SimEvent, state: State): ImportantReason | nul
 registerImportance('carrierStarted', 'carrier');
 registerImportance('carrierTicked', 'carrier');
 registerImportance('alarmRaised', 'carrier');
+// A crew move cut short by someone it didn't know was there (§8.15): the camera looks at who stopped and why.
+registerImportance('moveCut', 'surprise');
 
 export type PlaybackSpeed = '1x' | '2x' | 'instant';
 

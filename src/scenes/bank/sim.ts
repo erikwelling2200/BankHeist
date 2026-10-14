@@ -281,8 +281,9 @@ export class PlayMode {
         this.applyEvent(item.event);
     }
 
-    /** What an event changes at once: doors, and NPCs arriving or leaving the map. */
+    /** What an event changes at once: doors, NPCs arriving or leaving the map, someone found by a cut move. */
     private applyEvent(e: SimEvent): void {
+        if (e.type === 'moveCut') return this.showCut(e);
         if (e.type === 'doorOpened') this.showDoor(e.door, true);
         else if (e.type === 'doorClosed') this.showDoor(e.door, false);
         else if (e.type === 'npcEntered' || e.type === 'npcLeft') {
@@ -291,6 +292,55 @@ export class PlayMode {
             this.people.move(index, ...centre(e.at));
             this.people.setAway(index, e.type === 'npcLeft');
         }
+    }
+
+    /**
+     * A crew move cut short (§8.15): it has already stopped where the walk ended; the NPC who stopped it shows where they
+     * stand, and the crew member barks.
+     */
+    private showCut(e: Extract<SimEvent, { type: 'moveCut' }>): void {
+        const npc = this.session.state.npcs.find(n => n.id === e.npc), index = this.sprite.get(e.npc);
+        if (npc && index !== undefined) {
+            const [x, y] = centre(npc.pos), now = this.people.at(index);
+            this.people.setAway(index, false);
+            this.people.setAlpha(index, 1);
+            this.people.move(index, x, y, drawnFacing(npc.facing, now.facing));
+        }
+        this.bark(e.at, e.reason === 'bump' ? "Someone's there!" : 'Hold up, someone there!');
+    }
+
+    /** A short line over a tile that fades by itself. */
+    private bark(at: Pos, text: string): void {
+        const cam = this.scene.cameras.main, box = this.scene.game.canvas.getBoundingClientRect();
+        const sx = box.width / this.scene.scale.width, sy = box.height / this.scene.scale.height;
+        const el = document.createElement('div');
+        el.className = 'play-bark';
+        el.setAttribute('role', 'status');
+        el.textContent = text;
+        el.style.left = `${box.left + ((at.x + 0.5) * TILE - cam.worldView.x) * sx}px`;
+        el.style.top = `${box.top + (at.y * TILE - 20 - cam.worldView.y) * sy}px`;
+        document.body.append(el);
+        this.chrome.push(el);
+        window.setTimeout(() => el.remove(), 1800);
+    }
+
+    /**
+     * After a commit that is final because someone the crew doesn't know of noticed it (Undo greys out with no reason
+     * shown otherwise): a brief "Something stirred…" beside Undo.
+     */
+    private stirred(): void {
+        const undo = document.querySelector('.sh-undo')?.getBoundingClientRect();
+        const el = document.createElement('div');
+        el.className = 'play-stirred';
+        el.setAttribute('role', 'status');
+        el.textContent = 'Something stirred…';
+        if (undo && undo.width) {
+            el.style.left = `${undo.left + undo.width / 2}px`;
+            el.style.top = `${undo.top - 8}px`;
+        }
+        document.body.append(el);
+        this.chrome.push(el);
+        window.setTimeout(() => el.remove(), 2400);
     }
 
     private advanceWalk(deltaMs: number): void {
@@ -558,6 +608,7 @@ export class PlayMode {
 
     private onChange(change: SessionChange): void {
         if (change.kind === 'undo') this.syncAll();
+        if (change.kind === 'commit' && change.noticedUnseen) this.stirred();
         this.refresh();
     }
 
