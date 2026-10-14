@@ -291,7 +291,7 @@ function drawCarry(b: PixelBitmap, carry: Carry, front: boolean): void {
 }
 
 /** Sel-out: an outline one pixel outside the figure, coloured as a deepened version of the pixel it borders. */
-function selOut(b: PixelBitmap): void {
+export function selOut(b: PixelBitmap): void {
     const edge: [number, number, number][] = [];
     for (let y = 0; y < b.height; y++) for (let x = 0; x < b.width; x++) {
         if (b.opaque(x, y)) continue;
