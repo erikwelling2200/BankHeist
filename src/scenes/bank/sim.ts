@@ -4,7 +4,7 @@ import type { GeneratedBank } from '../../gen/model';
 import { TILE } from '../../level/level';
 import type { PersonFacing } from '../../level/plan';
 import {
-    crewMoveOptions, dashBudget, doorStatus, DASH_ACTIONS, MOVE_ACTIONS, moveBudget, pathTo, reachable, reachAt, validatePath,
+    COMBAT_STATUSES, crewMoveOptions, dashBudget, doorStatus, DASH_ACTIONS, MOVE_ACTIONS, moveBudget, pathTo, reachable, reachAt, validatePath,
     type Command, type CrewState, type Facing, type Pos, type Reach, type SimEvent
 } from '../../sim';
 import { mountHud } from '../../ui/hud/mountHud';
@@ -29,6 +29,8 @@ const VISIT_PAN_MS = 300;
 const VISIT_HOLD_MS = 450;
 /** The whole quiet world phase fits in this (§20.5). */
 const QUIET_BUDGET_MS = 2000;
+/** Of which the passive NPCs' walk takes at most this much, at 1×. */
+const NPC_WALK_BUDGET_MS = 1200;
 /** A tap snaps to a valid tile no further than this (tiles) from where it landed. */
 const SNAP_TILES = 1.5;
 /** How many tiles north of the crew the first view of a heist is centred. */
@@ -46,8 +48,11 @@ function drawnFacing(f: Facing, current: PersonFacing): PersonFacing {
 const centre = (p: Pos): [number, number] => [(p.x + 0.5) * TILE, (p.y + 0.5) * TILE];
 const same = (a: Pos | undefined, b: Pos | undefined): boolean => !!a && !!b && a.x === b.x && a.y === b.y;
 
-/** A crew member walking a path on screen. */
-interface Walk { index: number; points: [number, number][]; leg: number; t: number; msPerLeg: number }
+/**
+ * People walking on screen together, a step at a time: a crew member's move, or the passive NPCs of a world phase in one
+ * simultaneous motion (§20.5). Each walker stops at the end of their own path.
+ */
+interface Walk { walkers: { index: number; points: [number, number][] }[]; leg: number; t: number; msPerLeg: number; legs: number }
 
 export interface PlayParts {
     session: Session;
@@ -88,6 +93,8 @@ export class PlayMode {
     private holdMs = 0;
     /** How long each camera visit of the world phase being played may take, so the quiet phase fits its budget. */
     private visitMs = VISIT_PAN_MS + VISIT_HOLD_MS;
+    /** How long a step of the passive NPCs' walk takes in the world phase being played, at 1×. */
+    private npcStepMs = STEP_MS;
     private playing = false;
     /** The door states shown, by door id. */
     private shownDoors = new Map<string, boolean>();
@@ -159,6 +166,7 @@ export class PlayMode {
         return {
             selected: this.session.selected, pending: this.session.pendingCommand, mode: this.mode, playing: this.busy,
             speed: this.session.playback.speed, path: this.overlay.state.path, dash: this.overlay.state.dash, reach: this.overlay.state.reach,
+            intents: this.overlay.state.intents,
             doorsOpen: [...this.shownDoors].filter(([, open]) => open).map(([id]) => id)
         };
     }
@@ -201,18 +209,49 @@ export class PlayMode {
 
     private play(item: PlaybackItem): void {
         const e = item.event, speed = this.session.playback.duration(1);
-        this.applyDoors(e);
+        this.applyEvent(e);
         if (e.type === 'moved') {
             const index = this.sprite.get(e.crew);
             if (index === undefined || speed === 0) return;
-            const points = [e.from, ...e.path].map(centre);
-            this.walk = { index, points, leg: 0, t: 0, msPerLeg: STEP_MS * speed };
+            this.startWalk([{ index, points: [e.from, ...e.path].map(centre) }], STEP_MS * speed);
+            return;
+        }
+        if (e.type === 'npcWalked') {
+            if (speed === 0) return;
+            // NPCs in combat (§20.5) act one at a time, the camera following each; none are yet (M3).
+            if (this.inCombat(e.npc)) {
+                const index = this.sprite.get(e.npc);
+                if (index === undefined) return;
+                this.camera.centreOn(...centre(e.path.at(-1)!), VISIT_PAN_MS * speed);
+                this.startWalk([{ index, points: [e.from, ...e.path].map(centre) }], STEP_MS * speed);
+                return;
+            }
+            // The passive NPCs move together: every passive walk of this world phase, in one motion. The doors they
+            // open on the way open as they set off.
+            const group = [e], taken: number[] = [];
+            for (const other of this.session.playback.pending()) {
+                if (other.turn !== item.turn) break;
+                const o = other.event;
+                if (o.type === 'phaseStarted') break;
+                if (o.type === 'npcWalked' && !this.inCombat(o.npc)) { group.push(o); taken.push(other.seq); }
+                else if (o.type === 'doorOpened' && this.sprite.has(o.by) && !this.session.state.crew.some(c => c.id === o.by)) { this.applyEvent(o); taken.push(other.seq); }
+            }
+            this.session.playback.remove(taken);
+            const walkers = group.flatMap(w => {
+                const index = this.sprite.get(w.npc);
+                return index === undefined ? [] : [{ index, points: [w.from, ...w.path].map(centre) }];
+            });
+            this.startWalk(walkers, this.npcStepMs * speed);
             return;
         }
         if (e.type === 'phaseStarted' && e.phase === 'world') {
-            // The quiet world phase fits its budget: share it out among the visits it holds (§20.5).
-            const visits = this.session.playback.pending().filter(i => i.important && i.turn === item.turn).length;
-            this.visitMs = visits ? Math.min(VISIT_PAN_MS + VISIT_HOLD_MS, QUIET_BUDGET_MS / visits) : 0;
+            // The quiet world phase fits its budget (§20.5): the NPCs' walk, then the visits share what is left.
+            const items = this.session.playback.pending().filter(i => i.turn === item.turn);
+            const visits = items.filter(i => i.important).length;
+            const legs = Math.max(0, ...items.map(i => (i.event.type === 'npcWalked' && !this.inCombat(i.event.npc) ? i.event.path.length : 0)));
+            this.npcStepMs = legs ? Math.min(STEP_MS, NPC_WALK_BUDGET_MS / legs) : STEP_MS;
+            const left = QUIET_BUDGET_MS - legs * this.npcStepMs;
+            this.visitMs = visits ? Math.min(VISIT_PAN_MS + VISIT_HOLD_MS, left / visits) : 0;
         }
         const at = item.important && this.eventPos(e);
         if (at && speed > 0) {
@@ -222,34 +261,49 @@ export class PlayMode {
         }
     }
 
-    /** Finishes an event at once: doors and positions are synced when the queue empties. */
-    private applyInstantly(item: PlaybackItem): void {
-        this.applyDoors(item.event);
+    private inCombat(npc: string): boolean {
+        const n = this.session.state.npcs.find(x => x.id === npc);
+        return !!n && COMBAT_STATUSES.has(n.status);
     }
 
-    private applyDoors(e: SimEvent): void {
+    private startWalk(walkers: Walk['walkers'], msPerLeg: number): void {
+        const legs = Math.max(0, ...walkers.map(w => w.points.length - 1));
+        if (legs) this.walk = { walkers, leg: 0, t: 0, msPerLeg, legs };
+    }
+
+    /** Finishes an event at once: doors and positions are synced when the queue empties. */
+    private applyInstantly(item: PlaybackItem): void {
+        this.applyEvent(item.event);
+    }
+
+    /** What an event changes at once: doors, and NPCs arriving or leaving the map. */
+    private applyEvent(e: SimEvent): void {
         if (e.type === 'doorOpened') this.showDoor(e.door, true);
-        else if ((e as { type: string }).type === 'doorClosed') this.showDoor((e as unknown as { door: string }).door, false);
+        else if (e.type === 'doorClosed') this.showDoor(e.door, false);
+        else if (e.type === 'npcEntered' || e.type === 'npcLeft') {
+            const index = this.sprite.get(e.npc);
+            if (index === undefined) return;
+            this.people.move(index, ...centre(e.at));
+            this.people.setAway(index, e.type === 'npcLeft');
+        }
     }
 
     private advanceWalk(deltaMs: number): void {
         const w = this.walk!;
         w.t += deltaMs / Math.max(1, w.msPerLeg);
-        while (w.t >= 1 && w.leg < w.points.length - 1) {
+        while (w.t >= 1 && w.leg < w.legs) {
             w.t -= 1;
             w.leg++;
         }
-        if (w.leg >= w.points.length - 1) {
-            const [x, y] = w.points.at(-1)!;
-            this.people.move(w.index, x, y);
-            this.walk = undefined;
-            return;
+        for (const { index, points } of w.walkers) {
+            const last = points.length - 1, leg = Math.min(w.leg, last), t = w.leg >= last ? 0 : w.t;
+            const [fx, fy] = points[leg]!, [tx, ty] = points[Math.min(leg + 1, last)]!;
+            const x = Math.round(fx + (tx - fx) * t), y = Math.round(fy + (ty - fy) * t);
+            const now = this.people.at(index);
+            const facing: PersonFacing = ty > fy ? 'front' : ty < fy ? 'back' : now.facing;
+            if (x !== now.x || y !== now.y || facing !== now.facing) this.people.move(index, x, y, facing);
         }
-        const [fx, fy] = w.points[w.leg]!, [tx, ty] = w.points[w.leg + 1]!;
-        const x = Math.round(fx + (tx - fx) * w.t), y = Math.round(fy + (ty - fy) * w.t);
-        const now = this.people.at(w.index);
-        const facing: PersonFacing = ty > fy ? 'front' : ty < fy ? 'back' : now.facing;
-        if (x !== now.x || y !== now.y || facing !== now.facing) this.people.move(w.index, x, y, facing);
+        if (w.leg >= w.legs) this.walk = undefined;
     }
 
     /** Where an event happened, for the camera: a carrier's holder. */
@@ -269,6 +323,7 @@ export class PlayMode {
             if (index === undefined) continue;
             const [x, y] = centre(p.pos), now = this.people.at(index), facing = drawnFacing(p.facing, now.facing);
             if (now.x !== x || now.y !== y || now.facing !== facing) this.people.move(index, x, y, facing);
+            if ('status' in p) this.people.setAway(index, p.status === 'away');
         }
         for (const id of Object.keys(world.doors)) {
             const status = doorStatus(world, state, id);
@@ -496,23 +551,36 @@ export class PlayMode {
     }
 
     private overlayContent(): Parameters<WorldOverlay['set']>[0] {
-        const member = this.selectedMember();
-        if (!member || this.busy || this.recap || this.session.state.phase !== 'crew') return null;
+        if (this.busy || this.recap || this.session.state.phase !== 'crew') return null;
+        const intents = this.intents(), member = this.selectedMember();
+        if (!member) return { colour: '', intents };
         const colour = CREW_COLOURS[this.session.state.crew.indexOf(member) % CREW_COLOURS.length]!;
         if (this.dragPath) {
             const { world, state } = this.session, budget = member.actionsLeft >= DASH_ACTIONS ? dashBudget(world) : moveBudget(world, member);
             const check = validatePath(world, state, member.pos, this.dragPath, budget, crewMoveOptions(member));
-            return { colour, from: member.pos, path: this.dragPath, badFrom: check.ok ? undefined : check.at };
+            return { colour, intents, from: member.pos, path: this.dragPath, badFrom: check.ok ? undefined : check.at };
         }
         const pending = this.session.pendingCommand;
-        if (pending && 'path' in pending) return { colour, from: member.pos, path: pending.path as Pos[], dash: pending.type === 'dash' };
-        if (member.actionsLeft === 0 || pending) return null;
+        if (pending && 'path' in pending) return { colour, intents, from: member.pos, path: pending.path as Pos[], dash: pending.type === 'dash' };
+        if (member.actionsLeft === 0 || pending) return { colour, intents };
         const { reach, move } = this.reach(member);
         const ends = reach.tiles.filter(t => t.canEnd && t.cost > 0);
         return {
-            colour,
+            colour, intents,
             reach: { move: ends.filter(t => t.cost <= move && this.mode !== 'dash').map(t => t.pos), dash: ends.filter(t => t.cost > move || this.mode === 'dash').map(t => t.pos) }
         };
+    }
+
+    /**
+     * The walks the NPCs on screen have committed to for the next world phase (§4 Intent, §6.2), hostile ones aside.
+     * TODO(M1-10): only those the crew can know; TODO(M1-14): the overlay's own intent arrows.
+     */
+    private intents(): { from: Pos; path: Pos[] }[] {
+        return this.session.state.npcs.flatMap(n => {
+            const index = this.sprite.get(n.id);
+            if (index === undefined || !this.people.shown(index) || n.status === 'hostile' || n.status === 'away' || !n.intent.path.length) return [];
+            return [{ from: n.pos, path: n.intent.path.map(p => ({ x: p.x, y: p.y })) }];
+        });
     }
 
     /** Play mode's own buttons beside the HUD's camera tools: the playback speed (§20.5). */

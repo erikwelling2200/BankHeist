@@ -157,6 +157,31 @@ test('never overwrites a saved heist without asking', SMOKE, async ({ page }) =>
     expect(errors).toEqual([]);
 });
 
+test('plays the NPCs\' world phase: people on screen stand where the state says', SMOKE, async ({ page }) => {
+    const errors = await boot(page);
+    const npcs = () => page.evaluate(() => (window as any).sim.state.npcs.map((n: any) => ({ id: n.id, pos: n.pos, status: n.status })));
+    const before = await npcs();
+    for (let turn = 0; turn < 3; turn++) {
+        await page.evaluate(() => (window as any).sim.endTurn());
+        await idle(page);
+    }
+    const after = await npcs();
+    expect((await sim(page)).turn).toBe(4);
+    expect(after.some((n: any, i: number) => n.pos.x !== before[i].pos.x || n.pos.y !== before[i].pos.y || n.status !== before[i].status)).toBe(true);
+    const people = (await scene(page)).people;
+    after.forEach((n: any, i: number) => {
+        if (n.status === 'away') expect(people[i].visible, n.id).toBe(false);
+        else expect([people[i].x, people[i].y], n.id).toEqual([(n.pos.x + 0.5) * 16, (n.pos.y + 0.5) * 16]);
+    });
+    // Look at whoever walked furthest, with the intents for the next phase drawn.
+    const moved = after.map((n: any, i: number) => ({ n, d: Math.hypot(n.pos.x - before[i].pos.x, n.pos.y - before[i].pos.y) }))
+        .filter((m: any) => m.n.status !== 'away').sort((a: any, b: any) => b.d - a.d)[0].n;
+    await page.evaluate(([x, y]) => (window as any).game.scene.getScene('bank').lookAt((x + 0.5) * 16, (y + 0.5) * 16), [moved.pos.x, moved.pos.y]);
+    await page.waitForTimeout(800);
+    await page.screenshot({ path: 'screenshots/play-npcs.png' });
+    expect(errors).toEqual([]);
+});
+
 test('drawing a path from the selected crew member previews it', SMOKE, async ({ page }) => {
     const errors = await boot(page);
     const mara = await member(page, 'mara');

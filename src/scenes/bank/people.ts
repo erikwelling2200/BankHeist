@@ -28,6 +28,8 @@ interface PersonSprite {
     facing: Facing;
     /** Mean brightness of the lit sprite (0-255), so tests can see the light change. */
     light: number;
+    /** Off the map (an NPC gone home or out): not drawn. */
+    away?: boolean;
     /** A crew member's ground ring in their colour (UI.md "Crew"), under them. */
     ring?: Phaser.GameObjects.Image;
     /** A walk along a line of waypoints (pixels) and back: the leg being walked, how far along it, which way. */
@@ -132,6 +134,19 @@ export class People {
         return (x >= b.x && x < b.right && y >= b.y && y < b.bottom) || (Math.abs(x - p.x) <= TILE / 2 && Math.abs(y - p.y) <= TILE / 2);
     }
 
+    /** Takes person `index` off the map (an NPC who left) or puts them back. */
+    setAway(index: number, away: boolean): void {
+        const p = this.sprites[index];
+        if (!p || !!p.away === away) return;
+        p.away = away;
+        this.showIfSeen(p);
+    }
+
+    /** Whether person `index` is drawn (on the map and not in a room the blueprint only outlines). */
+    shown(index: number): boolean {
+        return this.sprites[index]?.image.visible ?? false;
+    }
+
     /** A crew member's ring bright (selected) or quiet. */
     highlight(index: number, on: boolean): void {
         this.sprites[index]?.ring?.setAlpha(on ? 1 : 0.55);
@@ -180,7 +195,7 @@ export class People {
 
     /** Hides a person standing where `hidden` says; called whenever they move. */
     private showIfSeen(p: PersonSprite): void {
-        const hidden = this.hidden(p.x, p.y);
+        const hidden = !!p.away || this.hidden(p.x, p.y);
         p.image.setVisible(!hidden);
         p.shadow.setVisible(!hidden);
         p.ring?.setVisible(!hidden);

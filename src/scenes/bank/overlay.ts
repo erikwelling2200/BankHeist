@@ -26,6 +26,8 @@ export interface OverlayContent {
     dash?: boolean;
     /** The index of the first step that can't be taken; it and those after it are drawn red. */
     badFrom?: number;
+    /** The NPCs' committed walks for the next world phase: a dotted line and a pin where each ends. */
+    intents?: { from: Pos; path: Pos[] }[];
 }
 
 const SAGE = 'rgba(128, 190, 138, 0.16)';
@@ -34,6 +36,7 @@ const CREAM_FAINT = 'rgba(242, 230, 200, 0.07)';
 const INK = 'rgba(13, 12, 20, 0.85)';
 const CREAM = '#f2e6c8';
 const RED = '#d44638';
+const INTENT = 'rgba(242, 230, 200, 0.7)';
 
 export class WorldOverlay {
     readonly canvas: HTMLCanvasElement;
@@ -59,8 +62,8 @@ export class WorldOverlay {
     }
 
     /** The path shown, for tests. */
-    get state(): { path: Pos[]; reach: number; dash: boolean } {
-        return { path: this.content?.path ?? [], reach: this.content?.reach?.move.length ?? 0, dash: !!this.content?.dash };
+    get state(): { path: Pos[]; reach: number; dash: boolean; intents: number } {
+        return { path: this.content?.path ?? [], reach: this.content?.reach?.move.length ?? 0, dash: !!this.content?.dash, intents: this.content?.intents?.length ?? 0 };
     }
 
     destroy(): void {
@@ -104,6 +107,25 @@ export class WorldOverlay {
                 if (!inMove.has(`${p.x - 1},${p.y}`)) ctx.fillRect(x, y, 2, S);
                 if (!inMove.has(`${p.x + 1},${p.y}`)) ctx.fillRect(x + S - 2, y, 2, S);
             }
+        }
+
+        for (const intent of c.intents ?? []) {
+            const points = [intent.from, ...intent.path].map(mid);
+            ctx.lineWidth = 2;
+            ctx.setLineDash([4, 4]);
+            for (const [colour, dy] of [[INK, 2], [INTENT, 0]] as const) {
+                ctx.strokeStyle = colour;
+                ctx.beginPath();
+                points.forEach(([x, y], i) => (i ? ctx.lineTo(x, y + dy) : ctx.moveTo(x, y + dy)));
+                ctx.stroke();
+            }
+            ctx.setLineDash([]);
+            // The pin: a ring where the walk ends.
+            const [x, y] = points.at(-1)!;
+            ctx.strokeStyle = INK;
+            ctx.strokeRect(x - 4, y - 3, 8, 8);
+            ctx.strokeStyle = INTENT;
+            ctx.strokeRect(x - 4, y - 5, 8, 8);
         }
 
         if (c.from && c.path?.length) {
