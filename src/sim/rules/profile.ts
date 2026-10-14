@@ -130,7 +130,8 @@ export function readProfile(rules: DeepReadonly<Rules>, look: CrewLook, notoriet
     return raiseProfile(look.profile, notorietySteps(rules, notoriety, observer) + (alerted ? 1 : 0));
 }
 
-/** Whether a frisk finds something (§8.5, §10.6): any item that isn't Clean, shown or packed. */
+/** Whether a frisk finds something (§8.5, §10.6): any item that isn't Clean, shown or packed. An empty duffel is just a bag. */
 export function friskFinds(member: DeepReadonly<CrewState>): boolean {
-    return [...member.loadout.items, ...member.loadout.packed].some(id => itemDef(id).profile !== 'clean');
+    const { items, packed } = member.loadout;
+    return packed.length > 0 || items.some(id => id !== DUFFEL_ITEM && itemDef(id).profile !== 'clean');
 }

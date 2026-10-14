@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import {
-    assessEnd, assessStep, assessWorldPhase, checkLoadout, commit, crewLook, fixtureWorld, friskFinds, hashOf, initialState, preview,
+    assessEnd, assessPath, assessStep, assessWorldPhase, checkLoadout, commit, crewLook, fixtureWorld, friskFinds, hashOf, initialState, preview,
     reaction, sightingsAlong, sightMap, witness, witnessAct, type CameraDef, type Command, type CrewStart, type Facing,
     type FixtureWall, type ObserverClass, type Outcome, type PersonDef, type Pos, type Profile, type ReadonlyWorld, type SimEvent,
     type State, type Zone
@@ -233,6 +233,8 @@ describe('the profile', () => {
         expect(friskFinds(member({ items: ['lockpick'] }))).toBe(false);
         expect(friskFinds(member({ items: ['pistol'] }))).toBe(true);
         expect(friskFinds(member({ packed: ['dmr'] }))).toBe(true);
+        expect(friskFinds(member({ items: ['duffel'] }))).toBe(false);
+        expect(friskFinds(member({ items: ['duffel'], packed: ['smg'] }))).toBe(true);
         expect(() => checkLoadout(member({}))).not.toThrow();
     });
 });
@@ -364,6 +366,18 @@ describe('a crew move', () => {
         // Mid-move in Staff and back in the lobby at the end, seen through the open door: Exposed (Armed in Staff mid-move).
         expect(through.state.npcs[0]!.exposedTo).toEqual(['jun']);
         expect(events(through.events, 'perceptionCheck')).toHaveLength(2);
+    });
+
+    it('is judged as a whole by assessPath, which a camera reports once', () => {
+        const world = lobby([person('guard', 'enforcer', P(2, 0), 's')], { cameras: [{ id: 'cam', pos: P(0, 0), facings: ['se'], room: null }] });
+        const state = initialState(world, { seed: 1, crew: [{ id: 'jun', pos: P(0, 3), items: ['assaultRifle'] }] });
+        const path = [P(1, 3), P(2, 3), P(3, 3)];
+        const judged = assessPath(world, state, 'jun', path);
+        expect(judged.steps.map(s => [s.observer, s.tile])).toEqual([['guard', P(1, 3)], ['cam', P(1, 3)], ['guard', P(2, 3)], ['cam', P(2, 3)]]);
+        expect(judged.end.map(s => s.observer)).toEqual(['guard', 'cam']);
+        const result = step(world, state, { type: 'move', crew: 'jun', path });
+        expect(events(result.events, 'cameraSaw')).toHaveLength(1);
+        expect(result.state.cameraReports).toHaveLength(1);
     });
 
     it('previews exactly what it commits', () => {
@@ -530,7 +544,11 @@ describe('trespass', () => {
         let state = step(world, result.state, { type: 'endTurn' }).state;
         // Behind the teller, who looks west.
         state = step(world, state, { type: 'move', crew: 'jun', path: [P(6, 1), P(7, 1), P(8, 1), P(9, 1)] }).state;
-        expect(assessEnd(world, state, sightMap(world, state), 'jun', P(9, 1))).toEqual([]);
+        const sight = sightMap(world, state);
+        expect(assessEnd(world, state, sight, 'jun', P(9, 1))).toEqual([]);
+        // The hatched overlay shows the deadline: red anywhere off Public floor, seen or not; nothing on Public floor.
+        expect(assessWorldPhase(world, state, sight, 'jun', P(9, 1)).map(s => [s.observer, s.outcome, s.band, s.why])).toEqual([['teller', '!', null, ['trespass']]]);
+        expect(assessWorldPhase(world, state, sight, 'jun', P(2, 1))).toEqual([]);
         const deadline = step(world, state, { type: 'endTurn' });
         expect(deadline.state.npcs[0]!.exposedTo).toEqual(['jun']);
     });

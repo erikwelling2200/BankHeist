@@ -69,8 +69,9 @@ export {
     addSuspicion, alertNpc, expose, EYES_DOWN, isEyesDown, isExposedTo, markSeen, MAX_PIPS, pipsOf, refreshWant, setEscort,
     type CameraReport, type Challenge, type LastSeen, type Want, type WantKind
 } from './rules/suspicion';
-export { challenge, challengeDeadline, challengerOf, hasWarned, isWarned } from './rules/trespass';
+export { challenge, challengeDeadline, challengerOf, deadlineOutcome, dueChallenge, hasWarned, isWarned } from './rules/trespass';
 export {
-    applySightings, assessEnd, assessStep, assessWorldPhase, perceiveEnd, posesAlong, reaction, sightingsAlong, witness, witnessAct,
-    type AlongOptions, type AssessOptions, type Reaction, type ReactionInput, type Sighting, type Why
+    applySightings, assessEnd, assessPath, assessStep, assessWorldPhase, perceiveEnd, posesAlong, reaction, sightingsAlong,
+    sightsAlongWalk, witness, witnessAct, worldPoses, type AlongOptions, type AssessOptions, type PathAssessment, type PoseAt,
+    type Reaction, type ReactionInput, type Sighting, type WorldPhaseOptions, type WorldPoses, type Why
 } from './rules/perceive';

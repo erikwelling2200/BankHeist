@@ -1,6 +1,5 @@
 import { registerWorldHook, type Ctx } from '../core/engine';
 import { facingToward, tileAt } from '../core/grid';
-import { stableJson } from '../core/json';
 import { crewMember } from '../core/state';
 import type {
     CrewState, DeepReadonly, DoorState, Intent, NpcState, ObserverClass, PersonDef, Pos, ReadonlyWorld, Rules, State, Zone
@@ -11,12 +10,12 @@ import { profileRank, type Profile } from '../data/items';
 import {
     MATRIX, OBSERVER_COLUMN, OUTCOME_RANK, PERIPHERAL, UNIFORMS, type Cell, type IllegalAct, type Outcome
 } from '../data/matrix';
-import { bandAt, cameraObserver, fieldOn, npcObserver, type Band, type Observer } from '../geo/cones';
+import { bandAt, cameraObserver, fieldOn, npcObserver, type Band, type Observer, type SightField } from '../geo/cones';
 import { sightMap, type SightMap } from '../geo/los';
 import { doorBetween, doorStatus } from '../geo/move';
 import { crewLook, readProfile, type CrewLook } from './profile';
 import { addSuspicion, expose, isEyesDown, isExposedTo, markSeen, refreshWant } from './suspicion';
-import { challenge, hasWarned, isWarned } from './trespass';
+import { challenge, deadlineOutcome, hasWarned, isWarned } from './trespass';
 
 /*
  * Perception (§8.2–8.7): who notices a crew member, and what it does about it. These are the only copies of the
@@ -28,10 +27,14 @@ import { challenge, hasWarned, isWarned } from './trespass';
  *   in Core; frisk range; Peripheral one step weaker; a Warned crew member's second offence; cameras only `!`.
  * - `assessStep(world, state, sight, crew, tile)`: a tile passed in the middle of a move. Only `!` counts (§8.5).
  * - `assessEnd(world, state, sight, crew, tile)`: ending an action on a tile: every observer's matrix value.
+ * - `assessPath(world, state, crew, path)`: a whole move: `assessStep` on the tiles it passes and `assessEnd` on the
+ *   last, with the doors the walk opens (`sightsAlongWalk`). The move applies exactly this.
  * - `sightingsAlong(world, state, sight, npc, crew, tile)`: the world phase. The NPC walks its committed intent (its
  *   standing pose, then each step facing along it, then its final facing; doors it walks through open for the rest of
  *   the walk) and adds its strongest sighting of the crew member once. `assessWorldPhase` is that for every NPC plus
- *   the cameras at the facing they pan to: the hatched overlay.
+ *   the cameras at the facing they pan to (M1-08 must pan them exactly one step per world phase), plus a trespass
+ *   deadline falling due (`deadlineOutcome`): the hatched overlay. `worldPoses` works out every walk once for many
+ *   tiles.
  * - `witness(world, state, sight, crew, act, tile)`: an illegal act (§8.4) is `!` for anyone who sees it, Core or
  *   Peripheral.
  *
@@ -40,9 +43,9 @@ import { challenge, hasWarned, isWarned } from './trespass';
  * turns sightings into suspicion, exposure, challenges and camera reports. NPCs never act on them in the crew phase
  * (§6.2): they form wants (suspicion.ts) that the world phase carries out.
  *
- * **Within one move** every sighting is judged against the NPCs as they were when the move began, with the doors the
- * walk opens: the steps and the end are collected and applied together at the end, so a guard who Exposes the crew
- * member mid-move doesn't read the end tile on edge (the overlay judges every tile of a path against the same state).
+ * **Within one move** every sighting is judged against the state before the move, with the doors the walk opens
+ * (`assessPath`), and applied together at the end, so a guard who Exposes the crew member mid-move doesn't read the
+ * end tile on edge: the overlay judges every tile of a path against the same state.
  * **Within one world phase** likewise: every sighting is judged first, then all are applied.
  *
  * Seeing without effect: in a crew phase it changes nothing and isn't a perception check (the overlay showed it green,
@@ -59,7 +62,7 @@ declare module '../core/types' {
 /** Why a sighting came out as it did, for "who and why" (§8.8). */
 export type Why =
     | 'onEdge' | 'notoriety' | 'uniform' | 'seenThrough' | 'friskRange' | 'outOfFriskRange' | 'peripheral' | 'secondOffence'
-    | 'illegal' | 'cameraOnly';
+    | 'illegal' | 'cameraOnly' | 'trespass';
 
 export interface ReactionInput {
     look: CrewLook;
@@ -124,6 +127,7 @@ export function reaction(rules: DeepReadonly<Rules>, input: ReactionInput): Reac
         if (weaker !== outcome) why.push('peripheral');
         outcome = weaker;
     }
+    // Not for cameras: they register only `!` cells (§8.4), and the operator doesn't know who was warned.
     if (outcome === 'T' && !input.camera && (input.warnedByThis || (input.observer === 'enforcer' && input.warnedByAny))) {
         outcome = '!';
         why.push('secondOffence');
@@ -145,7 +149,8 @@ export interface Sighting {
     tile: Pos;
     /** Where the observer stands (on its walk, for `sightingsAlong`). */
     from: Pos;
-    band: Band;
+    /** How well it is seen; null when it isn't (a trespass deadline Exposes whoever didn't leave, seen or not). */
+    band: Band | null;
     /** The tile's zone, and the zone it reads as. */
     zone: Zone;
     readAs: Zone;
@@ -167,6 +172,8 @@ export interface AssessOptions {
 export interface AlongOptions extends AssessOptions {
     /** Walk this intent instead of the NPC's committed one. */
     intent?: DeepReadonly<Intent>;
+    /** The walks worked out once (`worldPoses`); used unless `intent` is given. */
+    poses?: WorldPoses;
 }
 
 // ---------------------------------------------------------------------------------------------------------- Observers
@@ -200,9 +207,9 @@ const cameraWatcher = (id: string): Watcher => ({ id, by: 'camera', observer: 'e
 
 function sightingFrom(
     world: ReadonlyWorld, state: State, sight: SightMap, w: Watcher, pose: Observer, member: DeepReadonly<CrewState>, look: CrewLook,
-    tile: Pos, act?: IllegalAct
+    tile: Pos, act?: IllegalAct, field?: SightField
 ): Sighting | null {
-    const band = bandAt(fieldOn(sight, pose), tile);
+    const band = bandAt(field ?? fieldOn(sight, pose), tile);
     if (!band) return null;
     const zone = tileAt(world, tile)!.zone;
     const known = w.npc !== null && isExposedTo(w.npc, member.id);
@@ -263,101 +270,178 @@ export function witness(world: ReadonlyWorld, state: State, sight: SightMap, cre
     return sightingsNow(world, state, sight, crewId, tile, undefined, act);
 }
 
-interface PoseAt { pose: Observer; sight: SightMap }
-
-const POSES = new WeakMap<SightMap, Map<string, PoseAt[]>>();
-const MAX_POSES = 512;
+/** Where an NPC looks from at one moment of its walk, the sight map then (with the doors it opened so far) and what it sees. */
+export interface PoseAt { pose: Observer; sight: SightMap; field: SightField }
 
 /**
- * Where an NPC looks from while it carries out an intent: where it stands, each step facing along it, then its final
- * facing. A closed or locked door it walks through stays open for the rest of the walk (sight passes it).
+ * The sight map after each step of a walk from `from` along `path`: a closed or locked door the walker crosses is open
+ * from that step on (whoever walks through a door opens it). Only the walker's own doors: in the world phase each
+ * NPC's walk is judged with the doors *it* opens, never another NPC's (they walk at once, and nobody's sightings may
+ * depend on the order). The one copy of this rule, for crew moves (`assessPath`) and NPC walks (`posesAlong`).
  */
-export function posesAlong(world: ReadonlyWorld, state: State, sight: SightMap, npc: DeepReadonly<NpcState>, intent: DeepReadonly<Intent>): readonly PoseAt[] {
-    const start = npcObserver(world, npc);
-    if (!start) return [];
-    let cache = POSES.get(sight);
-    if (!cache) POSES.set(sight, cache = new Map());
-    const key = `${npc.id} ${npc.pos.x},${npc.pos.y} ${npc.facing} ${start.profile.name} ${stableJson(intent)}`;
-    const known = cache.get(key);
-    if (known) return known;
-    const out: PoseAt[] = [{ pose: start, sight }];
-    let map = sight, prev = npc.pos, facing = npc.facing;
+export function sightsAlongWalk(world: ReadonlyWorld, state: State, sight: SightMap, from: DeepReadonly<Pos>, path: readonly DeepReadonly<Pos>[]): SightMap[] {
+    const out: SightMap[] = [];
+    let map = sight, prev: DeepReadonly<Pos> = from;
     let opened: Record<string, DoorState> | null = null;
-    for (const p of intent.path) {
+    for (const p of path) {
         if (Math.abs(p.x - prev.x) + Math.abs(p.y - prev.y) === 1) {
             const door = doorBetween(world, prev, p);
-            const status = door && (opened && Object.hasOwn(opened, door.id) ? opened[door.id]!.status : doorStatus(world, state, door.id));
-            if (door && (status === 'closed' || status === 'locked')) {
-                opened = { ...(opened ?? state.doors), [door.id]: { ...state.doors[door.id], status: 'open' } };
-                map = sightMap(world, { ...state, doors: opened });
+            if (door) {
+                const status = opened && Object.hasOwn(opened, door.id) ? opened[door.id]!.status : doorStatus(world, state, door.id);
+                if (status === 'closed' || status === 'locked') {
+                    opened = { ...(opened ?? state.doors), [door.id]: { ...state.doors[door.id], status: 'open' } };
+                    map = sightMap(world, { ...state, doors: opened });
+                }
             }
         }
-        facing = facingToward(prev, p) ?? facing;
-        out.push({ pose: { pos: { x: p.x, y: p.y }, facing, profile: start.profile }, sight: map });
+        out.push(map);
         prev = p;
     }
-    if (intent.facing && intent.facing !== facing) out.push({ pose: { pos: { x: prev.x, y: prev.y }, facing: intent.facing, profile: start.profile }, sight: map });
-    if (cache.size >= MAX_POSES) cache.clear();
-    cache.set(key, out);
     return out;
+}
+
+/** Where an NPC looks from while it carries out an intent: where it stands, each step facing along it, then its final facing. */
+export function posesAlong(world: ReadonlyWorld, state: State, sight: SightMap, npc: DeepReadonly<NpcState>, intent: DeepReadonly<Intent>): PoseAt[] {
+    const start = npcObserver(world, npc);
+    if (!start) return [];
+    const at = (pose: Observer, map: SightMap): PoseAt => ({ pose, sight: map, field: fieldOn(map, pose) });
+    const out: PoseAt[] = [at(start, sight)];
+    const maps = sightsAlongWalk(world, state, sight, npc.pos, intent.path);
+    let prev: DeepReadonly<Pos> = npc.pos, facing = npc.facing, map = sight;
+    intent.path.forEach((p, i) => {
+        facing = facingToward(prev, p) ?? facing;
+        map = maps[i]!;
+        out.push(at({ pos: { x: p.x, y: p.y }, facing, profile: start.profile }, map));
+        prev = p;
+    });
+    if (intent.facing && intent.facing !== facing) out.push(at({ pos: { x: prev.x, y: prev.y }, facing: intent.facing, profile: start.profile }, map));
+    return out;
+}
+
+/**
+ * Every NPC's walk through the coming world phase, worked out once per evaluation: the overlay asks about hundreds of
+ * tiles against the same walks, so it takes this once (per state and sight map) and passes it in. Eyes-down NPCs have
+ * no walk to look from.
+ */
+export interface WorldPoses {
+    readonly sight: SightMap;
+    readonly byNpc: ReadonlyMap<string, readonly PoseAt[]>;
+}
+
+export function worldPoses(
+    world: ReadonlyWorld, state: State, sight: SightMap, intents: Readonly<Record<string, DeepReadonly<Intent>>> | null = null
+): WorldPoses {
+    const byNpc = new Map<string, readonly PoseAt[]>();
+    for (const npc of state.npcs) {
+        if (isEyesDown(npc)) continue;
+        const intent = intents && Object.hasOwn(intents, npc.id) ? intents[npc.id]! : npc.intent;
+        byNpc.set(npc.id, posesAlong(world, state, sight, npc, intent));
+    }
+    return { sight, byNpc };
 }
 
 const stronger = (a: Sighting | null, b: Sighting | null): Sighting | null =>
     (!a ? b : !b ? a : OUTCOME_RANK[b.outcome] > OUTCOME_RANK[a.outcome] ? b : a);
 
+function strongestAlong(
+    world: ReadonlyWorld, state: State, w: Watcher, poses: readonly PoseAt[], member: DeepReadonly<CrewState>, look: CrewLook, tile: Pos
+): Sighting | null {
+    let best: Sighting | null = null;
+    for (const { pose, sight: map, field } of poses) {
+        if (!bandAt(field, tile)) continue;
+        best = stronger(best, sightingFrom(world, state, map, w, pose, member, look, tile, undefined, field));
+        if (best?.outcome === '!') break;
+    }
+    return best;
+}
+
 /**
  * The world phase (§8.5): the NPC's strongest sighting of the crew member on `tile` while it carries out its committed
  * intent, or null if it never sees them. A sighting that does nothing (outcome '-') is still returned: it still counts
- * as seeing the crew member (no decay).
+ * as seeing the crew member (no decay). Pass `poses` (from `worldPoses` on the same state and sight map) when asking
+ * about many tiles.
  */
 export function sightingsAlong(
     world: ReadonlyWorld, state: State, sight: SightMap, npcId: string, crewId: string, tile: Pos, options: AlongOptions = {}
 ): Sighting | null {
     const npc = state.npcs.find(n => n.id === npcId);
     if (!npc || isEyesDown(npc)) return null;
-    const member = crewMember(state, crewId), look = options.look ?? crewLook(member), w = npcWatcher(world, npc);
-    let best: Sighting | null = null;
-    for (const { pose, sight: map } of posesAlong(world, state, sight, npc, options.intent ?? npc.intent)) {
-        best = stronger(best, sightingFrom(world, state, map, w, pose, member, look, tile));
-        if (best?.outcome === '!') break;
-    }
-    return best;
+    const member = crewMember(state, crewId), look = options.look ?? crewLook(member);
+    const poses = options.intent === undefined && options.poses?.sight === sight ? options.poses.byNpc.get(npcId) ?? []
+        : posesAlong(world, state, sight, npc, options.intent ?? npc.intent);
+    return strongestAlong(world, state, npcWatcher(world, npc), poses, member, look, tile);
 }
 
 /** Every sighting of the coming world phase, including those that do nothing; cameras look where they pan to (§8.3). */
-function worldSightings(
-    world: ReadonlyWorld, state: State, sight: SightMap, crewId: string, tile: Pos, intents: Readonly<Record<string, DeepReadonly<Intent>>> | null,
-    look: CrewLook | undefined
-): Sighting[] {
+function worldSightings(world: ReadonlyWorld, state: State, poses: WorldPoses, crewId: string, tile: Pos, look: CrewLook | undefined): Sighting[] {
     const out: Sighting[] = [];
+    const member = crewMember(state, crewId), seen = look ?? crewLook(member);
     for (const npc of state.npcs) {
-        const intent = intents && Object.hasOwn(intents, npc.id) ? intents[npc.id]! : npc.intent;
-        const s = sightingsAlong(world, state, sight, npc.id, crewId, tile, look ? { intent, look } : { intent });
+        const walk = poses.byNpc.get(npc.id);
+        if (!walk) continue;
+        const s = strongestAlong(world, state, npcWatcher(world, npc), walk, member, seen, tile);
         if (s) out.push(s);
     }
-    const member = crewMember(state, crewId), seen = look ?? crewLook(member);
     for (const camera of world.cameras) {
         const pose = cameraObserver(world, state, camera.id, true);
         if (!pose) continue;
-        const s = sightingFrom(world, state, sight, cameraWatcher(camera.id), pose, member, seen, tile);
+        const s = sightingFrom(world, state, poses.sight, cameraWatcher(camera.id), pose, member, seen, tile);
         if (s && s.outcome === '!') out.push(s);
     }
     return out;
 }
 
-/** What the coming world phase does to a crew member standing on `tile` (the hatched overlay): sightings that act. */
-export function assessWorldPhase(world: ReadonlyWorld, state: State, sight: SightMap, crewId: string, tile: Pos, options: AssessOptions = {}): Sighting[] {
-    return worldSightings(world, state, sight, crewId, tile, null, options.look).filter(s => s.outcome !== '-');
+export interface WorldPhaseOptions extends AssessOptions {
+    /** The NPCs' walks, from `worldPoses` on the same state and sight map: work them out once for many tiles. */
+    poses?: WorldPoses;
+}
+
+/**
+ * What the coming world phase does to a crew member standing on `tile` (the hatched overlay): the sightings that act,
+ * then the trespass deadline if one falls due (`deadlineOutcome`, trespass.ts, which the deadline hook uses too).
+ */
+export function assessWorldPhase(world: ReadonlyWorld, state: State, sight: SightMap, crewId: string, tile: Pos, options: WorldPhaseOptions = {}): Sighting[] {
+    const poses = options.poses?.sight === sight ? options.poses : worldPoses(world, state, sight);
+    const out = worldSightings(world, state, poses, crewId, tile, options.look).filter(s => s.outcome !== '-');
+    const deadline = deadlineOutcome(world, state, crewId, tile, options.look);
+    if (deadline) out.push(deadline);
+    return out;
+}
+
+/** What a move does (§8.5): the `!`s of the tiles it passes and every observer's value at its end. */
+export interface PathAssessment { steps: Sighting[]; end: Sighting[] }
+
+/**
+ * A crew move along `path` from where the crew member stands: `assessStep` on each tile but the last, with the doors
+ * the walk has opened so far (`sightsAlongWalk`), and `assessEnd` on the last, all against the state before the move.
+ * The move itself applies exactly this (the `perception` move hook).
+ */
+export function assessPath(world: ReadonlyWorld, state: State, crewId: string, path: readonly Pos[], options: AssessOptions = {}): PathAssessment {
+    const member = crewMember(state, crewId);
+    const maps = sightsAlongWalk(world, state, sightMap(world, state), member.pos, path);
+    const steps: Sighting[] = [];
+    let end: Sighting[] = [];
+    path.forEach((p, i) => {
+        if (i < path.length - 1) steps.push(...assessStep(world, state, maps[i]!, crewId, p, options));
+        else end = assessEnd(world, state, maps[i]!, crewId, p, options);
+    });
+    return { steps, end };
 }
 
 // ---------------------------------------------------------------------------------------------------------- Applying
 
-/** Turns sightings into suspicion, exposure, challenges and camera reports, in order. The only place that does. */
+/**
+ * Turns sightings into suspicion, exposure, challenges and camera reports, in order. The only place that does. A
+ * camera that sees the same crew member more than once in one call (two tiles of a move) reports it once.
+ */
 export function applySightings(ctx: Ctx, sightings: readonly Sighting[]): void {
     const { state } = ctx;
+    const cameraSeen = new Set<string>();
     for (const s of sightings) {
         if (s.by === 'camera') {
-            if (s.outcome !== '!') continue;
+            const key = `${s.observer} ${s.crew}`;
+            if (s.outcome !== '!' || cameraSeen.has(key)) continue;
+            cameraSeen.add(key);
             if (!state.cameraReports.some(r => r.camera === s.observer && r.crew === s.crew)) {
                 state.cameraReports.push({ camera: s.observer, crew: s.crew, tile: { x: s.tile.x, y: s.tile.y }, turn: state.turn, phase: state.phase });
             }
@@ -387,30 +471,27 @@ export function witnessAct(ctx: Ctx, crewId: string, act: IllegalAct, tile?: Pos
     applySightings(ctx, witness(ctx.world, ctx.state, sightMap(ctx.world, ctx.state), crewId, act, tile ?? member.pos));
 }
 
-// The steps of a move are judged as the mover passes them (with the doors the walk opened), and applied with the end.
-const PENDING = new WeakMap<State, Sighting[]>();
+// A move is judged as a whole before its first step (`assessPath`) and applied once it is over.
+const PENDING = new WeakMap<State, PathAssessment>();
 
 registerMoveHook('perception', {
-    step(ctx, member, path, index) {
-        if (index === path.length - 1) return;
-        const found = assessStep(ctx.world, ctx.state, sightMap(ctx.world, ctx.state), member.id, member.pos);
-        if (!found.length) return;
-        const pending = PENDING.get(ctx.state) ?? [];
-        PENDING.set(ctx.state, [...pending, ...found]);
+    start(ctx, member, path) {
+        PENDING.set(ctx.state, assessPath(ctx.world, ctx.state, member.id, path));
     },
-    end(ctx, member) {
-        const steps = PENDING.get(ctx.state) ?? [];
+    end(ctx) {
+        const found = PENDING.get(ctx.state);
         PENDING.delete(ctx.state);
-        applySightings(ctx, [...steps, ...assessEnd(ctx.world, ctx.state, sightMap(ctx.world, ctx.state), member.id, member.pos)]);
+        if (found) applySightings(ctx, [...found.steps, ...found.end]);
     }
 });
 
 // The world phase's sightings (§8.5): every NPC along its committed intent, judged before anyone moves, then applied.
+// The trespass deadlines follow (trespass.ts, order −90), judged by the same `deadlineOutcome` the overlay uses.
 registerWorldHook('passiveNpcs', 'perception.world', (ctx, phase) => {
     const { world, state } = ctx;
-    const sight = sightMap(world, state);
+    const poses = worldPoses(world, state, sightMap(world, state), phase.intents);
     const found: Sighting[] = [];
-    for (const member of state.crew) found.push(...worldSightings(world, state, sight, member.id, member.pos, phase.intents, undefined));
+    for (const member of state.crew) found.push(...worldSightings(world, state, poses, member.id, member.pos, undefined));
     applySightings(ctx, found);
 }, { order: -100 });
 

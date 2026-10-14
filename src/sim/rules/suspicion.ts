@@ -34,7 +34,10 @@ export interface Want {
     /** Where the crew member was last seen: the tile to face, walk to or react toward. */
     tile: Pos;
     decided: { turn: number; phase: Phase };
-    /** An escort lasts until the world phase of this turn (§8.6: it watches one more world phase). */
+    /**
+     * An escort ends after the world phase of this turn (§8.6): set at the deadline's world phase (following the crew
+     * member to the boundary) with `until` one turn later, so it also watches through the next world phase.
+     */
     until?: number;
 }
 

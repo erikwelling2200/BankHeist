@@ -1,7 +1,10 @@
 import { registerWorldHook, type Ctx } from '../core/engine';
 import { tileAt } from '../core/grid';
-import type { DeepReadonly, NpcState, Pos, State } from '../core/types';
+import { crewMember } from '../core/state';
+import type { DeepReadonly, NpcState, Pos, ReadonlyWorld, State } from '../core/types';
 import { registerEvents } from '../core/undo';
+import type { Sighting } from './perceive';
+import { crewLook, type CrewLook } from './profile';
 import { expose, isEyesDown, isExposedTo, refreshWant, setEscort } from './suspicion';
 
 /*
@@ -14,7 +17,8 @@ import { expose, isEyesDown, isExposedTo, refreshWant, setEscort } from './suspi
  * 2. **Deadline**: the crew member must end the crew phase of turn `deadline` on a Public tile. Challenged in a crew
  *    phase, that is the next turn's crew phase (after one world phase in which the challenger walks over); challenged
  *    in a world phase, there is one more crew phase first, so the challenger still gets its world phase.
- * 3. At the start of that turn's world phase (after the world phase's sightings, so the hatched overlay stays exact):
+ * 3. At the start of that turn's world phase (after the world phase's sightings), judged by `deadlineOutcome`, which
+ *    the hatched overlay (`assessWorldPhase`) shows too:
  *    - on a Public tile: **complied**. The crew member is Warned by the challenger for the rest of the heist, and the
  *      challenger escorts (follows to the boundary, then watches) for that world phase and the next;
  *    - anywhere else (still in Staff, hiding out of sight, deeper in): **Exposed** to the challenger;
@@ -58,18 +62,43 @@ export function challenge(ctx: Ctx, npc: NpcState, crew: string, tile: Pos): voi
     refreshWant(state, npc, crew, tile);
 }
 
+/** The challenge on a crew member that falls due in this turn's world phase, and who made it. */
+export function dueChallenge(state: State, crew: string): { npc: NpcState; deadline: number } | undefined {
+    const npc = challengerOf(state, crew);
+    const ch = npc?.challenges.find(c => c.crew === crew);
+    return npc && ch && ch.deadline <= state.turn ? { npc, deadline: ch.deadline } : undefined;
+}
+
+/**
+ * What the trespass deadline does to a crew member standing on `tile` when this turn's world phase begins: a `!` from
+ * the challenger (seen or not: hiding doesn't help) unless the tile is Public; nothing when no challenge falls due or
+ * the challenger is eyes down. The deadline hook and the hatched overlay both judge it here.
+ */
+export function deadlineOutcome(world: ReadonlyWorld, state: State, crewId: string, tile: Pos, look?: CrewLook): Sighting | null {
+    const due = dueChallenge(state, crewId);
+    if (!due || isEyesDown(due.npc)) return null;
+    const zone = tileAt(world, tile)?.zone;
+    if (!zone || zone === 'public') return null;
+    return {
+        observer: due.npc.id, by: 'npc', crew: crewId, tile: { x: tile.x, y: tile.y }, from: { x: due.npc.pos.x, y: due.npc.pos.y },
+        band: null, zone, readAs: zone, profile: (look ?? crewLook(crewMember(state, crewId))).profile, cell: 'T', outcome: '!',
+        why: ['trespass'], known: false
+    };
+}
+
 registerWorldHook('passiveNpcs', 'trespass.deadlines', (ctx, phase) => {
     const { world, state } = ctx;
     for (const npc of state.npcs) {
         for (const ch of [...npc.challenges]) {
             if (ch.deadline > phase.turn) continue;
-            npc.challenges.splice(npc.challenges.indexOf(ch), 1);
             const member = state.crew.find(c => c.id === ch.crew);
+            const failed = member && deadlineOutcome(world, state, ch.crew, member.pos);
+            npc.challenges.splice(npc.challenges.indexOf(ch), 1);
             if (!member) continue;
             if (isEyesDown(npc)) {
                 ctx.emit({ type: 'challengeEnded', npc: npc.id, crew: ch.crew, result: 'dropped' });
                 refreshWant(state, npc, ch.crew);
-            } else if (tileAt(world, member.pos)?.zone === 'public') {
+            } else if (!failed) {
                 ctx.emit({ type: 'challengeEnded', npc: npc.id, crew: ch.crew, result: 'complied' });
                 if (!hasWarned(npc, ch.crew)) {
                     npc.warned.push(ch.crew);
@@ -78,7 +107,7 @@ registerWorldHook('passiveNpcs', 'trespass.deadlines', (ctx, phase) => {
                 setEscort(state, npc, ch.crew, member.pos, phase.turn + 1);
             } else {
                 ctx.emit({ type: 'challengeEnded', npc: npc.id, crew: ch.crew, result: 'failed' });
-                expose(ctx, npc, ch.crew, ['trespass'], member.pos);
+                expose(ctx, npc, ch.crew, failed.why, failed.tile);
             }
         }
     }
