@@ -34,8 +34,6 @@ export interface UiState {
     camera: CameraView | null;
     /** The command being previewed and not yet confirmed, so a resume shows the same preview (§20.6). */
     pendingCommand: Command | null;
-    /** The action picked for the selected crew member before a tile (Dash), so a tap after a resume does the same. */
-    action: string | null;
 }
 
 export type SessionChange =
@@ -111,8 +109,8 @@ function checkUi(ui: Partial<UiState> | null | undefined, state: State): UiState
             pendingCommand = clonePlain(p);
         } catch { /* dropped */ }
     }
-    const action = typeof ui?.action === 'string' ? ui.action : null;
-    return { selected, camera, pendingCommand, action };
+    // Older saves also kept a picked action ('dash'): movement now picks Move or Dash by distance, so it is dropped.
+    return { selected, camera, pendingCommand };
 }
 
 export class Session {
@@ -248,7 +246,7 @@ export class Session {
     }
 
     /**
-     * What the HUD shows now. `extras` adds what only the scene knows (the picked action, the tactical map); Confirm is
+     * What the HUD shows now. `extras` adds what only the scene knows (the tactical map); Confirm is
      * coloured from the player's preview of the pending command.
      */
     hud(extras: Omit<HudExtras, 'undoEnabled' | 'previewEvents'> = {}): HudViewModel {
@@ -358,13 +356,6 @@ export class Session {
         const next = cmd && clonePlain(cmd);
         assertPlainJson(next, 'pendingCommand');
         this.setUi({ pendingCommand: next });
-        this.emit({ kind: 'ui' });
-    }
-
-    /** The action picked before a tile (or null for the default, Move). */
-    setAction(action: string | null): void {
-        if (action === this._ui.action) return;
-        this.setUi({ action });
         this.emit({ kind: 'ui' });
     }
 

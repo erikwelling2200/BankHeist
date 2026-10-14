@@ -10,5 +10,6 @@ export {
 export {
     actionsView, bankView, confirmView, crewCards, describeEvent, hudView, RECAP_EVENTS, recapView, threatLedger, type ActionId, type HudExtras
 } from './views';
+export { dashRefusal, moveAlong, moveKind, moveRange, moveTo, type MoveRange } from './movement';
 export { deserialiseHeist, deserialiseUi, heistWorldId, serialiseHeist, serialiseUi, serialiseWorld, type HeistExtras } from './persist';
 export { installDebugHandle, type SimHandle } from './debug';

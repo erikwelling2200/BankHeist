@@ -127,7 +127,7 @@ Each package lists its goal, the design sections it covers, the files, what it d
     - `npm run sweep` is unchanged;
     - `VISUAL_EXACT=1 npm run test:visual` passes.
 - [ ] **M1-03 Movement and sound.**
-  - **Covers:** §6.3 (move 5, diagonal 1.5, no cutting corners where a wall ends, dash 10, heavy armour 4), §8.9, §14.7 step limits.
+  - **Covers:** §6.3 (move 5, diagonal 1.5, no cutting corners where a wall ends, dash 12, heavy armour 4), §8.9, §14.7 step limits.
   - **Work:** reachable tiles within a cost budget; path validation; door passage by lock and key; the noise flood (−3 per closed door or Soft wall, Reinforced and Vault stop it, open doors, gaps and holes cost nothing).
   - **Files:** `src/sim/geo/move.ts`, `sound.ts`.
   - **Depends on:** M1-01. **∥** M1-02, M1-04.

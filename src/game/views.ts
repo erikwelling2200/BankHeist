@@ -1,4 +1,4 @@
-import { DASH_ACTIONS, inHeavyArmour, MOVE_ACTIONS, type CarrierKind, type Command, type ReadonlyWorld, type SimEvent, type State } from '../sim';
+import { DASH_ACTIONS, MOVE_ACTIONS, type CarrierKind, type Command, type ReadonlyWorld, type SimEvent, type State } from '../sim';
 import {
     CREW_COLOURS, OVERLAY_IDS, type ActionVM, type BankStatus, type CommitKind, type ConfirmVM, type HudIcon, type BankStatusVM, type CrewVM, type HudViewModel, type OverlayId, type RecapEventVM,
     type RecapVM, type ThreatVM
@@ -66,47 +66,51 @@ export function crewCards(world: ReadonlyWorld, state: State, selected: string |
 export interface HudExtras {
     undoEnabled?: boolean;
     overlays?: Partial<Record<OverlayId, boolean>>;
-    /** The action the player picked for the selected crew member before choosing a tile ('move' when none). */
-    mode?: ActionId;
     /** The events the pending command's preview would emit (the player's preview), to colour Confirm. */
     previewEvents?: readonly SimEvent[];
     /** Whether the tactical map shows. */
     mapOn?: boolean;
 }
 
-/** The actions M1 offers (§6.3): Move, Dash and Wait. Later packages add theirs. */
-export type ActionId = 'move' | 'dash' | 'wait';
+/**
+ * The entries of M1's action grid (§6.3): movement and Wait. Later packages add theirs. Movement is one entry: a tap
+ * picks Move or Dash by how far it goes (src/game/movement.ts), so Dash has no button of its own.
+ */
+export type ActionId = 'move' | 'wait';
 
-const ACTIONS: readonly { id: ActionId; label: string; icon: HudIcon; cost: number }[] = [
-    { id: 'move', label: 'Move', icon: 'move', cost: MOVE_ACTIONS },
-    { id: 'dash', label: 'Dash', icon: 'dash', cost: DASH_ACTIONS },
+/** How each command the grid can make is named and costed, on its button and on Confirm. */
+const COMMANDS: Readonly<Record<string, { label: string; icon: HudIcon; cost: number }>> = {
+    move: { label: 'Move', icon: 'move', cost: MOVE_ACTIONS },
+    dash: { label: 'Dash', icon: 'dash', cost: DASH_ACTIONS },
     // Wait spends what is left of the turn (§6.3); it costs no pip of its own.
-    { id: 'wait', label: 'Wait', icon: 'wait', cost: 0 }
-];
+    wait: { label: 'Wait', icon: 'wait', cost: 0 }
+};
 
-/** The action a command is, if it is one of `ACTIONS`. */
-const actionOf = (cmd: Command | null): ActionId | null => (cmd && ACTIONS.some(a => a.id === cmd.type) ? cmd.type as ActionId : null);
+/** The grid entry a command belongs to: a Dash is movement. */
+const entryOf = (cmd: Command | null): ActionId | null =>
+    cmd?.type === 'move' || cmd?.type === 'dash' ? 'move' : cmd?.type === 'wait' ? 'wait' : null;
 
-/** The selected crew member's actions: what each costs, whether it can be done now, and which is being previewed. */
-export function actionsView(state: State, ui: UiState, mode: ActionId = 'move'): ActionVM[] {
+/**
+ * The selected crew member's actions: what each costs, whether it can be done now, and which is being previewed.
+ * Movement is the default; while a Dash is previewed its entry reads Dash, with Dash's cost.
+ */
+export function actionsView(state: State, ui: UiState): ActionVM[] {
     const member = state.crew.find(c => c.id === ui.selected);
     if (!member || state.phase !== 'crew') return [];
-    const active = actionOf(ui.pendingCommand) ?? mode;
-    return ACTIONS.map(a => {
-        let reason: string | undefined;
-        if (member.actionsLeft === 0) reason = 'No actions left';
-        else if (member.actionsLeft < a.cost) reason = `Needs ${a.cost} actions`;
-        else if (a.id === 'dash' && inHeavyArmour(member)) reason = "Can't dash in heavy armour";
-        return { id: a.id, label: a.label, icon: a.icon, cost: a.cost, enabled: !reason, ...(reason ? { reason } : {}), selected: a.id === active };
+    const pending = ui.pendingCommand, active = entryOf(pending) ?? 'move';
+    return (['move', 'wait'] as const).map(id => {
+        const a = COMMANDS[id === 'move' && pending?.type === 'dash' ? 'dash' : id]!;
+        const reason = member.actionsLeft === 0 ? 'No actions left' : undefined;
+        return { id, label: a.label, icon: a.icon, cost: a.cost, enabled: !reason, ...(reason ? { reason } : {}), selected: id === active };
     });
 }
 
 /**
- * Confirm for the pending command: its name and cost, coloured by what it gives away (UI.md "Confirm's colour"): amber
- * when someone hears it, cream otherwise. Dimmed while nothing is previewed.
+ * Confirm for the pending command: its name and cost (a Dash shows 2 pips), coloured by what it gives away (UI.md
+ * "Confirm's colour"): amber when someone hears it, cream otherwise. Dimmed while nothing is previewed.
  */
 export function confirmView(ui: UiState, previewEvents: readonly SimEvent[] = []): ConfirmVM {
-    const action = ACTIONS.find(a => a.id === actionOf(ui.pendingCommand));
+    const action = entryOf(ui.pendingCommand) && COMMANDS[ui.pendingCommand!.type];
     if (!action) return { kind: 'clean', label: '', cost: 0, enabled: false };
     const kind: CommitKind = previewEvents.some(e => e.type === 'heard') ? 'costly' : 'clean';
     return { kind, label: action.label.toUpperCase(), icon: action.icon, cost: action.cost, enabled: true };
@@ -118,7 +122,7 @@ export function hudView(world: ReadonlyWorld, state: State, ui: UiState, extras:
         bank: bankView(state),
         crew: crewCards(world, state, ui.selected),
         selected: ui.selected,
-        actions: actionsView(state, ui, extras.mode),
+        actions: actionsView(state, ui),
         confirm: confirmView(ui, extras.previewEvents),
         undoEnabled: extras.undoEnabled ?? false,
         ledger: threatLedger(state),

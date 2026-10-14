@@ -5,8 +5,11 @@ import type { Pos } from '../../sim';
 /**
  * The world UI layer (UI.md "Two layers"), as far as play mode needs it before M1-14: a canvas over the game's at twice
  * the art's resolution (one UI pixel is half an art pixel), redrawn after each frame from where the camera looked. It
- * shows the selected crew member's reach (faint) and the previewed or dragged path, ending on a tile outline in their
- * colour; a dragged path's steps past the first bad one are red. It takes no input: taps go through to the map.
+ * shows the selected crew member's movement range, XCOM style: the tiles a Move (1 action) reaches in steel blue with a
+ * solid edge, those only a Dash (2 actions) reaches beyond them hatched in gold with a dashed edge, so the two read apart
+ * without colour too. The range stays while a path is previewed or dragged; the path goes on top, ending on a tile
+ * outline in the crew colour (doubled for a dash, with its noise ring dotted in amber); a dragged path's steps past the
+ * first bad one are red. It takes no input: taps go through to the map.
  *
  * TODO(M1-14): safe-floor tints and glyphs, the eye icon, noise rings, badges; floor UI under the people.
  */
@@ -17,13 +20,15 @@ const UI_SCALE = 2;
 export interface OverlayContent {
     /** The crew colour (CSS). */
     colour: string;
-    /** The tiles within Move's reach, and those only Dash reaches. */
-    reach?: { move: Pos[]; dash: Pos[] };
+    /** The tiles a Move can end on, and those only a Dash reaches. */
+    reach?: { move: Pos[]; dash: Pos[]; at?: Pos };
     /** Where the path starts (the crew member's tile) and its steps. */
     from?: Pos;
     path?: Pos[];
     /** A dash: the end is marked twice. */
     dash?: boolean;
+    /** The tiles the previewed command's noise reaches (a dash's quiet noise, §6.3). */
+    noise?: Pos[];
     /** The index of the first step that can't be taken; it and those after it are drawn red. */
     badFrom?: number;
     /** The NPCs' committed walks for the next world phase: a dotted line and a pin where each ends. */
@@ -36,9 +41,16 @@ export interface OverlayContent {
     pings?: { at: Pos }[];
 }
 
-const SAGE = 'rgba(128, 190, 138, 0.16)';
-const SAGE_EDGE = 'rgba(128, 190, 138, 0.35)';
-const CREAM_FAINT = 'rgba(242, 230, 200, 0.07)';
+/** Move's range: steel blue ("your control"), a flat tint and a solid edge. */
+const WALK = 'rgba(138, 182, 214, 0.3)';
+const WALK_EDGE = 'rgba(138, 182, 214, 0.9)';
+/** Dash's band: gold, hatched, with a dashed edge. */
+const RUN = 'rgba(242, 201, 76, 0.1)';
+const RUN_HATCH = 'rgba(242, 201, 76, 0.42)';
+const RUN_EDGE = 'rgba(242, 201, 76, 0.95)';
+/** A dash's noise: sodium amber (suspicion), dotted. */
+const NOISE = 'rgba(232, 128, 48, 1)';
+const NOISE_FILL = 'rgba(226, 162, 64, 0.22)';
 const INK = 'rgba(13, 12, 20, 0.85)';
 const CREAM = '#f2e6c8';
 const RED = '#d44638';
@@ -71,8 +83,13 @@ export class WorldOverlay {
     }
 
     /** The path shown, for tests. */
-    get state(): { path: Pos[]; reach: number; dash: boolean; intents: number } {
-        return { path: this.content?.path ?? [], reach: this.content?.reach?.move.length ?? 0, dash: !!this.content?.dash, intents: this.content?.intents?.length ?? 0 };
+    get state(): { path: Pos[]; reach: number; dashReach: number; range: { walk: Pos[]; run: Pos[] }; dash: boolean; noise: number; intents: number } {
+        const c = this.content;
+        return {
+            path: c?.path ?? [], reach: c?.reach?.move.length ?? 0, dashReach: c?.reach?.dash.length ?? 0,
+            range: { walk: c?.reach?.move ?? [], run: c?.reach?.dash ?? [] }, dash: !!c?.dash, noise: c?.noise?.length ?? 0,
+            intents: c?.intents?.length ?? 0
+        };
     }
 
     destroy(): void {
@@ -125,21 +142,62 @@ export class WorldOverlay {
             }
         }
 
-        if (c.reach) {
-            ctx.fillStyle = CREAM_FAINT;
-            for (const p of c.reach.dash) ctx.fillRect(left(p) + 1, top(p) + 1, S - 2, S - 2);
-            ctx.fillStyle = SAGE;
-            for (const p of c.reach.move) ctx.fillRect(left(p) + 1, top(p) + 1, S - 2, S - 2);
-            // The edge of Move's reach, so where a step costs a second action shows.
-            const inMove = new Set(c.reach.move.map(p => `${p.x},${p.y}`));
-            ctx.fillStyle = SAGE_EDGE;
-            for (const p of c.reach.move) {
+        /** Each side of a tile in `tiles` that `inside` doesn't continue past: the set's outline, a side at a time. */
+        const outline = (tiles: Pos[], inside: (x: number, y: number) => boolean, draw: (x0: number, y0: number, x1: number, y1: number) => void) => {
+            for (const p of tiles) {
                 const x = left(p), y = top(p);
-                if (!inMove.has(`${p.x},${p.y - 1}`)) ctx.fillRect(x, y, S, 2);
-                if (!inMove.has(`${p.x},${p.y + 1}`)) ctx.fillRect(x, y + S - 2, S, 2);
-                if (!inMove.has(`${p.x - 1},${p.y}`)) ctx.fillRect(x, y, 2, S);
-                if (!inMove.has(`${p.x + 1},${p.y}`)) ctx.fillRect(x + S - 2, y, 2, S);
+                if (!inside(p.x, p.y - 1)) draw(x, y, x + S, y);
+                if (!inside(p.x, p.y + 1)) draw(x, y + S, x + S, y + S);
+                if (!inside(p.x - 1, p.y)) draw(x, y, x, y + S);
+                if (!inside(p.x + 1, p.y)) draw(x + S, y, x + S, y + S);
             }
+        };
+        const has = (tiles: Pos[]) => {
+            const set = new Set(tiles.map(p => `${p.x},${p.y}`));
+            return (x: number, y: number) => set.has(`${x},${y}`);
+        };
+        /** Strokes an outline in `colour` over a 1px ink drop shadow (UI.md "Visual language"). */
+        const stroke = (tiles: Pos[], inside: (x: number, y: number) => boolean, colour: string, width: number, dash: number[]) => {
+            ctx.lineWidth = width;
+            ctx.setLineDash(dash);
+            for (const [style, dy] of [[INK, 2], [colour, 0]] as const) {
+                ctx.strokeStyle = style;
+                ctx.beginPath();
+                outline(tiles, inside, (x0, y0, x1, y1) => {
+                    ctx.moveTo(x0, y0 + dy);
+                    ctx.lineTo(x1, y1 + dy);
+                });
+                ctx.stroke();
+            }
+            ctx.setLineDash([]);
+        };
+
+        if (c.reach) {
+            // The mover's own tile counts as inside, so the edge doesn't box them in.
+            const { move, dash, at } = c.reach, inMove = has([...move, ...(at ? [at] : [])]), inAll = has([...move, ...dash, ...(at ? [at] : [])]);
+            // Dash's band: a faint tint and a diagonal hatch, so it reads apart from Move's without its colour.
+            ctx.fillStyle = RUN;
+            for (const p of dash) ctx.fillRect(left(p), top(p), S, S);
+            ctx.fillStyle = RUN_HATCH;
+            for (const p of dash) {
+                const x = left(p), y = top(p);
+                // Lines at 45°, every 8 UI pixels, continuing across neighbouring tiles.
+                for (let k = 0; k < S; k++) {
+                    const off = (((x + y + S - 1 - k) % 8) + 8) % 8;
+                    for (let t = (8 - off) % 8; t < S; t += 8) ctx.fillRect(x + t, y + S - 1 - k, 1, 1);
+                }
+            }
+            ctx.fillStyle = WALK;
+            for (const p of move) ctx.fillRect(left(p), top(p), S, S);
+            // The range's outer edge, dashed gold; then Move's edge, solid steel blue: where a step costs a second action.
+            stroke(dash, inAll, RUN_EDGE, 2, [6, 4]);
+            stroke(move, inMove, WALK_EDGE, 2, []);
+        }
+
+        if (c.noise?.length) {
+            ctx.fillStyle = NOISE_FILL;
+            for (const p of c.noise) ctx.fillRect(left(p), top(p), S, S);
+            stroke(c.noise, has(c.noise), NOISE, 3, [2, 2]);
         }
 
         for (const intent of c.intents ?? []) {

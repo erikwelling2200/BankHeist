@@ -196,17 +196,16 @@ describe('the game session', () => {
             session.select('mara');
             session.setCamera({ x: 1, y: 2, zoom: 3, map: true });
             session.setPendingCommand(MOVE_MARA);
-            session.setAction('dash');
             expect(storage.writesOf(UI_KEY)).toBe(0);
             vi.advanceTimersByTime(1000);
             expect(storage.writesOf(UI_KEY)).toBe(1);
             expect(storage.writesOf(HEIST_KEY)).toBe(heistWrites);
             const resumed = Session.resume(storage)!;
-            expect(resumed.ui).toEqual({ selected: 'mara', camera: { x: 1, y: 2, zoom: 3, map: true }, pendingCommand: MOVE_MARA, action: 'dash' });
+            expect(resumed.ui).toEqual({ selected: 'mara', camera: { x: 1, y: 2, zoom: 3, map: true }, pendingCommand: MOVE_MARA });
             // A commit clears the pending command; the heist save then carries the UI, and an older UI entry is ignored.
             session.commit(MOVE_MARA);
             expect(session.pendingCommand).toBeNull();
-            expect(Session.resume(storage)!.ui).toEqual({ selected: 'mara', camera: { x: 1, y: 2, zoom: 3, map: true }, pendingCommand: null, action: 'dash' });
+            expect(Session.resume(storage)!.ui).toEqual({ selected: 'mara', camera: { x: 1, y: 2, zoom: 3, map: true }, pendingCommand: null });
         } finally {
             vi.useRealTimers();
         }
@@ -216,9 +215,10 @@ describe('the game session', () => {
         const { session, storage } = start();
         session.commit(MOVE_JUN);
         const heist = JSON.parse(storage.get(HEIST_KEY)!) as Record<string, unknown>;
-        storage.set(HEIST_KEY, JSON.stringify({ ...heist, ui: { selected: 'ghost', camera: { x: 'a', y: 0, zoom: 1 }, pendingCommand: 5 }, undoRecent: [] }));
+        // An older save's picked action ('dash') is dropped: movement picks Move or Dash by distance now.
+        storage.set(HEIST_KEY, JSON.stringify({ ...heist, ui: { selected: 'ghost', camera: { x: 'a', y: 0, zoom: 1 }, pendingCommand: 5, action: 'dash' }, undoRecent: [] }));
         const resumed = Session.resume(storage)!;
-        expect(resumed.ui).toEqual({ selected: null, camera: null, pendingCommand: null, action: null });
+        expect(resumed.ui).toEqual({ selected: null, camera: null, pendingCommand: null });
         expect(resumed.canUndo).toBe(false);
         expect(hashOf(resumed.state)).toBe(hashOf(session.state));
     });

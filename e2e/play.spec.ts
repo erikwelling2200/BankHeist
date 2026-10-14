@@ -77,6 +77,8 @@ test('plays three turns of a heist through taps', SMOKE, async ({ page }) => {
     const preview = await play(page);
     expect(preview.path.at(-1)).toEqual(target);
     await expect(page.locator('.sh-confirm')).toContainText(/MOVE|DASH/);
+    // The range stays drawn under the previewed path.
+    expect(preview.reach).toBeGreaterThan(0);
     await page.screenshot({ path: 'screenshots/play-move.png' });
     await page.locator('.sh-confirm').click();
     await idle(page);
@@ -203,8 +205,9 @@ test('drawing a path from the selected crew member previews it', SMOKE, async ({
     const mara = await member(page, 'mara');
     await tapTile(page, mara.pos);
     await page.waitForTimeout(400);
-    // Selected, nothing previewed: her reach shows (Move's, and Dash's beyond it).
+    // Selected, nothing previewed: her range shows (Move's, and Dash's band beyond it).
     expect((await play(page)).reach).toBeGreaterThan(0);
+    expect((await play(page)).dashReach).toBeGreaterThan(0);
     await page.screenshot({ path: 'screenshots/play-select.png' });
     // Drag from Mara two tiles one way, trying each direction until the drawn path is a legal move.
     for (const d of AROUND.slice(0, 5)) {
@@ -224,6 +227,70 @@ test('drawing a path from the selected crew member previews it', SMOKE, async ({
         }
     }
     throw new Error('No direction to drag in');
+});
+
+/** The tile of `tiles` nearest `d` tiles from `at`. */
+const nearest = (tiles: Pos[], at: Pos, d: number): Pos =>
+    tiles.map(t => ({ t, e: Math.abs(Math.hypot(t.x - at.x, t.y - at.y) - d) })).sort((a, b) => a.e - b.e)[0]!.t;
+
+test('one movement range: a near tile is a Move (1 action), a far one a Dash (2), the range stays drawn', SMOKE, async ({ page }) => {
+    const errors = await boot(page);
+    const start = await member(page, 'mara');
+    await tapTile(page, start.pos);
+    await page.waitForTimeout(400);
+    const selected = await play(page);
+    expect(selected.range.walk.length).toBeGreaterThan(0);
+    expect(selected.range.run.length).toBeGreaterThan(0);
+    // No Dash button: movement is one entry, beside Wait.
+    await expect(page.locator('.sh-actions button[data-action="dash"]')).toHaveCount(0);
+    await expect(page.locator('.sh-actions button[data-action="move"]')).toHaveCount(1);
+    // A step out, so the whole Dash band shows in the screenshot.
+    await page.keyboard.press('-');
+    await page.waitForTimeout(400);
+
+    // Near: a Move, and the whole range is still drawn under it.
+    const near = nearest(selected.range.walk, start.pos, 2);
+    await tapTile(page, near);
+    let shown = await play(page);
+    expect(shown.pending).toMatchObject({ type: 'move' });
+    expect(shown.path.at(-1)).toEqual(near);
+    expect([shown.reach, shown.dashReach]).toEqual([selected.reach, selected.dashReach]);
+    await expect(page.locator('.sh-confirm')).toContainText('MOVE');
+    await expect(page.locator('.sh-confirm .sh-cost i')).toHaveCount(1);
+
+    // Far: a Dash, with its noise ring; Confirm costs 2.
+    const far = nearest(selected.range.run, start.pos, 9);
+    await tapTile(page, far);
+    shown = await play(page);
+    expect(shown.pending).toMatchObject({ type: 'dash' });
+    expect(shown.path.at(-1)).toEqual(far);
+    expect(shown.noise).toBeGreaterThan(0);
+    expect([shown.reach, shown.dashReach]).toEqual([selected.reach, selected.dashReach]);
+    await expect(page.locator('.sh-confirm')).toContainText('DASH');
+    await expect(page.locator('.sh-confirm .sh-cost i')).toHaveCount(2);
+    await page.screenshot({ path: 'screenshots/play-dash.png' });
+    await page.locator('.sh-confirm').click();
+    await idle(page);
+    const dashed = await member(page, 'mara');
+    expect(dashed.pos).toEqual(far);
+    expect(dashed.actionsLeft).toBe(0);
+
+    // Jun moves near: a Move commits for 1 action, and his range then has no Dash band (one action left).
+    await page.locator('.sh-rail .sh-crew').nth(1).click();
+    await page.waitForTimeout(400);
+    const jun = await member(page, 'jun'), junRange = (await play(page)).range;
+    const junNear = nearest(junRange.walk, jun.pos, 2);
+    await tapTile(page, junNear);
+    expect((await play(page)).pending).toMatchObject({ type: 'move' });
+    await tapTile(page, junNear);
+    await idle(page);
+    const moved = await member(page, 'jun');
+    expect(moved.pos).toEqual(junNear);
+    expect(moved.actionsLeft).toBe(1);
+    const after = await play(page);
+    expect(after.reach).toBeGreaterThan(0);
+    expect(after.dashReach).toBe(0);
+    expect(errors).toEqual([]);
 });
 
 test.describe('on a phone', () => {

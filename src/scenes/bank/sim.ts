@@ -1,11 +1,11 @@
 import Phaser from 'phaser';
-import type { ActionId, PlaybackItem, PlaybackSpeed, Session, SessionChange } from '../../game';
+import { dashRefusal, moveAlong, moveRange, moveTo, type ActionId, type MoveRange, type PlaybackItem, type PlaybackSpeed, type Session, type SessionChange } from '../../game';
 import type { GeneratedBank } from '../../gen/model';
 import { TILE } from '../../level/level';
 import type { PersonFacing } from '../../level/plan';
 import {
-    COMBAT_STATUSES, crewMoveOptions, crewPicture, dashBudget, IllegalCommand, knownView, doorStatus, DASH_ACTIONS, MOVE_ACTIONS, moveBudget, pathTo, reachable, reachAt, validatePath,
-    type Command, type CrewState, type KnownView, type MarkerKind, type State, type Facing, type Pos, type Reach, type SimEvent
+    COMBAT_STATUSES, crewPicture, IllegalCommand, knownView, doorStatus, soundRing,
+    type Command, type CrewState, type KnownView, type MarkerKind, type State, type Facing, type Pos, type SimEvent
 } from '../../sim';
 import { mountHud } from '../../ui/hud/mountHud';
 import { CREW_COLOURS, type HudHandle, type OverlayId } from '../../ui/hud/viewModels';
@@ -78,14 +78,6 @@ export class PlayMode {
     private readonly sprite = new Map<string, number>();
     private readonly unsubscribe: () => void;
     private readonly chrome: HTMLElement[] = [];
-    /** The action picked before a tile (Move or Dash), kept in the Session's UI state so a resume does the same. */
-    private get mode(): ActionId {
-        return this.session.ui.action === 'dash' ? 'dash' : 'move';
-    }
-
-    private set mode(mode: ActionId) {
-        this.session.setAction(mode === 'move' ? null : mode);
-    }
     private mapOn = false;
     private overlays: Partial<Record<OverlayId, boolean>> = {};
     private recap: boolean;
@@ -102,6 +94,8 @@ export class PlayMode {
     private shownDoors = new Map<string, boolean>();
     private knownFor?: State;
     private knownCache?: KnownView;
+    /** The selected member's range, worked out once per state and member. */
+    private rangeFor?: { state: State; id: string; range: MoveRange };
 
     constructor(private readonly scene: Phaser.Scene, parts: PlayParts) {
         const { session, bank, people, walls, camera } = parts;
@@ -168,8 +162,10 @@ export class PlayMode {
     /** For tests: what play mode shows and is doing. */
     get state() {
         return {
-            selected: this.session.selected, pending: this.session.pendingCommand, mode: this.mode, playing: this.busy,
+            selected: this.session.selected, pending: this.session.pendingCommand, playing: this.busy,
             speed: this.session.playback.speed, path: this.overlay.state.path, dash: this.overlay.state.dash, reach: this.overlay.state.reach,
+            /** How many of the range's tiles only a Dash reaches, and how many tiles the previewed dash's noise reaches. */
+            dashReach: this.overlay.state.dashReach, range: this.overlay.state.range, noise: this.overlay.state.noise,
             intents: this.overlay.state.intents,
             /** The NPC markers the crew knows of (§8.15), in the order of `state.npcs`; null for one it doesn't. */
             npcs: this.session.state.npcs.map(n => {
@@ -391,7 +387,6 @@ export class PlayMode {
         if (this.session.selected !== id) {
             this.session.select(id);
             this.session.setPendingCommand(null);
-            this.mode = 'move';
             // The camera centres on the newly selected crew member, zooming in to Act view if further out (§20.1).
             this.camera.actView(...centre(member.pos), 250);
         }
@@ -420,29 +415,29 @@ export class PlayMode {
         this.preview(target.command);
     }
 
-    /** The reach of the selected member for both moves: Dash's when they have the actions, else Move's. */
-    private reach(member: CrewState): { reach: Reach; move: number; dash: number | null } {
-        const { world } = this.session, state = this.picture(), move = moveBudget(world, member);
-        const dash = member.actionsLeft >= DASH_ACTIONS ? dashBudget(world) : null;
-        const reach = reachable(world, state, member.pos, Math.max(move, dash ?? 0), crewMoveOptions(member));
-        return { reach, move, dash };
+    /**
+     * The selected member's movement range (src/game/movement.ts): Move's tiles, and beyond them, when they have the
+     * actions and the rules allow it, those only a Dash reaches. Planned on the crew's picture, as the commit checks it.
+     */
+    private range(member: CrewState): MoveRange {
+        const state = this.session.state, cached = this.rangeFor;
+        if (cached && cached.state === state && cached.id === member.id) return cached.range;
+        const canDash = !dashRefusal(member, cmd => this.session.preview(cmd));
+        const range = moveRange(this.session.world, this.picture(), member, canDash);
+        this.rangeFor = { state, id: member.id, range };
+        return range;
     }
 
-    /** The valid tile nearest map tile point (fx, fy) and the move to it: a Move if it is in Move's reach and Dash wasn't picked. */
+    /** The tile in range nearest map tile point (fx, fy), and the move there: a Move if it fits Move's budget, else a Dash. */
     private snap(member: CrewState, fx: number, fy: number): { pos: Pos; command: Command } | undefined {
-        const { reach, move, dash } = this.reach(member);
+        const range = this.range(member);
         let best: { pos: Pos; d: number } | undefined;
-        for (const t of reach.tiles) {
-            if (!t.canEnd || t.cost === 0) continue;
-            const isMove = t.cost <= move && member.actionsLeft >= MOVE_ACTIONS && this.mode !== 'dash';
-            if (!isMove && dash === null) continue;
-            const d = Math.hypot(t.pos.x - fx, t.pos.y - fy);
-            if (d <= SNAP_TILES && (!best || d < best.d)) best = { pos: t.pos, d };
+        for (const pos of [...range.walk, ...range.run]) {
+            const d = Math.hypot(pos.x - fx, pos.y - fy);
+            if (d <= SNAP_TILES && (!best || d < best.d)) best = { pos, d };
         }
-        if (!best) return undefined;
-        const path = pathTo(reach, best.pos)!, cost = reachAt(reach, best.pos)!.cost;
-        const type = this.mode === 'dash' || cost > move ? 'dash' : 'move';
-        return { pos: best.pos, command: { type, crew: member.id, path } };
+        const command = best && moveTo(range, member, best.pos);
+        return best && command ? { pos: best.pos, command } : undefined;
     }
 
     /**
@@ -463,11 +458,10 @@ export class PlayMode {
         } catch {
             const member = this.selectedMember();
             const pictured = !!member && (cmd.type === 'move' || cmd.type === 'dash') &&
-                validatePath(this.session.world, this.picture(), member.pos, cmd.path, cmd.type === 'dash' ? dashBudget(this.session.world) : moveBudget(this.session.world, member), crewMoveOptions(member)).ok;
+                moveAlong(this.session.world, this.picture(), member, this.range(member), cmd.path).command?.type === cmd.type;
             if (!pictured) return false;
         }
         this.session.setPendingCommand(cmd);
-        if (cmd.type === 'move' || cmd.type === 'dash') this.mode = cmd.type;
         this.refresh();
         return true;
     }
@@ -495,27 +489,22 @@ export class PlayMode {
         this.refresh();
     }
 
+    /** A drawn path becomes a Move when it fits Move's budget, else a Dash; one too long is cut to its longest legal start. */
     private release(cancelled: boolean): void {
         const member = this.selectedMember(), path = this.dragPath;
         this.dragPath = undefined;
         if (cancelled || !member || !path?.length) return this.refresh();
-        const { world } = this.session, state = this.picture(), options = crewMoveOptions(member);
-        const asMove = this.mode !== 'dash' && validatePath(world, state, member.pos, path, moveBudget(world, member), options);
-        const asDash = member.actionsLeft >= DASH_ACTIONS ? validatePath(world, state, member.pos, path, dashBudget(world), options) : undefined;
-        if (asMove && asMove.ok) this.preview({ type: 'move', crew: member.id, path });
-        else if (asDash?.ok) this.preview({ type: 'dash', crew: member.id, path });
-        else {
-            // The longest legal start of what was drawn.
-            const at = Math.max(asMove && !asMove.ok ? asMove.at : 0, asDash && !asDash.ok ? asDash.at : 0);
-            for (let n = at; n > 0; n--) {
-                const part = path.slice(0, n);
-                const type = validatePath(world, state, member.pos, part, moveBudget(world, member), options).ok && this.mode !== 'dash' ? 'move' : 'dash';
-                if (this.preview({ type, crew: member.id, path: part })) return;
-            }
-            this.refresh();
+        const { world } = this.session, state = this.picture(), range = this.range(member);
+        const along = moveAlong(world, state, member, range, path);
+        if (along.command && this.preview(along.command)) return;
+        for (let n = along.badFrom ?? path.length - 1; n > 0; n--) {
+            const part = moveAlong(world, state, member, range, path.slice(0, n)).command;
+            if (part && this.preview(part)) return;
         }
+        this.refresh();
     }
 
+    /** The grid: Wait previews waiting; movement (the default) drops a pending Wait, so a tap on a tile moves again. */
     private pickAction(id: ActionId): void {
         if (this.busy) this.skip();
         if (this.recap) return;
@@ -525,11 +514,7 @@ export class PlayMode {
             this.preview({ type: 'wait', crew: member.id });
             return;
         }
-        this.mode = id;
-        const pending = this.session.pendingCommand;
-        if (pending && 'path' in pending) {
-            if (!this.preview({ type: id, crew: member.id, path: [...pending.path] })) this.session.setPendingCommand(null);
-        }
+        if (this.session.pendingCommand?.type === 'wait') this.session.setPendingCommand(null);
         this.refresh();
     }
 
@@ -544,7 +529,6 @@ export class PlayMode {
             this.toast(e instanceof IllegalCommand ? 'Blocked' : "Can't do that");
             this.session.setPendingCommand(null);
         }
-        this.mode = 'move';
         this.refresh();
     }
 
@@ -579,7 +563,7 @@ export class PlayMode {
 
     /** The HUD, the rings and the overlay, from the Session. */
     private refresh(): void {
-        const { session } = this, vm = session.hud({ mode: this.mode, mapOn: this.mapOn, overlays: this.overlays });
+        const { session } = this, vm = session.hud({ mapOn: this.mapOn, overlays: this.overlays });
         this.hud.update(this.recap ? { ...vm, recap: session.recap() } : vm);
         session.state.crew.forEach(c => this.people.highlight(this.sprite.get(c.id)!, c.id === session.selected));
         const speed = this.chrome[0];
@@ -594,20 +578,34 @@ export class PlayMode {
         const intents = this.intents(), member = this.selectedMember();
         if (!member) return { colour: '', intents, ...layer };
         const colour = CREW_COLOURS[this.session.state.crew.indexOf(member) % CREW_COLOURS.length]!;
+        // The whole range stays drawn while a tile is previewed or a path dragged (XCOM style): the path goes on top.
+        const range = member.actionsLeft > 0 ? this.range(member) : undefined;
+        const base = { colour, intents, ...layer, ...(range ? { reach: { move: range.walk, dash: range.run, at: member.pos } } : {}) };
         if (this.dragPath) {
-            const { world } = this.session, state = this.picture(), budget = member.actionsLeft >= DASH_ACTIONS ? dashBudget(world) : moveBudget(world, member);
-            const check = validatePath(world, state, member.pos, this.dragPath, budget, crewMoveOptions(member));
-            return { colour, intents, ...layer, from: member.pos, path: this.dragPath, badFrom: check.ok ? undefined : check.at };
+            const along = moveAlong(this.session.world, this.picture(), member, range ?? { move: null, dash: null }, this.dragPath);
+            return { ...base, from: member.pos, path: this.dragPath, dash: along.command?.type === 'dash', badFrom: along.badFrom };
         }
         const pending = this.session.pendingCommand;
-        if (pending && 'path' in pending) return { colour, intents, ...layer, from: member.pos, path: pending.path as Pos[], dash: pending.type === 'dash' };
-        if (member.actionsLeft === 0 || pending) return { colour, intents, ...layer };
-        const { reach, move } = this.reach(member);
-        const ends = reach.tiles.filter(t => t.canEnd && t.cost > 0);
-        return {
-            colour, intents, ...layer,
-            reach: { move: ends.filter(t => t.cost <= move && this.mode !== 'dash').map(t => t.pos), dash: ends.filter(t => t.cost > move || this.mode === 'dash').map(t => t.pos) }
-        };
+        if (pending && 'path' in pending) {
+            const dash = pending.type === 'dash';
+            return { ...base, from: member.pos, path: pending.path as Pos[], dash, ...(dash ? { noise: this.noiseOf(pending) } : {}) };
+        }
+        return base;
+    }
+
+    /**
+     * The tiles a previewed command's noise reaches (a Dash's, §6.3): the ring of the noise the player's preview emits,
+     * on the state after it (the doors it opened), so the ring shown is the one the commit makes.
+     */
+    private noiseOf(cmd: Command): Pos[] | undefined {
+        try {
+            const result = this.session.playerPreview(cmd);
+            const noise = result.events.find(e => e.type === 'noise');
+            if (!noise || noise.type !== 'noise') return undefined;
+            return soundRing(this.session.world, result.state, noise.sources, noise.radius).tiles.map(t => t.pos);
+        } catch {
+            return undefined;
+        }
     }
 
     /**

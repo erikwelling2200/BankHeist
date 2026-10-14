@@ -186,7 +186,7 @@ describe('paths', () => {
 
 describe('the move and dash commands', () => {
     const corridor = (items: string[] = []): { world: ReadonlyWorld; state: State } =>
-        setup(['.............'], [], [{ id: 'jun', pos: P(0, 0), items }], [npc('teller', P(12, 0))]);
+        setup(['................'], [], [{ id: 'jun', pos: P(0, 0), items }], [npc('teller', P(14, 0))]);
     const along = (n: number): Pos[] => Array.from({ length: n }, (_, i) => P(i + 1, 0));
 
     it('moves up to 5 tiles for 1 action, undoably', () => {
@@ -208,19 +208,19 @@ describe('the move and dash commands', () => {
         expect(() => commit(world, state, { type: 'dash', crew: 'jun', path: along(2) })).toThrow(/heavy armour/);
     });
 
-    it('dashes up to 10 tiles for 2 actions, with a quiet noise of radius 2 along its path', () => {
+    it('dashes up to 12 tiles for 2 actions, with a quiet noise of radius 2 along its path', () => {
         const { world, state } = corridor();
-        const result = commit(world, state, { type: 'dash', crew: 'jun', path: along(10) });
-        expect(result.state.crew[0]!.pos).toEqual(P(10, 0));
+        const result = commit(world, state, { type: 'dash', crew: 'jun', path: along(12) });
+        expect(result.state.crew[0]!.pos).toEqual(P(12, 0));
         expect(result.state.crew[0]!.actionsLeft).toBe(0);
         expect(result.events.slice(1)).toEqual([
-            { type: 'noise', sources: along(10), radius: 2, kind: 'quiet', cause: 'dash jun', heard: ['teller'] },
+            { type: 'noise', sources: along(12), radius: 2, kind: 'quiet', cause: 'dash jun', heard: ['teller'] },
             { type: 'heard', cause: 'dash jun', kind: 'quiet', npcs: ['teller'] }
         ]);
         // Someone heard it: it can't be taken back.
         expect(result.undoable).toBe(false);
-        expect(preview(world, state, { type: 'dash', crew: 'jun', path: along(10) }).events).toEqual(result.events);
-        expect(() => commit(world, state, { type: 'dash', crew: 'jun', path: along(11) })).toThrow(IllegalCommand);
+        expect(preview(world, state, { type: 'dash', crew: 'jun', path: along(12) }).events).toEqual(result.events);
+        expect(() => commit(world, state, { type: 'dash', crew: 'jun', path: along(13) })).toThrow(IllegalCommand);
         const short = commit(world, state, { type: 'dash', crew: 'jun', path: along(3) });
         expect(short.events.slice(1)).toEqual([{ type: 'noise', sources: along(3), radius: 2, kind: 'quiet', cause: 'dash jun', heard: [] }]);
         expect(short.undoable).toBe(true);

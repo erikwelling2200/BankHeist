@@ -34,7 +34,7 @@ declare module '../core/types' {
     }
 }
 
-registerRuleDefaults({ heavyMoveTiles: 4, dashTiles: 10 });
+registerRuleDefaults({ heavyMoveTiles: 4, dashTiles: 12 });
 
 export interface MoveOptions {
     /** Who moves (a crew or NPC id): their own tile doesn't count as occupied, and their side decides who they pass. */

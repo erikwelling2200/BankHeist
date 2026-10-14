@@ -257,7 +257,7 @@ and is not previewed (§13.6).
 | Action | Cost | Notes |
 | --- | --- | --- |
 | Move | 1 | Up to 5 tiles (4 in heavy armour). Diagonals cost 1.5. Can't cross a wall segment (§14.1) or cut a corner where one ends. |
-| Dash | 2 | Up to 10 tiles. Quiet noise radius 2. Not allowed in heavy armour or carrying Heavy loot. |
+| Dash | 2 | Up to 12 tiles: longer than two moves, so speed costs noise rather than nothing. Quiet noise radius 2. Not allowed in heavy armour or carrying Heavy loot. |
 | Attack | 1 | Most weapons. LMG and Suppress cost 2. A weapon's moving penalty applies if the character moved this turn. |
 | Command ("Get down!") | 1 | Doesn't end the turn. See §10. |
 | Hold | 1 | Must be the character's last action. Pauses commanded NPCs' timers (§10.3). |
