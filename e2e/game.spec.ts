@@ -210,6 +210,25 @@ test.describe('the hand-made example bank', () => {
         expect(errors).toEqual([]);
     });
 
+    test('draws an open door as its doorway and its leaf swung open, in the projection and cut with its wall (§6.9)', async ({ page }) => {
+        const errors = await boot(page, 'example');
+        const openAll = () => page.evaluate(() => {
+            const bank = (window as any).game.scene.getScene('bank');
+            const doors = ['doorWood', 'doorKeycard', 'doorService', 'doorGlass', 'doorTower', 'doorBack', 'vaultDoor', 'shutter'];
+            for (const w of (window as any).game.registry.get('bankData').level.walls) if (doors.includes(w.kind)) bank.walls.setDoorOpen(w.run, w.tx, w.ty, true);
+        });
+        // The street front stands, its glass doors and the lobby's side doors in view; then the vault door, its wall standing.
+        await lookAt(page, 30 * TILE, 31 * TILE);
+        const shut = await page.locator('canvas').screenshot();
+        await openAll();
+        await page.waitForTimeout(200);
+        const open = await page.locator('canvas').screenshot({ path: 'screenshots/door-open.png' });
+        expect(open.equals(shut)).toBe(false);
+        await lookAt(page, 26 * TILE, 11 * TILE);
+        await page.locator('canvas').screenshot({ path: 'screenshots/door-open-vault.png' });
+        expect(errors).toEqual([]);
+    });
+
     test('relights people as they move, and walks the guards and a passer-by on their patrols', async ({ page }) => {
         const errors = await boot(page, 'example');
         type Person = { look: string; x: number; y: number; facing: string; light: number };

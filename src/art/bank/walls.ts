@@ -27,6 +27,12 @@ interface Painter {
 
 const F = WALL_HEIGHT;
 
+/** The sill under a door's leaf: the threshold its leaf closes on, laid into the floor through the wall. */
+export const DOOR_SILL: Partial<Record<WallKind, number>> = {
+    doorWood: PAL.oak[4], doorKeycard: PAL.steel[4], doorBack: PAL.concrete[4], doorService: PAL.limestone[3], doorGlass: PAL.limestone[3],
+    doorTower: PAL.steel[4], vaultDoor: PAL.steel[3], shutter: PAL.concrete[3]
+};
+
 /** Plaster skins on a brick core, the core hatched diagonally. */
 const plasterSection: Painter['section'] = (put, t, length) => {
     for (let v = 0; v < t; v++) for (let u = 0; u < length; u++) {
@@ -526,6 +532,18 @@ export function wallArt(wall: Wall, look: WallLook, cut: number): PixelBitmap {
     if (!eastWest && wall.kind === 'rail') sideRail(bitmap, m, height);
     if (!eastWest && wall.kind === 'fence') sideFence(bitmap, m, height);
     return bitmap;
+}
+
+/**
+ * The colours, heights and alphas a segment's face painter puts at each column u and height z (1 to `WALL_HEIGHT`), the
+ * same as `wallArt` paints them: for drawing a door's leaf, swung open, with its own face.
+ */
+export function faceColours(wall: Wall, look: WallLook): (u: number, z: number) => { c: number; h: number; a: number } | undefined {
+    const t = WALL_THICKNESS[wall.kind], painter = PAINTERS[look], rand = mulberry32(look.length * 97 + t);
+    painter.section(() => undefined, t, TILE, rand);
+    const grid = new Map<number, { c: number; h: number; a: number }>();
+    painter.face((u, z, c, h, alpha) => { grid.set(z * TILE + u, { c, h, a: alpha ?? 255 }); }, rand);
+    return (u, z) => grid.get(z * TILE + u);
 }
 
 /**

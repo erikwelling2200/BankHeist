@@ -73,11 +73,11 @@ export class Baker {
         return texture;
     }
 
-    /** Packs baked pieces into one texture in rows, a pixel apart, each a named frame. */
-    packAtlas(key: string, pieces: AtlasPiece[]): void {
+    /** Packs baked pieces into one texture `width` wide, in rows, a pixel apart, each a named frame. */
+    packAtlas(key: string, pieces: AtlasPiece[], width = ATLAS_WIDTH): void {
         let x = 0, y = 0, row = 0;
         const spots = pieces.map(p => {
-            if (x + p.w > ATLAS_WIDTH) {
+            if (x + p.w > width) {
                 x = 0;
                 y += row + 1;
                 row = 0;
@@ -87,12 +87,12 @@ export class Baker {
             row = Math.max(row, p.h);
             return spot;
         });
-        const pixels = new Uint8ClampedArray(ATLAS_WIDTH * (y + row) * 4);
+        const pixels = new Uint8ClampedArray(width * (y + row) * 4);
         pieces.forEach((p, i) => {
             const { x, y } = spots[i]!;
-            for (let j = 0; j < p.h; j++) pixels.set(p.rgba.subarray(j * p.w * 4, (j + 1) * p.w * 4), ((y + j) * ATLAS_WIDTH + x) * 4);
+            for (let j = 0; j < p.h; j++) pixels.set(p.rgba.subarray(j * p.w * 4, (j + 1) * p.w * 4), ((y + j) * width + x) * 4);
         });
-        const texture = this.addPixels(key, pixels, ATLAS_WIDTH, y + row);
+        const texture = this.addPixels(key, pixels, width, y + row);
         pieces.forEach((p, i) => texture.add(p.frame, 0, spots[i]!.x, spots[i]!.y, p.w, p.h));
     }
 

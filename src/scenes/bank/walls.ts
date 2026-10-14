@@ -1,8 +1,8 @@
 import type Phaser from 'phaser';
-import { PAL } from '../../art/palette';
-import { bakeLighting } from '../../art/bank/lamps';
+import { leafArt, openWallArt, opens, type Hinge } from '../../art/bank/doors';
+import { bakeLighting, type Exposure, type Lamp } from '../../art/bank/lamps';
 import { farFront, streetFront } from '../../art/bank/lightmap';
-import { wallArt, wallLook, wallMargin } from '../../art/bank/walls';
+import { wallArt, wallLook, wallMargin, type WallLook } from '../../art/bank/walls';
 import { TILE } from '../../level/level';
 import { isOffMap, type Level } from '../../level/plan';
 import { WALL_STEPS, type Box } from '../../level/space';
@@ -22,6 +22,10 @@ const STEP_MS = 40;
 /** A wall segment on screen: the step it is drawn at, the step it is heading for, and what hangs on it. */
 interface WallSprite {
     wall: Wall;
+    look: WallLook;
+    /** The lamps that light it and its exposure, kept for drawing its door open. */
+    lamps: Lamp[];
+    exposure: Exposure;
     image: Phaser.GameObjects.Image;
     /** Its frame in the wall atlas for each of `WALL_STEPS`. */
     frames: string[];
@@ -35,6 +39,16 @@ interface WallSprite {
     /** Part of the front across the street, whose height the cloud shadows' bottom follows. */
     far: boolean;
     dressing: { top: number; images: Phaser.GameObjects.Image[] }[];
+    /** A door, once it has been opened: its doorway and its leaf, each with a frame per step, and whether it is open now. */
+    door?: OpenDoor;
+}
+
+interface OpenDoor {
+    open: boolean;
+    gap: Phaser.GameObjects.Image;
+    leaf?: Phaser.GameObjects.Image;
+    gapFrames: string[];
+    leafFrames: string[];
 }
 
 /**
@@ -46,8 +60,7 @@ interface WallSprite {
 export class Walls {
     private readonly sprites: WallSprite[] = [];
     private clock = 0;
-    /** The open leaves drawn over doorways (play mode only), by wall segment. */
-    private readonly leaves = new Map<WallSprite, Phaser.GameObjects.Graphics>();
+    private baker?: Baker;
 
     constructor(private readonly scene: Phaser.Scene, private readonly level: Level, private readonly tops: { front: (y: number) => void; far: (y: number) => void }) {}
 
@@ -56,6 +69,7 @@ export class Walls {
      * of its heights, lit by the lamps on its open sides and exposed for the side it faces; all of them share one atlas.
      */
     build(baker: Baker): void {
+        this.baker = baker;
         const { tiles, walls } = this.level;
         const { walls: front, line } = streetFront(this.level), far = farFront(this.level)?.walls ?? [];
         const fresh = !this.scene.textures.exists(KEY.walls);
@@ -74,16 +88,16 @@ export class Walls {
                 }
                 return frame;
             });
-            return { wall, f, base, frames };
+            return { wall, look, lamps, exposure, f, base, frames };
         });
         if (fresh) baker.packAtlas(KEY.walls, pieces);
-        for (const { wall, f, base, frames } of placed) {
+        for (const { wall, look, lamps, exposure, f, base, frames } of placed) {
             const image = this.scene.add.image(f.x - wallMargin(wall), base, KEY.walls, frames[0]!).setOrigin(0, 1).setDepth(DEPTH.standing + base);
             const north = wall.run === 'eastWest' ? tiles[wall.ty - 1]?.[wall.tx] : undefined;
             // The fronts on the street, and the piers at its ends that front tiles off the map, move as one.
             const isFront = front.includes(wall) || (wall.run === 'eastWest' && wall.ty * TILE === line);
             this.sprites.push({
-                wall, image, frames, base, step: 0, target: 0, dressing: [],
+                wall, look, lamps, exposure, image, frames, base, step: 0, target: 0, dressing: [],
                 standing: !isFront && (north === undefined || isOffMap(north)),
                 front: isFront,
                 far: far.includes(wall)
@@ -138,46 +152,72 @@ export class Walls {
     }
 
     /**
-     * Shows the door leaf on the segment at tile edge (`run`, tx, ty) open or closed (play mode, §6.9): an open door is a
-     * gap in the wall with its leaf swung back against the jamb into the tile south (east-west walls) or east (north-south
-     * walls) of it. Closed is the wall's own art, so a bank that never opens a door looks exactly as before.
+     * Shows the door on the segment at tile edge (`run`, tx, ty) open or closed (play mode, §6.9). Open, the segment is
+     * drawn with its doorway cut out of it and the floor beyond showing through, and the leaf stands swung open on its
+     * hinge, both in the world's projection and cut down with the wall (doors.ts). They are drawn the first time the
+     * door opens. Closed is the wall's own art, so a bank that never opens a door looks exactly as before.
      */
     setDoorOpen(run: Wall['run'], tx: number, ty: number, open: boolean): void {
         const w = this.sprites.find(s => s.wall.run === run && s.wall.tx === tx && s.wall.ty === ty);
         if (!w) throw new Error(`No wall segment at ${run} ${tx},${ty} to open`);
+        if (!opens(w.look) || (!open && !w.door)) return;
+        const door = (w.door ??= this.drawDoor(w, this.sprites.indexOf(w)));
+        door.open = open;
         w.image.setVisible(!open);
-        for (const d of w.dressing) for (const image of d.images) image.setVisible(!open && d.top <= WALL_STEPS[w.step]!);
-        let leaf = this.leaves.get(w);
-        if (!open) {
-            leaf?.setVisible(false);
-            return;
-        }
-        if (!leaf) {
-            const f = wallFootprint(w.wall), glass = w.wall.kind === 'doorGlass' || w.wall.kind === 'doorTower';
-            const colour = glass ? 0x8fb4c4 : w.wall.kind === 'doorWood' ? 0x7a5236 : 0x6d7480, length = TILE - 3;
-            const g = this.scene.add.graphics();
-            // The threshold: the floor under the doorway, a dark sill line.
-            g.fillStyle(PAL.void, 0.55);
-            g.fillRect(f.x, f.y, f.w, f.d);
-            // The leaf, swung open against the west (east-west wall) or north (north-south wall) jamb, seen from above.
-            g.fillStyle(PAL.void, 0.5);
-            if (w.wall.run === 'eastWest') g.fillRect(f.x + 1, f.y + f.d, 3, length);
-            else g.fillRect(f.x + f.w, f.y + 1, length, 3);
-            g.fillStyle(colour, glass ? 0.8 : 1);
-            if (w.wall.run === 'eastWest') g.fillRect(f.x, f.y + f.d - 1, 2, length);
-            else g.fillRect(f.x + f.w - 1, f.y, length, 2);
-            g.setDepth(DEPTH.standing + (w.wall.run === 'eastWest' ? f.y + f.d - 1 + length : f.y + 2));
-            this.leaves.set(w, (leaf = g));
-        }
-        leaf.setVisible(true);
+        door.gap.setVisible(open);
+        door.leaf?.setVisible(open);
+        this.showDressing(w);
+    }
+
+    /** The open doorway and leaf of a door segment, baked at each step of `WALL_STEPS` and lit as its wall is. */
+    private drawDoor(w: WallSprite, index: number): OpenDoor {
+        const key = `${KEY.walls}-door-${index}`, f = wallFootprint(w.wall), margin = wallMargin(w.wall), baker = this.baker!;
+        const hinge = this.hingeOf(w);
+        const gaps = WALL_STEPS.map(height => openWallArt(w.wall, w.look, height));
+        const leaves = WALL_STEPS.map(height => leafArt(w.wall, w.look, height, hinge));
+        const fresh = !this.scene.textures.exists(key), pieces: AtlasPiece[] = [];
+        const gapFrames = gaps.map((art, step) => {
+            const frame = `gap-${step}`;
+            if (fresh) pieces.push({ frame, rgba: bakeLighting(art, f.x - margin, w.base - art.height, AMBIENT, w.lamps, EVERYWHERE, w.exposure), w: art.width, h: art.height });
+            return frame;
+        });
+        const leafFrames = leaves.map((leaf, step) => {
+            const frame = `leaf-${step}`;
+            if (leaf && fresh) pieces.push({ frame, rgba: bakeLighting(leaf.bitmap, leaf.left, leaf.top, AMBIENT, w.lamps, EVERYWHERE, w.exposure), w: leaf.bitmap.width, h: leaf.bitmap.height });
+            return frame;
+        });
+        if (fresh) baker.packAtlas(key, pieces, pieces.reduce((sum, p) => sum + p.w + 1, 0));
+        const gap = this.scene.add.image(w.image.x, w.image.y, key, gapFrames[w.step]!).setOrigin(0, 1).setDepth(w.image.depth);
+        const first = leaves[0];
+        // Every step's leaf has the same footprint, so the same bottom edge: only its top is cut lower.
+        const leaf = first && this.scene.add.image(first.left, first.top + first.bitmap.height, key, leafFrames[w.step]!).setOrigin(0, 1).setDepth(DEPTH.standing + first.base);
+        return { open: false, gap, leaf, gapFrames, leafFrames };
+    }
+
+    /** The jamb a leaf hangs on: the west one, but the east one for the right-hand leaf of a pair of doors. */
+    private hingeOf(w: WallSprite): Hinge {
+        const { wall } = w;
+        if (wall.run === 'northSouth') return 'north';
+        if (w.look === 'doorGlassRight') return 'east';
+        const westIsSame = this.level.walls.some(o => o.kind === wall.kind && o.run === wall.run && o.tx === wall.tx - 1 && o.ty === wall.ty);
+        return wall.kind === 'doorTower' && westIsSame ? 'east' : 'west';
+    }
+
+    /** Dressing on a segment shows while the wall stands tall enough to hold it, and goes with its door when that opens. */
+    private showDressing(w: WallSprite): void {
+        const open = w.door?.open ?? false, height = WALL_STEPS[w.step]!;
+        for (const d of w.dressing) for (const image of d.images) image.setVisible(!open && d.top <= height);
     }
 
     private setStep(w: WallSprite, step: number): void {
         w.step = step;
         const height = WALL_STEPS[step]!;
         w.image.setFrame(w.frames[step]!);
-        const open = this.leaves.get(w)?.visible ?? false;
-        for (const d of w.dressing) for (const image of d.images) image.setVisible(!open && d.top <= height);
+        if (w.door) {
+            w.door.gap.setFrame(w.door.gapFrames[step]!);
+            w.door.leaf?.setFrame(w.door.leafFrames[step]!);
+        }
+        this.showDressing(w);
         // Cloud shadows fall on the street and the fronts, not on the floor seen over a cut-down front, nor on the inside
         // of the front across the street.
         if (w.front) this.tops.front(wallFootprint(w.wall).y - height);

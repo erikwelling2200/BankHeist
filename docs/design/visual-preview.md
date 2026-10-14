@@ -29,7 +29,13 @@ crisp at any zoom and a closer view draws fewer pixels. The camera's middle can 
    between the two over a tenth of a second, with a dead band so nudging the camera doesn't make it flicker; outer
    walls with nothing behind them always stand. Dressing hung on a cut wall goes with it, except what matters for play
    (cameras, card readers). A door in a north-south wall is edge-on to the camera, so its leaf hides in the wall: its
-   casings stand proud of both faces, with a handle each side and a threshold on the floor, and those show the door.
+   casings stand proud of both faces, with a handle each side and a threshold on the floor, and those show the door. An
+   **open door** (play mode) is drawn in the same projection (`src/art/bank/doors.ts`): its segment with the doorway
+   cut out of it, the floor beyond showing through and a sill across the threshold, and the leaf, a real 0.9m by 2m slab,
+   standing swung open on its hinge, its own face painted on it and cut down with its wall. In an east-west wall a leaf
+   swung square would be edge-on, a line, so it stands open at 72° and its face shows; in a north-south wall it swings a
+   full 90° and faces the camera. Glass doors open as glass, a pair as two leaves, and the vault's round door as a steel
+   drum with its bolt wheel.
    People are 16x24 and **stand in the middle of their tile**; depth follows each object's base line. ([lobby](../pixel-art/examples/bank-preview-lobby.png), [looking past the back wall into the
    corridor](../pixel-art/examples/bank-preview-corridor.png), [the street, the fronts standing](../pixel-art/examples/bank-preview-street.png),
    [the vault](../pixel-art/examples/bank-preview-vault.png), [the café](../pixel-art/examples/bank-preview-cafe.png),
