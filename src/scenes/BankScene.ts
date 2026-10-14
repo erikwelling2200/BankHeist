@@ -161,7 +161,9 @@ export class BankScene extends Phaser.Scene {
     create(): void {
         this.bank = this.registry.get('bankData') as BankData;
         if (!this.bank) throw new Error("No bank to draw: set the registry's 'bankData' before starting the scene");
+        this.forgetLastBank();
         this.level = this.bank.level;
+        this.held.clear();
         this.walls = [];
         this.people = [];
         this.knowledge = undefined;
@@ -193,6 +195,16 @@ export class BankScene extends Phaser.Scene {
         this.setupCamera();
         this.updateWalls(0);
         for (const w of this.walls) this.setWallStep(w, w.target);
+    }
+
+    /**
+     * A restarted scene draws another bank (the generator bar regenerates in the page), so the textures baked for the
+     * last one go; what doesn't depend on the bank (a dust mote, a person's drop shadow) stays. Its images were destroyed
+     * when the scene shut down.
+     */
+    private forgetLastBank(): void {
+        const keep: string[] = [KEY.mote, KEY.shadow];
+        for (const key of this.textures.getTextureKeys()) if ((key.startsWith('bank-') || key.startsWith('person-')) && !keep.includes(key)) this.textures.remove(key);
     }
 
     override update(): void {

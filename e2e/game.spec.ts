@@ -349,8 +349,11 @@ test.describe('generated banks (§17)', () => {
             return { inside, outside: visible() };
         });
         expect(seen).toEqual({ inside: false, outside: true });
-        await Promise.all([page.waitForURL(url => url.searchParams.get('seed') !== first.seed), page.getByRole('button', { name: 'New people' }).click()]);
-        await page.waitForFunction(() => (window as any).game?.scene?.getScene('bank')?.sys.isActive(), null, { timeout: 60000 });
+        await page.getByRole('button', { name: 'New people' }).click();
+        await page.waitForFunction(seed => {
+            const g = (window as any).generated;
+            return g && `${g.seed.layout}-${g.seed.population}` !== seed && (window as any).game.scene.getScene('bank').sys.isActive();
+        }, first.seed, { timeout: 60000 });
         const again = await generated(page);
         expect(again.seed.split('-')[0]).toBe(first.seed.split('-')[0]);
         expect(again.tier).toBe('small');
@@ -383,11 +386,19 @@ test.describe('the generator bar', () => {
             const g = (window as any).generated;
             return { archetype: g.archetype as string, tier: g.tier as string, seed: `${g.seed.layout}-${g.seed.population}` };
         });
+        // A mark on the page survives regenerating, because the page doesn't reload.
+        await page.evaluate(() => { (window as any).sameDocument = true; });
         const reloaded = async (act: () => Promise<unknown>) => {
             const before = (await bank()).seed;
-            await Promise.all([page.waitForURL(url => url.searchParams.get('seed') !== before), act()]);
-            await page.waitForFunction(() => (window as any).game?.scene?.getScene('bank')?.sys.isActive(), null, { timeout: 60000 });
-            return bank();
+            await act();
+            await page.waitForFunction(seed => {
+                const g = (window as any).generated, scene = (window as any).game.scene.getScene('bank');
+                return g && `${g.seed.layout}-${g.seed.population}` !== seed && scene.sys.isActive() && scene.debugState.width === g.level.tiles[0].length * 16;
+            }, before, { timeout: 60000 });
+            expect(await page.evaluate(() => (window as any).sameDocument)).toBe(true);
+            const now = await bank();
+            expect(new URL(page.url()).searchParams.get('seed')).toBe(now.seed);
+            return now;
         };
         let now = await reloaded(() => bar.getByRole('combobox', { name: 'Archetype' }).selectOption('atrium'));
         expect(now).toMatchObject({ archetype: 'atrium', tier: 'city' });
@@ -400,6 +411,10 @@ test.describe('the generator bar', () => {
         now = await reloaded(() => bar.getByRole('combobox', { name: 'Tier' }).selectOption('small'));
         await expect(bar.locator('option[value="mezzanineWatch"]')).toBeDisabled();
         expect(now.tier).toBe('small');
+        // Back shows the bank before, still in the same page.
+        now = await reloaded(() => page.goBack());
+        expect(now).toMatchObject({ archetype: 'atrium', tier: 'city' });
+        await page.locator('canvas').screenshot({ path: 'screenshots/regenerated.png' });
         expect(errors).toEqual([]);
     });
 });

@@ -11,7 +11,8 @@ export class Briefing {
     private readonly root: HTMLDivElement;
     private readonly panel: HTMLDivElement;
 
-    constructor(bank: GeneratedBank) {
+    /** `open` defaults to open where there is room for it beside the map; a regenerated bank keeps the last one's. */
+    constructor(bank: GeneratedBank, open = window.innerWidth >= 1200) {
         this.root = el('div', 'briefing') as HTMLDivElement;
         const toggle = el('button', 'briefing-toggle', 'Briefing');
         toggle.setAttribute('aria-label', 'Briefing');
@@ -21,8 +22,7 @@ export class Briefing {
         this.panel.addEventListener('pointerdown', e => e.stopPropagation());
         this.panel.addEventListener('wheel', e => e.stopPropagation());
         this.root.append(toggle, this.panel);
-        // Open by default where there is room for it beside the map.
-        if (window.innerWidth >= 1200) this.root.classList.add('open');
+        this.root.classList.toggle('open', open);
         this.render(bank);
         document.body.append(this.root);
     }
@@ -74,6 +74,10 @@ export class Briefing {
         const checks = section('Checks (§17.7)');
         list(checks, bank.validation.results.map(r => `${r.ok ? '✓' : '✗'} ${r.rule}: ${r.detail}`));
         checks.append(el('p', 'briefing-sub', `Built on attempt ${bank.validation.attempts}${bank.validation.relaxed.length ? `; relaxed: ${bank.validation.relaxed.join('; ')}` : ''}.`));
+    }
+
+    get open(): boolean {
+        return this.root.classList.contains('open');
     }
 
     destroy(): void {

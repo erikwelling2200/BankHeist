@@ -1,6 +1,7 @@
 import Phaser from 'phaser';
 import { registerSW } from 'virtual:pwa-register';
 import { bankFromAddress } from './bankSource';
+import type { GeneratedBank } from './gen/model';
 import { Briefing } from './ui/Briefing';
 import { GeneratorBar } from './ui/GeneratorBar';
 import { BankScene } from './scenes/BankScene';
@@ -33,16 +34,48 @@ const game = new Phaser.Game({
     callbacks: { preBoot: g => g.registry.set('bankData', bank?.data) }
 });
 
-if (bank?.generated) {
-    new Briefing(bank.generated);
-    new GeneratorBar(bank.generated, {
-        regenerate: params => { location.search = `?${new URLSearchParams(params)}`; },
-        knowledge: full => (game.scene.getScene('bank') as BankScene).showKnowledge(full)
-    });
+let panels: { briefing: Briefing; bar: GeneratorBar } | undefined;
+
+/** The briefing and the generator bar for a generated bank, replacing those of the bank before it. */
+function showPanels(generated: GeneratedBank | undefined): void {
+    const open = panels?.briefing.open;
+    panels?.briefing.destroy();
+    panels?.bar.destroy();
+    panels = generated && {
+        briefing: new Briefing(generated, open),
+        bar: new GeneratorBar(generated, { regenerate, knowledge: full => (game.scene.getScene('bank') as BankScene).showKnowledge(full) })
+    };
+    // Handles for Playwright tests and console debugging.
+    Object.assign(window, { generated });
 }
 
-// Handles for Playwright tests and console debugging.
-Object.assign(window, { game, Phaser, generated: bank?.generated });
+/**
+ * Regenerates in the page: the new picks and seed go into the address (so Back returns to the bank before), and the bank
+ * scene restarts on the new bank. Generating takes a moment, so the page shows it is busy first.
+ */
+function regenerate(params: Record<string, string>): void {
+    history.pushState(null, '', `${location.pathname}?${new URLSearchParams(params)}`);
+    showAddressedBank();
+}
+
+function showAddressedBank(): void {
+    document.body.classList.add('generating');
+    // Two frames, so the busy state is painted before generating blocks the page.
+    requestAnimationFrame(() => requestAnimationFrame(() => {
+        const next = bankFromAddress();
+        game.registry.set('bankData', next.data);
+        game.scene.getScene('bank')!.scene.restart();
+        showPanels(next.generated);
+        document.body.classList.remove('generating');
+    }));
+}
+
+if (bank) {
+    showPanels(bank.generated);
+    window.addEventListener('popstate', showAddressedBank);
+}
+
+Object.assign(window, { game, Phaser });
 
 new Fullscreen();
 registerSW({ immediate: true });

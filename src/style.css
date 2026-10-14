@@ -28,6 +28,9 @@
 .generator-bar { position: fixed; top: max(8px, env(safe-area-inset-top)); left: 0; right: 0; margin-inline: auto; width: max-content; z-index: 12; display: flex; flex-wrap: wrap; justify-content: center; align-items: center; gap: 6px; max-width: calc(100vw - 220px); padding: 6px 8px; border: 1px solid rgba(242, 230, 200, 0.25); border-radius: 8px; background: rgba(11, 13, 23, 0.82); font: 500 12px ui-sans-serif, system-ui, sans-serif; color: #f2e6c8; }
 .generator-bar select, .generator-bar button { min-height: 32px; border: 1px solid rgba(242, 230, 200, 0.35); border-radius: 6px; background: rgba(242, 230, 200, 0.08); color: #f2e6c8; font: inherit; padding: 0 8px; touch-action: manipulation; }
 .generator-bar select option { color: #0b0d17; }
+/* While a bank generates in the page: the bar can't be pressed again, and the pointer says to wait. */
+.generating, .generating * { cursor: progress; }
+.generating .generator-bar { opacity: 0.6; pointer-events: none; }
 .generator-bar button { background: rgba(242, 201, 76, 0.18); }
 .generator-bar button.active { background: rgba(242, 230, 200, 0.85); color: #0b0d17; }
 .generator-seed { color: #b5a98a; font: 11px ui-monospace, Menlo, Consolas, monospace; white-space: nowrap; }
