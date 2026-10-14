@@ -13,7 +13,8 @@ Top-down 2D pixel-art stealth game. Phaser 4 + TypeScript + Vite, shipped as an 
   plus `tier`, `archetype` and `plot`). The old stack demo is at `/?scene=demo`, the prop sheet at `/?scene=props`, the
   police officer's animation preview at `/?scene=officer`, and the room gallery at `/?scene=rooms`: every room type the
   generator furnishes, in four sizes and shapes, furnished and staffed by the real parcels (`src/gen/gallery.ts`;
-  `?seed=` picks other parcels). Check furnishing changes there first.
+  `?seed=` picks other parcels). Check furnishing changes there first. The stealth HUD (`src/ui/hud/`) is at `/?scene=hud` over a blank
+  page with sample view models (`&state=` picks one, `&text=1.3` scales the text, `&bare` hides the picker).
 - `docs/design/research.md` holds the key research findings behind each design decision, with the full notes per area in
   `docs/design/research/`.
 - `docs/design/implementation-plan.md` is the build plan for the game rules (architecture of `src/sim`, work packages per milestone with checkboxes); tick packages off as they land.

@@ -1,0 +1,200 @@
+/*
+ * The stealth HUD (UI.md "Screen layout" and "Visual language"): night-blue glass panels with a thin cream border and
+ * soft corners, cream monospace labels with a hard drop shadow, the signal palette for meaning. Sizes are CSS px at the
+ * 844x390 reference phone; text scales with --sh-text (§20.8). Insets keep clear of the notch and the home bar.
+ */
+.sh {
+  --ink: #0b0d17; --panel: rgba(11, 13, 23, 0.72); --line: rgba(242, 230, 200, 0.25); --line2: rgba(242, 230, 200, 0.35);
+  --iv: #f2e6c8; --dim: #b5a98a; --mute: #8f866f;
+  --safe: #80be8a; --amber: #e2a240; --red: #d44638; --cmd: #8ab6d6; --gold: #f2c94c;
+  --mono: ui-monospace, Menlo, Consolas, monospace; --sans: ui-sans-serif, system-ui, sans-serif;
+  --r: 6px; --r2: 8px;
+  --sh-text: 1;
+  --pl: max(8px, env(safe-area-inset-left)); --pr: max(8px, env(safe-area-inset-right));
+  --pt: max(8px, env(safe-area-inset-top)); --pb: max(8px, env(safe-area-inset-bottom));
+  position: fixed; inset: 0; z-index: 5; pointer-events: none; color: var(--iv);
+  font: 600 calc(var(--sh-text) * 14px) var(--mono); letter-spacing: 0.06em; text-shadow: 0 2px 0 #000;
+  -webkit-user-select: none; user-select: none; -webkit-touch-callout: none;
+}
+@media (min-width: 1100px) and (min-height: 600px) {
+  .sh { --pl: max(16px, env(safe-area-inset-left)); --pr: max(16px, env(safe-area-inset-right)); --pt: max(16px, env(safe-area-inset-top)); --pb: max(16px, env(safe-area-inset-bottom)); }
+}
+.sh button, .sh-sheet, .sh-top > * { pointer-events: auto; }
+.sh button { font: inherit; color: inherit; letter-spacing: inherit; text-shadow: inherit; padding: 0; margin: 0; cursor: pointer; touch-action: manipulation; -webkit-tap-highlight-color: transparent; }
+.sh button:focus-visible { outline: 2px solid var(--iv); outline-offset: 2px; }
+.sh [hidden] { display: none !important; }
+.sh-ic { display: block; width: 24px; height: 24px; image-rendering: pixelated; pointer-events: none; }
+.sh-panel { background: var(--panel); border: 1px solid var(--line); border-radius: var(--r); box-sizing: border-box; }
+.sh-num { font-weight: 700; font-size: calc(var(--sh-text) * 18px); line-height: 1; letter-spacing: 0; }
+.sh-big { font-weight: 600; font-size: calc(var(--sh-text) * 28px); line-height: 1; }
+.sh-tiny { font-size: calc(var(--sh-text) * 12px); color: var(--dim); letter-spacing: 0; }
+.sh-grow { flex: 1; }
+
+/* Key caps (§20.7): printed on their buttons where there is a mouse. */
+.sh-kc { display: none; position: absolute; z-index: 1; min-width: 16px; height: 16px; padding: 0 3px; box-sizing: border-box; border-radius: 3px; background: #e2dac6; color: #0e0c14;
+  border-bottom: 2px solid #8a7f68; font: 700 11px/14px var(--mono); letter-spacing: 0; text-shadow: none; text-align: center; pointer-events: none; }
+.sh.keys .sh-kc { display: block; }
+
+/* ---------------------------------------------------------------- top strip: read, not touched (but the ledger) */
+.sh-top { position: absolute; top: var(--pt); left: calc(var(--pl) + 72px); right: calc(var(--pr) + 60px); height: 32px; display: flex; gap: 6px; align-items: stretch; pointer-events: none; }
+.sh-state { display: flex; align-items: center; gap: 6px; padding: 0 10px 0 8px; white-space: nowrap; }
+.sh-state .sh-num { font-size: calc(var(--sh-text) * 15px); }
+.sh-state.quiet { box-shadow: inset 2px 0 0 var(--safe); }
+.sh-state.loud { box-shadow: inset 2px 0 0 var(--red); color: var(--red); }
+.sh-state.alarm { border-color: var(--red); box-shadow: inset 2px 0 0 var(--red); }
+.sh-state.alarm .sh-num { color: var(--red); font-size: calc(var(--sh-text) * 18px); }
+.sh-timeline { flex: 1; min-width: 0; position: relative; padding: 0 14px; display: flex; align-items: center; }
+.sh-track { position: relative; height: 1px; flex: 1; background: var(--line2); }
+.sh-done { position: absolute; left: 0; top: -1px; height: 3px; background: var(--iv); }
+.sh-now { position: absolute; top: -10px; width: 1px; height: 22px; background: var(--iv); }
+.sh-ev { position: absolute; top: -13px; width: 24px; margin-left: -12px; display: flex; flex-direction: column; align-items: center; }
+.sh-ev .sh-ic { background: radial-gradient(closest-side, rgba(11, 13, 23, 0.9), rgba(11, 13, 23, 0)); }
+.sh-ev.past { opacity: 0.45; }
+.sh-ev b { font-size: calc(var(--sh-text) * 10px); line-height: 1; margin-top: -1px; color: var(--dim); font-weight: 400; letter-spacing: 0; }
+.sh-timeline.police { gap: 8px; box-shadow: inset 2px 0 0 var(--red); }
+.sh-timeline.police .sh-label { color: var(--dim); font-size: calc(var(--sh-text) * 13px); }
+.sh-eta { display: flex; gap: 3px; }
+.sh-eta i { width: 10px; height: 12px; background: var(--red); }
+.sh-eta i.off { background: rgba(226, 218, 198, 0.12); }
+.sh-timeline.police .sh-num { color: var(--red); }
+.sh-turn { display: flex; align-items: center; justify-content: center; min-width: 44px; padding: 0 6px; }
+/* The ledger button: a 44x44 target whose visible face is the strip's 32px. */
+.sh-ledger-btn { position: relative; width: 44px; height: 44px; flex: none; background: none; border: 0; align-self: flex-start; }
+.sh-ledger-face { position: absolute; left: 0; top: 0; width: 44px; height: 32px; display: flex; align-items: center; justify-content: center; }
+.sh-ledger-btn.on .sh-ledger-face { border-color: var(--iv); }
+.sh-count { position: absolute; top: -5px; right: -5px; min-width: 16px; height: 16px; padding: 0 2px; box-sizing: border-box; border-radius: var(--r); background: var(--red); color: #fff;
+  font-size: 12px; letter-spacing: 0; text-shadow: none; display: flex; align-items: center; justify-content: center; }
+.sh-ledger-btn .sh-kc { right: -2px; bottom: -2px; }
+
+/* ---------------------------------------------------------------- end turn: far from Confirm on purpose */
+.sh-endturn { position: absolute; top: var(--pt); right: var(--pr); width: 52px; height: 44px; display: flex; align-items: center; justify-content: center; overflow: visible; }
+.sh-endturn .sh-fill { position: absolute; left: 0; top: 0; bottom: 0; width: 0; border-radius: var(--r); background: rgba(226, 218, 198, 0.28); }
+.sh-endturn.holding { border-color: var(--iv); }
+.sh-endturn .sh-ic { position: relative; }
+.sh-endturn .sh-kc { right: 2px; bottom: -10px; }
+
+/* ---------------------------------------------------------------- crew rail (left thumb) */
+.sh-rail { position: absolute; left: var(--pl); top: var(--pt); display: flex; flex-direction: column; gap: 6px; }
+.sh-crew { position: relative; width: 54px; height: 62px; border-radius: var(--r); background: var(--panel); border: 1px solid var(--line); box-sizing: border-box; display: block; }
+.sh-crew .sh-face { position: absolute; left: 2px; top: 2px; width: 48px; height: 48px; image-rendering: pixelated; }
+.sh-crew.sel { width: 60px; border-color: var(--c); box-shadow: inset 0 0 0 1px var(--c), 0 0 0 1px rgba(0, 0, 0, 0.6); }
+.sh-crew.sel .sh-face { left: 5px; }
+.sh-crew.spent .sh-face { filter: brightness(0.55) saturate(0.6); }
+.sh-initial { display: flex; align-items: center; justify-content: center; background: color-mix(in srgb, var(--c, #8f866f) 40%, #0b0d17); color: var(--iv); font-size: 22px; }
+.sh-ap { position: absolute; right: -4px; top: 3px; display: flex; flex-direction: column; gap: 2px; }
+.sh-ap i { display: block; width: 4px; height: 10px; background: var(--c); box-shadow: 1px 1px 0 var(--ink); }
+.sh-ap i.go { background: var(--gold); }
+.sh-ap i.off { background: rgba(226, 218, 198, 0.16); }
+.sh.flash-pips .sh-crew .sh-ap i.left { animation: sh-flash 0.25s steps(2) infinite; }
+@keyframes sh-flash { 50% { background: #fff; } }
+.sh-prof { position: absolute; left: -7px; bottom: 9px; width: 24px; height: 24px; background: var(--ink); border: 1px solid var(--line2); }
+.sh-carry { position: absolute; left: -7px; top: -3px; width: 24px; height: 24px; background: var(--ink); border: 1px solid var(--line2); }
+.sh-exp { position: absolute; right: -9px; bottom: 9px; display: flex; align-items: center; gap: 1px; padding: 0 2px; background: var(--ink); border: 1px solid var(--red); color: var(--red); font-size: 12px; letter-spacing: 0; }
+.sh-hp { position: absolute; left: 3px; right: 3px; bottom: 3px; height: 4px; display: flex; gap: 1px; }
+.sh-hp i { flex: 1; background: #7cae84; }
+.sh-hp.hurt i { background: var(--amber); }
+.sh-hp i.off { background: rgba(226, 218, 198, 0.12); }
+.sh-crew .sh-kc { left: 50%; top: -7px; transform: translateX(-50%); }
+.sh-rail.compact .sh-crew { height: 52px; }
+.sh-rail.compact .sh-face { width: 40px; height: 40px; left: 6px; }
+.sh-rail.compact .sh-crew.sel .sh-face { left: 9px; }
+.sh-rail.compact .sh-prof { bottom: 3px; }
+
+/* ---------------------------------------------------------------- camera tools and the overlay drawer */
+.sh-ltools { position: absolute; left: var(--pl); bottom: var(--pb); display: flex; gap: 6px; }
+.sh-btn { position: relative; width: 44px; height: 44px; display: flex; align-items: center; justify-content: center; }
+.sh-btn.on { border-color: var(--iv); background: rgba(242, 230, 200, 0.16); }
+.sh-btn.off { opacity: 0.35; }
+.sh-ltools .sh-kc { right: -4px; top: -8px; }
+.sh-sheet { position: absolute; box-sizing: border-box; background: rgba(11, 13, 23, 0.88); border: 1px solid var(--line2); border-radius: var(--r2); padding: 6px; }
+.sh-drawer { left: calc(var(--pl) + 102px); bottom: var(--pb); display: flex; gap: 6px; }
+.sh-ov-zones { width: 22px; height: 22px; background: linear-gradient(90deg, #4a6058 33%, #96a0ac 33% 66%, #706e6c 66%); border: 1px solid #000; }
+.sh-ov-cones { width: 0; height: 0; border-left: 12px solid transparent; border-right: 12px solid transparent; border-bottom: 20px solid rgba(226, 162, 64, 0.85); }
+.sh-ov-materials { width: 22px; height: 22px; border: 1px solid #000; background: repeating-linear-gradient(0deg, #6a4a3a 0 5px, #2a1e18 5px 6px); }
+
+/* ---------------------------------------------------------------- actions, Undo and Confirm (right thumb) */
+.sh-actions { position: absolute; right: var(--pr); bottom: calc(var(--pb) + 66px); display: flex; flex-direction: column; gap: 4px; align-items: flex-end; }
+.sh-actrow { display: flex; gap: 4px; }
+.sh-act { position: relative; width: 52px; height: 52px; border-radius: var(--r); background: var(--panel); border: 1px solid var(--line); display: flex; align-items: center; justify-content: center; box-sizing: border-box; }
+.sh-act.sel { border-color: var(--iv); background: rgba(242, 230, 200, 0.16); box-shadow: inset 0 -2px 0 var(--iv); }
+.sh-act.na { opacity: 0.35; cursor: default; }
+.sh-act.go { width: 64px; border-color: var(--gold); }
+.sh-cost { display: flex; gap: 2px; }
+.sh-act .sh-cost { position: absolute; left: 4px; bottom: 4px; }
+.sh-act .sh-cost i { display: block; width: 3px; height: 7px; background: var(--iv); }
+.sh-act.go .sh-cost i { background: var(--gold); }
+.sh-undo { position: absolute; right: calc(var(--pr) + 172px); bottom: var(--pb); }
+.sh-undo .sh-kc { right: -4px; top: -8px; }
+.sh-confirm { position: absolute; right: var(--pr); bottom: var(--pb); width: 164px; height: 58px; box-sizing: border-box; border-radius: var(--r2); border: 0;
+  display: flex; align-items: center; justify-content: center; gap: 8px; padding: 0 10px !important; background: var(--iv); color: var(--ink) !important; text-shadow: none !important; }
+.sh-confirm .sh-ic { filter: brightness(0.06); }
+.sh-cname { font-weight: 700; font-size: calc(var(--sh-text) * 16px); letter-spacing: 0.08em; text-transform: uppercase; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.sh-confirm .sh-cost { gap: 3px; flex: none; }
+.sh-confirm .sh-cost i { display: block; width: 4px; height: 12px; background: currentColor; }
+.sh-confirm.costly { background: var(--amber); }
+.sh-confirm.lethal { background: var(--red); color: #fff4e0 !important; }
+.sh-confirm.lethal .sh-ic { filter: brightness(0) invert(0.95); }
+.sh-confirm.command { background: var(--cmd); }
+.sh-confirm.off { background: var(--panel); border: 1px solid var(--line); color: var(--dim) !important; cursor: default; }
+.sh-confirm.off .sh-ic { filter: none; opacity: 0.35; }
+.sh-confirm.off .sh-cname { opacity: 0.45; }
+.sh-confirm .sh-kc { right: 5px; top: 5px; }
+
+/* ---------------------------------------------------------------- threat ledger: every clock, most urgent first */
+.sh-ledger { right: calc(var(--pr) + 128px); top: calc(var(--pt) + 40px); width: 300px; max-height: calc(100% - var(--pt) - var(--pb) - 40px - 66px); overflow-y: auto;
+  display: flex; flex-direction: column; gap: 4px; overscroll-behavior: contain; }
+.sh-sheet-title { display: flex; align-items: center; gap: 6px; padding: 0 2px 2px; color: var(--dim); font-size: calc(var(--sh-text) * 12px); }
+.sh-sheet-title .sh-ic { width: 12px; height: 12px; image-rendering: auto; }
+.sh-row { display: flex; align-items: center; gap: 8px; width: 100%; min-height: 44px; flex: none; padding: 0 6px !important; box-sizing: border-box; text-align: left;
+  background: rgba(226, 218, 198, 0.04); border: 0; border-left: 2px solid transparent; border-radius: 2px; }
+.sh-row.first.red { background: rgba(212, 70, 56, 0.18); border-left-color: var(--red); }
+.sh-row:active { background: rgba(226, 218, 198, 0.14); }
+.sh-n { flex: none; width: 30px; height: 30px; box-sizing: border-box; display: flex; align-items: center; justify-content: center; font-size: calc(var(--sh-text) * 20px); letter-spacing: 0; border: 1px solid var(--line2); color: var(--iv); }
+.red > .sh-n { border-color: var(--red); color: var(--red); }
+.amber > .sh-n { border-color: var(--amber); color: var(--amber); }
+.sh-p { flex: none; width: 30px; height: 30px; image-rendering: pixelated; }
+span.sh-p { font-size: 16px; }
+.sh-rlabel { flex: 1; min-width: 0; font: 500 calc(var(--sh-text) * 13px) var(--sans); letter-spacing: 0; color: var(--iv); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.sh-jump { opacity: 0.5; }
+.sh-empty { padding: 10px; color: var(--dim); font: 500 calc(var(--sh-text) * 13px) var(--sans); }
+
+/* ---------------------------------------------------------------- End turn's prompt when crew still have actions */
+.sh-prompt { right: var(--pr); top: calc(var(--pt) + 52px); width: 236px; display: flex; flex-direction: column; gap: 8px; padding: 8px; border-color: var(--amber); }
+.sh-ptitle { color: var(--amber); font-size: calc(var(--sh-text) * 13px); }
+.sh-pcrew { display: flex; gap: 10px; }
+.sh-pface { position: relative; display: block; width: 32px; height: 32px; box-shadow: 0 0 0 1px var(--c); }
+.sh-pface .sh-p { width: 32px; height: 32px; }
+.sh-pface .sh-ap { right: -7px; top: 2px; }
+.sh-prow { display: flex; gap: 6px; }
+.sh-pbtn { position: relative; flex: 1; height: 44px; display: flex; align-items: center; justify-content: center; gap: 6px; font-size: calc(var(--sh-text) * 13px) !important; border-radius: var(--r); white-space: nowrap; }
+.sh-pend { flex: 1.5; background: var(--amber); border: 0; color: var(--ink) !important; text-shadow: none !important; }
+.sh-pend .sh-ic { filter: brightness(0.06); }
+.sh-pend .sh-kc { right: 4px; top: -8px; }
+
+/* ---------------------------------------------------------------- name tags (long-press, or hover with a mouse) */
+.sh-tag { position: fixed; z-index: 3; padding: 4px 8px; background: var(--panel); border: 1px solid var(--iv); border-radius: var(--r); white-space: nowrap;
+  font-size: calc(var(--sh-text) * 13px); letter-spacing: 0.08em; text-transform: uppercase; pointer-events: none; backdrop-filter: blur(2px); }
+
+/* ---------------------------------------------------------------- recap card on resume (§20.6) */
+.sh-recap-back { position: absolute; inset: 0; pointer-events: auto; background: rgba(11, 13, 23, 0.55); display: flex; align-items: center; justify-content: center;
+  padding: var(--pt) var(--pr) var(--pb) var(--pl); box-sizing: border-box; }
+.sh-recap { position: relative; width: min(620px, 100%); max-height: 100%; overflow-y: auto; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; padding: 14px; }
+.sh-rcol { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.sh-rright { align-items: center; justify-content: space-between; gap: 10px; }
+.sh-rhead { display: flex; align-items: center; gap: 8px; min-height: 40px; }
+.sh-rhead .sh-state { height: 32px; }
+.sh-heat { display: flex; align-items: center; gap: 4px; }
+.sh-heatbar { display: flex; gap: 2px; }
+.sh-heatbar i { width: 5px; height: 14px; background: rgba(226, 218, 198, 0.12); }
+.sh-heatbar i.on { background: #d0683a; }
+.sh-ev-row { display: flex; align-items: center; gap: 6px; height: 40px; padding: 0 6px; border-radius: 2px; background: rgba(255, 255, 255, 0.04); }
+.sh-ev-row .sh-num.neg { color: var(--red); }
+.sh-ev-row .sh-num.pos { color: var(--amber); }
+.sh-minis { display: flex; gap: 6px; flex-wrap: wrap; justify-content: center; }
+.sh-mini { position: relative; width: 52px; height: 60px; border-radius: 2px; background: rgba(226, 218, 198, 0.05); border: 1px solid var(--c); box-sizing: border-box; }
+.sh-mini .sh-face { position: absolute; left: 5px; top: 4px; width: 40px; height: 40px; image-rendering: pixelated; }
+.sh-mini .sh-hp { left: 4px; right: 4px; bottom: 4px; height: 5px; }
+.sh-threats { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; justify-content: center; }
+.sh-chip { display: flex; align-items: center; gap: 4px; padding: 3px 6px 3px 3px; border-radius: 2px; background: rgba(226, 218, 198, 0.04); }
+.sh-chip .sh-n { width: 26px; height: 26px; }
+.sh-resume { position: relative; right: auto; bottom: auto; width: 100%; }
