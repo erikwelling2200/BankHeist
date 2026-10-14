@@ -333,9 +333,18 @@ function lobby(style: 'queue' | 'waiting' | 'open'): ParcelFn {
             }
             p.put({ kind: 'writingDesk', dx: p.w - 4, dy: 2, wide: 2 }) || p.put({ kind: 'writingDesk', dx: 2, dy: 2, wide: 2 });
         }
+        // A walk from the street doors to each of the lobby's other doors (the counter gate, the restrooms, the staff doors)
+        // stays free of the seating and the cover that go in next.
+        p.walks(true);
         if (style !== 'open' && atDoors) {
-            p.put({ kind: 'sofa', dx: 1, dy: Math.max(2, p.h - 5) });
-            p.put({ kind: 'coffeeTable', dx: 1, dy: Math.max(2, p.h - 5) + 2 });
+            // The sofa and its coffee table go in together, at the first spot along either side wall with room for both.
+            const spots = [1, p.w - 3].flatMap(dx => Array.from({ length: Math.max(1, p.h - 5) }, (_, i) => ({ dx, dy: Math.max(2, p.h - 5) - i })));
+            spots.some(({ dx, dy }) => {
+                const mark = p.f.mark();
+                if (p.put({ kind: 'sofa', dx, dy }) && p.put({ kind: 'coffeeTable', dx, dy: dy + 2 })) return true;
+                p.f.rollback(mark);
+                return false;
+            });
         }
         p.put({ kind: 'brochureRack', dx: 0, dy: p.h - 3, facing: 'east', alignX: 'west' });
         p.put({ kind: 'plant', dx: 0, dy: 0, alignX: 'west', alignY: 'north' });

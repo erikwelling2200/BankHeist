@@ -51,7 +51,7 @@ export class Furnisher {
     /** Marks a tile where someone will stand, so nothing is placed on it. */
     stand(x: number, y: number): boolean {
         const box = place({ tx: x, ty: y }, PERSON_SIZE);
-        if (this.near(box).some(b => boxesOverlap(b.box, box)) || this.standing.has(`${x},${y}`)) return false;
+        if (this.near(box).some(b => boxesOverlap(b.box, box)) || this.standing.has(`${x},${y}`) || this.inWall(box)) return false;
         this.add(this.standing, `${x},${y}`);
         this.keep(x, y);
         return true;
@@ -60,7 +60,7 @@ export class Furnisher {
     canStand(x: number, y: number): boolean {
         if (!this.site.inside(x, y) || this.site.owner[y]![x]! < 0 || this.site.tiles[y]![x] === 'z') return false;
         const box = place({ tx: x, ty: y }, PERSON_SIZE);
-        return !this.standing.has(`${x},${y}`) && !this.near(box).some(b => boxesOverlap(b.box, box));
+        return !this.standing.has(`${x},${y}`) && !this.near(box).some(b => boxesOverlap(b.box, box)) && !this.inWall(box);
     }
 
     isStanding(x: number, y: number): boolean {
@@ -108,12 +108,17 @@ export class Furnisher {
             if (!near.some(({ box: b }) => b.z + b.h === box.z && b.x <= box.x && box.x + box.w <= b.x + b.w && b.y <= box.y && box.y + box.d <= b.y + b.d)) return undefined;
         } else if (box.z > 0 && box.d <= 2 && !this.hangsOnWall(box)) return undefined;
         // Nothing standing may cut through a wall.
+        if (box.h > 0 && this.inWall(box)) return undefined;
+        return box;
+    }
+
+    /** Whether a box cuts into a wall's footprint: metre-thick walls reach well into the tiles beside them. */
+    private inWall(box: Box): boolean {
         const x0 = Math.floor(box.x / TILE), y0 = Math.floor(box.y / TILE), x1 = Math.floor((box.x + box.w - 1) / TILE), y1 = Math.floor((box.y + box.d - 1) / TILE);
-        if (box.h > 0 && this.wallsAround(x0, y0, x1, y1).some(w => {
+        return this.wallsAround(x0, y0, x1, y1).some(w => {
             const f = wallFootprint(w);
             return box.x < f.x + f.w && f.x < box.x + box.w && box.y < f.y + f.d && f.y < box.y + box.d;
-        })) return undefined;
-        return box;
+        });
     }
 
     /** Tries each prop in turn; the first that fits goes in. */

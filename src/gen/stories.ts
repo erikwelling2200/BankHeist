@@ -35,7 +35,7 @@ const DESKS = ['workstation', 'deskPair'];
 
 const VIGNETTES: Vignette[] = [
     {
-        id: 'sticky-note', rooms: ['staffOffice', 'tellerLine', 'managerOffice'], text: 'A note by a monitor with the vault code on it',
+        id: 'sticky-note', rooms: ['staffOffice', 'tellerLine', 'managerOffice'], text: 'A note stuck by a monitor (what it holds is in the opportunities)',
         tell: p => onGroups(p, [...DESKS, 'managerDesk'], 'desk', [{ kind: 'paperStack', at: DESK, facing: 'north' }])
     },
     {
