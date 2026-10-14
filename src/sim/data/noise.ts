@@ -63,10 +63,11 @@ export type NoiseSource = keyof typeof NOISES;
 /**
  * What a wall segment that sound has to get through does to it (§8.9): Soft walls cost 3 tiles of reach; Reinforced
  * and Vault stop it. Glass (windows, glass doors, curtains, §6 decision 8) counts as Soft: a pane is no thicker than a
- * partition. Teller glass is armoured, so it counts as Reinforced. Boundary (the edge of the map) stops it. A closed
- * door costs 3 whatever it is made of, except a vault door (`geo/sound.ts`).
+ * partition. Teller glass is armoured, so it counts as Reinforced. Boundary (the edge of the map) stops it. A fence and
+ * a railing carry it for free (`passes`). A closed door costs 3 whatever it is made of, except a vault door
+ * (`geo/sound.ts`).
  */
 export const SOUND_WALL_TILES = 3;
-export const SOUND_DAMPING: Readonly<Record<Material, 'wall' | 'stops'>> = {
-    glass: 'wall', tellerGlass: 'stops', soft: 'wall', reinforced: 'stops', vault: 'stops', boundary: 'stops'
+export const SOUND_DAMPING: Readonly<Record<Material, 'passes' | 'wall' | 'stops'>> = {
+    glass: 'wall', tellerGlass: 'stops', soft: 'wall', reinforced: 'stops', vault: 'stops', rail: 'passes', fence: 'passes', boundary: 'stops'
 };

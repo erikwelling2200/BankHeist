@@ -1,4 +1,4 @@
-import { TILE } from '../level/level';
+import { TILE } from '../level/constants';
 import type { LevelProp, PersonFacing } from '../level/plan';
 import type { Facing } from '../level/space';
 import {
@@ -380,7 +380,8 @@ function atmRoom(style: number): ParcelFn {
 function office(style: 'desk' | 'meeting' | 'shelves'): ParcelFn {
     return p => {
         p.walks();
-        const desk = p.group(managerDesk(true), { away: 1.2, faceDoor: 2 }) ?? p.group(managerDesk(false), { away: 1.2, faceDoor: 2 });
+        // The desk is compulsory (its PC and alarm button are the rules' objects): anywhere it fits, if not across from the door.
+        const desk = p.group(managerDesk(true), { away: 1.2, faceDoor: 2 }) ?? p.group(managerDesk(false), { away: 1.2, faceDoor: 2 }) ?? p.group(managerDesk(false));
         const manager = desk?.stations[0];
         if (manager) p.out.alarms.push({ tx: manager.tx, ty: manager.ty, name: "Manager's desk button", room: p.room.id });
         p.lootAt(desk, 'desk', "Manager's PC (vault code, time-lock schedule)", 0, 'light');

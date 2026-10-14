@@ -1,4 +1,4 @@
-import { TILE } from './level';
+import { TILE } from './constants';
 import { px, type Insets } from './space';
 
 /**

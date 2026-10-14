@@ -1,8 +1,8 @@
 import { edgeBetween, edgeKey } from '../core/grid';
 import { clonePlain } from '../core/json';
 import { defaultRules } from '../core/state';
-import { type CameraDef, type DoorDef, type DoorStart, type Lock, type Material, type PersonDef, type Pos, type ReadonlyWorld, type Rules, type Tile, type WallEdge, type WorldObject, type Zone } from '../core/types';
-import type { ClimbSide } from '../geo/move';
+import { RAISED_HEIGHT } from '../../level/plan';
+import { type CameraDef, type ClimbSide, type DoorDef, type DoorStart, type Lock, type Material, type PersonDef, type Pos, type ReadonlyWorld, type Rules, type Tile, type WallEdge, type WorldObject, type Zone } from '../core/types';
 import { freezeWorld } from './freeze';
 
 /*
@@ -51,8 +51,8 @@ const CLIMB: Readonly<Record<string, 'stairs' | 'ladder'>> = { '/': 'stairs', H:
 const FLOORS = new Set(['^', ...Object.keys(CLIMB)]);
 const CLIMB_SIDES: readonly (readonly [ClimbSide, Pos])[] = [['n', { x: 0, y: -1 }], ['e', { x: 1, y: 0 }], ['s', { x: 0, y: 1 }], ['w', { x: -1, y: 0 }]];
 
-/** Materials that let sight through (§8.3: glass doesn't block it). */
-const SEE_THROUGH: readonly Material[] = ['glass', 'tellerGlass'];
+/** Materials that let sight through (§8.3: glass doesn't block it, nor do railings and fences). */
+const SEE_THROUGH: readonly Material[] = ['glass', 'tellerGlass', 'rail', 'fence'];
 
 export function fixtureWorld(map: readonly string[], options: FixtureOptions = {}): ReadonlyWorld {
     const height = map.length, width = map[0]?.length ?? 0;
@@ -69,7 +69,7 @@ export function fixtureWorld(map: readonly string[], options: FixtureOptions = {
             const z = zones ? zones[y]![x]! : c in ZONES ? c : '.';
             const zone = ZONES[z];
             if (!zone) throw new Error(`Unknown zone '${z}' at (${x}, ${y}): zones are '.', 's' and 'x'`);
-            tiles.push({ zone, raised: c === '^', lit: true, blocksMove: OBJECTS.has(c), tall: c === 'T', halfCover: c === '#', room: null });
+            tiles.push({ zone, raised: c === '^', floor: c === '^' ? RAISED_HEIGHT : 0, lit: true, blocksMove: OBJECTS.has(c), tall: c === 'T', halfCover: c === '#', room: null });
         });
     });
     map.forEach((line, y) => [...line].forEach((c, x) => {
@@ -95,6 +95,7 @@ export function fixtureWorld(map: readonly string[], options: FixtureOptions = {
         const edge = edgeBetween(a, b), key = edgeKey(edge), material = wall.material ?? 'soft';
         if (edges[key]) throw new Error(`Two walls on the edge '${key}'`);
         const built: WallEdge = { ...edge, material, blocksSight: !wall.midHeight && !SEE_THROUGH.includes(material), blocksMove: true };
+        if (material === 'rail') built.halfCover = true;
         if (wall.blocksSound !== undefined) built.blocksSound = wall.blocksSound;
         if (wall.midHeight) built.midHeight = true;
         if (wall.door) {

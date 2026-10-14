@@ -19,7 +19,7 @@ const ALLOWED = ['src/sim/', 'src/level/', 'src/gen/'];
 
 /**
  * Files the walk may reach that break the rules on purpose, each with its reason. They may only be used to build the
- * World, never by a rule during play. Empty: src/sim imports nothing outside itself yet.
+ * World, never by a rule during play.
  */
 const BUILD_ONLY: Readonly<Record<string, string>> = {};
 
@@ -96,11 +96,20 @@ function problems(source: ts.SourceFile): string[] {
     return found;
 }
 
-/** The module specifiers a file imports or re-exports, static or dynamic. */
+/** Whether a declaration imports or re-exports types only (`import type`, `export type`): erased, so it runs nothing. */
+function typeOnly(node: ts.ImportDeclaration | ts.ExportDeclaration): boolean {
+    return ts.isImportDeclaration(node) ? !!node.importClause?.isTypeOnly : node.isTypeOnly;
+}
+
+/**
+ * The module specifiers a file imports or re-exports, static or dynamic. Type-only declarations and `import('…')`
+ * types don't count: nothing of them is left at run time. (`import { type A }` does count: verbatimModuleSyntax may
+ * keep it as an import.)
+ */
 function imports(source: ts.SourceFile): string[] {
     const out: string[] = [];
     const visit = (node: ts.Node): void => {
-        if ((ts.isImportDeclaration(node) || ts.isExportDeclaration(node)) && node.moduleSpecifier && ts.isStringLiteral(node.moduleSpecifier)) {
+        if ((ts.isImportDeclaration(node) || ts.isExportDeclaration(node)) && node.moduleSpecifier && ts.isStringLiteral(node.moduleSpecifier) && !typeOnly(node)) {
             out.push(node.moduleSpecifier.text);
         }
         if (ts.isCallExpression(node) && (node.expression.kind === ts.SyntaxKind.ImportKeyword
@@ -108,7 +117,6 @@ function imports(source: ts.SourceFile): string[] {
             const arg = node.arguments[0];
             out.push(arg && ts.isStringLiteral(arg) ? arg.text : '<computed import>');
         }
-        if (ts.isImportTypeNode(node) && ts.isLiteralTypeNode(node.argument) && ts.isStringLiteral(node.argument.literal)) out.push(node.argument.literal.text);
         ts.forEachChild(node, visit);
     };
     visit(source);

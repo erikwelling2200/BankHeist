@@ -402,6 +402,7 @@ Each package lists its goal, the design sections it covers, the files, what it d
   - **Depends on:** M4-07.
 - [ ] **M5-04 Generator content for the rules.**
   - **Work:** desk phones and their owners; the phone line; uniforms in the break room; keycards as items; the deposit-box intel box; a hook for placing side objectives (needed by M6).
+  - **Missing interactables (found in M1-02):** the catalog has no desk phones or phone-line point (the line §9.1's calls go out on), and no vault wiring box; `worldFromBank` derives no objects for them until they are props.
 - [ ] **M5-05 Playability bot (stretch).**
   - **Work:** a scripted Clean infiltrator that must reach the alarm closet unexposed on N seeds, run in the sweep.
 
@@ -464,9 +465,10 @@ Later milestones: within each milestone, the `∥` notes in §3 apply. UI packag
    - vault, vaultDoor, thick → Vault
    - window, doorGlass, curtain, doorTower → Glass
    - tellerWindow → Teller glass
-   - fence → passes sight and sound, blocks movement (`blocksSound: false` on the edge)
-   - Sound (§8.9, M1-03): Glass (windows, glass doors, curtains) counts as Soft, costing 3 tiles of reach; Teller glass is armoured and counts as Reinforced, stopping it. A closed door costs 3 whatever its material, except a vault door, which stops it.
-   - rail → half cover, low
+   - fence → Fence (its own material): passes sight, sound and bullets, blocks movement
+   - rail → Rail (its own material): passes sight, sound and bullets, blocks movement; half cover, low
+   - Boundary is only the plot's edge.
+   - Sound (§8.9, M1-03): Glass (windows, glass doors, curtains) counts as Soft, costing 3 tiles of reach; Teller glass is armoured and counts as Reinforced, stopping it; Fence and Rail carry it for free. A closed door costs 3 whatever its material, except a vault door, which stops it.
 9. **Doors.** Leaf doors start closed and close themselves at the end of the world phase unless propped (§3's staff door swings shut). Doors with a lock are locked. Staff carry the keys their role and the key graph give them.
 10. **Lit.** A room is lit unless its light is `none` and it is indoors; outdoors is lit by day. Power cuts and darkness come in M4, and the baked lamps are not a rules input. Darkness is judged by the *seen* tile: an unlit tile is seen only within half of each range (rounded down), so a guard in a dark room still sees the lit lobby.
 11. **Several observers per action.** Each NPC applies its matrix cell independently; the preview shows the worst tint plus a pip count per NPC.

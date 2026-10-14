@@ -33,7 +33,9 @@ describe('the noise flood (§8.9)', () => {
         ['a Soft wall', wall('soft'), 5],
         ['a glass wall', wall('glass'), 5],
         ['teller glass', wall('tellerGlass'), 2],
-        ['a fence', wall('reinforced', { blocksSound: false }), 8],
+        ['a segment that carries sound', wall('reinforced', { blocksSound: false }), 8],
+        ['a fence', wall('fence'), 8],
+        ['a railing', wall('rail'), 8],
         ['a Reinforced wall', wall('reinforced'), 2],
         ['a Vault wall', wall('vault'), 2],
         ['a closed vault door', door('closed', 'vault'), 2]

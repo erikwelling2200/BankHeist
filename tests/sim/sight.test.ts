@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import type { Furnisher } from '../../src/gen/furnish';
 import { generateBank } from '../../src/gen/generate';
 import { Nav } from '../../src/gen/nav';
 import { Rng } from '../../src/gen/rng';
 import type { Site } from '../../src/gen/site';
+import type { TileGrids } from '../../src/level/tileProps';
 import {
     bandAt, fieldOn, sightInputs, buildSightMap, cameraObserver, crewObserver, edgeKey, edgeNow, FACINGS, fixtureWorld, hasLineOfSight, inArc,
     initialState, lineOfSight, npcObserver, profilesOf, sees, seenTiles, sightMap, type Facing, type FixtureWall, type HalfAngle,
@@ -46,7 +46,7 @@ function navOf(world: ReadonlyWorld, state: State, map: readonly string[]): { na
             return wall && { ...e, kind: wall.blocksSight ? 'plaster' : 'window' };
         }
     } as unknown as Site;
-    return { nav: new Nav(site, { blocked: () => false } as unknown as Furnisher), tall: (x, y) => map[y]![x] === 'T' };
+    return { nav: new Nav(site, { width, height, blocked: new Uint8Array(width * height), tall: new Uint8Array(width * height), halfCover: new Uint8Array(width * height) } satisfies TileGrids), tall: (x, y) => map[y]![x] === 'T' };
 }
 
 /** Whether the exact line between two tile middles passes through a grid corner. */
@@ -107,6 +107,13 @@ describe('line of sight', () => {
         expect(los(world, P(0, 2), P(4, 2))).toBe(true); // glass
         const teller = fixtureWorld(['...'], { walls: [{ between: [P(0, 0), P(1, 0)], material: 'tellerGlass' }] });
         expect(los(teller, P(0, 0), P(2, 0))).toBe(true);
+    });
+
+    it('passes a fence and a railing, which block movement, and only the railing gives half cover', () => {
+        const world = fixtureWorld(['...'], { walls: [{ between: [P(0, 0), P(1, 0)], material: 'fence' }, { between: [P(1, 0), P(2, 0)], material: 'rail' }] });
+        expect(los(world, P(0, 0), P(2, 0))).toBe(true);
+        const [fence, rail] = [world.edges['northSouth 1 0'], world.edges['northSouth 2 0']];
+        expect([fence?.blocksMove, fence?.halfCover, rail?.blocksMove, rail?.halfCover]).toEqual([true, undefined, true, true]);
     });
 
     it('is blocked by a closed or locked door and passes an open or breached one', () => {

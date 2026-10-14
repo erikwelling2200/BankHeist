@@ -1,7 +1,8 @@
-import { TILE } from '../level/level';
+import { TILE } from '../level/constants';
 import { isOnTop, propBox, propSpan } from '../level/catalog';
 import type { LevelProp } from '../level/plan';
 import { boxesOverlap, PERSON_SIZE, place, type Box } from '../level/space';
+import { blocksMoveAt, isGap, tilesOfBox, wallsAround, type PlacedProp } from '../level/tileProps';
 import { wallFootprint, type Wall, type WallKind } from '../level/walls';
 import type { GenRoom } from './model';
 import { tilesOf, type Site } from './site';
@@ -10,7 +11,7 @@ import { tilesOf, type Site } from './site';
 export const HANGABLE: readonly WallKind[] = ['plaster', 'concrete', 'vault', 'brick', 'pier', 'brickPier', 'thick'];
 
 /** A placed prop and the box it fills. */
-export interface Placed { prop: LevelProp; box: Box }
+export type Placed = PlacedProp;
 
 /**
  * Places props on the site so they fit: each stands inside its tiles between the walls, intersects nothing already
@@ -146,8 +147,7 @@ export class Furnisher {
 
     /** Whether a tile has something standing on it a person can't walk through. */
     blocked(x: number, y: number): boolean {
-        const person = place({ tx: x, ty: y }, PERSON_SIZE);
-        return this.near(person).some(b => b.box.h > 0 && b.box.z < PERSON_SIZE.h && !isGap(b.prop, x, y) && boxesOverlap(b.box, person));
+        return this.near(place({ tx: x, ty: y }, PERSON_SIZE)).some(b => blocksMoveAt(b, x, y));
     }
 
     /** Whether anything stands on the floor of a tile (however little of it), for a quick look before trying a prop. */
@@ -164,13 +164,7 @@ export class Furnisher {
 
     /** The walls on the edges of tiles x0..x1, y0..y1 and of the tiles round them. */
     private wallsAround(x0: number, y0: number, x1: number, y1: number): Wall[] {
-        const out: Wall[] = [];
-        for (let y = y0 - 1; y <= y1 + 2; y++) for (let x = x0 - 1; x <= x1 + 2; x++) {
-            const a = this.site.wallAt({ run: 'eastWest', tx: x, ty: y }), b = this.site.wallAt({ run: 'northSouth', tx: x, ty: y });
-            if (a) out.push(a);
-            if (b) out.push(b);
-        }
-        return out;
+        return wallsAround(e => this.site.wallAt(e), x0, y0, x1, y1);
     }
 
     private add(set: Set<string>, key: string): void {
@@ -178,15 +172,4 @@ export class Furnisher {
         set.add(key);
         this.log.push({ set, key });
     }
-}
-
-/** The counter's gate: a flap people walk through, so its tile stays a way through the counter. */
-function isGap(prop: LevelProp, x: number, y: number): boolean {
-    return prop.kind === 'counter' && prop.gate === x && prop.ty === y;
-}
-
-function tilesOfBox(box: Box): { x: number; y: number }[] {
-    const out: { x: number; y: number }[] = [];
-    for (let y = Math.floor(box.y / TILE); y <= Math.floor((box.y + box.d - 1) / TILE); y++) for (let x = Math.floor(box.x / TILE); x <= Math.floor((box.x + box.w - 1) / TILE); x++) out.push({ x, y });
-    return out;
 }

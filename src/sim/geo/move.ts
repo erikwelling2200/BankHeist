@@ -1,6 +1,6 @@
 import { cornerEdges, edgeBetween, edgeKey, FACING_STEP, FACINGS, inBounds, tileAt } from '../core/grid';
 import { edgeNow, registerRuleDefaults } from '../core/state';
-import type { CrewState, DeepReadonly, DoorDef, DoorStatus, NpcStatus, Pos, ReadonlyWorld, State, Tile } from '../core/types';
+import type { ClimbSide, CrewState, DeepReadonly, DoorDef, DoorStatus, NpcStatus, Pos, ReadonlyWorld, State, Tile } from '../core/types';
 import { DIAGONAL_COST, HALF_STEPS_PER_TILE, HEAVY_ARMOUR_ITEM, ORTHOGONAL_COST } from '../data/movement';
 
 /*
@@ -25,20 +25,7 @@ import { DIAGONAL_COST, HALF_STEPS_PER_TILE, HEAVY_ARMOUR_ITEM, ORTHOGONAL_COST 
  *   anyone's tile. §6.3 is silent; this is our call.
  */
 
-/** The orthogonal sides a climb tile can lead to. */
-export type ClimbSide = 'n' | 'e' | 's' | 'w';
-
-export interface Climb {
-    kind: 'stairs' | 'ladder';
-    /** The side of the raised tile it leads to. */
-    to: ClimbSide;
-}
-
 declare module '../core/types' {
-    interface Tile {
-        /** A stair or ladder tile (§14.7): ground floor, the only way onto the raised tile on its `to` side. */
-        climb?: Climb;
-    }
     interface Rules {
         /** Move's reach in heavy armour (§6.3). */
         heavyMoveTiles: number;

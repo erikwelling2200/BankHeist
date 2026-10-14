@@ -78,7 +78,7 @@ describe('saving', () => {
  * NpcStatusMap, CarrierKindMap or adds a field must also fill it in below, or a change of shape goes unnoticed.
  */
 const SHAPE_HASHES: Record<number, string> = {
-    1: '0036c080f2c3b8eb'
+    1: '118005f808dfb060'
 };
 
 /** Paths whose objects are records by id, not structs. */
@@ -133,11 +133,18 @@ describe('the save format', () => {
             genVersion: 'fixture',
             world: {
                 ...world,
-                objects: [{ id: 'panel', kind: 'alarmPanel', pos: { x: 0, y: 0 }, facing: 's' }],
+                objects: [
+                    { id: 'panel', kind: 'alarmPanel', pos: { x: 0, y: 0 }, facing: 's' },
+                    { id: 'desk', kind: 'cctvDesk', pos: { x: 0, y: 0 }, facing: 's', name: 'CCTV desk', room: 'lobby', monitors: 4 },
+                    { id: 'cash', kind: 'loot', pos: { x: 0, y: 0 }, facing: 's', loot: { value: 5000, weight: 'light' } }
+                ],
                 cameras: [{ id: 'cam', pos: { x: 0, y: 0 }, facings: ['s', 'e'], room: 'lobby', seesInDark: true }],
                 people: world.people.map(p => ({ ...p, schedule: [{ from: 1, activity: 'work', room: 'lobby' }] })),
                 tiles: world.tiles.map((t, i) => (i === 1 ? { ...t, climb: { kind: 'stairs' as const, to: 'n' as const } } : i ? t : { ...t, room: 'lobby', midHeight: true })),
-                edges: Object.fromEntries(Object.entries(world.edges).map(([k, e]) => [k, { ...e, blocksSound: false, midHeight: false }]))
+                edges: Object.fromEntries(Object.entries({
+                    ...world.edges,
+                    'eastWest 9 9': { run: 'eastWest', tx: 9, ty: 9, material: 'boundary', blocksSight: false, blocksMove: true, halfCover: true, door: 'd' }
+                } as typeof world.edges).map(([k, e]) => [k, { ...e, blocksSound: false, midHeight: false }]))
             },
             state: full,
             recent: [{ type: 'waited', crew: 'jun' }],

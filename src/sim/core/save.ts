@@ -1,3 +1,4 @@
+import { packWorld, unpackWorld, type PackedWorld } from '../world/compact';
 import { freezeWorld } from '../world/freeze';
 import { assertPlainJson, deepFreeze, devChecksOn, sortedIds } from './json';
 import { defaultRules, initialState } from './state';
@@ -24,7 +25,8 @@ export interface Save {
     format: number;
     /** The generator that built the world ('fixture' for test worlds), so a seed-only save can be rebuilt later. */
     genVersion: string;
-    world: World;
+    /** The world with its tiles packed by field (`world/compact.ts`): most of a save's size otherwise. */
+    world: PackedWorld;
     state: State;
     recent: SimEvent[];
     undo: State[];
@@ -49,7 +51,7 @@ export interface SavedState { state: State; recent: SimEvent[]; undo: UndoStack 
 
 /** The keys every state has, from a fresh state of a one-tile world (so packages' own state fields count too). */
 function stateKeys(): string[] {
-    const tile = { zone: 'public', raised: false, lit: true, blocksMove: false, tall: false, halfCover: false, room: null } as const;
+    const tile = { zone: 'public', raised: false, floor: 0, lit: true, blocksMove: false, tall: false, halfCover: false, room: null } as const;
     const world = { width: 1, height: 1, tiles: [tile], edges: {}, doors: {}, objects: [], people: [], cameras: [], rules: defaultRules() };
     return sortedIds(initialState(world, { seed: 0, crew: [] }));
 }
@@ -96,28 +98,39 @@ function stateFields(saved: { state: State; recent?: readonly SimEvent[]; undo?:
     return fields;
 }
 
+/** A saved world, its tiles packed (world/compact.ts) or plain, unpacked and frozen. */
+function readWorld(world: unknown, what: string): ReadonlyWorld {
+    let unpacked: World;
+    try {
+        unpacked = unpackWorld(world as PackedWorld | World);
+    } catch (e) {
+        throw new SaveFormatError(`The ${what}'s world can't be unpacked: ${(e as Error).message}`);
+    }
+    return freezeWorld(unpacked);
+}
+
 /** The whole heist in one string: the world (checked once, when it was frozen) and the state part. */
 export function serialise(saved: { genVersion: string; world: ReadonlyWorld; state: State; recent?: readonly SimEvent[]; undo?: UndoStack }): string {
-    return JSON.stringify({ format: SAVE_FORMAT, genVersion: saved.genVersion, world: freezeWorld(saved.world), ...stateFields(saved) });
+    return JSON.stringify({ format: SAVE_FORMAT, genVersion: saved.genVersion, world: packWorld(freezeWorld(saved.world)), ...stateFields(saved) });
 }
 
 export function deserialise(text: string): Saved {
     const data = parse(text, 'save');
     if (typeof data.genVersion !== 'string') throw new SaveFormatError('The save has no generator version');
     if (!data.world || typeof data.world !== 'object') throw new SaveFormatError('The save has no world');
-    return { genVersion: data.genVersion, world: freezeWorld(data.world as World), ...readState(data) };
+    return { genVersion: data.genVersion, world: readWorld(data.world, 'save'), ...readState(data) };
 }
 
 /** The world alone, saved once when a heist starts; the autosave after each action is `serialiseState`. */
 export function serialiseWorld(genVersion: string, world: ReadonlyWorld): string {
-    return JSON.stringify({ format: SAVE_FORMAT, genVersion, world: freezeWorld(world) });
+    return JSON.stringify({ format: SAVE_FORMAT, genVersion, world: packWorld(freezeWorld(world)) });
 }
 
 export function deserialiseWorld(text: string): { genVersion: string; world: ReadonlyWorld } {
     const data = parse(text, 'saved world');
     if (typeof data.genVersion !== 'string') throw new SaveFormatError('The saved world has no generator version');
     if (!data.world || typeof data.world !== 'object') throw new SaveFormatError('The saved world has no world');
-    return { genVersion: data.genVersion, world: freezeWorld(data.world as World) };
+    return { genVersion: data.genVersion, world: readWorld(data.world, 'saved world') };
 }
 
 /** The autosave after each committed action (§20.6): the state, the recent events and the undo stack, no world. */

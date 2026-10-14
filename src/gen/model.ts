@@ -1,6 +1,6 @@
 import type { Level, LevelPerson, LevelProp, Room } from '../level/plan';
 import type { RoomMetrics } from './metrics';
-import type { Story } from './parcels';
+import type { Furnished, Station, Story } from './parcels';
 
 /*
  * What the procedural bank generator (GAME_DESIGN §17) produces: a level the scene draws like the hand-made one, and
@@ -105,8 +105,17 @@ export interface GetawaySpot { id: string; name: string; tx: number; ty: number;
 /** Where vehicles leave the plot, and where police stage (§13.4). */
 export interface PlotExit { id: string; name: string; tx: number; ty: number }
 
-/** A camera (§8.3, §8.12): where it hangs, which way it looks, and whether it pans. */
-export interface GenCamera { id: string; tx: number; ty: number; facing: 'south' | 'north' | 'east' | 'west'; panning: boolean; room: string }
+/** The eight compass directions, clockwise from north, as the rules face people and cameras (§6.3). */
+export type Compass = 'n' | 'ne' | 'e' | 'se' | 's' | 'sw' | 'w' | 'nw';
+
+/**
+ * A camera (§8.3, §8.12): where it hangs, which way it looks, and whether it pans. A panning camera alternates between
+ * the two facings of `pan`, its facing turned 45° either way (anticlockwise first).
+ */
+export interface GenCamera {
+    id: string; tx: number; ty: number; facing: 'south' | 'north' | 'east' | 'west'; panning: boolean; room: string;
+    pan?: [Compass, Compass];
+}
 
 /** What someone does from a turn on (§16.1): a time block. */
 export interface ScheduleBlock { from: number; activity: string; room: string }
@@ -175,6 +184,18 @@ export interface GeneratedBank {
     timeline: TimelineEvent[];
     opportunities: Opportunity[];
     intel: string[];
+    /** Where people work or wait (the parcels' stations, with their roles). */
+    stations: Station[];
+    /** Silent-alarm stations (§9.1): teller windows, the manager's desk button, the CCTV console's panel. */
+    alarms: Furnished['alarms'];
+    /** Loot by tile (§15.1). */
+    loot: Furnished['loot'];
+    /** Spots the parcels left for the inside ends of the sewer, duct and roof routes. */
+    grates: Furnished['grates'];
+    vents: Furnished['vents'];
+    hatches: Furnished['hatches'];
+    /** How many monitors the CCTV operator watches the cameras on (§8.12); 0 without an operator. */
+    monitors: number;
     /** The vignettes the story pass left in the rooms (who uses them, what just happened). */
     stories: Story[];
     /** The checks of §17.7, and per room how full it is, how much cover it has and how much of it its doors see. */

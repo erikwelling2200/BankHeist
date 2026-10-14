@@ -1,5 +1,5 @@
 import { propBox, propSize, propSpan } from '../level/catalog';
-import { TILE } from '../level/level';
+import { TILE } from '../level/constants';
 import type { LevelProp, PersonFacing } from '../level/plan';
 import { FACINGS, turned, type Facing } from '../level/space';
 import { HANGABLE, type Furnisher, type Placed } from './furnish';

@@ -1,4 +1,4 @@
-import { TILE } from './level';
+import { TILE } from './constants';
 import type { LevelProp } from './plan';
 import { place, px, spanOf, type AlignX, type AlignY, type Box, type Facing, type Placement, type Size } from './space';
 import { wallInsets, type Wall } from './walls';

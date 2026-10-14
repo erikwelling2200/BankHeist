@@ -15,7 +15,7 @@ export const RULES = {
     loops: 'At least 2 loops between Public and Secure space, every zone with at least 2 connections',
     guardOverlap: 'No more than 3 guards can see the same tile',
     usefulCameras: 'Every camera covers a tile someone has to cross',
-    alarmsAndExits: 'Every silent-alarm station reachable from the lobby; civilian exits within reach of the crowd',
+    alarmsAndExits: "Every silent-alarm station reachable from the lobby, the manager's desk among them; civilian exits within reach of the crowd",
     getaways: 'Getaway spots connect to at least 2 plot exits',
     vaultDepth: 'The vault is at least 2 doors from any Public tile; the CCTV room is not on the vault corridor'
 } as const;
@@ -120,8 +120,10 @@ export function validate(ctx: Ctx): RuleResult[] {
         const d = toExit[p.y * site.width + p.x]!;
         return d < EXIT_BAND[0] - 1 || d > EXIT_BAND[1] || d < 0;
     });
-    results.push(result('alarmsAndExits', !unreachable.length && !far.length,
-        `${ctx.furnished.alarms.length} alarm stations${unreachable.length ? `, ${unreachable.length} unreachable` : ''}; ${far.length} crowd tiles outside the exit band`));
+    // Every manager's office has its desk, with the desk button (and the PC the rules read).
+    const deskless = ofType('managerOffice').filter(r => !ctx.furnished.alarms.some(a => a.room === r.id && a.name === "Manager's desk button"));
+    results.push(result('alarmsAndExits', !unreachable.length && !far.length && !deskless.length,
+        `${ctx.furnished.alarms.length} alarm stations${unreachable.length ? `, ${unreachable.length} unreachable` : ''}${deskless.length ? `, ${deskless.length} manager's office without its desk` : ''}; ${far.length} crowd tiles outside the exit band`));
 
     // Getaway spots: by road, alley or garage to at least two plot exits.
     const drivable = (x: number, y: number) => ['r', 'l', 'a', 'p', 'c', 'e'].includes(site.tiles[y]?.[x] ?? 'x');

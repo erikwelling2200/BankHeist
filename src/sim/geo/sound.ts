@@ -10,7 +10,7 @@ import { NOISES, SOUND_DAMPING, SOUND_WALL_TILES, type NoiseKind, type NoiseSour
  * cost (diagonals 1.5, §6 decision 3), all in half-steps. A tile is reached when its cost, rounded down to whole
  * tiles, is at most R: in half-steps, cost ≤ 2R + 1, so a radius-1 sound reaches the diagonal neighbours.
  *
- * A wall segment that carries sound (`blocksSound` false: no wall, an open or breached door, a hole, a fence) costs
+ * A wall segment that carries sound (`blocksSound` false: no wall, an open or breached door, a hole; or a fence or railing) costs
  * nothing. One that doesn't costs by material (`data/noise.ts`): a closed door or a Soft or glass wall 3 tiles of reach
  * on top of the step; Reinforced, teller glass and Vault stop it, and so does a closed vault door. A diagonal passes a
  * corner only if all four of its edges carry sound, so sound never slips round the end of a wall for free. Furniture
@@ -48,7 +48,8 @@ function edgeSoundCost(world: ReadonlyWorld, state: State, key: EdgeKey): number
     const material: Material = changed?.material ?? built.material;
     // A closed door costs 3 whatever it is made of, unless it is the vault's (§8.9 "each closed door").
     if (built.door) return material === 'vault' ? -1 : WALL_COST;
-    return SOUND_DAMPING[material] === 'stops' ? -1 : WALL_COST;
+    const damping = SOUND_DAMPING[material];
+    return damping === 'passes' ? 0 : damping === 'stops' ? -1 : WALL_COST;
 }
 
 /** What crossing an edge costs a sound in half-steps on top of the step, or undefined if it stops it. */

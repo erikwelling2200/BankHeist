@@ -11,13 +11,11 @@ import { rollTier, TIER_SPECS, type TierSpec } from './tiers';
 import { placeWays } from './approaches';
 import { keyGraph } from './keys';
 import { roomMetrics } from './metrics';
-import { Nav } from './nav';
+import { Nav, siteGrids } from './nav';
 import { furnishBank } from './parcels';
 import { populate } from './population';
 import { placeCameras, planGuards, trafficTiles } from './security';
 import { RELAX_ORDER, RULES, validate, type Rule } from './validate';
-import { TILE } from '../level/level';
-import { WALL_HEIGHT } from '../level/space';
 
 export interface GenerateOptions { layout: number; population: number; tier?: Tier; archetype?: Archetype; plot?: PlotKind }
 
@@ -151,18 +149,12 @@ function finishBank(shell: Shell, rng: Rng, people: Rng, spec: TierSpec, opts: G
     const timeLock = archetype === 'threeKeys' || headlines.includes('armouredCar') || rng.fork('timelock').chance(spec.timeLock);
     const parcelCtx = { gateX: shell.gateX, tellers: spec.tellers[1], frontDoorX: shell.frontDoorX, metalDetector: spec.metalDetector, motionSensors: spec.motionSensors, dyePacks: spec.dyePacks, vaultClass, ...(shell.driveWindow ? { driveWindow: shell.driveWindow } : {}) };
     const furnished = furnishBank(site, bank, furnish, rng.fork('parcels'), parcelCtx);
-    // Full-height furniture blocks sight (§8.3); low furniture doesn't. A grid, read for every line of sight.
-    const tallGrid = new Uint8Array(site.width * site.height);
-    const markTall = () => {
-        for (const { box } of furnish.boxes) if (box.h >= WALL_HEIGHT - 4 && box.z === 0) {
-            for (let y = Math.floor(box.y / TILE); y <= Math.floor((box.y + box.d - 1) / TILE); y++) for (let x = Math.floor(box.x / TILE); x <= Math.floor((box.x + box.w - 1) / TILE); x++) tallGrid[y * site.width + x] = 1;
-        }
-    };
-    markTall();
-    const tall = (x: number, y: number) => tallGrid[y * site.width + x] === 1;
-    const ways = placeWays({ site, plot, bank, neighbours: shell.neighbours, furnished, furnish, nav: new Nav(site, furnish), rng: rng.fork('ways'), tier, frontDoorX: shell.frontDoorX, skylight: shell.skylight, softOutside: archetype === 'fortress' });
-    const nav = new Nav(site, furnish);
-    markTall();
+    // What the furniture blocks: movement, and sight where it is full height (§8.3). The same grids build the rules' World.
+    // Built again after the ways in, which add props of their own (ladders, hatches, grates, the getaway van).
+    const ways = placeWays({ site, plot, bank, neighbours: shell.neighbours, furnished, furnish, nav: new Nav(site, siteGrids(site)), rng: rng.fork('ways'), tier, frontDoorX: shell.frontDoorX, skylight: shell.skylight, softOutside: archetype === 'fortress' });
+    const grids = siteGrids(site);
+    const nav = new Nav(site, grids);
+    const tall = (x: number, y: number) => grids.tall[y * site.width + x] === 1;
     const traffic = trafficTiles(site, nav, bank);
     const cameras = placeCameras(site, furnish, nav, furnished.cameraSlots, traffic, rng.fork('cameras').int(...spec.cameras), rng.fork('camera-pick'), tall);
     const guards = planGuards(nav, bank, furnish, rng.fork('guards'), rng.fork('guard-count').int(...spec.guards), spec.chief, { x: shell.frontDoorX, y: plot.lot.y + plot.lot.h - 1 });
@@ -179,6 +171,7 @@ function finishBank(shell: Shell, rng: Rng, people: Rng, spec: TierSpec, opts: G
         level: site.level(), rooms: site.rooms, doors: site.doors, props: site.props, people: pop.people, cameras, locks,
         approaches: ways.approaches, routes: ways.routes, getaways: ways.getaways, exits: ways.exits, staging: ways.staging,
         neighbours: shell.neighbours.map(n => n.slot.kind), timeline: pop.timeline, opportunities: pop.opportunities, intel: pop.intel,
-        stories: furnished.stories, validation: { results, relaxed: [], attempts: 0, metrics }
+        stations: furnished.stations, alarms: furnished.alarms, loot: furnished.loot, grates: furnished.grates, vents: furnished.vents,
+        hatches: furnished.hatches, monitors: spec.monitors, stories: furnished.stories, validation: { results, relaxed: [], attempts: 0, metrics }
     };
 }

@@ -45,7 +45,7 @@ export {
 } from './crew/movement';
 export {
     dashBudget, doorBetween, doorStatus, inHeavyArmour, LYING_STATUSES, moveBudget, occupancy, pathTo, reachable, reachAt, stepCost,
-    validatePath, type Climb, type ClimbSide, type MoveOptions, type Occupant, type PathCheck, type Reach, type ReachTile
+    validatePath, type MoveOptions, type Occupant, type PathCheck, type Reach, type ReachTile
 } from './geo/move';
 export {
     DEAF_STATUSES, inRing, makeNoise, noiseRadius, npcsInside, soundBudget, soundEdgeCost, soundRing, type Ring, type SoundTile
@@ -58,3 +58,6 @@ export {
     inArc, npcObserver, profilesOf, rangeOn, sees, seenTiles, seesOn, visionProfiles,
     type Arc, type Band, type HalfAngle, type Observer, type SightField, type VisionProfile, type VisionProfiles
 } from './geo/cones';
+export { worldFromBank, NOT_CARRIERS, OBJECT_KINDS } from './world/fromBank';
+export { WALL_MATERIALS, DOOR_KINDS, type WallMaterial } from './world/materials';
+export { packWorld, unpackWorld, packTiles, unpackTiles, type PackedTiles, type PackedWorld } from './world/compact';
