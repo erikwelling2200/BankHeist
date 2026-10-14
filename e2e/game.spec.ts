@@ -70,6 +70,14 @@ test.describe('on a phone', () => {
         expect(canvas.height).toBeCloseTo(390, -1);
         await expect(page.locator('.fullscreen-button')).toBeVisible();
         await page.screenshot({ path: 'screenshots/phone-landscape.png' });
+        // The generator bar keeps to one row and clear of the buttons at the left; the briefing hangs below it.
+        const box = async (selector: string) => (await page.locator(selector).boundingBox())!;
+        const bar = await box('.generator-bar'), full = await box('.fullscreen-button'), camera = await box('.camera-controls'), toggle = await box('.briefing-toggle');
+        expect(bar.height).toBeLessThan(56);
+        expect(bar.x).toBeGreaterThanOrEqual(full.x + full.width);
+        expect(bar.y + bar.height).toBeLessThanOrEqual(camera.y);
+        expect(toggle.y).toBeGreaterThanOrEqual(bar.y + bar.height);
+        expect(toggle.height).toBeGreaterThanOrEqual(36);
         expect(errors).toEqual([]);
     });
 
@@ -82,6 +90,20 @@ test.describe('on a phone', () => {
 
 test.describe('on a high-density phone', () => {
     test.use({ viewport: { width: 844, height: 390 }, deviceScaleFactor: 3, hasTouch: true, isMobile: true });
+
+    test('fits the whole plot on the tactical map, below the generator bar', async ({ page }) => {
+        const errors = await boot(page, 'bank', 'seed=15838-2&tier=hq&archetype=mezzanineWatch&plot=stripMallEnd');
+        const bar = (await page.locator('.generator-bar').boundingBox())!;
+        await page.evaluate(() => (window as any).game.scene.getScene('bank').toggleMap());
+        await page.waitForTimeout(400);
+        const state = await page.evaluate(() => (window as any).game.scene.getScene('bank').debugState);
+        expect(state.plot.top).toBeGreaterThanOrEqual(bar.y + bar.height);
+        expect(state.plot.bottom).toBeLessThanOrEqual(390);
+        expect(state.plot.left).toBeGreaterThanOrEqual(0);
+        expect(state.plot.right).toBeLessThanOrEqual(844);
+        await page.screenshot({ path: 'screenshots/phone-map.png' });
+        expect(errors).toEqual([]);
+    });
 
     test('pinches the zoom a step at a time and holds it while the fingers rest (§20.1)', async ({ page }) => {
         const errors = await boot(page, 'bank');
@@ -235,7 +257,12 @@ test.describe('the hand-made example bank', () => {
         await page.waitForTimeout(400);
         state = await scene(page);
         expect(state.map).toBe(true);
-        expect(state.zoom).toBe(1);
+        // The 960x704 plot doesn't fit 540 pixels at 1, so the map scales it down until the whole of it shows.
+        expect(state.zoom).toBeLessThan(1);
+        expect(state.plot.top).toBeGreaterThanOrEqual(0);
+        expect(state.plot.bottom).toBeLessThanOrEqual(540);
+        expect(state.plot.left).toBeGreaterThanOrEqual(0);
+        expect(state.plot.right).toBeLessThanOrEqual(960);
         expect(heights(state.walls, BACK_WALL)).toEqual([8]);
         await page.locator('canvas').screenshot({ path: 'screenshots/bank-map.png' });
         await page.getByRole('button', { name: 'Tactical map' }).click();
@@ -265,6 +292,41 @@ test.describe('generated banks (§17)', () => {
         });
     }
 
+    test('fits the whole of a big plot on the tactical map, below the generator bar (§20.1)', async ({ page }) => {
+        const errors = await boot(page, 'bank', 'seed=15838-2&tier=hq&archetype=mezzanineWatch&plot=stripMallEnd');
+        const bar = (await page.locator('.generator-bar').boundingBox())!;
+        await page.getByRole('button', { name: 'Tactical map' }).click();
+        await page.waitForTimeout(400);
+        const state = await page.evaluate(() => (window as any).game.scene.getScene('bank').debugState);
+        expect(state.plot.top).toBeGreaterThanOrEqual(bar.y + bar.height);
+        expect(state.plot.bottom).toBeLessThanOrEqual(540);
+        expect(state.plot.left).toBeGreaterThanOrEqual(0);
+        expect(state.plot.right).toBeLessThanOrEqual(960);
+        // Centred in what the bar leaves free.
+        expect((state.plot.left + state.plot.right) / 2).toBeCloseTo(480, -1);
+        expect((state.plot.top + state.plot.bottom) / 2).toBeCloseTo((bar.y + bar.height + 540) / 2, -1);
+        await page.locator('canvas').screenshot({ path: 'screenshots/generated-map-hq.png' });
+        // Zooming in leaves the map for the view before it, back on a whole-number step.
+        await page.keyboard.press('+');
+        const back = await page.evaluate(() => (window as any).game.scene.getScene('bank').debugState);
+        expect(back.map).toBe(false);
+        expect(back.zoomLevels).toContain(back.zoom);
+        expect(errors).toEqual([]);
+    });
+
+    test('lights the atrium under its skylight and shows the drop and railing at the gallery (§14.7)', async ({ page }) => {
+        const errors = await boot(page, 'bank', 'seed=7919-1&tier=city&archetype=atrium&plot=plazaFront');
+        await page.evaluate(() => {
+            const scene = (window as any).game.scene.getScene('bank');
+            const sky = (window as any).game.registry.get('bankData').props.find((p: { kind: string }) => p.kind === 'skylight');
+            scene.lookAt((sky.tx - 3) * 16, (sky.ty + 1) * 16);
+            for (const e of document.querySelectorAll<HTMLElement>('.generator-bar, .briefing, .camera-controls')) e.style.display = 'none';
+        });
+        await page.waitForTimeout(400);
+        await page.locator('canvas').screenshot({ path: 'screenshots/generated-atrium.png' });
+        expect(errors).toEqual([]);
+    });
+
     test('puts the seed in the address, rolls a new bank, and shows the blueprint (§17.2, §17.8)', async ({ page }) => {
         await page.setViewportSize({ width: 1280, height: 800 });
         const errors = await boot(page, 'bank', 'tier=small');
@@ -276,6 +338,17 @@ test.describe('generated banks (§17)', () => {
         await page.getByRole('button', { name: 'Blueprint' }).click();
         await page.waitForTimeout(300);
         await page.locator('canvas').screenshot({ path: 'screenshots/generated-blueprint.png' });
+        // Someone walking into a room the blueprint only outlines goes out of sight, and comes back as they walk out.
+        const seen = await page.evaluate(() => {
+            const scene = (window as any).game.scene.getScene('bank'), room = (window as any).game.registry.get('bankData').outlines[0];
+            const visible = () => scene.debugState.people[0].visible as boolean;
+            scene.movePerson(0, (room.x + 0.5) * 16, (room.y + 0.5) * 16);
+            const inside = visible();
+            const focus = (window as any).game.registry.get('bankData').focus;
+            scene.movePerson(0, (focus.tx + 0.5) * 16, (focus.ty + 0.5) * 16);
+            return { inside, outside: visible() };
+        });
+        expect(seen).toEqual({ inside: false, outside: true });
         await Promise.all([page.waitForURL(url => url.searchParams.get('seed') !== first.seed), page.getByRole('button', { name: 'New people' }).click()]);
         await page.waitForFunction(() => (window as any).game?.scene?.getScene('bank')?.sys.isActive(), null, { timeout: 60000 });
         const again = await generated(page);
@@ -287,6 +360,19 @@ test.describe('generated banks (§17)', () => {
 
 test.describe('the generator bar', () => {
     test.use({ viewport: { width: 1280, height: 800 } });
+
+    test('hangs the briefing below the bar, however many rows it takes', async ({ page }) => {
+        await page.setViewportSize({ width: 960, height: 540 });
+        const errors = await boot(page, 'bank', 'seed=15838-2&tier=hq&archetype=mezzanineWatch&plot=stripMallEnd');
+        await page.getByRole('button', { name: 'Briefing' }).click();
+        await expect(page.locator('.briefing-panel')).toBeVisible();
+        const bar = (await page.locator('.generator-bar').boundingBox())!, toggle = (await page.locator('.briefing-toggle').boundingBox())!;
+        expect(toggle.y).toBeGreaterThanOrEqual(bar.y + bar.height);
+        // The open panel doesn't squeeze the toggle.
+        expect(toggle.height).toBeGreaterThanOrEqual(36);
+        await page.screenshot({ path: 'screenshots/briefing-open.png' });
+        expect(errors).toEqual([]);
+    });
 
     test('regenerates the bank as an archetype is picked, and again on Regenerate', async ({ page }) => {
         const errors = await boot(page, 'bank', 'seed=5-5&tier=city');

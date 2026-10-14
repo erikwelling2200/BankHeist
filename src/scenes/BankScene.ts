@@ -32,6 +32,10 @@ const DEPTH = { floor: 0, shade: 2, sunFloor: 3, shadows: 4, standing: 10, haze:
 const QUESTION = [' ### ', '#   #', '    #', '   # ', '  #  ', '     ', '  #  '];
 /** Arrow keys pan this many screen pixels a second, whatever the zoom. */
 const PAN_SPEED = 480;
+/** How much the floor darkens beside the east or west edge of a raised floor, from the foot of the drop outwards. */
+const EDGE_SHADOW = [0.55, 0.4, 0.27, 0.15, 0.06];
+/** The tactical map keeps this many CSS pixels clear round the plot. */
+const MAP_MARGIN = 8;
 /** The camera opens on the lobby, about this many tiles high. */
 const START_TILES = 17;
 const ATLAS_WIDTH = 1024;
@@ -105,6 +109,8 @@ interface WallSprite {
 export class BankScene extends Phaser.Scene {
     private bank!: BankData;
     private knowledge?: Phaser.GameObjects.Graphics;
+    /** Whether only what the blueprint knows is shown (§17.8): people in the rooms it outlines stay hidden as they walk. */
+    private blueprintOnly = false;
     private level!: Level;
     private lamps: Lamp[] = [];
     private reach!: LampReach;
@@ -159,6 +165,7 @@ export class BankScene extends Phaser.Scene {
         this.walls = [];
         this.people = [];
         this.knowledge = undefined;
+        this.blueprintOnly = false;
         this.mapView = undefined;
         this.mapWidth = this.level.tiles[0]!.length * TILE;
         this.mapHeight = this.level.tiles.length * TILE;
@@ -170,7 +177,7 @@ export class BankScene extends Phaser.Scene {
         const far = farFront(this.level);
         this.lamps = [
             ...roomLamps(this.bank.rooms), ...windowPatches(this.level, streetFront(this.level).line), ...(far ? windowPatches(this.level, far.line, 'south') : []),
-            ...props.flatMap(propLamps)
+            ...props.flatMap(propLamps), ...props.filter(({ p }) => p.kind === 'skylight').map(({ box }) => skylightLamp(box))
         ];
         this.reach = new LampReach(lightBlockers(this.level), this.lamps);
         this.exposure = buildExposure(this.level);
@@ -213,9 +220,11 @@ export class BankScene extends Phaser.Scene {
             ready: true, width: this.mapWidth, height: this.mapHeight, lamps: this.lamps.length,
             zoom: this.zoom, zoomLevels: this.zoomLevels, tilesHigh: cam.height / TILE, map: !!this.mapView,
             midX: cam.midPoint.x, midY: cam.midPoint.y,
+            /** Where the plot shows, in CSS pixels from the canvas's top-left corner. */
+            plot: this.plotOnScreen(),
             /** Which tiles lamp light reaches, for the rules: rows of '#' (lit) and '.'. */
             lit: this.litTiles.map(row => row.map(lit => (lit ? '#' : '.')).join('')),
-            people: this.people.map(p => ({ look: p.person.look, x: p.x, y: p.y, facing: p.facing, light: p.light })),
+            people: this.people.map(p => ({ look: p.person.look, x: p.x, y: p.y, facing: p.facing, light: p.light, visible: p.image.visible })),
             walls: this.walls.map(w => ({ kind: w.wall.kind, run: w.wall.run, tx: w.wall.tx, ty: w.wall.ty, height: WALL_STEPS[w.step]! }))
         };
     }
@@ -251,12 +260,12 @@ export class BankScene extends Phaser.Scene {
         if (this.mapView) {
             const { zoom, x, y } = this.mapView;
             this.mapView = undefined;
-            this.applyZoom(zoom);
+            // The screen may have changed size while the map showed, and with it the steps.
+            this.applyZoom(this.zoomLevels.includes(zoom) ? zoom : nearestStep(this.zoomLevels, this.screen.height, TILE, this.screen.height / zoom / TILE));
             cam.centerOn(x, y);
         } else {
             this.mapView = { zoom: this.zoom, x: cam.midPoint.x, y: cam.midPoint.y };
-            this.applyZoom(mapZoom(this.screen.width, this.screen.height, this.mapWidth, this.mapHeight));
-            cam.centerOn(this.mapWidth / 2, this.mapHeight / 2);
+            this.showPlot();
         }
         this.controls?.showMap(!!this.mapView);
     }
@@ -281,6 +290,7 @@ export class BankScene extends Phaser.Scene {
         p.image.setPosition(left, top).setDepth(DEPTH.standing + baseLine(box));
         p.shadow.setPosition(box.x + box.w / 2, box.y + box.d / 2);
         p.light = meanBrightness(lit);
+        this.showIfKnown(p);
     }
 
     /**
@@ -423,7 +433,7 @@ export class BankScene extends Phaser.Scene {
     /**
      * The edges of raised tiles and stairs where they drop to lower floor with no wall between (§14.7): seen from the
      * south, a drop on a raised tile's south side shows the slab's face, nosing on top, a shadow at its foot; on its east
-     * or west side it throws a shadow on the lower floor and catches the light along its lip.
+     * or west side it throws a soft shadow on the lower floor and catches the light along its lip.
      */
     private drawRaisedEdges(floor: PixelBitmap): void {
         const { tiles, walls } = this.level;
@@ -447,11 +457,13 @@ export class BankScene extends Phaser.Scene {
             }
             for (const [dx, edge] of [[-1, tx], [1, tx + 1]] as const) {
                 if (!lower(tx + dx, ty) || closed.has(`northSouth ${edge} ${ty}`)) continue;
+                // Seen from above the drop itself is edge-on, so what shows it is a lit lip two pixels wide on the
+                // slab and a shadow on the floor below, darkest at its foot and fading over five pixels.
                 const lip = dx < 0 ? x0 : x0 + TILE - 1, foot = dx < 0 ? x0 - 1 : x0 + TILE;
                 for (let y = y0; y < y0 + TILE; y++) {
+                    floor.set(lip - dx, y, mix(floor.color(lip - dx, y), PAL.concrete[5], 0.45), 0.6);
                     floor.set(lip, y, PAL.concrete[5], 0.8);
-                    shadow(foot, y, 0.45);
-                    shadow(foot + dx, y, 0.2);
+                    EDGE_SHADOW.forEach((amount, k) => shadow(foot + k * dx, y, amount));
                 }
             }
             if (lower(tx, ty - 1) && !closed.has(`eastWest ${tx} ${ty}`)) for (let x = x0; x < x0 + TILE; x++) floor.set(x, y0, PAL.concrete[5], 0.8);
@@ -631,15 +643,11 @@ export class BankScene extends Phaser.Scene {
     showKnowledge(full: boolean): void {
         this.knowledge?.destroy();
         this.knowledge = undefined;
-        const outlines = this.bank.outlines ?? [];
-        const hidden = (x: number, y: number) => !full && outlines.some(r => x >= r.x * TILE && x < (r.x + r.w) * TILE && y >= r.y * TILE && y < (r.y + r.h) * TILE);
-        for (const p of this.people) {
-            p.image.setVisible(!hidden(p.x, p.y));
-            p.shadow.setVisible(!hidden(p.x, p.y));
-        }
+        this.blueprintOnly = !full;
+        for (const p of this.people) this.showIfKnown(p);
         if (full) return;
         const g = this.add.graphics().setDepth(DEPTH.knowledge);
-        for (const r of outlines) {
+        for (const r of this.bank.outlines ?? []) {
             g.fillStyle(0x1b1d27, 0.94).fillRect(r.x * TILE, r.y * TILE, r.w * TILE, r.h * TILE);
             g.lineStyle(1, 0x8f866f, 0.9).strokeRect(r.x * TILE + 0.5, r.y * TILE + 0.5, r.w * TILE - 1, r.h * TILE - 1);
             // A pixel question mark in the middle of the room.
@@ -648,6 +656,14 @@ export class BankScene extends Phaser.Scene {
             QUESTION.forEach((row, y) => [...row].forEach((c, x) => c === '#' && g.fillRect(cx + x * 2, cy + y * 2, 2, 2)));
         }
         this.knowledge = g;
+    }
+
+    /** Hides a person standing in a room the blueprint only outlines while only the blueprint shows; called whenever they move. */
+    private showIfKnown(p: PersonSprite): void {
+        const inside = (r: { x: number; y: number; w: number; h: number }) => p.x >= r.x * TILE && p.x < (r.x + r.w) * TILE && p.y >= r.y * TILE && p.y < (r.y + r.h) * TILE;
+        const hidden = this.blueprintOnly && (this.bank.outlines ?? []).some(inside);
+        p.image.setVisible(!hidden);
+        p.shadow.setVisible(!hidden);
     }
 
     private buildAtmosphere(): void {
@@ -767,8 +783,11 @@ export class BankScene extends Phaser.Scene {
         const ratio = window.devicePixelRatio || 1;
         this.screen = { width: Math.round(parent.clientWidth * ratio), height: Math.round(parent.clientHeight * ratio) };
         this.zoomLevels = zoomSteps(this.screen.height, TILE);
-        const zoom = this.mapView ? mapZoom(this.screen.width, this.screen.height, this.mapWidth, this.mapHeight)
-            : this.zoomLevels.includes(this.zoom) ? this.zoom : nearestStep(this.zoomLevels, this.screen.height, TILE, this.screen.height / this.zoom / TILE);
+        if (this.mapView) {
+            this.showPlot();
+            return;
+        }
+        const zoom = this.zoomLevels.includes(this.zoom) ? this.zoom : nearestStep(this.zoomLevels, this.screen.height, TILE, this.screen.height / this.zoom / TILE);
         const mid = this.cameras.main.midPoint;
         const [x, y] = [mid.x, mid.y];
         this.applyZoom(zoom);
@@ -776,12 +795,44 @@ export class BankScene extends Phaser.Scene {
     }
 
     /**
+     * The tactical map: the whole plot at the zoom that fits it in the screen below the HTML across its top (the
+     * generator bar), a margin clear of the edges, and centred in that area.
+     */
+    private showPlot(): void {
+        const ratio = window.devicePixelRatio || 1, margin = MAP_MARGIN * ratio, top = this.coveredTop() + margin;
+        const zoom = mapZoom(this.screen.width - 2 * margin, this.screen.height - top - margin, this.mapWidth, this.mapHeight);
+        this.applyZoom(zoom);
+        // The middle of the free area lies (top - margin) / 2 screen pixels below the middle of the screen.
+        this.cameras.main.centerOn(this.mapWidth / 2, this.mapHeight / 2 - (top - margin) / 2 / zoom);
+    }
+
+    /** How far down the canvas, in device pixels, the generator bar reaches. The hand-made example bank has none. */
+    private coveredTop(): number {
+        const bar = document.querySelector('.generator-bar');
+        if (!bar) return 0;
+        const ratio = window.devicePixelRatio || 1;
+        return Math.max(0, bar.getBoundingClientRect().bottom - this.game.canvas.getBoundingClientRect().top) * ratio;
+    }
+
+    /** The plot's rectangle on screen, in CSS pixels from the canvas's top-left corner. */
+    private plotOnScreen(): { left: number; top: number; right: number; bottom: number } {
+        // The scroll, not the world view, which only catches up when the camera next renders.
+        const { scrollX, scrollY } = this.cameras.main, scale = this.zoom / (window.devicePixelRatio || 1);
+        return { left: -scrollX * scale, top: -scrollY * scale, right: (this.mapWidth - scrollX) * scale, bottom: (this.mapHeight - scrollY) * scale };
+    }
+
+    /**
      * Zooms by rendering the canvas at the screen's size over `zoom`: the browser scales it up by a whole number, so the
      * art stays crisp, and a closer view draws fewer pixels. The EXPAND scale mode sizes the canvas from the game config's
-     * base size on every refresh, so that is what changes; EXPAND still follows the screen's aspect ratio.
+     * base size on every refresh, so that is what changes; EXPAND still follows the screen's aspect ratio. Only the
+     * tactical map goes below 1; there the browser scales the canvas down smoothly, since dropping whole rows and
+     * columns of pixels would break up the thin walls and railings.
      */
     private applyZoom(zoom: number): void {
         this.zoom = zoom;
+        const interpolation = Phaser.Display.Canvas.CanvasInterpolation;
+        if (zoom < 1) interpolation.setBicubic(this.game.canvas);
+        else interpolation.setCrisp(this.game.canvas);
         const config = this.game.config as unknown as { width: number; height: number };
         const width = Math.round(this.screen.width / zoom), height = Math.round(this.screen.height / zoom);
         if (config.width !== width || config.height !== height) {
@@ -802,6 +853,15 @@ export class BankScene extends Phaser.Scene {
  */
 function propLamps({ box, art, left, top }: PlacedProp): Lamp[] {
     return art.lights.map(l => ({ x: left + l.x, y: top + l.y, z: l.radius * 0.1, radius: l.radius, color: l.color, intensity: l.intensity, from: { x: left + l.x, y: box.y + box.d / 2 } }));
+}
+
+/**
+ * Daylight falling through a roof light: a cool, high, wide lamp over the middle of the skylight's patch, so the floor
+ * round it is lit like the sky is above it rather than only the pale patch itself.
+ */
+function skylightLamp(box: Box): Lamp {
+    const x = box.x + box.w / 2, y = box.y + box.d / 2;
+    return { x, y, z: 44, radius: 112, color: 0xe4ebf8, intensity: 0.6, from: { x, y } };
 }
 
 /** Floor points across a footprint: its middle and towards each end, so a long counter is lit by lamps along it. */

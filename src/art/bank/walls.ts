@@ -496,9 +496,13 @@ export function doorSill(wall: Wall): number | undefined {
     return wall.run === 'northSouth' ? SIDE_DOORS[wall.kind]?.sill : undefined;
 }
 
-/** How far a segment's art reaches past its footprint on each side: a north-south door's casing and handles. */
+/**
+ * How far a segment's art reaches past its footprint on each side: a north-south door's casing and handles, and a
+ * north-south railing's handrail and posts, drawn wider than the pixel its footprint is so it reads as a railing.
+ */
 export function wallMargin(wall: Wall): number {
-    return wall.run === 'northSouth' && SIDE_DOORS[wall.kind] ? 3 : 0;
+    if (wall.run !== 'northSouth') return 0;
+    return SIDE_DOORS[wall.kind] ? 3 : wall.kind === 'rail' ? 2 : 0;
 }
 
 /**
@@ -533,12 +537,29 @@ export function wallHeight(kind: WallKind, cut: number): number {
 }
 
 /**
- * A railing running north-south, seen end-on: each post is its own upright, so each shows, a step further up the screen
- * the further north it stands (a point at run position u and height z lands on row u + height + 1 - z).
+ * A railing running north-south, seen end-on: every part of it lines up in one column, so it is drawn wider than it is
+ * (`wallMargin`) to read. Its posts stand every quarter tile, as on the railing across the view; a point at run
+ * position u and height z lands on row u + height + 1 - z, so each post drops from the handrail a step further down
+ * the screen the further south it stands, to a foot plate on the floor. Over them runs the handrail's top, two pixels
+ * wide and lit from the west, with each post's cap standing proud of it, so from above it reads as rail and posts.
  */
 function sideRail(bitmap: PixelBitmap, m: number, height: number): void {
-    for (let u = 1; u < TILE; u += 4) for (let z = 1; z < height; z++) bitmap.set(m, u + height + 1 - z, z === 6 ? PAL.steel[3] : PAL.steel[2], 0.7);
-    for (let u = 0; u < TILE; u++) bitmap.set(m, u + 1, PAL.steel[5], 0.8);
+    const row = (u: number, z: number) => u + height + 1 - z, posts = [1, 5, 9, 13];
+    for (const u of posts) {
+        for (let z = 2; z < height; z++) {
+            bitmap.set(m - 1, row(u, z), PAL.steel[3], 0.7);
+            bitmap.set(m, row(u, z), PAL.steel[1], 0.6);
+        }
+        for (let x = m - 2; x <= m + 1; x++) bitmap.set(x, row(u, 1), x === m - 2 ? PAL.steel[4] : x === m + 1 ? PAL.steel[1] : PAL.steel[3], 0.4);
+    }
+    for (let v = 0; v <= TILE; v++) {
+        bitmap.set(m - 1, v, PAL.steel[5], 0.8);
+        bitmap.set(m, v, PAL.steel[3], 0.75);
+    }
+    for (const u of posts) {
+        const v = row(u, height);
+        [PAL.steel[4], PAL.steel[5], PAL.steel[4], PAL.steel[1]].forEach((c, i) => bitmap.set(m - 2 + i, v, c, 0.9));
+    }
 }
 
 /**

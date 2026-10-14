@@ -11,6 +11,8 @@ import { ARCHETYPE_NAMES, PLOT_NAMES } from './names';
  */
 export class GeneratorBar {
     private readonly root: HTMLDivElement;
+    /** Keeps `--generator-bar-bottom` on the page at the bar's bottom edge, so the briefing hangs below it when it wraps. */
+    private readonly resize: ResizeObserver;
 
     constructor(bank: GeneratedBank, actions: { regenerate: (params: Record<string, string>) => void; knowledge: (full: boolean) => void }) {
         const params = new URLSearchParams(location.search);
@@ -60,9 +62,13 @@ export class GeneratorBar {
         seed.textContent = `${TIER_SPECS[bank.tier].name} · ${ARCHETYPE_NAMES[bank.archetype]} · ${PLOT_NAMES[bank.plot]} · seed ${bank.seed.layout}-${bank.seed.population}`;
         this.root.append(seed);
         document.body.append(this.root);
+        this.resize = new ResizeObserver(() => document.documentElement.style.setProperty('--generator-bar-bottom', `${this.root.getBoundingClientRect().bottom}px`));
+        this.resize.observe(this.root);
     }
 
     destroy(): void {
+        this.resize.disconnect();
+        document.documentElement.style.removeProperty('--generator-bar-bottom');
         this.root.remove();
     }
 }
