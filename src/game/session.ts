@@ -5,7 +5,8 @@ import {
 import { deserialiseHeist, deserialiseUi, heistWorldId, serialiseHeist, serialiseUi, serialiseWorld } from './persist';
 import { PlaybackQueue, type PlaybackItem } from './playback';
 import type { SaveStorage } from './storage';
-import { hudView, recapView, type HudView, type RecapView } from './views';
+import type { HudViewModel, RecapVM } from '../ui/hud/viewModels';
+import { hudView, recapView } from './views';
 
 /*
  * The Session sits between the pure rules (src/sim) and the scene and HUD (implementation plan §2.4, §2.5). It owns
@@ -224,12 +225,12 @@ export class Session {
     }
 
     /** What the HUD shows now. */
-    hud(): HudView {
-        return hudView(this.world, this._state, this._ui);
+    hud(): HudViewModel {
+        return hudView(this.world, this._state, this._ui, { undoEnabled: this.canUndo });
     }
 
     /** The resume recap card (§20.6): the last 3 events, the bank, the turn and each crew member's status. */
-    recap(): RecapView {
+    recap(): RecapVM {
         return recapView(this.world, this._state, this._recent);
     }
 

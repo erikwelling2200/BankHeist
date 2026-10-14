@@ -4,6 +4,7 @@ import {
 } from '../../src/game';
 import { commit as engineCommit, fixtureWorld, hashOf, IllegalCommand, SaveFormatError, startCarrier, type Command } from '../../src/sim';
 import { registerTestCommand, smallBank, testCommand, type TestCommand } from '../sim/helpers';
+import { CREW_COLOURS } from '../../src/ui/hud/viewModels';
 
 /** Starts a teller-button carrier: final, since the world reacted. */
 registerTestCommand('gameTestAlarm', (ctx, cmd) => {
@@ -236,18 +237,22 @@ describe('the game session', () => {
         session.commit(MOVE_MARA);
         const recap = Session.resume(storage)!.recap();
         expect(recap.turn).toBe(1);
-        expect(recap.recent.map(r => r.event.type)).toEqual(['waited', 'carrierStarted', 'moved']);
-        expect(recap.recent[2]!.text).toBe('mara moved to (1, 2)');
+        expect(recap.events).toEqual([
+            { turn: 1, text: 'jun waited' },
+            { turn: 1, text: 'Teller button: alarm in 2' },
+            { turn: 1, text: 'mara moved to (1, 2)' }
+        ]);
         expect(recap.bank).toEqual({ status: 'quiet', label: 'QUIET: alarm in 2', nextAlarmIn: 2 });
         expect(recap.crew).toEqual([
-            { id: 'jun', name: 'jun', status: 'done', actionsLeft: 0, exposed: false },
-            { id: 'mara', name: 'mara', status: 'ready', actionsLeft: 1, exposed: false }
+            { id: 'jun', name: 'jun', colour: CREW_COLOURS[0], status: 'done', actionsLeft: 0, exposed: false, hp: null },
+            { id: 'mara', name: 'mara', colour: CREW_COLOURS[1], status: 'ready', actionsLeft: 1, exposed: false, hp: null }
         ]);
         expect(recap.threats.map(t => t.countdown)).toEqual([2]);
         session.endTurn();
         session.endTurn();
         expect(session.recap().bank.status).toBe('alarm');
-        expect(session.recap().recent.at(-1)!.event).toEqual({ type: 'phaseStarted', phase: 'crew', turn: 3 });
+        expect(session.recap().events.at(-1)).toEqual({ turn: 3, text: 'Turn 3' });
+        expect(session.recap().events.map(e => e.turn)).toEqual([2, 2, 3]);
     });
 
     it('tells subscribers what changed, and stops when they unsubscribe', () => {
@@ -341,11 +346,15 @@ describe('the HUD view models', () => {
         const hud = session.hud();
         expect(hud.turn).toBe(1);
         expect(hud.selected).toBe('jun');
-        expect(hud.crew[0]).toEqual({ id: 'jun', name: 'jun', actionsLeft: 1, actionsMax: 2, selected: true, profile: 'unknown', exposedTo: [], hp: null });
+        expect(hud.crew[0]).toEqual({ id: 'jun', name: 'jun', colour: CREW_COLOURS[0], actionsLeft: 1, actionsMax: 2, selected: true, profile: 'unknown', exposedTo: [], hp: null });
         expect(hud.crew[1]!.selected).toBe(false);
-        expect(hud.threats.map(t => [t.id, t.countdown])).toEqual([['carrier-2', 2], ['carrier-1', 4]]);
+        expect(hud.crew[1]!.colour).toBe(CREW_COLOURS[1]);
+        expect(hud.undoEnabled).toBe(true);
+        expect(hud.ledger.map(t => [t.id, t.countdown])).toEqual([['carrier-2', 2], ['carrier-1', 4]]);
+        expect(hud.ledger[0]).toMatchObject({ kind: 'tellerButton', label: 'Teller button', countdown: 2, halted: null });
+        expect(hud.ledger[0]!.label).not.toMatch(/\d/);
         const paused = { ...session.state, carriers: session.state.carriers.map(c => (c.countdown === 2 ? { ...c, halted: 'paused' as const } : c)) };
-        expect(threatLedger(paused).map(t => t.id)).toEqual(['carrier-1', 'carrier-2']);
+        expect(threatLedger(paused).map(t => [t.id, t.halted])).toEqual([['carrier-1', null], ['carrier-2', 'paused']]);
         const exposed = structuredClone(session.state);
         exposed.npcs[0]!.exposedTo = ['jun'];
         expect(crewCards(session.world, exposed, null).map(c => c.exposedTo)).toEqual([['teller'], []]);

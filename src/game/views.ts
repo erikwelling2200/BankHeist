@@ -1,59 +1,15 @@
-import type { Carrier, CarrierKind, ReadonlyWorld, SimEvent, State } from '../sim';
+import type { CarrierKind, ReadonlyWorld, SimEvent, State } from '../sim';
+import {
+    CREW_COLOURS, OVERLAY_IDS, type BankStatus, type BankStatusVM, type CrewVM, type HudViewModel, type OverlayId, type RecapEventVM,
+    type RecapVM, type ThreatVM
+} from '../ui/hud/viewModels';
 import type { UiState } from './session';
 
 /*
  * View models for the HUD (implementation plan §2.5): plain objects made from the state, so the HUD never reads
- * `State` itself and a rule can change the state's shape without touching the HUD. Fields the later packages fill in
- * (profile, HP, heat, police phase) are here already as placeholders, so the HUD can lay them out now.
+ * `State` itself and a rule can change the state's shape without touching the HUD. The types are the HUD's contract
+ * (src/ui/hud/viewModels.ts); fields the later packages fill in (profile, HP, heat, actions) are placeholders for now.
  */
-
-export type BankStatus = 'quiet' | 'loud' | 'alarm';
-
-export interface BankView {
-    status: BankStatus;
-    /** What the state pill says. */
-    label: string;
-    /** The most urgent live carrier's countdown, if any (the pill shows it, UI.md). */
-    nextAlarmIn: number | null;
-}
-
-/** The profile icon on a crew card (§8.6); 'unknown' until the profile package. */
-export type ProfileView = 'unknown';
-
-export interface CrewCardView {
-    id: string;
-    name: string;
-    actionsLeft: number;
-    actionsMax: number;
-    selected: boolean;
-    profile: ProfileView;
-    /** The NPCs who know this crew member is a criminal (§8.7), by id; non-empty shows the Exposed marker. */
-    exposedTo: string[];
-    /** Hit points, null until crew health exists. */
-    hp: { now: number; max: number } | null;
-}
-
-export interface ThreatView {
-    id: string;
-    kind: CarrierKind;
-    /** Who or what carries it. */
-    source: string;
-    /** Where the camera goes when the row is tapped. */
-    pos: { x: number; y: number };
-    countdown: number;
-    halted: Carrier['halted'];
-    /** A short line for the ledger row. */
-    label: string;
-}
-
-export interface HudView {
-    turn: number;
-    bank: BankView;
-    crew: CrewCardView[];
-    /** Live alarm carriers, most urgent first (§20.3 threat ledger). */
-    threats: ThreatView[];
-    selected: string | null;
-}
 
 const CARRIER_LABELS: Readonly<Record<CarrierKind, string>> = {
     tellerButton: 'Teller button', managerButton: 'Manager button', guardRadio: 'Guard radio', operatorCamera: 'Camera operator',
@@ -62,17 +18,19 @@ const CARRIER_LABELS: Readonly<Record<CarrierKind, string>> = {
 };
 
 /** Live carriers, most urgent first: running before halted, then by countdown, then by id. */
-export function threatLedger(state: State): ThreatView[] {
-    return state.carriers
-        .filter(c => c.halted !== 'countered')
-        .map(c => ({
-            id: c.id, kind: c.kind, source: c.source, pos: { x: c.pos.x, y: c.pos.y }, countdown: c.countdown, halted: c.halted,
-            label: `${CARRIER_LABELS[c.kind] ?? c.kind} ${c.countdown}${c.halted ? ' (paused)' : ''}`
-        }))
-        .sort((a, b) => Number(!!a.halted) - Number(!!b.halted) || a.countdown - b.countdown || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+export function threatLedger(state: State): ThreatVM[] {
+    const live: ThreatVM[] = [];
+    for (const c of state.carriers) {
+        if (c.halted === 'countered') continue;
+        live.push({
+            id: c.id, kind: c.kind, source: c.source, label: CARRIER_LABELS[c.kind] ?? c.kind, countdown: c.countdown,
+            halted: c.halted === 'paused' ? 'paused' : null, pos: { x: c.pos.x, y: c.pos.y }, targetId: c.source
+        });
+    }
+    return live.sort((a, b) => Number(!!a.halted) - Number(!!b.halted) || a.countdown - b.countdown || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
 }
 
-export function bankView(state: State): BankView {
+export function bankView(state: State): BankStatusVM {
     const running = threatLedger(state).filter(t => !t.halted);
     const nextAlarmIn = running.length ? running[0]!.countdown : null;
     const status: BankStatus = state.bank.alarm ? 'alarm' : state.bank.loud ? 'loud' : 'quiet';
@@ -80,59 +38,82 @@ export function bankView(state: State): BankView {
     return { status, label, nextAlarmIn };
 }
 
-export function crewCards(world: ReadonlyWorld, state: State, selected: string | null): CrewCardView[] {
-    return state.crew.map(c => ({
+/** Each crew member's colour, from their place in the crew's order. */
+const crewColour = (index: number): string => CREW_COLOURS[index % CREW_COLOURS.length]!;
+
+const exposedTo = (state: State, crew: string): string[] => state.npcs.filter(n => n.exposedTo.includes(crew)).map(n => n.id);
+
+export function crewCards(world: ReadonlyWorld, state: State, selected: string | null): CrewVM[] {
+    return state.crew.map((c, i) => ({
         id: c.id,
         name: c.name,
+        colour: crewColour(i),
         actionsLeft: c.actionsLeft,
         actionsMax: world.rules.actionsPerTurn,
-        selected: c.id === selected,
         profile: 'unknown',
-        exposedTo: state.npcs.filter(n => n.exposedTo.includes(c.id)).map(n => n.id),
-        hp: null
+        exposedTo: exposedTo(state, c.id),
+        hp: null,
+        selected: c.id === selected
     }));
 }
 
-export function hudView(world: ReadonlyWorld, state: State, ui: UiState): HudView {
-    return { turn: state.turn, bank: bankView(state), crew: crewCards(world, state, ui.selected), threats: threatLedger(state), selected: ui.selected };
+/** What the Session knows beyond the state that the HUD shows. */
+export interface HudExtras {
+    undoEnabled?: boolean;
+    overlays?: Partial<Record<OverlayId, boolean>>;
+}
+
+export function hudView(world: ReadonlyWorld, state: State, ui: UiState, extras: HudExtras = {}): HudViewModel {
+    return {
+        turn: state.turn,
+        bank: bankView(state),
+        crew: crewCards(world, state, ui.selected),
+        selected: ui.selected,
+        // TODO(actions package): the selected crew member's actions and what Confirm commits to.
+        actions: [],
+        confirm: { kind: 'clean', label: '', cost: 0, enabled: false },
+        undoEnabled: extras.undoEnabled ?? false,
+        ledger: threatLedger(state),
+        overlays: Object.fromEntries(OVERLAY_IDS.map(id => [id, extras.overlays?.[id] ?? false])) as Record<OverlayId, boolean>
+    };
 }
 
 // ------------------------------------------------------------------------------------------------------------ Recap
 
-/** A crew member's status on the recap card; 'down' and 'arrested' come with crew health. */
-export type CrewStatus = 'ready' | 'done';
-
-export interface RecapCrewView {
-    id: string;
-    name: string;
-    status: CrewStatus;
-    actionsLeft: number;
-    exposed: boolean;
-}
-
-export interface RecapView {
-    turn: number;
-    bank: BankView;
-    /** The last three events, oldest first, each with a line of text. */
-    recent: { event: SimEvent; text: string }[];
-    crew: RecapCrewView[];
-    threats: ThreatView[];
-}
-
 /** How many events the recap card shows (§20.6). */
 export const RECAP_EVENTS = 3;
 
+/**
+ * The turn each event happened in, worked out backwards from the current turn: a `phaseStarted` names its turn, and the
+ * events before a crew phase's start belong to the previous turn's world phase.
+ */
+function eventTurns(state: State, events: readonly SimEvent[]): number[] {
+    const turns = new Array<number>(events.length);
+    let turn = state.turn;
+    for (let i = events.length - 1; i >= 0; i--) {
+        const event = events[i]!;
+        if (event.type === 'phaseStarted') {
+            turns[i] = event.turn;
+            turn = event.phase === 'crew' ? event.turn - 1 : event.turn;
+        } else turns[i] = turn;
+    }
+    return turns;
+}
+
 /** The resume recap card (§20.6). */
-export function recapView(world: ReadonlyWorld, state: State, recent: readonly SimEvent[]): RecapView {
+export function recapView(world: ReadonlyWorld, state: State, recent: readonly SimEvent[]): RecapVM {
+    const turns = eventTurns(state, recent), from = Math.max(0, recent.length - RECAP_EVENTS);
+    const events: RecapEventVM[] = recent.slice(from).map((event, i) => ({ turn: turns[from + i]!, text: describeEvent(world, state, event) }));
     return {
         turn: state.turn,
         bank: bankView(state),
-        recent: recent.slice(-RECAP_EVENTS).map(event => ({ event, text: describeEvent(world, state, event) })),
-        crew: state.crew.map(c => ({
-            id: c.id, name: c.name,
+        events,
+        crew: state.crew.map((c, i) => ({
+            id: c.id, name: c.name, colour: crewColour(i),
             status: c.actionsLeft > 0 ? 'ready' : 'done',
             actionsLeft: c.actionsLeft,
-            exposed: state.npcs.some(n => n.exposedTo.includes(c.id))
+            exposed: exposedTo(state, c.id).length > 0,
+            hp: null
         })),
         threats: threatLedger(state)
     };

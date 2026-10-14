@@ -7,9 +7,6 @@ export { MemoryStorage, webStorage, type SaveStorage } from './storage';
 export {
     importance, PlaybackQueue, registerImportance, SPEED_FACTOR, type ImportanceRule, type ImportantReason, type PlaybackItem, type PlaybackSpeed
 } from './playback';
-export {
-    bankView, crewCards, describeEvent, hudView, RECAP_EVENTS, recapView, threatLedger, type BankStatus, type BankView, type CrewCardView,
-    type CrewStatus, type HudView, type ProfileView, type RecapCrewView, type RecapView, type ThreatView
-} from './views';
+export { bankView, crewCards, describeEvent, hudView, RECAP_EVENTS, recapView, threatLedger, type HudExtras } from './views';
 export { deserialiseHeist, deserialiseUi, heistWorldId, serialiseHeist, serialiseUi, serialiseWorld, type HeistExtras } from './persist';
 export { installDebugHandle, type SimHandle } from './debug';
