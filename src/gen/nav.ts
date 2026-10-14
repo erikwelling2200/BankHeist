@@ -15,6 +15,50 @@ export interface P { x: number; y: number }
 /** What sight passes through (§8.3): glass, railings, a chain-link fence; closed doors and walls block it. */
 const SEE_THROUGH: readonly WallKind[] = ['window', 'doorGlass', 'curtain', 'doorTower', 'rail', 'fence', 'tellerWindow'];
 
+/** A binary min-heap of tiles by key, for the door-counting search; stale entries are skipped by the caller. */
+class Heap {
+    private readonly keys: Float64Array;
+    private readonly nodes: Int32Array;
+    size = 0;
+
+    constructor(capacity: number) {
+        this.keys = new Float64Array(capacity);
+        this.nodes = new Int32Array(capacity);
+    }
+
+    push(node: number, key: number): void {
+        if (this.size === this.keys.length) throw new Error('The search heap is full');
+        let i = this.size++;
+        while (i > 0) {
+            const parent = (i - 1) >> 1;
+            if (this.keys[parent]! <= key) break;
+            this.keys[i] = this.keys[parent]!;
+            this.nodes[i] = this.nodes[parent]!;
+            i = parent;
+        }
+        this.keys[i] = key;
+        this.nodes[i] = node;
+    }
+
+    pop(): { node: number; key: number } {
+        const top = { node: this.nodes[0]!, key: this.keys[0]! };
+        const key = this.keys[--this.size]!, node = this.nodes[this.size]!;
+        let i = 0;
+        for (;;) {
+            let child = 2 * i + 1;
+            if (child >= this.size) break;
+            if (child + 1 < this.size && this.keys[child + 1]! < this.keys[child]!) child++;
+            if (this.keys[child]! >= key) break;
+            this.keys[i] = this.keys[child]!;
+            this.nodes[i] = this.nodes[child]!;
+            i = child;
+        }
+        this.keys[i] = key;
+        this.nodes[i] = node;
+        return top;
+    }
+}
+
 export class Nav {
     private readonly blockedTiles: Uint8Array;
     private readonly doorAt = new Map<string, Door>();
@@ -47,30 +91,41 @@ export class Nav {
     }
 
     /**
-     * Breadth-first distances from `starts`. A door crossing costs `doorCost` extra (0 for plain distance; set it high
-     * and read `doors` to count the fewest doors).
+     * Distances from `starts`, and the doors crossed on the way. With a `doorCost` the fewest doors come first and the
+     * fewest steps second; without, plain breadth-first steps.
      */
     distances(starts: P[], opts: { through?: (d: Door) => boolean; doorCost?: number } = {}): { dist: Int32Array; doors: Int32Array } {
-        const { width, height } = this.site, through = opts.through ?? (() => true);
-        const dist = new Int32Array(width * height).fill(-1), doors = new Int32Array(width * height).fill(-1);
-        // Zero-one search on (doors crossed, then steps): a deque of tiles in a buffer twice the map's size.
-        const n = width * height, buffer = new Int32Array(4 * n + 8);
-        let head = 2 * n + 4, tail = head;
-        for (const s of starts) if (this.walkable(s.x, s.y)) { dist[s.y * width + s.x] = 0; doors[s.y * width + s.x] = 0; buffer[tail++] = s.y * width + s.x; }
+        const { width, height } = this.site, through = opts.through ?? (() => true), n = width * height;
+        const dist = new Int32Array(n).fill(-1), doors = new Int32Array(n).fill(-1);
         const byDoors = (opts.doorCost ?? 0) > 0;
-        while (head < tail) {
-            const i = buffer[head++]!, x = i % width, y = Math.floor(i / width);
+        // Tiles waiting, by (doors crossed, then steps): a binary heap of keys doors * n + steps, or a plain queue.
+        const heap = new Heap(byDoors ? 5 * n : 0), queue = new Int32Array(byDoors ? 0 : n);
+        let head = 0, tail = 0;
+        for (const s of starts) if (this.walkable(s.x, s.y)) {
+            const i = s.y * width + s.x;
+            if (dist[i] === 0) continue;
+            dist[i] = 0;
+            doors[i] = 0;
+            if (byDoors) heap.push(i, 0);
+            else queue[tail++] = i;
+        }
+        while (byDoors ? heap.size : head < tail) {
+            let i: number;
+            if (byDoors) {
+                const top = heap.pop();
+                i = top.node;
+                if (top.key !== doors[i]! * n + dist[i]!) continue;
+            } else i = queue[head++]!;
+            const x = i % width, y = Math.floor(i / width);
             for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]] as const) {
                 const nx = x + dx, ny = y + dy;
                 if (nx < 0 || ny < 0 || nx >= width || ny >= height || !this.step({ x, y }, { x: nx, y: ny }, through)) continue;
-                const j = ny * width + nx, crossed = this.door({ x, y }, { x: nx, y: ny }) ? 1 : 0;
-                const nd = doors[i]! + crossed, ns = dist[i]! + 1;
-                const better = doors[j] === -1 || (byDoors ? nd < doors[j]! || (nd === doors[j]! && ns < dist[j]!) : ns < dist[j]!);
-                if (!better) continue;
+                const j = ny * width + nx, nd = doors[i]! + (this.door({ x, y }, { x: nx, y: ny }) ? 1 : 0), ns = dist[i]! + 1;
+                if (byDoors ? doors[j] !== -1 && (nd > doors[j]! || (nd === doors[j]! && ns >= dist[j]!)) : dist[j] !== -1) continue;
                 doors[j] = nd;
                 dist[j] = ns;
-                if (byDoors && !crossed) buffer[--head] = j;
-                else if (tail < buffer.length) buffer[tail++] = j;
+                if (byDoors) heap.push(j, nd * n + ns);
+                else queue[tail++] = j;
             }
         }
         return { dist, doors };

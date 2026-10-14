@@ -2,9 +2,9 @@ import type { Archetype, Door, GenPerson, GenRoom, KeyLock } from './model';
 import { DRILL_PHASES } from './tiers';
 
 /*
- * The key graph (§15.2, §17.2 step 4): every hard lock (the vault, the CCTV room's door, the mantrap, the alarm panel)
- * gets a social, a technical and a violent key, so stealthy, mixed and loud crews can all plan; the social keys name
- * who holds them.
+ * The key graph (§15.2, §17.2 step 4): every hard lock (the vault, the CCTV room's door, the mantrap, the alarm panel,
+ * the counting room's door) gets a social, a technical and a violent key, so stealthy, mixed and loud crews can all
+ * plan; the social keys name who holds them.
  */
 
 interface Ctx {
@@ -54,6 +54,11 @@ export function keyGraph(ctx: Ctx): KeyLock[] {
     if (cctvDoor) locks.push({
         id: 'cctv', name: 'CCTV room door', target: cctvDoor.id, social: "A keycard: the operator's, a guard's, or the manager's",
         technical: 'Hacking kit on the card reader (2 actions)', violent: 'Shotgun breach on the lock', holders: ids('operator', 'lobbyGuard', 'patrolGuard', 'chief', 'manager')
+    });
+    const counting = doorInto('countingRoom');
+    if (counting) locks.push({
+        id: 'counting', name: 'Counting room door', target: counting.id, social: "A keycard: the head teller's or the manager's, or a teller sent with a cash tray",
+        technical: 'Hacking kit on the card reader (2 actions)', violent: 'Breach charge on the steel door (loud)', holders: ids('headTeller', 'manager')
     });
     const alarm = room('alarmCloset');
     if (alarm) locks.push({

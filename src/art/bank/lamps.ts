@@ -136,18 +136,21 @@ const LIGHTS: Record<Exclude<Room['light'], 'none'>, { color: number; intensity:
 
 /**
  * Ceiling lamps for every lit room, hung on a grid about five tiles apart and reaching about as far as their spacing,
- * so pools overlap a little and leave darker floor between them.
+ * so pools overlap a little and leave darker floor between them. A room made of several rectangles (an L, a room with
+ * a notch) gets a grid in each, so every lamp hangs over the room's own floor and none over its neighbour's.
  */
 export function roomLamps(rooms: readonly Room[]): Lamp[] {
     return rooms.flatMap(room => {
         if (room.light === 'none') return [];
         const kind = LIGHTS[room.light];
-        const nx = Math.max(1, Math.round(room.w / 5)), ny = Math.max(1, Math.round(room.h / 5));
-        const cellW = room.w / nx, cellH = room.h / ny;
-        const radius = Math.min(80, Math.max(40, Math.max(cellW, cellH) * TILE * kind.reach));
-        return Array.from({ length: nx * ny }, (_, k) => {
-            const x = (room.x + cellW * ((k % nx) + 0.5)) * TILE, y = (room.y + cellH * (Math.floor(k / nx) + 0.5)) * TILE;
-            return { x, y, z: kind.z, radius, color: kind.color, intensity: kind.intensity, from: { x, y } };
+        return (room.parts ?? [room]).flatMap(part => {
+            const nx = Math.max(1, Math.round(part.w / 5)), ny = Math.max(1, Math.round(part.h / 5));
+            const cellW = part.w / nx, cellH = part.h / ny;
+            const radius = Math.min(80, Math.max(40, Math.max(cellW, cellH) * TILE * kind.reach));
+            return Array.from({ length: nx * ny }, (_, k) => {
+                const x = (part.x + cellW * ((k % nx) + 0.5)) * TILE, y = (part.y + cellH * (Math.floor(k / nx) + 0.5)) * TILE;
+                return { x, y, z: kind.z, radius, color: kind.color, intensity: kind.intensity, from: { x, y } };
+            });
         });
     });
 }

@@ -165,7 +165,8 @@ function scheduleDay(ctx: Ctx, people: GenPerson[]): { timeline: TimelineEvent[]
     const roomId = (type: string) => bank.find(r => r.type === type)?.id ?? '';
     const of = (role: string) => people.filter(p => p.role === role);
     const block = (p: GenPerson, from: number, activity: string, room: string) => p.schedule.push({ from, activity, room });
-    for (const p of people) block(p, 1, p.route ? 'patrol' : p.role === 'customer' ? 'queue, then the teller window, then leave' : 'at post', p.route ? 'route' : bank.find(r => r.x <= p.tx && p.tx < r.x + r.w && r.y <= p.ty && p.ty < r.y + r.h)?.id ?? 'outside');
+    const roomAt = (p: GenPerson) => ctx.nav.site.roomAt(p.tx, p.ty);
+    for (const p of people) block(p, 1, p.route ? 'patrol' : p.role === 'customer' ? 'queue, then the teller window, then leave' : 'at post', p.route ? 'route' : bank.find(r => r === roomAt(p))?.id ?? 'outside');
 
     if (t.chance(0.25)) timeline.push({ turn: 1, name: 'Opening', detail: 'Staff arrive; the vault day gate opens.' });
     const close = t.int(36, 44) + (headlines.includes('managerLate') ? 8 : 0);
@@ -225,6 +226,7 @@ function scheduleDay(ctx: Ctx, people: GenPerson[]): { timeline: TimelineEvent[]
     if (ctx.neighbours.some(n => n.scaffoldTop)) opportunities.push({ id: 'scaffolding', text: 'Renovation scaffolding next door gives roof access.', found: 'intel' });
     if (ctx.softDepositWall) opportunities.push({ id: 'cafe-wall', text: 'The café shares a Soft wall with the deposit-box room.', found: 'documents' });
     if (roomId('serverRoom')) opportunities.push({ id: 'vent', text: 'The server-room vent connects to the roof: a way in for someone small.', found: 'documents' });
+    if (roomId('recordsRoom')) opportunities.push({ id: 'records', text: "The records room files the guard rota and the alarm company's service visits.", found: 'documents' });
     // Every bank has these to fall back on, so there are always three to find.
     const guard = people.find(p => p.role === 'lobbyGuard');
     const fallback: Opportunity[] = [

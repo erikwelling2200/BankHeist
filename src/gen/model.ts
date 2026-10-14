@@ -18,7 +18,7 @@ export const PLOTS: readonly PlotKind[] = ['midBlock', 'cornerLot', 'plazaFront'
 export type RoomType =
     | 'lobby' | 'tellerLine' | 'restroom' | 'atmRoom' | 'managerOffice' | 'breakRoom' | 'cleanersCloset' | 'staffCorridor'
     | 'mantrap' | 'cctvRoom' | 'alarmCloset' | 'serverRoom' | 'antechamber' | 'vault' | 'depositBoxes' | 'loadingBay'
-    | 'mezzanine' | 'stairwell'
+    | 'mezzanine' | 'stairwell' | 'countingRoom' | 'recordsRoom' | 'staffOffice' | 'conferenceRoom'
     | 'cafe' | 'cafeKitchen' | 'vacantShop' | 'vacantBackRoom' | 'garage' | 'buildingSite' | 'towerLobby' | 'towerStairs'
     | 'nest' | 'officeToLet' | 'shop'
     | 'alley' | 'street' | 'sideRoad' | 'plaza' | 'parkingLot' | 'farSidewalk' | 'backLot';
@@ -28,9 +28,14 @@ export type Wing = 'front' | 'west' | 'east' | 'centre' | 'back' | 'core' | 'mez
 
 export interface Rect { x: number; y: number; w: number; h: number }
 
-/** A room as the level knows it (`Room`) plus what the generator knows about it. */
+/**
+ * A room as the level knows it (`Room`) plus what the generator knows about it. Its x, y, w, h are the bounding box of
+ * its `parts`; the site's owner grid says which room each tile is in, and agrees with the parts.
+ */
 export interface GenRoom extends Room {
     id: string;
+    /** The rectangles the room is made of, largest first: one for a plain room, two or three for an L or a notch. */
+    parts: Rect[];
     type: RoomType;
     wing: Wing;
     /** Inside the bank's lot (not a neighbour or the street). */
@@ -54,6 +59,8 @@ export interface Door {
     ty: number;
     /** A counter gate or an open doorway: no leaf, but still a way between two rooms. */
     open?: boolean;
+    /** A locked shortcut between two rooms that were a long walk apart (§17.7 loops): the steps that walk took. */
+    detour?: number;
 }
 
 /** A hard lock and its three keys (§15.2, §17.2 step 4). */

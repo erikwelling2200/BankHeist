@@ -111,7 +111,7 @@ export function placeWays(ctx: Ctx): Ways {
     }
 
     // Forced: ram the glass front, the loading bay's shutter, a soft wall from next door.
-    const lobby = roomAt(frontInside), window = site.doors.length && Array.from({ length: lobby.w }, (_, i) => lobby.x + i).find(x => site.wallAt({ run: 'eastWest', tx: x, ty: frontY })?.kind === 'window');
+    const lobby = roomAt(frontInside), window = Array.from({ length: lobby.w }, (_, i) => lobby.x + i).find(x => site.roomAt(x, frontY - 1) === lobby && site.wallAt({ run: 'eastWest', tx: x, ty: frontY })?.kind === 'window');
     if (window) add('forced', 'Vehicle ram through the glass front', { x: window, y: plot.roadY }, { x: window, y: frontY - 1 });
     const shutter = site.doors.find(d => site.wallAt(d)?.kind === 'shutter' && bank.some(r => r.id === d.a || r.id === d.b));
     if (shutter) add('forced', "The loading bay's shutter (rammable)", { x: shutter.tx, y: shutter.ty - 1 }, { x: shutter.tx, y: shutter.ty });
@@ -124,7 +124,8 @@ export function placeWays(ctx: Ctx): Ways {
         add('forced', `Breach the soft wall from the ${party.name.toLowerCase()}`, outside, inside);
     }
     if (ctx.softOutside) {
-        const soft = bank.flatMap(r => Array.from({ length: r.w }, (_, i) => ({ x: r.x + i, y: backY, r }))).find(t => t.r.y === backY && site.wallAt({ run: 'eastWest', tx: t.x, ty: backY })?.kind === 'plaster');
+        const soft = Array.from({ length: plot.lot.w }, (_, i) => plot.lot.x + i).map(x => ({ x, r: site.roomAt(x, backY) }))
+            .find(t => t.r && bank.includes(t.r) && site.wallAt({ run: 'eastWest', tx: t.x, ty: backY })?.kind === 'plaster');
         if (soft) add('forced', 'Breach a soft outer wall from the alley', { x: soft.x, y: alleyRow }, { x: soft.x, y: backY });
     }
 
