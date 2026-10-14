@@ -1,10 +1,10 @@
 import Phaser from 'phaser';
-import { dashRefusal, moveAlong, moveRange, moveTo, type ActionId, type MoveRange, type PlaybackItem, type PlaybackSpeed, type Session, type SessionChange } from '../../game';
+import { actionMenu, barkText, doorMiddle, moveAlong, moveRange, moveTo, targetsOf, type ActionId, type MoveRange, type PlaybackItem, type PlaybackSpeed, type Session, type SessionChange } from '../../game';
 import type { GeneratedBank } from '../../gen/model';
 import { TILE } from '../../level/level';
-import type { PersonFacing } from '../../level/plan';
+import type { PersonFacing, PersonPose } from '../../level/plan';
 import {
-    COMBAT_STATUSES, crewPicture, IllegalCommand, knownView, doorStatus, soundRing,
+    COMBAT_STATUSES, crewPicture, dashRefusal, IllegalCommand, knownView, doorStatus, soundRing,
     type Command, type CrewState, type KnownView, type MarkerKind, type State, type Facing, type Pos, type SimEvent
 } from '../../sim';
 import { mountHud } from '../../ui/hud/mountHud';
@@ -92,8 +92,12 @@ export class PlayMode {
     private playing = false;
     /** The door states shown, by door id. */
     private shownDoors = new Map<string, boolean>();
+    /** The pose each NPC is drawn in, by id (undefined: standing). */
+    private posed = new Map<string, PersonPose | undefined>();
     private knownFor?: State;
     private knownCache?: KnownView;
+    /** The door, NPC or object the player tapped: the grid's actions on a thing are for it. */
+    private target: string | null = null;
     /** The selected member's range, worked out once per state and member. */
     private rangeFor?: { state: State; id: string; range: MoveRange };
 
@@ -108,7 +112,7 @@ export class PlayMode {
         session.state.crew.forEach((c, i) => this.sprite.set(c.id, bank.people.length + i));
         document.body.classList.add('play');
 
-        this.overlay = new WorldOverlay(scene);
+        this.overlay = new WorldOverlay(scene, (tx, ty) => walls.liftAt((tx + 0.5) * TILE, (ty + 0.5) * TILE));
         this.input = new MapInput(scene, {
             tap: (x, y) => this.tap(x, y),
             claim: (x, y) => this.claim(x, y),
@@ -166,6 +170,9 @@ export class PlayMode {
             speed: this.session.playback.speed, path: this.overlay.state.path, dash: this.overlay.state.dash, reach: this.overlay.state.reach,
             /** How many of the range's tiles only a Dash reaches, and how many tiles the previewed dash's noise reaches. */
             dashReach: this.overlay.state.dashReach, range: this.overlay.state.range, noise: this.overlay.state.noise,
+            target: this.target, witnesses: this.overlay.state.witnesses,
+            /** The grid's entries as shown: id, enabled and reason. */
+            actions: this.session.hud({ target: this.target }).actions.map(a => ({ id: a.id, enabled: a.enabled, reason: a.reason, selected: !!a.selected })),
             intents: this.overlay.state.intents,
             /** The NPC markers the crew knows of (§8.15), in the order of `state.npcs`; null for one it doesn't. */
             npcs: this.session.state.npcs.map(n => {
@@ -218,7 +225,10 @@ export class PlayMode {
         if (e.type === 'moved') {
             const index = this.sprite.get(e.crew);
             if (index === undefined || speed === 0) return;
-            this.startWalk([{ index, points: [e.from, ...e.path].map(centre) }], STEP_MS * speed);
+            const points = [e.from, ...e.path].map(centre);
+            // A body being dragged follows the dragger step by step (rules/actions/body.ts).
+            const dragged = this.session.state.crew.find(c => c.id === e.crew)?.dragging, body = dragged ? this.sprite.get(dragged) : undefined;
+            this.startWalk([{ index, points }, ...(body !== undefined ? [{ index: body, points }] : [])], STEP_MS * speed);
             return;
         }
         if (e.type === 'npcWalked') {
@@ -281,9 +291,29 @@ export class PlayMode {
         this.applyEvent(item.event);
     }
 
-    /** What an event changes at once: doors, NPCs arriving or leaving the map, someone found by a cut move. */
+    /**
+     * What an event changes at once: doors, NPCs arriving or leaving the map, someone found by a cut move, a knockout,
+     * a body stashed, someone coming round, a bark.
+     */
     private applyEvent(e: SimEvent): void {
         if (e.type === 'moveCut') return this.showCut(e);
+        if (e.type === 'knockedOut') return this.setPose(e.npc, 'prone');
+        if (e.type === 'woke') {
+            this.setPose(e.npc, undefined);
+            const index = this.sprite.get(e.npc);
+            if (index !== undefined) this.people.move(index, ...centre(e.at));
+            return;
+        }
+        if (e.type === 'bodyStashed') {
+            const index = this.sprite.get(e.npc);
+            if (index !== undefined) this.people.setAway(index, true);
+            return;
+        }
+        if (e.type === 'bark') {
+            const npc = this.known().npcs.find(m => m.id === e.npc);
+            if (npc) this.bark(npc.pos, barkText(this.session.world, this.session.state, e));
+            return;
+        }
         if (e.type === 'doorOpened') this.showDoor(e.door, true);
         else if (e.type === 'doorClosed') this.showDoor(e.door, false);
         else if (e.type === 'npcEntered' || e.type === 'npcLeft') {
@@ -307,6 +337,17 @@ export class PlayMode {
             this.people.move(index, x, y, drawnFacing(npc.facing, now.facing));
         }
         this.bark(e.at, e.reason === 'bump' ? "Someone's there!" : 'Hold up, someone there!');
+    }
+
+    /**
+     * Draws an NPC lying down (knocked out, dead: 'prone'; tied: 'tied') or standing (undefined).
+     */
+    private setPose(npcId: string, pose: PersonPose | undefined): void {
+        const index = this.sprite.get(npcId);
+        if (index !== undefined && this.posed.get(npcId) !== pose) {
+            this.posed.set(npcId, pose);
+            this.people.setPose(index, pose);
+        }
     }
 
     /** A short line over a tile that fades by itself. */
@@ -387,8 +428,10 @@ export class PlayMode {
         for (const n of state.npcs) {
             const index = this.sprite.get(n.id), m = markers.get(n.id);
             if (index === undefined) continue;
-            this.people.setAway(index, !m || n.status === 'away');
+            // A stashed body is out of sight, as one away from the map is (rules/actions/body.ts).
+            this.people.setAway(index, !m || n.status === 'away' || n.stashed !== null);
             if (!m) continue;
+            this.setPose(n.id, n.status === 'tied' ? 'tied' : n.status === 'unconscious' || n.status === 'dead' ? 'prone' : undefined);
             place(index, m.pos, m.facing);
             this.people.setAlpha(index, MARKER_ALPHA[m.kind]);
         }
@@ -437,6 +480,7 @@ export class PlayMode {
         if (this.session.selected !== id) {
             this.session.select(id);
             this.session.setPendingCommand(null);
+            this.target = null;
             // The camera centres on the newly selected crew member, zooming in to Act view if further out (§20.1).
             this.camera.actView(...centre(member.pos), 250);
         }
@@ -446,7 +490,8 @@ export class PlayMode {
     private tap(x: number, y: number): void {
         if (this.busy) return this.skip();
         if (this.recap) return;
-        const tile = { x: Math.floor(x / TILE), y: Math.floor(y / TILE) }, { crew } = this.session.state;
+        // Where on the ground the tap is: a raised floor is drawn up the screen (walls.liftAt).
+        const gy = this.groundY(x, y), tile = { x: Math.floor(x / TILE), y: Math.floor(gy / TILE) }, { crew } = this.session.state;
         // Someone standing on the tile tapped; then a second tap on the previewed tile, which commits it (UI.md); then
         // someone whose drawing (standing up over the tiles behind them) was tapped.
         const onTile = crew.find(c => same(c.pos, tile));
@@ -455,7 +500,9 @@ export class PlayMode {
         if (pending && 'path' in pending && same(pending.path.at(-1), tile)) return this.confirm();
         const member = this.selectedMember();
         const canAct = !!member && this.session.state.phase === 'crew' && member.actionsLeft > 0;
-        const target = canAct ? this.snap(member, x / TILE - 0.5, y / TILE - 0.5) : undefined;
+        // A door, an NPC or a stash in reach: pick it as the target and preview what to do with it (UI.md "Touch grammar").
+        if (member && canAct && this.tapTarget(member, x, y, gy)) return;
+        const target = canAct ? this.snap(member, x / TILE - 0.5, gy / TILE - 0.5) : undefined;
         // A drawing stands over the tiles behind it: tapping one selects them, unless that tile is somewhere the selected
         // crew member can go.
         const drawn = this.crewAt(x, y);
@@ -466,13 +513,61 @@ export class PlayMode {
     }
 
     /**
+     * The ground's map y under drawn map point (x, y): a raised floor is drawn `walls.liftAt` pixels up the screen, so
+     * the point may be on a tile further south, lifted into view. The raised tile drawn there wins over the ground behind.
+     */
+    private groundY(x: number, y: number): number {
+        const cx = (Math.floor(x / TILE) + 0.5) * TILE;
+        for (let ty = Math.floor(y / TILE) + 4; ty >= Math.floor(y / TILE); ty--) {
+            const lift = this.walls.liftAt(cx, (ty + 0.5) * TILE);
+            if (lift > 0 && Math.floor((y + lift) / TILE) === ty) return y + lift;
+        }
+        return y;
+    }
+
+    /**
+     * A tap on something the selected member can act on: a door beside them (near its edge), an NPC in reach (their tile
+     * or their drawing), a stash or an object in reach. It becomes the grid's target and its first allowed action is
+     * previewed; a tap on the target of the pending action commits it. False when the tap hit none of these.
+     */
+    private tapTarget(member: CrewState, x: number, y: number, gy: number): boolean {
+        const { world, state } = this.session, targets = targetsOf(world, state, member.id);
+        const fx = x / TILE, fy = gy / TILE, tile = { x: Math.floor(fx), y: Math.floor(fy) };
+        const markers = new Map(this.known().npcs.map(m => [m.id, m]));
+        const hit =
+            targets.doors.find(id => {
+                const m = doorMiddle(world, id);
+                return !!m && Math.hypot(m.x - fx, m.y - fy) < 0.45;
+            }) ??
+            targets.npcs.find(id => same(markers.get(id)?.pos, tile)) ??
+            targets.npcs.find(id => this.people.hit(this.sprite.get(id) ?? -1, x, y)) ??
+            targets.objects.find(id => same(world.objects.find(o => o.id === id)?.pos, tile));
+        if (!hit) return false;
+        const pending = this.session.pendingCommand;
+        const menu = actionMenu(world, state, member.id, hit).filter(e => e.target === hit);
+        if (pending && menu.some(e => JSON.stringify(e.command) === JSON.stringify(pending))) {
+            this.confirm();
+            return true;
+        }
+        this.target = hit;
+        const first = menu.find(e => !e.reason);
+        if (first) this.preview(first.command);
+        else {
+            if (menu[0]?.reason) this.toast(menu[0].reason);
+            this.session.setPendingCommand(null);
+            this.refresh();
+        }
+        return true;
+    }
+
+    /**
      * The selected member's movement range (src/game/movement.ts): Move's tiles, and beyond them, when they have the
      * actions and the rules allow it, those only a Dash reaches. Planned on the crew's picture, as the commit checks it.
      */
     private range(member: CrewState): MoveRange {
         const state = this.session.state, cached = this.rangeFor;
         if (cached && cached.state === state && cached.id === member.id) return cached.range;
-        const canDash = !dashRefusal(member, cmd => this.session.preview(cmd));
+        const canDash = dashRefusal(this.session.world, state, member.id) === null;
         const range = moveRange(this.session.world, this.picture(), member, canDash);
         this.rangeFor = { state, id: member.id, range };
         return range;
@@ -528,7 +623,7 @@ export class PlayMode {
     private dragTo(x: number, y: number): void {
         const member = this.selectedMember(), path = this.dragPath;
         if (!member || !path) return;
-        const to = { x: Math.floor(x / TILE), y: Math.floor(y / TILE) };
+        const to = { x: Math.floor(x / TILE), y: Math.floor(this.groundY(x, y) / TILE) };
         for (let guard = 0; guard < 64; guard++) {
             const last = path.at(-1) ?? member.pos;
             if (same(last, to)) break;
@@ -554,18 +649,26 @@ export class PlayMode {
         this.refresh();
     }
 
-    /** The grid: Wait previews waiting; movement (the default) drops a pending Wait, so a tap on a tile moves again. */
+    /**
+     * The grid: movement (the default) drops a pending action, so a tap on a tile moves again; any other entry previews
+     * its command (for the current target), or says why it can't be done.
+     */
     private pickAction(id: ActionId): void {
         if (this.busy) this.skip();
         if (this.recap) return;
         const member = this.selectedMember();
         if (!member) return;
-        if (id === 'wait') {
-            this.preview({ type: 'wait', crew: member.id });
+        if (id === 'move') {
+            const pending = this.session.pendingCommand;
+            if (pending && pending.type !== 'move' && pending.type !== 'dash') this.session.setPendingCommand(null);
+            this.refresh();
             return;
         }
-        if (this.session.pendingCommand?.type === 'wait') this.session.setPendingCommand(null);
-        this.refresh();
+        const entry = actionMenu(this.session.world, this.session.state, member.id, this.target).find(e => e.id === id);
+        if (!entry) return;
+        if (entry.reason) return this.toast(entry.reason);
+        if (entry.target) this.target = entry.target;
+        this.preview(entry.command);
     }
 
     private confirm(): void {
@@ -573,6 +676,8 @@ export class PlayMode {
         if (!cmd || this.busy) return;
         try {
             this.session.commit(cmd);
+            // A stashed body or a closed door is no longer anything to act on.
+            this.target = null;
         } catch (e) {
             // Refused on the truth: someone the crew didn't know of is in the way (M1-07 will stop the move short).
             console.warn(`Can't do that: ${(e as Error).message}`);
@@ -614,7 +719,7 @@ export class PlayMode {
 
     /** The HUD, the rings and the overlay, from the Session. */
     private refresh(): void {
-        const { session } = this, vm = session.hud({ mapOn: this.mapOn, overlays: this.overlays });
+        const { session } = this, vm = session.hud({ mapOn: this.mapOn, overlays: this.overlays, target: this.target });
         this.hud.update(this.recap ? { ...vm, recap: session.recap() } : vm);
         session.state.crew.forEach(c => this.people.highlight(this.sprite.get(c.id)!, c.id === session.selected));
         const speed = this.chrome[0];
@@ -639,9 +744,41 @@ export class PlayMode {
         const pending = this.session.pendingCommand;
         if (pending && 'path' in pending) {
             const dash = pending.type === 'dash';
-            return { ...base, from: member.pos, path: pending.path as Pos[], dash, ...(dash ? { noise: this.noiseOf(pending) } : {}) };
+            return { ...base, from: member.pos, path: pending.path as Pos[], dash, ...(dash ? { noise: this.noiseOf(pending) } : {}), witnesses: this.witnessesOf(pending) };
         }
-        return base;
+        // An action on a thing: its target marked, the noise it makes (a knockout's), and who would see it (§8.4).
+        const targetDoor = this.target ? doorMiddle(this.session.world, this.target) : undefined;
+        const targetTile = this.target && !targetDoor ? this.targetTile(this.target) : undefined;
+        const marks = { ...(targetDoor ? { targetDoor } : {}), ...(targetTile ? { targetTile } : {}) };
+        if (pending) return { ...base, ...marks, noise: this.noiseOf(pending), witnesses: this.witnessesOf(pending) };
+        return { ...base, ...marks };
+    }
+
+    /** Where a target NPC (as the crew knows it) or object stands. */
+    private targetTile(id: string): Pos | undefined {
+        return this.known().npcs.find(m => m.id === id)?.pos ?? this.session.world.objects.find(o => o.id === id)?.pos;
+    }
+
+    /**
+     * Who would see the pending command and react (§8.4, §8.5): the NPCs whose perception check the player's preview
+     * shows, where the crew knows them to stand, and the cameras that would register it.
+     */
+    private witnessesOf(cmd: Command): Pos[] {
+        try {
+            const events = this.session.playerPreview(cmd).events, markers = this.known().npcs, out: Pos[] = [];
+            for (const e of events) {
+                if (e.type === 'perceptionCheck') {
+                    const at = markers.find(m => m.id === e.npc)?.pos;
+                    if (at && !out.some(p => same(p, at))) out.push(at);
+                } else if (e.type === 'cameraSaw') {
+                    const cam = this.session.world.cameras.find(c => c.id === e.camera);
+                    if (cam && !out.some(p => same(p, cam.pos))) out.push(cam.pos);
+                }
+            }
+            return out;
+        } catch {
+            return [];
+        }
     }
 
     /**

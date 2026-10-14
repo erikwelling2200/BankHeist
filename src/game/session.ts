@@ -139,7 +139,17 @@ export class Session {
     private uiTimer: ReturnType<typeof setTimeout> | null = null;
     private readonly uiSaveDelay: number;
     private readonly onListenerError: (error: unknown) => void;
-    private readonly storage: SaveStorage;
+    /** Replaced by another heist in the same save slot (the debug handle's `restart`): it saves nothing any more. */
+    private retired = false;
+
+    /** Stops this Session saving: another one owns its save slot now. */
+    retire(): void {
+        this.cancelUiSave();
+        this.retired = true;
+    }
+
+    /** Where the heist autosaves (the debug handle restarts a scripted heist in it). */
+    readonly storage: SaveStorage;
     private readonly listeners = new Set<SessionListener>();
     private cache = new Map<string, Cached>();
     private emitting = false;
@@ -253,14 +263,27 @@ export class Session {
      * What the HUD shows now. `extras` adds what only the scene knows (the tactical map); Confirm is
      * coloured from the player's preview of the pending command.
      */
-    hud(extras: Omit<HudExtras, 'undoEnabled' | 'previewEvents'> = {}): HudViewModel {
+    hud(extras: Omit<HudExtras, 'undoEnabled' | 'previewEvents' | 'costOf'> = {}): HudViewModel {
         let previewEvents: HudExtras['previewEvents'];
         if (this._ui.pendingCommand) {
             try {
                 previewEvents = this.playerPreview(this._ui.pendingCommand).events;
             } catch { /* a stale command: Confirm shows it, and committing it says why it can't */ }
         }
-        return hudView(this.world, this._state, this._ui, { ...extras, undoEnabled: this.canUndo, previewEvents });
+        return hudView(this.world, this._state, this._ui, { ...extras, undoEnabled: this.canUndo, previewEvents, costOf: cmd => this.costOf(cmd) });
+    }
+
+    /** The actions `cmd` spends, from its preview (the engine's: what the commit spends), or undefined when refused. */
+    costOf(cmd: Command): number | undefined {
+        const crew = (cmd as { crew?: string }).crew;
+        const before = this._state.crew.find(c => c.id === crew);
+        if (!before) return undefined;
+        try {
+            const after = this.preview(cmd).state.crew.find(c => c.id === crew);
+            return after ? before.actionsLeft - after.actionsLeft : undefined;
+        } catch {
+            return undefined;
+        }
     }
 
     /** The resume recap card (§20.6): the last 3 events, the bank, the turn and each crew member's status. */
@@ -377,6 +400,7 @@ export class Session {
      */
     save(): boolean {
         this.cancelUiSave();
+        if (this.retired) return false;
         try {
             const heist = serialiseHeist({
                 worldId: this.worldId, state: this._state, recent: this._recent, recentTurns: [...this._recentTurns], undo: this._undo,
@@ -404,6 +428,7 @@ export class Session {
     /** Writes the UI entry alone (cheap: no state). */
     private saveUi(): void {
         this.cancelUiSave();
+        if (this.retired) return;
         try {
             this.storage.set(UI_KEY, serialiseUi(this.seq, this._ui));
         } catch (e) {

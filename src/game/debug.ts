@@ -1,7 +1,7 @@
 import {
-    crewMoveOptions, crewPicture, dashBudget, moveBudget, pathTo, reachable, type Command, type CommitResult, type Pos, type PreviewResult, type ReadonlyWorld, type State
+    crewBudget, crewMoveOptions, crewPicture, isKnownNow, pathTo, whyNot, reachable, type Command, type CommitResult, type Pos, type PreviewResult, type ReadonlyWorld, type State
 } from '../sim';
-import type { PlayerPreview, Session } from './session';
+import { Session, UI_KEY, type PlayerPreview } from './session';
 
 /*
  * `window.sim` for debugging and the e2e tests (implementation plan §2.5): the live state and world, and the Session's
@@ -26,6 +26,15 @@ export interface SimHandle {
      * undefined when it is out of reach; for scripted runs: `commit({ type: 'move', crew, path: sim.path(crew, to)! })`.
      */
     path(crew: string, to: Pos, mode?: 'move' | 'dash'): Pos[] | undefined;
+    /** Why the rules refuse `cmd` on `state` (the current one by default), or undefined. */
+    whyNot(cmd: Command, state?: State): string | undefined;
+    /** Whether the crew knows where NPC `id` is now (§8.15) in `state` (the current one by default). */
+    knows(id: string, state?: State): boolean;
+    /**
+     * For scripted e2e setups: starts a heist from `state` in this one's bank and save slot, replacing the one in
+     * progress; reloading the page (`?play`) then resumes it.
+     */
+    restart(state: State): void;
 }
 
 declare global {
@@ -43,10 +52,18 @@ export function installDebugHandle(session: Session, target: { sim?: SimHandle }
         commit: cmd => session.commit(cmd),
         endTurn: () => session.endTurn(),
         undo: () => session.undo(),
+        whyNot: (cmd, state = session.state) => whyNot(session.world, state, cmd),
+        knows: (id, state = session.state) => isKnownNow(session.world, state, id),
+        restart: state => {
+            session.retire();
+            // The old heist's UI (camera, selection, preview) mustn't be resumed with the new one.
+            session.storage.remove(UI_KEY);
+            Session.start({ world: session.world, state, storage: session.storage, genVersion: session.genVersion });
+        },
         path: (crew, to, mode = 'move') => {
             const member = session.state.crew.find(c => c.id === crew);
             if (!member) return undefined;
-            const budget = mode === 'dash' ? dashBudget(session.world) : moveBudget(session.world, member);
+            const budget = crewBudget(session.world, member, mode);
             // Planned on the crew's picture, as a tap is: a tile an unseen NPC stands on reads as open (§8.15).
             return pathTo(reachable(session.world, crewPicture(session.world, session.state), member.pos, budget, crewMoveOptions(member)), to);
         }

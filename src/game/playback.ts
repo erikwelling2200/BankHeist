@@ -34,6 +34,9 @@ registerImportance('carrierTicked', 'carrier');
 registerImportance('alarmRaised', 'carrier');
 // A crew move cut short by someone it didn't know was there (§8.15): the camera looks at who stopped and why.
 registerImportance('moveCut', 'surprise');
+// Someone noticing evidence says so (§8.10), and a knocked-out NPC coming round is Alerted: both are worth a look.
+registerImportance('bark', 'suspicion');
+registerImportance('woke', 'suspicion');
 
 export type PlaybackSpeed = '1x' | '2x' | 'instant';
 

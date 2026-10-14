@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import { dashRefusal, moveAlong, moveRange, moveTo } from '../../src/game/movement';
+import { moveAlong, moveRange, moveTo } from '../../src/game/movement';
 import type { UiState } from '../../src/game/session';
 import { actionsView, confirmView } from '../../src/game/views';
-import { commit, fixtureWorld, HEAVY_ARMOUR_ITEM, initialState, preview, type Pos, type ReadonlyWorld, type State } from '../../src/sim';
+import { commit, dashRefusal, fixtureWorld, HEAVY_ARMOUR_ITEM, initialState, type Pos, type ReadonlyWorld, type State } from '../../src/sim';
 import { scouted } from '../sim/helpers';
 
 const P = (x: number, y: number): Pos => ({ x, y });
@@ -18,8 +18,7 @@ const along = (n: number): Pos[] => Array.from({ length: n }, (_, i) => P(i + 1,
 describe('movement as the player picks it', () => {
     it('shows Move\'s tiles and, beyond them, those only a Dash reaches; a tap picks by distance', () => {
         const { world, state } = corridor(), jun = state.crew[0]!;
-        const probe = (cmd: Parameters<typeof preview>[2]) => preview(world, state, cmd);
-        expect(dashRefusal(jun, probe)).toBeUndefined();
+        expect(dashRefusal(world, state, 'jun')).toBeNull();
         const range = moveRange(world, state, jun, true);
         expect(range.walk.map(p => p.x)).toEqual([1, 2, 3, 4, 5]);
         expect(range.run.map(p => p.x)).toEqual([6, 7, 8, 9, 10, 11, 12]);
@@ -41,19 +40,19 @@ describe('movement as the player picks it', () => {
 
     it('has no Dash band with one action left or in heavy armour, by the sim\'s own rules', () => {
         const { world, state } = corridor([HEAVY_ARMOUR_ITEM]), jun = state.crew[0]!;
-        const reason = dashRefusal(jun, cmd => preview(world, state, cmd));
+        const reason = dashRefusal(world, state, 'jun');
         expect(reason).toMatch(/heavy armour/);
         const heavy = moveRange(world, state, jun, !reason);
         expect([heavy.walk.length, heavy.run.length]).toEqual([4, 0]);
         const plain = corridor(), tired = commit(plain.world, plain.state, { type: 'move', crew: 'jun', path: along(1) }).state;
-        expect(dashRefusal(tired.crew[0]!, cmd => preview(plain.world, tired, cmd))).toMatch(/Needs 2/);
+        expect(dashRefusal(plain.world, tired, 'jun')).toMatch(/1 of 2 actions/);
         expect(moveRange(plain.world, tired, tired.crew[0]!, false).run).toEqual([]);
     });
 
     it('shows movement as one grid entry, and Confirm costs a Dash 2 pips', () => {
-        const { state } = corridor();
+        const { world, state } = corridor();
         const ui: UiState = { selected: 'jun', camera: null, pendingCommand: { type: 'dash', crew: 'jun', path: along(8) } };
-        expect(actionsView(state, ui).map(a => [a.id, a.label, a.cost, !!a.selected])).toEqual([['move', 'Dash', 2, true], ['wait', 'Wait', 0, false]]);
+        expect(actionsView(world, state, ui).map(a => [a.id, a.label, a.cost, !!a.selected])).toEqual([['move', 'Dash', 2, true], ['wait', 'Wait', 0, false]]);
         expect(confirmView(ui)).toMatchObject({ label: 'DASH', cost: 2, enabled: true });
         expect(confirmView({ ...ui, pendingCommand: { type: 'move', crew: 'jun', path: along(2) } })).toMatchObject({ label: 'MOVE', cost: 1 });
     });

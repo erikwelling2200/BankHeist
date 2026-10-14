@@ -293,6 +293,137 @@ test('one movement range: a near tile is a Move (1 action), a far one a Dash (2)
     expect(errors).toEqual([]);
 });
 
+/**
+ * Scripted setups (window.sim.restart): a heist from a changed copy of the state, in this bank's save slot, resumed by a
+ * reload. `script` runs in the page with `sim` and returns the new state (or null when this bank has no such place).
+ */
+async function restartWith<T>(page: Page, script: string): Promise<T | null> {
+    const found = await page.evaluate(script) as { state: unknown; info: T } | null;
+    if (!found) return null;
+    await page.evaluate(state => (window as any).sim.restart(state), found.state);
+    await page.reload();
+    await page.waitForFunction(() => (window as any).game?.scene.getScene('bank')?.debugState?.play && (window as any).sim, undefined, { timeout: 60000 });
+    await expect.poll(async () => (await scene(page)).settled, { timeout: 20000 }).toBe(true);
+    return found.info;
+}
+
+/** In the page: helpers for the scripted setups (a free tile, knowing an NPC is there). */
+const PAGE_HELPERS = `
+    const sim = window.sim, w = sim.world, same = (a, b) => a.x === b.x && a.y === b.y;
+    const clone = s => JSON.parse(JSON.stringify(s));
+    const free = (st, p) => p.x >= 0 && p.y >= 0 && p.x < w.width && p.y < w.height && !w.tiles[p.y * w.width + p.x].blocksMove
+        && !st.crew.some(c => same(c.pos, p)) && !st.npcs.some(n => n.status !== 'away' && same(n.pos, p));
+    const know = (st, n) => { st.knowledge.npcs[n.id] = { at: { ...n.pos }, facing: n.facing, turn: st.turn, live: true, routine: false, rota: false, watched: 1, watchedTurn: st.turn, tick: st.knowledge.phaseTick + 1 }; };
+    const AROUND = [{ x: 0, y: 1 }, { x: 1, y: 0 }, { x: -1, y: 0 }, { x: 0, y: -1 }];
+`;
+
+test('knocks out an NPC in reach, drags the body and stashes it', SMOKE, async ({ page }) => {
+    const errors = await boot(page);
+    // Mara beside a standing NPC (one she may knock out), who the crew sees.
+    const setup = await restartWith<{ npc: string; at: Pos; npcAt: Pos }>(page, `(() => { ${PAGE_HELPERS}
+        for (const n of sim.state.npcs) {
+            if (n.status === 'away') continue;
+            for (const d of AROUND) {
+                const p = { x: n.pos.x + d.x, y: n.pos.y + d.y }, st = clone(sim.state);
+                if (!free(st, p)) continue;
+                st.crew[0].pos = p;
+                know(st, n);
+                if (sim.whyNot({ type: 'knockout', crew: 'mara', npc: n.id }, st) || !sim.knows(n.id, st)) continue;
+                return { state: st, info: { npc: n.id, at: p, npcAt: n.pos } };
+            }
+        }
+        return null;
+    })()`);
+    expect(setup).not.toBeNull();
+    const { npc, npcAt } = setup!;
+    await page.locator('.sh-rail .sh-crew').nth(0).click();
+    await page.waitForTimeout(600);
+    // The grid offers the knockout; tapping the NPC previews it, with who would see it.
+    expect((await play(page)).actions.find((a: any) => a.id === 'knockout')).toMatchObject({ enabled: true });
+    await tapTile(page, npcAt);
+    let shown = await play(page);
+    expect(shown.pending).toEqual({ type: 'knockout', crew: 'mara', npc });
+    expect(shown.target).toBe(npc);
+    await expect(page.locator('.sh-confirm')).toContainText('KNOCKOUT');
+    await expect(page.locator('.sh-confirm')).toHaveClass(/costly/);
+    await page.screenshot({ path: 'screenshots/play-knockout.png' });
+    // A second tap on the target commits it.
+    await tapTile(page, npcAt);
+    await idle(page);
+    let state = await page.evaluate(id => (window as any).sim.state.npcs.find((n: any) => n.id === id), npc);
+    expect(state.status).toBe('unconscious');
+    expect((await member(page, 'mara')).actionsLeft).toBe(1);
+    // Drag, from the grid.
+    await page.locator('.sh-actions button[data-action="drag"]').click();
+    expect((await play(page)).pending).toEqual({ type: 'drag', crew: 'mara', npc });
+    await page.locator('.sh-confirm').click();
+    await idle(page);
+    expect(await page.evaluate(() => (window as any).sim.state.crew[0].dragging)).toBe(npc);
+
+    // Then, a turn on, beside a stash with the body: the reach is halved, no dash band; Stash hides it.
+    const stash = await restartWith<{ at: Pos; object?: string; objectAt?: Pos }>(page, `(() => { ${PAGE_HELPERS}
+        const base = sim.state, body = base.crew[0].dragging;
+        const place = (st, p) => { st.crew[0].pos = { ...p }; st.crew[0].actionsLeft = 2; st.npcs.find(n => n.id === body).pos = { ...p }; };
+        for (const o of w.objects.filter(o => o.kind === 'dumpster' || o.kind === 'closet')) {
+            for (const d of [{ x: 0, y: 0 }, ...AROUND]) {
+                const p = { x: o.pos.x + d.x, y: o.pos.y + d.y }, st = clone(base);
+                if (!same(p, base.crew[0].pos) && !free(st, p)) continue;
+                place(st, p);
+                if (sim.whyNot({ type: 'stash', crew: 'mara', at: o.id }, st)) continue;
+                return { state: st, info: { at: p, object: o.id, objectAt: o.pos } };
+            }
+        }
+        for (let i = 0; i < w.tiles.length; i++) {
+            const p = { x: i % w.width, y: Math.floor(i / w.width) }, st = clone(base);
+            if (!(w.stashRooms ?? []).includes(w.tiles[i].room) || !free(st, p)) continue;
+            place(st, p);
+            if (!sim.whyNot({ type: 'stash', crew: 'mara' }, st)) return { state: st, info: { at: p } };
+        }
+        return null;
+    })()`);
+    expect(stash).not.toBeNull();
+    await page.locator('.sh-rail .sh-crew').nth(0).click();
+    await page.waitForTimeout(600);
+    shown = await play(page);
+    expect(shown.dashReach).toBe(0);
+    expect(shown.reach).toBeGreaterThan(0);
+    expect(shown.actions.map((a: any) => a.id)).toEqual(expect.arrayContaining(['drop', 'stash']));
+    expect(shown.pending).toBeNull();
+    await page.screenshot({ path: 'screenshots/play-drag.png' });
+    await page.locator('.sh-actions button[data-action="stash"]').click();
+    expect((await play(page)).pending).toMatchObject({ type: 'stash', crew: 'mara' });
+    await page.locator('.sh-confirm').click();
+    await idle(page);
+    state = await page.evaluate(id => (window as any).sim.state.npcs.find((n: any) => n.id === id), npc);
+    expect(state.stashed).not.toBeNull();
+    // The stashed body is out of sight.
+    const index = await page.evaluate(id => (window as any).sim.state.npcs.findIndex((n: any) => n.id === id), npc);
+    expect((await scene(page)).people[index].visible).toBe(false);
+    expect(errors).toEqual([]);
+});
+
+test('draws the move grid on a raised floor where it stands', async ({ page }) => {
+    const errors = await boot(page);
+    const raised = await restartWith<{ at: Pos }>(page, `(() => { ${PAGE_HELPERS}
+        const tiles = [];
+        for (let i = 0; i < w.tiles.length; i++) if (w.tiles[i].raised && !w.tiles[i].blocksMove) tiles.push({ x: i % w.width, y: Math.floor(i / w.width) });
+        for (const p of tiles) {
+            const st = clone(sim.state);
+            if (!free(st, p)) continue;
+            st.crew[0].pos = p;
+            return { state: st, info: { at: p } };
+        }
+        return null;
+    })()`);
+    test.skip(!raised, 'This bank has no raised floor to stand on');
+    await page.locator('.sh-rail .sh-crew').nth(0).click();
+    await page.waitForTimeout(800);
+    expect((await play(page)).selected).toBe('mara');
+    expect((await play(page)).reach).toBeGreaterThan(0);
+    await page.screenshot({ path: 'screenshots/play-raised.png' });
+    expect(errors).toEqual([]);
+});
+
 test.describe('on a phone', () => {
     test.use({ viewport: { width: 844, height: 390 }, hasTouch: true, isMobile: true });
 

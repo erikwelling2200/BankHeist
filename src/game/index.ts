@@ -8,8 +8,9 @@ export {
     importance, PlaybackQueue, registerImportance, SPEED_FACTOR, type ImportanceRule, type ImportantReason, type PlaybackItem, type PlaybackSpeed
 } from './playback';
 export {
-    actionsView, bankView, confirmView, crewCards, describeEvent, hudView, RECAP_EVENTS, recapView, threatLedger, type ActionId, type HudExtras
+    actionsView, bankView, barkText, confirmView, doorName, crewCards, describeEvent, hudView, RECAP_EVENTS, recapView, threatLedger, type ActionId, type HudExtras
 } from './views';
-export { dashRefusal, moveAlong, moveKind, moveRange, moveTo, type MoveRange } from './movement';
+export { actionMenu, doorMiddle, menuIsLegal, targetsOf, type ActionEntry, type Targets } from './actions';
+export { moveAlong, moveKind, moveRange, moveTo, type MoveRange } from './movement';
 export { deserialiseHeist, deserialiseUi, heistWorldId, serialiseHeist, serialiseUi, serialiseWorld, type HeistExtras } from './persist';
 export { installDebugHandle, type SimHandle } from './debug';

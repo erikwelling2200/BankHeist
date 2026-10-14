@@ -27,8 +27,13 @@ export interface OverlayContent {
     path?: Pos[];
     /** A dash: the end is marked twice. */
     dash?: boolean;
-    /** The tiles the previewed command's noise reaches (a dash's quiet noise, §6.3). */
+    /** The tiles the previewed command's noise reaches (a dash's or a knockout's quiet noise, §6.3). */
     noise?: Pos[];
+    /** Where those who would see the previewed command stand (§8.4): a `!` plate over each. */
+    witnesses?: Pos[];
+    /** The target of the grid's actions: a door (the middle of its edge, in tiles) or a person or object's tile. */
+    targetDoor?: Pos;
+    targetTile?: Pos;
     /** The index of the first step that can't be taken; it and those after it are drawn red. */
     badFrom?: number;
     /** The NPCs' committed walks for the next world phase: a dotted line and a pin where each ends. */
@@ -67,7 +72,8 @@ export class WorldOverlay {
     private drawn = '';
     private readonly onRender = () => this.draw();
 
-    constructor(private readonly scene: Phaser.Scene) {
+    /** `lift` says how many art pixels up the screen tile (tx, ty) is drawn now (a raised floor; 0 on the ground). */
+    constructor(private readonly scene: Phaser.Scene, private readonly lift: (tx: number, ty: number) => number = () => 0) {
         this.canvas = document.createElement('canvas');
         this.canvas.className = 'world-overlay';
         Object.assign(this.canvas.style, { position: 'fixed', pointerEvents: 'none', zIndex: '2', imageRendering: 'pixelated' });
@@ -83,11 +89,11 @@ export class WorldOverlay {
     }
 
     /** The path shown, for tests. */
-    get state(): { path: Pos[]; reach: number; dashReach: number; range: { walk: Pos[]; run: Pos[] }; dash: boolean; noise: number; intents: number } {
+    get state(): { path: Pos[]; reach: number; dashReach: number; range: { walk: Pos[]; run: Pos[] }; dash: boolean; noise: number; witnesses: number; intents: number } {
         const c = this.content;
         return {
             path: c?.path ?? [], reach: c?.reach?.move.length ?? 0, dashReach: c?.reach?.dash.length ?? 0,
-            range: { walk: c?.reach?.move ?? [], run: c?.reach?.dash ?? [] }, dash: !!c?.dash, noise: c?.noise?.length ?? 0,
+            range: { walk: c?.reach?.move ?? [], run: c?.reach?.dash ?? [] }, dash: !!c?.dash, noise: c?.noise?.length ?? 0, witnesses: c?.witnesses?.length ?? 0,
             intents: c?.intents?.length ?? 0
         };
     }
@@ -102,7 +108,11 @@ export class WorldOverlay {
         const game = this.scene.game, cam = this.scene.cameras.main, box = game.canvas.getBoundingClientRect();
         const w = Math.round(this.scene.scale.width * UI_SCALE), h = Math.round(this.scene.scale.height * UI_SCALE);
         const vx = Math.round(cam.worldView.x), vy = Math.round(cam.worldView.y);
-        const key = `${w}x${h}@${vx},${vy}:${box.left},${box.top},${box.width},${box.height}`;
+        // A raised floor rises and drops as it is cut: what is drawn on it follows (the lifts are part of the key).
+        const c0 = this.content;
+        let lifts = 0;
+        for (const p of [...(c0?.reach?.move ?? []), ...(c0?.reach?.dash ?? []), ...(c0?.path ?? [])]) lifts += this.lift(p.x, p.y);
+        const key = `${w}x${h}@${vx},${vy}:${box.left},${box.top},${box.width},${box.height}:${lifts}`;
         if (key === this.drawn) return;
         this.drawn = key;
         const { canvas, ctx } = this;
@@ -115,7 +125,7 @@ export class WorldOverlay {
         const c = this.content;
         if (!c) return;
         const S = TILE * UI_SCALE;
-        const left = (p: Pos) => (p.x * TILE - vx) * UI_SCALE, top = (p: Pos) => (p.y * TILE - vy) * UI_SCALE;
+        const left = (p: Pos) => (p.x * TILE - vx) * UI_SCALE, top = (p: Pos) => (p.y * TILE - this.lift(p.x, p.y) - vy) * UI_SCALE;
         const mid = (p: Pos): [number, number] => [left(p) + S / 2, top(p) + S / 2];
 
         if (c.seen) {
@@ -200,6 +210,26 @@ export class WorldOverlay {
             stroke(c.noise, has(c.noise), NOISE, 3, [2, 2]);
         }
 
+        // The target: a bracket in the crew colour round the tile, or across the door's edge.
+        if (c.targetTile) {
+            const x = left(c.targetTile), y = top(c.targetTile);
+            for (const [style, dy] of [[INK, 2], [c.colour, 0]] as const) {
+                ctx.fillStyle = style;
+                for (const [bx, by] of [[0, 0], [S - 6, 0], [0, S - 2], [S - 6, S - 2]]) ctx.fillRect(x + bx!, y + by! + dy, 6, 2);
+                for (const [bx, by] of [[0, 0], [S - 2, 0], [0, S - 6], [S - 2, S - 6]]) ctx.fillRect(x + bx!, y + by! + dy, 2, 6);
+            }
+        }
+        if (c.targetDoor) {
+            const x = (c.targetDoor.x * TILE - vx) * UI_SCALE, y = (c.targetDoor.y * TILE - this.lift(Math.floor(c.targetDoor.x), Math.floor(c.targetDoor.y)) - vy) * UI_SCALE;
+            const across = Number.isInteger(c.targetDoor.x);
+            const w = across ? 6 : S - 4, h = across ? S - 4 : 6;
+            ctx.lineWidth = 2;
+            ctx.strokeStyle = INK;
+            ctx.strokeRect(x - w / 2, y - h / 2 + 2, w, h);
+            ctx.strokeStyle = c.colour;
+            ctx.strokeRect(x - w / 2, y - h / 2, w, h);
+        }
+
         for (const intent of c.intents ?? []) {
             const points = [intent.from, ...intent.path].map(mid);
             ctx.lineWidth = 2;
@@ -227,6 +257,22 @@ export class WorldOverlay {
             ctx.fillText(text, x, y + 2);
             ctx.fillStyle = INTENT;
             ctx.fillText(text, x, y);
+        }
+
+        // Witnesses: a dark plate with an amber `!` over each (UI.md "Over heads").
+        for (const w of c.witnesses ?? []) {
+            const [x] = mid(w), y = top(w) - 44;
+            ctx.fillStyle = INK;
+            ctx.fillRect(x - 7, y - 9, 14, 18);
+            ctx.strokeStyle = NOISE;
+            ctx.lineWidth = 1;
+            ctx.strokeRect(x - 6.5, y - 8.5, 13, 17);
+            ctx.font = '700 13px ui-monospace, Menlo, Consolas, monospace';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.fillStyle = NOISE;
+            ctx.fillText('!', x, y + 1);
+            ctx.textBaseline = 'alphabetic';
         }
 
         if (c.from && c.path?.length) {

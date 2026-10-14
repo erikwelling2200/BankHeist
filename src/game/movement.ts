@@ -1,36 +1,17 @@
 import {
-    crewMoveOptions, DASH_ACTIONS, dashBudget, MOVE_ACTIONS, moveBudget, pathTo, reachable, reachAt, validatePath, type Command, type Pos, type Reach,
-    type ReadonlyWorld, type State
+    crewBudget, crewMoveOptions, DASH_ACTIONS, MOVE_ACTIONS, pathTo, reachable, reachAt, validatePath, type Command, type Pos, type Reach, type ReadonlyWorld,
+    type State
 } from '../sim';
 
 /*
  * Movement as the player picks it (§6.3, XCOM style): one range, with Move's tiles (1 action) and the tiles only Dash
  * reaches (2 actions) beyond them; a tile or a drawn path is a Move when it fits Move's budget, else a Dash. The range
- * and the costs are the sim's own (`reachable`, `validatePath`, the budgets), so what the overlay shows is what a commit
- * of the same command does.
+ * and the costs are the sim's own (`reachable`, `validatePath`, `crewBudget` with its modifiers, such as dragging a body,
+ * and `dashRefusal`), so what the overlay shows is what a commit of the same command does.
  */
 
 /** A crew member, as the state holds them (read-only). */
-type Member = Parameters<typeof moveBudget>[1];
-
-/**
- * Why `member` can't dash now, or undefined: too few actions, or a rule of the sim's (heavy armour, §6.3). The rules are
- * asked through `preview` (the engine's, or the Session's cached one) with an empty path: a Dash the rules refuse fails
- * on its own check before the path's, so its reason differs from a Move's.
- */
-export function dashRefusal(member: Member, preview: (cmd: Command) => unknown): string | undefined {
-    if (member.actionsLeft < DASH_ACTIONS) return `Needs ${DASH_ACTIONS} actions`;
-    const why = (type: 'move' | 'dash'): string | undefined => {
-        try {
-            preview({ type, crew: member.id, path: [] });
-            return undefined;
-        } catch (e) {
-            return e instanceof Error ? e.message : String(e);
-        }
-    };
-    const dash = why('dash');
-    return dash === why('move') ? undefined : dash;
-}
+type Member = Parameters<typeof crewBudget>[1];
 
 export interface MoveRange {
     /** Every tile within the larger budget, with the cheapest path to each. */
@@ -44,10 +25,13 @@ export interface MoveRange {
     run: Pos[];
 }
 
-/** The selected crew member's range on `picture` (the crew's picture of the state, §8.15). */
+/**
+ * The selected crew member's range on `picture` (the crew's picture of the state, §8.15). `canDash` is the sim's
+ * `dashRefusal` coming back null.
+ */
 export function moveRange(world: ReadonlyWorld, picture: State, member: Member, canDash: boolean): MoveRange {
-    const move = member.actionsLeft >= MOVE_ACTIONS ? moveBudget(world, member) : null;
-    const dash = canDash && member.actionsLeft >= DASH_ACTIONS ? dashBudget(world) : null;
+    const move = member.actionsLeft >= MOVE_ACTIONS ? crewBudget(world, member, 'move') : null;
+    const dash = canDash && member.actionsLeft >= DASH_ACTIONS ? crewBudget(world, member, 'dash') : null;
     const reach = reachable(world, picture, member.pos, Math.max(move ?? 0, dash ?? 0), crewMoveOptions(member));
     const walk: Pos[] = [], run: Pos[] = [];
     for (const t of reach.tiles) {

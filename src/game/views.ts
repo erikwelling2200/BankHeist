@@ -1,8 +1,9 @@
 import { DASH_ACTIONS, MOVE_ACTIONS, type CarrierKind, type Command, type ReadonlyWorld, type SimEvent, type State } from '../sim';
 import {
-    CREW_COLOURS, OVERLAY_IDS, type ActionVM, type BankStatus, type CommitKind, type ConfirmVM, type HudIcon, type BankStatusVM, type CrewVM, type HudViewModel, type OverlayId, type RecapEventVM,
+    CREW_COLOURS, OVERLAY_IDS, type ActionVM, type BankStatus, type CommitKind, type ConfirmVM, type HudIcon, type BankStatusVM, type CrewVM, type HudViewModel, MAX_ACTIONS, type OverlayId, type RecapEventVM,
     type RecapVM, type ThreatVM
 } from '../ui/hud/viewModels';
+import { actionMenu } from './actions';
 import type { UiState } from './session';
 
 /*
@@ -70,50 +71,70 @@ export interface HudExtras {
     previewEvents?: readonly SimEvent[];
     /** Whether the tactical map shows. */
     mapOn?: boolean;
+    /** The door, NPC or object the player tapped: the grid's actions on a thing are for it (src/game/actions.ts). */
+    target?: string | null;
+    /** What a command would cost, from its preview (actions spent), or undefined when the sim refuses it. */
+    costOf?: (cmd: Command) => number | undefined;
 }
 
 /**
- * The entries of M1's action grid (§6.3): movement and Wait. Later packages add theirs. Movement is one entry: a tap
- * picks Move or Dash by how far it goes (src/game/movement.ts), so Dash has no button of its own.
+ * An entry of the action grid: 'move' (movement: a tap picks Move or Dash by how far it goes, src/game/movement.ts, so
+ * Dash has no button of its own), or one of `actionMenu`'s ids ('door:open', 'knockout', 'drag', 'stash', 'wait', …).
  */
-export type ActionId = 'move' | 'wait';
+export type ActionId = string;
 
-/** How each command the grid can make is named and costed, on its button and on Confirm. */
-const COMMANDS: Readonly<Record<string, { label: string; icon: HudIcon; cost: number }>> = {
-    move: { label: 'Move', icon: 'move', cost: MOVE_ACTIONS },
-    dash: { label: 'Dash', icon: 'dash', cost: DASH_ACTIONS },
-    // Wait spends what is left of the turn (§6.3); it costs no pip of its own.
-    wait: { label: 'Wait', icon: 'wait', cost: 0 }
-};
+/** How a command is named on its button and on Confirm, and what it costs when no preview says (Wait: no pip of its own). */
+function describeCommand(cmd: Command): { label: string; icon: HudIcon; cost: number } {
+    switch (cmd.type) {
+        case 'move': return { label: 'Move', icon: 'move', cost: MOVE_ACTIONS };
+        case 'dash': return { label: 'Dash', icon: 'dash', cost: DASH_ACTIONS };
+        case 'wait': return { label: 'Wait', icon: 'wait', cost: 0 };
+        case 'door': return { label: `${cmd.action} door`, icon: cmd.action === 'lock' || cmd.action === 'unlock' ? 'lock' : 'interact', cost: 1 };
+        case 'knockout': return { label: 'Knockout', icon: 'knockout', cost: 1 };
+        case 'drag': return { label: 'Drag', icon: 'heavy', cost: 1 };
+        case 'drop': return { label: 'Drop', icon: 'flip', cost: 1 };
+        case 'stash': return { label: 'Stash', icon: 'concealed', cost: 1 };
+        case 'interact': return { label: cmd.verb, icon: 'interact', cost: 1 };
+        default: return { label: cmd.type, icon: 'interact', cost: 1 };
+    }
+}
 
-/** The grid entry a command belongs to: a Dash is movement. */
-const entryOf = (cmd: Command | null): ActionId | null =>
-    cmd?.type === 'move' || cmd?.type === 'dash' ? 'move' : cmd?.type === 'wait' ? 'wait' : null;
+const sameCommand = (a: Command | null, b: Command): boolean => !!a && JSON.stringify(a) === JSON.stringify(b);
 
 /**
- * The selected crew member's actions: what each costs, whether it can be done now, and which is being previewed.
- * Movement is the default; while a Dash is previewed its entry reads Dash, with Dash's cost.
+ * The selected crew member's actions: movement first, then what `actionMenu` offers where they stand (enabled as the
+ * sim allows, with its reason when not), each with its cost from its preview, and which is being previewed. While a
+ * Dash is previewed the movement entry reads Dash, with Dash's cost.
  */
-export function actionsView(state: State, ui: UiState): ActionVM[] {
+export function actionsView(world: ReadonlyWorld, state: State, ui: UiState, extras: Pick<HudExtras, 'target' | 'costOf'> = {}): ActionVM[] {
     const member = state.crew.find(c => c.id === ui.selected);
     if (!member || state.phase !== 'crew') return [];
-    const pending = ui.pendingCommand, active = entryOf(pending) ?? 'move';
-    return (['move', 'wait'] as const).map(id => {
-        const a = COMMANDS[id === 'move' && pending?.type === 'dash' ? 'dash' : id]!;
-        const reason = member.actionsLeft === 0 ? 'No actions left' : undefined;
-        return { id, label: a.label, icon: a.icon, cost: a.cost, enabled: !reason, ...(reason ? { reason } : {}), selected: id === active };
-    });
+    const pending = ui.pendingCommand, moving = !pending || pending.type === 'move' || pending.type === 'dash';
+    const move = describeCommand(pending?.type === 'dash' ? pending : { type: 'move', crew: member.id, path: [] });
+    const stuck = member.actionsLeft === 0 ? 'No actions left' : undefined;
+    const out: ActionVM[] = [{ id: 'move', label: move.label, icon: move.icon, cost: move.cost, enabled: !stuck, ...(stuck ? { reason: stuck } : {}), selected: moving }];
+    for (const e of actionMenu(world, state, member.id, extras.target)) {
+        const cost = e.command.type === 'wait' ? 0 : (!e.reason && extras.costOf?.(e.command)) || describeCommand(e.command).cost;
+        out.push({ id: e.id, label: e.label, icon: e.icon, cost, enabled: !e.reason, ...(e.reason ? { reason: e.reason } : {}), selected: sameCommand(pending, e.command) });
+    }
+    return out.slice(0, MAX_ACTIONS);
 }
+
+/** Events in a preview that give the crew away, or are an illegal act seen or not (§8.4): Confirm turns amber. */
+const COSTLY_EVENTS: ReadonlySet<string> = new Set(['heard', 'perceptionCheck', 'cameraSaw', 'knockedOut', 'bodyLifted', 'bodyStashed']);
 
 /**
  * Confirm for the pending command: its name and cost (a Dash shows 2 pips), coloured by what it gives away (UI.md
- * "Confirm's colour"): amber when someone hears it, cream otherwise. Dimmed while nothing is previewed.
+ * "Confirm's colour"): amber when someone hears or sees it, or it is an illegal act; cream otherwise. Dimmed while
+ * nothing is previewed.
  */
-export function confirmView(ui: UiState, previewEvents: readonly SimEvent[] = []): ConfirmVM {
-    const action = entryOf(ui.pendingCommand) && COMMANDS[ui.pendingCommand!.type];
-    if (!action) return { kind: 'clean', label: '', cost: 0, enabled: false };
-    const kind: CommitKind = previewEvents.some(e => e.type === 'heard') ? 'costly' : 'clean';
-    return { kind, label: action.label.toUpperCase(), icon: action.icon, cost: action.cost, enabled: true };
+export function confirmView(ui: UiState, previewEvents: readonly SimEvent[] = [], costOf?: (cmd: Command) => number | undefined): ConfirmVM {
+    const cmd = ui.pendingCommand;
+    if (!cmd || cmd.type === 'endTurn') return { kind: 'clean', label: '', cost: 0, enabled: false };
+    const action = describeCommand(cmd);
+    const cost = cmd.type === 'wait' ? 0 : costOf?.(cmd) ?? action.cost;
+    const kind: CommitKind = previewEvents.some(e => COSTLY_EVENTS.has(e.type)) ? 'costly' : 'clean';
+    return { kind, label: action.label.toUpperCase(), icon: action.icon, cost, enabled: true };
 }
 
 export function hudView(world: ReadonlyWorld, state: State, ui: UiState, extras: HudExtras = {}): HudViewModel {
@@ -122,8 +143,8 @@ export function hudView(world: ReadonlyWorld, state: State, ui: UiState, extras:
         bank: bankView(state),
         crew: crewCards(world, state, ui.selected),
         selected: ui.selected,
-        actions: actionsView(state, ui),
-        confirm: confirmView(ui, extras.previewEvents),
+        actions: actionsView(world, state, ui, extras),
+        confirm: confirmView(ui, extras.previewEvents, extras.costOf),
         undoEnabled: extras.undoEnabled ?? false,
         ledger: threatLedger(state),
         overlays: Object.fromEntries(OVERLAY_IDS.map(id => [id, extras.overlays?.[id] ?? false])) as Record<OverlayId, boolean>,
@@ -169,6 +190,78 @@ export function describeEvent(world: ReadonlyWorld, state: State, event: SimEven
         case 'carrierTicked': return `Alarm in ${event.countdown}`;
         case 'alarmRaised': return 'The alarm is raised';
         case 'wentLoud': return `The bank went loud: ${event.cause}`;
+        case 'doorOpened': return `${name(event.by)} opened ${doorName(world, event.door)}`;
+        case 'doorClosed': return event.by ? `${name(event.by)} closed ${doorName(world, event.door)}` : `${capitalise(doorName(world, event.door))} swung shut`;
+        case 'doorLocked': return `${name(event.by)} locked ${doorName(world, event.door)}`;
+        case 'doorUnlocked': return `${name(event.by)} unlocked ${doorName(world, event.door)}`;
+        case 'knockedOut': return `${name(event.crew)} knocked out ${name(event.npc)}`;
+        case 'woke': return `${name(event.npc)} came round`;
+        case 'bodyLifted': return `${name(event.crew)} took hold of ${name(event.npc)}`;
+        case 'bodyDropped': return `${name(event.crew)} let go of ${name(event.npc)}`;
+        case 'bodyStashed': return `${name(event.crew)} hid ${name(event.npc)} in ${stashName(world, event.stash)}`;
+        case 'evidenceNoticed': return `${name(event.npc)} noticed ${EVIDENCE_NAMES[event.kind] ?? event.kind}`;
+        case 'bark': return `${name(event.npc)}: “${barkText(world, state, event)}”`;
+        case 'toldEvidence': return `${name(event.npc)} told ${name(event.guard)}`;
         default: return event.type;
     }
 }
+
+const capitalise = (text: string): string => text.charAt(0).toUpperCase() + text.slice(1);
+
+/** What each kind of evidence is called in the log (§8.10). */
+const EVIDENCE_NAMES: Readonly<Record<string, string>> = {
+    secureDoor: 'a door left open', emptyWindow: 'an empty teller window', missingColleague: 'someone missing', cameraDown: 'a camera off',
+    lightsOut: 'the lights out', body: 'a body', tied: 'someone tied up', hole: 'a hole', weapon: 'a weapon', blood: 'blood', lootBag: 'a bag',
+    drill: 'a drill', assault: 'being attacked'
+};
+
+/** A room's name from its id ('vaultCorridor-2' → 'vault corridor'). */
+export const roomLabel = (id: string): string => id.replace(/-\d+$/, '').replace(/([a-z])([A-Z])/g, '$1 $2').toLowerCase();
+
+const ZONE_RANK: Readonly<Record<string, number>> = { secure: 3, staff: 2, public: 1 };
+
+/** A door by the room it guards (the more private side): 'the vault corridor door'. */
+export function doorName(world: ReadonlyWorld, id: string): string {
+    const def = world.doors[id], edge = def && world.edges[def.edge];
+    if (!edge) return 'a door';
+    const sides = [edge.run === 'eastWest' ? { x: edge.tx, y: edge.ty - 1 } : { x: edge.tx - 1, y: edge.ty }, { x: edge.tx, y: edge.ty }]
+        .map(p => world.tiles[p.y * world.width + p.x]).filter(t => t?.room);
+    const side = sides.sort((a, b) => (ZONE_RANK[b!.zone] ?? 0) - (ZONE_RANK[a!.zone] ?? 0))[0];
+    return side?.room ? `the ${roomLabel(side.room)} door` : 'the door';
+}
+
+function stashName(world: ReadonlyWorld, id: string): string {
+    const obj = world.objects.find(o => o.id === id);
+    return obj ? `the ${obj.name ?? obj.kind}` : `the ${roomLabel(id)}`;
+}
+
+/**
+ * What an NPC says when it notices something (§8.10): the first time a kind is barked in the heist the line names it
+ * ("Was the vault corridor door open before?"); later ones are generic.
+ */
+export function barkText(world: ReadonlyWorld, _state: State, e: Extract<SimEvent, { type: 'bark' }>): string {
+    if (!e.first) return MAJOR_KINDS.has(e.cause) ? 'Hey! Over here!' : 'Huh. That’s odd.';
+    const about = e.evidence.slice(e.evidence.indexOf(':') + 1);
+    const person = world.people.find(p => p.id === about)?.name ?? 'they';
+    switch (e.cause) {
+        case 'secureDoor': {
+            const door = doorName(world, about);
+            return `Was ${door} open before?`;
+        }
+        case 'emptyWindow': return 'Where did the teller go?';
+        case 'missingColleague': return `Where’s ${person}?`;
+        case 'cameraDown': return 'Is that camera off?';
+        case 'lightsOut': return 'Who turned the lights off?';
+        case 'body': return 'Someone’s down! Get help!';
+        case 'tied': return 'Someone’s been tied up!';
+        case 'hole': return 'There’s a hole in the wall!';
+        case 'weapon': return 'Is that a gun?';
+        case 'blood': return 'Is that… blood?';
+        case 'lootBag': return 'Whose bag is this?';
+        case 'drill': return 'Why is there a drill here?';
+        case 'assault': return 'Someone hit me!';
+        default: return 'What’s that?';
+    }
+}
+
+const MAJOR_KINDS: ReadonlySet<string> = new Set(['body', 'tied', 'hole', 'weapon', 'blood', 'lootBag', 'drill', 'assault']);
