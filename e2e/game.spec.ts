@@ -101,6 +101,31 @@ test.describe('on a high-density phone', () => {
         expect(seen.slice(seen.indexOf(before + 1))).toEqual(seen.slice(seen.indexOf(before + 1)).map(() => before + 1));
         expect(errors).toEqual([]);
     });
+
+    test('pinches in from the widest zoom through every step without stepping back', async ({ page }) => {
+        const errors = await boot(page, 'bank');
+        const state = () => page.evaluate(() => (window as any).game.scene.getScene('bank').debugState as { zoom: number; zoomLevels: number[] });
+        const { zoomLevels } = await state();
+        for (const _ of zoomLevels) await page.evaluate(() => (window as any).game.scene.getScene('bank').zoomStep(-1));
+        expect((await state()).zoom).toBe(zoomLevels[0]);
+        const cdp = await page.context().newCDPSession(page);
+        const touch = (type: 'touchStart' | 'touchMove' | 'touchEnd', spread: number) => cdp.send('Input.dispatchTouchEvent', {
+            type, touchPoints: type === 'touchEnd' ? [] : [{ x: 422 - spread / 2, y: 195, id: 0 }, { x: 422 + spread / 2, y: 195, id: 1 }]
+        });
+        // From the widest step the next is a third closer, more than a pinch's quarter: both fingers have to be read in
+        // the same units, or the zoom overshoots and comes back.
+        await touch('touchStart', 100);
+        const seen: number[] = [];
+        for (let spread = 104; spread <= 260; spread += 6) {
+            await touch('touchMove', spread);
+            await page.waitForTimeout(30);
+            seen.push((await state()).zoom);
+        }
+        await touch('touchEnd', 0);
+        expect(seen).toEqual([...seen].sort((a, b) => a - b));
+        expect(seen.at(-1)).toBe(zoomLevels.at(-1));
+        expect(errors).toEqual([]);
+    });
 });
 
 test.describe('the bank', () => {

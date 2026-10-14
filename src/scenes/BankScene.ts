@@ -133,6 +133,12 @@ export class BankScene extends Phaser.Scene {
     private pinch?: number;
     /** Where the dragging pointer was, in screen pixels: game pixels change size with the zoom, screen pixels don't. */
     private dragFrom?: { x: number; y: number };
+    /**
+     * Where each pointer that is down last was, in screen pixels from the canvas's corner. Read from the browser's event,
+     * not from Phaser's pointer: Phaser converts every finger of a touch event to game pixels before handling any of
+     * them, so when one finger's move zooms, the other's position is already in the old zoom's pixels.
+     */
+    private held = new Map<number, { x: number; y: number }>();
     private mapWidth = 0;
     private mapHeight = 0;
 
@@ -173,8 +179,10 @@ export class BankScene extends Phaser.Scene {
         for (const w of this.walls) this.setWallStep(w, w.target);
     }
 
-    override update(_time: number, deltaMs: number): void {
-        const dt = Math.min(deltaMs, 50) / 1000;
+    override update(): void {
+        // Real time since the last frame. Phaser's smoothed delta is capped at 60fps's for its first 120 frames and while
+        // the window is out of focus, so on a slow device everything would crawl; a long pause still counts as a short one.
+        const deltaMs = Math.min(this.game.loop.rawDelta, 100), dt = deltaMs / 1000;
         this.cloudDrift.x += dt * 4;
         this.cloudDrift.y += dt * 1.5;
         this.placeClouds();
@@ -275,7 +283,7 @@ export class BankScene extends Phaser.Scene {
         }
         const [fx, fy] = patrol.from, [tx, ty] = patrol.to;
         const length = Math.hypot(tx - fx, ty - fy);
-        patrol.t += ((patrol.out ? 1 : -1) * WALK_SPEED * Math.min(deltaMs, 50)) / 1000 / length;
+        patrol.t += ((patrol.out ? 1 : -1) * WALK_SPEED * deltaMs) / 1000 / length;
         const heading = patrol.out ? ty - fy : fy - ty;
         if (patrol.t >= 1 || patrol.t <= 0) {
             patrol.t = Math.min(1, Math.max(0, patrol.t));
@@ -658,28 +666,41 @@ export class BankScene extends Phaser.Scene {
         });
         this.input.on(Phaser.Input.Events.POINTER_WHEEL, (p: Phaser.Input.Pointer, ...rest: [unknown, number, number]) => this.zoomStep(rest[2] > 0 ? -1 : 1, p.x, p.y));
         // A drag starts where a single pointer goes down; a second finger, or lifting one, starts over.
-        const restart = () => {
-            const down = this.input.manager.pointers.filter(q => q.isDown);
-            this.pinch = undefined;
-            this.dragFrom = down.length === 1 ? { x: down[0]!.x * this.zoom, y: down[0]!.y * this.zoom } : undefined;
+        const screenAt = (p: Phaser.Input.Pointer) => {
+            const e = p.event as MouseEvent | TouchEvent, box = this.game.canvas.getBoundingClientRect(), ratio = window.devicePixelRatio || 1;
+            const at = 'changedTouches' in e ? [...e.touches, ...e.changedTouches].find(t => t.identifier === p.identifier) : e;
+            if (!at) throw new Error(`No touch ${p.identifier} in the event for pointer ${p.id}`);
+            return { x: (at.clientX - box.left) * ratio, y: (at.clientY - box.top) * ratio };
         };
-        this.input.on(Phaser.Input.Events.POINTER_DOWN, restart);
-        this.input.on(Phaser.Input.Events.POINTER_UP, restart);
+        const restart = () => {
+            const down = [...this.held.values()];
+            this.pinch = undefined;
+            this.dragFrom = down.length === 1 ? down[0] : undefined;
+        };
+        this.input.on(Phaser.Input.Events.POINTER_DOWN, (p: Phaser.Input.Pointer) => {
+            this.held.set(p.id, screenAt(p));
+            restart();
+        });
+        this.input.on(Phaser.Input.Events.POINTER_UP, (p: Phaser.Input.Pointer) => {
+            this.held.delete(p.id);
+            restart();
+        });
         this.input.on(Phaser.Input.Events.POINTER_MOVE, (p: Phaser.Input.Pointer) => {
-            // Pointer positions are in game pixels, which change size with every zoom step; measure in screen pixels.
-            const a = this.input.pointer1, b = this.input.pointer2;
-            if (a.isDown && b.isDown) {
+            if (!p.isDown || !this.held.has(p.id)) return;
+            const at = screenAt(p);
+            this.held.set(p.id, at);
+            const fingers = [...this.held.values()];
+            if (fingers.length >= 2) {
                 // A pinch zooms a step each time the fingers' spread changes by a quarter from where it last zoomed.
-                const spread = Phaser.Math.Distance.Between(a.x, a.y, b.x, b.y) * this.zoom;
+                const [a, b] = fingers as [{ x: number; y: number }, { x: number; y: number }];
+                const spread = Phaser.Math.Distance.Between(a.x, a.y, b.x, b.y);
                 this.pinch ??= spread;
                 if (spread > this.pinch * 1.25 || spread < this.pinch * 0.8) {
-                    this.zoomStep(spread > this.pinch ? 1 : -1, (a.x + b.x) / 2, (a.y + b.y) / 2);
+                    this.zoomStep(spread > this.pinch ? 1 : -1, (a.x + b.x) / 2 / this.zoom, (a.y + b.y) / 2 / this.zoom);
                     this.pinch = spread;
                 }
                 return;
             }
-            if (!p.isDown) return;
-            const at = { x: p.x * this.zoom, y: p.y * this.zoom };
             if (this.dragFrom) {
                 cam.scrollX -= (at.x - this.dragFrom.x) / this.zoom;
                 cam.scrollY -= (at.y - this.dragFrom.y) / this.zoom;
