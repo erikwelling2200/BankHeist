@@ -1,3 +1,5 @@
+import type { Material } from '../core/types';
+
 /*
  * The noise table of §8.9 (plus the noisy actions of §6.3 and §11.11) as data. Quiet noise makes the NPCs who hear it
  * Curious; loud noise makes them Alerted and makes the bank Loud. Walking makes no noise (radius 0) and isn't listed.
@@ -59,11 +61,12 @@ export const NOISES = {
 export type NoiseSource = keyof typeof NOISES;
 
 /**
- * What crossing a wall segment costs a sound, in tiles of reach (§8.9): a closed door or a Soft wall 3; Reinforced and
- * Vault stop it. Glass and teller glass count as Soft (§8.9 names only Soft, Reinforced and Vault; a pane is no
- * thicker than a partition). A closed door costs 3 whatever it is made of (§8.9 "each closed door"), except a vault
- * door, which stops it like the vault around it. Boundary (the edge of the map) stops it.
+ * What a wall segment that sound has to get through does to it (§8.9): Soft walls cost 3 tiles of reach; Reinforced
+ * and Vault stop it. Glass (windows, glass doors, curtains, §6 decision 8) counts as Soft: a pane is no thicker than a
+ * partition. Teller glass is armoured, so it counts as Reinforced. Boundary (the edge of the map) stops it. A closed
+ * door costs 3 whatever it is made of, except a vault door (`geo/sound.ts`).
  */
 export const SOUND_WALL_TILES = 3;
-export const SOUND_STOPPED_BY = ['reinforced', 'vault', 'boundary'] as const;
-export const SOUND_STOPPED_BY_DOOR = ['vault', 'boundary'] as const;
+export const SOUND_DAMPING: Readonly<Record<Material, 'wall' | 'stops'>> = {
+    glass: 'wall', tellerGlass: 'stops', soft: 'wall', reinforced: 'stops', vault: 'stops', boundary: 'stops'
+};

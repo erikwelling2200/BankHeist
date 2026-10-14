@@ -79,6 +79,8 @@ describe('walls and corners', () => {
         expect(stepCost(locked.world, locked.state, P(0, 0), P(0, 1), withKey)).toBeUndefined();
         locked.state.doors.d = { status: 'breached' };
         expect(stepCost(locked.world, locked.state, P(0, 0), P(0, 1))).toBe(2);
+        // A breached door leaves no frame to catch on.
+        expect(stepCost(locked.world, locked.state, P(0, 0), P(1, 1))).toBe(3);
     });
 
     it('steps through a hole made in a wall', () => {
@@ -95,16 +97,30 @@ describe('walls and corners', () => {
 });
 
 describe('height (§14.7)', () => {
+    // Stairs at (1,1) lead east onto the raised (2,1); the ladder at (2,2) leads north onto it too.
+    const map = ['..^^', './^.', '..H.'];
+
     it.each([
-        ['floor to raised floor', P(0, 0), P(1, 0), undefined],
+        ['floor to raised floor', P(1, 0), P(2, 0), undefined],
+        ['floor to raised floor beside the stairs', P(3, 1), P(2, 1), undefined],
         ['floor to stairs', P(0, 1), P(1, 1), 2],
         ['stairs up', P(1, 1), P(2, 1), 2],
-        ['along raised floor', P(1, 0), P(2, 0), 2],
+        ['stairs down', P(2, 1), P(1, 1), 2],
+        ['along raised floor', P(2, 0), P(3, 0), 2],
         ['stairs up diagonally', P(1, 1), P(2, 0), undefined],
-        ['ladder up', P(3, 2), P(2, 2), 2]
+        ['ladder up', P(2, 2), P(2, 1), 2],
+        ['off the ladder sideways', P(2, 2), P(3, 2), 2]
     ])('%s', (_, a, b, cost) => {
-        const { world, state } = setup(['.^^.', './^.', '..^H']);
+        const { world, state } = setup(map);
         expect(stepCost(world, state, a, b)).toBe(cost);
+    });
+
+    it('gives each climb tile the one raised tile it leads to', () => {
+        const { world } = setup(map);
+        expect(world.tiles[1 * 4 + 1]!.climb).toEqual({ kind: 'stairs', to: 'e' });
+        expect(world.tiles[2 * 4 + 2]!.climb).toEqual({ kind: 'ladder', to: 'n' });
+        expect(() => fixtureWorld(['^/^'])).toThrow(/exactly one raised neighbour/);
+        expect(() => fixtureWorld(['./.'])).toThrow(/exactly one raised neighbour/);
     });
 });
 
@@ -121,6 +137,15 @@ describe('people', () => {
         expect(reachAt(reach, P(5, 0))).toBeUndefined();
         expect(pathTo(reach, P(1, 0))).toBeUndefined();
         expect(pathTo(reach, P(2, 0))).toEqual([P(1, 0), P(2, 0)]);
+    });
+
+    it('lets an NPC pass NPCs but not crew', () => {
+        const { world, state } = line();
+        const reach = reachable(world, state, P(3, 0), 10, { mover: 'guard' });
+        expect(reachAt(reach, P(4, 0))?.canEnd).toBe(false);
+        expect(reachAt(reach, P(5, 0))?.canEnd).toBe(true);
+        expect(reachAt(reach, P(2, 0))?.canEnd).toBe(true);
+        expect(reachAt(reach, P(1, 0))).toBeUndefined();
     });
 
     it('steps over an NPC lying down', () => {
@@ -181,18 +206,61 @@ describe('the move and dash commands', () => {
         expect(() => commit(world, state, { type: 'dash', crew: 'jun', path: along(2) })).toThrow(/heavy armour/);
     });
 
-    it('dashes up to 10 tiles for 2 actions, with a quiet noise of radius 2 where it ends', () => {
+    it('dashes up to 10 tiles for 2 actions, with a quiet noise of radius 2 along its path', () => {
         const { world, state } = corridor();
         const result = commit(world, state, { type: 'dash', crew: 'jun', path: along(10) });
         expect(result.state.crew[0]!.pos).toEqual(P(10, 0));
         expect(result.state.crew[0]!.actionsLeft).toBe(0);
-        expect(result.events[1]).toEqual({ type: 'noise', source: P(10, 0), radius: 2, kind: 'quiet', cause: 'dash jun', heard: ['teller'] });
-        expect(result.undoable).toBe(true);
+        expect(result.events.slice(1)).toEqual([
+            { type: 'noise', sources: along(10), radius: 2, kind: 'quiet', cause: 'dash jun', heard: ['teller'] },
+            { type: 'heard', cause: 'dash jun', kind: 'quiet', npcs: ['teller'] }
+        ]);
+        // Someone heard it: it can't be taken back.
+        expect(result.undoable).toBe(false);
         expect(preview(world, state, { type: 'dash', crew: 'jun', path: along(10) }).events).toEqual(result.events);
         expect(() => commit(world, state, { type: 'dash', crew: 'jun', path: along(11) })).toThrow(IllegalCommand);
         const short = commit(world, state, { type: 'dash', crew: 'jun', path: along(3) });
-        expect(short.events[1]).toMatchObject({ type: 'noise', heard: [] });
+        expect(short.events.slice(1)).toEqual([{ type: 'noise', sources: along(3), radius: 2, kind: 'quiet', cause: 'dash jun', heard: [] }]);
+        expect(short.undoable).toBe(true);
         const tired = commit(world, state, { type: 'move', crew: 'jun', path: along(1) }).state;
         expect(() => commit(world, tired, { type: 'dash', crew: 'jun', path: [P(2, 0)] })).toThrow(/actions left/);
+    });
+
+    it('is heard from every tile of the dash, not only where it ends', () => {
+        // The clerk stands beside the start; the dash ends 8 tiles away.
+        const world = fixtureWorld(['..........', '..........'], { people: [npc('clerk', P(1, 1))] });
+        const state = initialState(world, { seed: 1, crew: [{ id: 'jun', pos: P(0, 0) }] });
+        const result = commit(world, state, { type: 'dash', crew: 'jun', path: along(8) });
+        expect(result.events.at(-1)).toEqual({ type: 'heard', cause: 'dash jun', kind: 'quiet', npcs: ['clerk'] });
+    });
+
+    // TODO(M2 carrying): register the 'heavyLoot' dash check (registerDashCheck) and fill this in.
+    it.skip('refuses to dash carrying Heavy loot (§6.3)', () => {});
+});
+
+describe('doors on the way', () => {
+    const room = (start: 'closed' | 'locked', lock: 'none' | 'mechanical' = 'none'): { world: ReadonlyWorld; state: State } =>
+        setup(open(4, 2), [{ between: [P(1, 0), P(2, 0)], door: { id: 'd', lock, start } }]);
+
+    it('opens a closed door it walks through, and refuses a locked one without the key', () => {
+        const { world, state } = room('closed');
+        const result = commit(world, state, { type: 'move', crew: 'jun', path: [P(1, 0), P(2, 0), P(3, 0)] });
+        expect(result.state.doors.d!.status).toBe('open');
+        expect(result.events[0]).toEqual({ type: 'doorOpened', door: 'd', by: 'jun' });
+        expect(result.undoable).toBe(true);
+        const locked = room('locked', 'mechanical');
+        expect(() => commit(locked.world, locked.state, { type: 'move', crew: 'jun', path: [P(1, 0), P(2, 0)] })).toThrow(IllegalCommand);
+    });
+
+    it('swings shut at the end of the world phase, unless propped or someone stands in the doorway', () => {
+        const { world, state } = room('closed', 'mechanical');
+        const through = commit(world, state, { type: 'move', crew: 'jun', path: [P(1, 0), P(2, 0), P(3, 0)] }).state;
+        const shut = commit(world, through, { type: 'endTurn' });
+        expect(shut.state.doors.d!.status).toBe('locked');
+        expect(shut.events).toContainEqual({ type: 'doorClosed', door: 'd' });
+        const doorway = commit(world, state, { type: 'move', crew: 'jun', path: [P(1, 0), P(2, 0)] }).state;
+        expect(commit(world, doorway, { type: 'endTurn' }).state.doors.d!.status).toBe('open');
+        const propped = { ...through, doors: { d: { status: 'open' as const, propped: true } } };
+        expect(commit(world, propped, { type: 'endTurn' }).state.doors.d!.status).toBe('open');
     });
 });

@@ -1,6 +1,6 @@
 import { cornerEdges, edgeBetween, edgeKey, FACING_STEP, FACINGS, inBounds, tileAt } from '../core/grid';
-import { edgeNow } from '../core/state';
-import type { CrewState, DeepReadonly, DoorDef, DoorStatus, NpcStatus, Pos, ReadonlyWorld, State } from '../core/types';
+import { edgeNow, registerRuleDefaults } from '../core/state';
+import type { CrewState, DeepReadonly, DoorDef, DoorStatus, NpcStatus, Pos, ReadonlyWorld, State, Tile } from '../core/types';
 import { DIAGONAL_COST, HALF_STEPS_PER_TILE, HEAVY_ARMOUR_ITEM, ORTHOGONAL_COST } from '../data/movement';
 
 /*
@@ -11,22 +11,48 @@ import { DIAGONAL_COST, HALF_STEPS_PER_TILE, HEAVY_ARMOUR_ITEM, ORTHOGONAL_COST 
  * Costs are in half-steps (orthogonal 2, diagonal 3; `data/movement.ts`), so all of it is integer arithmetic.
  *
  * - A step can't cross a wall segment that blocks movement now (`edgeNow`: a closed door does, an open or breached one
- *   doesn't, nor does a hole). A closed or locked door passes only if `canPassDoor` says so (an NPC with the key, later);
- *   the crew open doors with Interact, so by default it says no. A jammed door never passes.
+ *   doesn't, nor does a hole). A closed or locked door passes only if `canPassDoor` says so; the mover then opens it
+ *   on the way (the move command does, `crew/movement.ts`). A jammed door never passes.
  * - A diagonal step can't cut a corner where a wall ends: none of the corner's four edges (`cornerEdges`) may hold a wall
- *   that blocks movement, nor a door frame, open or not. Furniture doesn't stop a diagonal: §6.3 names only walls, and a
- *   desk is smaller than its tile.
+ *   that blocks movement, nor a door frame, open or not (a breached door has no frame left). Furniture doesn't stop a
+ *   diagonal: §6.3 names only walls, and a desk is smaller than its tile. Nor do people: a diagonal may squeeze between
+ *   two NPCs standing on the corner's other two tiles (they stand in the middle of their tiles).
  * - Tiles that block movement (desks, columns) are never entered.
- * - Raised tiles (§14.7) are reached only by stairs or ladders: a step between tiles of different height must be
- *   orthogonal and have a climb tile (`Tile.climb`) at one end.
- * - People: anyone may pass through a crew member or an NPC lying down (commanded, tied, unconscious, dead), but nobody
- *   passes through an NPC standing up, and nobody ends a move on anyone's tile. §6.3 is silent; this is our call.
+ * - Raised tiles (§14.7) are reached only by stairs or ladders: a climb tile is ground floor and leads one way, to the
+ *   raised tile on its `climb.to` side. A step between tiles of different height must be that one step, either way.
+ * - People: a mover may pass through their own side (crew through crew, NPCs through NPCs) and through anyone lying
+ *   down (commanded, tied, unconscious, dead), but never through the other side standing up, and nobody ends a move on
+ *   anyone's tile. §6.3 is silent; this is our call.
  */
 
+/** The orthogonal sides a climb tile can lead to. */
+export type ClimbSide = 'n' | 'e' | 's' | 'w';
+
+export interface Climb {
+    kind: 'stairs' | 'ladder';
+    /** The side of the raised tile it leads to. */
+    to: ClimbSide;
+}
+
+declare module '../core/types' {
+    interface Tile {
+        /** A stair or ladder tile (§14.7): ground floor, the only way onto the raised tile on its `to` side. */
+        climb?: Climb;
+    }
+    interface Rules {
+        /** Move's reach in heavy armour (§6.3). */
+        heavyMoveTiles: number;
+        /** Dash's reach in tiles (§6.3). */
+        dashTiles: number;
+    }
+}
+
+registerRuleDefaults({ heavyMoveTiles: 4, dashTiles: 10 });
+
 export interface MoveOptions {
-    /** Who moves: their own tile doesn't count as occupied. */
+    /** Who moves (a crew or NPC id): their own tile doesn't count as occupied, and their side decides who they pass. */
     mover?: string;
-    /** Whether the mover may pass a door that is closed or locked (opening it on the way). Default: never. */
+    /** Whether the mover may pass a door that is closed or locked, opening it on the way. Default: never. */
     canPassDoor?: (door: DeepReadonly<DoorDef>, status: DoorStatus) => boolean;
     /** Plan as if nobody stood anywhere (an NPC's route before people are placed, the overlay of an empty bank). */
     ignorePeople?: boolean;
@@ -38,33 +64,48 @@ export const LYING_STATUSES: ReadonlySet<NpcStatus> = new Set<NpcStatus>(['comma
 /** What stands on a tile: nothing, someone who can be stepped past, or someone who can't. */
 export type Occupant = 'none' | 'passable' | 'blocking';
 
-/** Who stands where, by tile index (y * width + x). */
+/**
+ * Who stands where, by tile index (y * width + x), as the mover sees it. A mover who is an NPC is blocked by standing
+ * crew and passes NPCs; anyone else (a crew member, or nobody named) is blocked by standing NPCs and passes crew.
+ */
 export function occupancy(world: ReadonlyWorld, state: State, options: MoveOptions = {}): Map<number, Occupant> {
     const out = new Map<number, Occupant>();
     if (options.ignorePeople) return out;
-    const at = (p: Pos): number => p.y * world.width + p.x;
-    for (const c of state.crew) {
-        if (c.id === options.mover) continue;
-        if (!out.has(at(c.pos))) out.set(at(c.pos), 'passable');
-    }
-    for (const n of state.npcs) {
-        if (n.id === options.mover) continue;
-        if (!LYING_STATUSES.has(n.status)) out.set(at(n.pos), 'blocking');
-        else if (!out.has(at(n.pos))) out.set(at(n.pos), 'passable');
-    }
+    const moverIsNpc = state.npcs.some(n => n.id === options.mover);
+    const put = (p: Pos, occupant: Occupant): void => {
+        const i = p.y * world.width + p.x;
+        if (occupant === 'blocking' || !out.has(i)) out.set(i, occupant);
+    };
+    for (const c of state.crew) if (c.id !== options.mover) put(c.pos, moverIsNpc ? 'blocking' : 'passable');
+    for (const n of state.npcs) if (n.id !== options.mover) put(n.pos, !moverIsNpc && !LYING_STATUSES.has(n.status) ? 'blocking' : 'passable');
     return out;
 }
+
+/** The door standing on the edge between two orthogonal neighbours, if any. */
+export function doorBetween(world: ReadonlyWorld, a: Pos, b: Pos): DeepReadonly<DoorDef> | undefined {
+    const id = world.edges[edgeKey(edgeBetween(a, b))]?.door;
+    return id ? world.doors[id] : undefined;
+}
+
+/** A door's status now. */
+export const doorStatus = (world: ReadonlyWorld, state: State, id: string): DoorStatus =>
+    Object.hasOwn(state.doors, id) ? state.doors[id]!.status : world.doors[id]!.start;
 
 /** Whether a wall on this edge stops a step across it, given the doors the mover may pass. */
 function edgeStops(world: ReadonlyWorld, state: State, a: Pos, b: Pos, options: MoveOptions): boolean {
     const key = edgeKey(edgeBetween(a, b));
-    const now = edgeNow(world, state, key);
-    if (!now?.blocksMove) return false;
-    const doorId = world.edges[key]!.door, door = doorId ? world.doors[doorId] : undefined;
+    if (!edgeNow(world, state, key)?.blocksMove) return false;
+    const door = doorBetween(world, a, b);
     if (!door) return true;
-    const status = state.doors[door.id]?.status ?? door.start;
+    const status = doorStatus(world, state, door.id);
     return status === 'jammed' || !options.canPassDoor?.(door, status);
 }
+
+const SIDES: Readonly<Record<ClimbSide, Pos>> = { n: FACING_STEP.n, e: FACING_STEP.e, s: FACING_STEP.s, w: FACING_STEP.w };
+
+/** Whether `tile` at `p` is a climb tile leading to `q`. */
+const leadsTo = (tile: DeepReadonly<Tile>, p: Pos, q: Pos): boolean =>
+    !!tile.climb && p.x + SIDES[tile.climb.to].x === q.x && p.y + SIDES[tile.climb.to].y === q.y;
 
 /**
  * The cost in half-steps of one step from `a` to a neighbouring tile `b` (orthogonal 2, diagonal 3), or undefined if
@@ -75,11 +116,12 @@ export function stepCost(world: ReadonlyWorld, state: State, a: Pos, b: Pos, opt
     if (adx > 1 || ady > 1 || adx + ady === 0) return undefined;
     const from = tileAt(world, a), to = tileAt(world, b);
     if (!from || !to || to.blocksMove) return undefined;
-    if (from.raised !== to.raised && (adx + ady !== 1 || (!from.climb && !to.climb))) return undefined;
+    if (from.raised !== to.raised && !leadsTo(from, a, b) && !leadsTo(to, b, a)) return undefined;
     if (adx + ady === 1) return edgeStops(world, state, a, b, options) ? undefined : ORTHOGONAL_COST;
     for (const edge of cornerEdges(a, b)) {
         const key = edgeKey(edge), built = world.edges[key];
-        if (built && (built.door || edgeNow(world, state, key)!.blocksMove)) return undefined;
+        if (!built) continue;
+        if (built.door ? doorStatus(world, state, built.door) !== 'breached' : edgeNow(world, state, key)!.blocksMove) return undefined;
     }
     return DIAGONAL_COST;
 }
@@ -165,6 +207,9 @@ export type PathCheck = { ok: true; cost: number } | { ok: false; reason: string
 /**
  * Whether `path` (a dragged path: each step to a neighbouring tile, without the start) is a legal move from `from`
  * within `budget` half-steps, by the same steps `reachable` takes. `at` is the index of the first bad step.
+ *
+ * A path may loop back over its own tiles, even through the start, and end where it began: every step is paid for,
+ * so a loop only wastes reach, and a player dragging back and forth gets what they drew.
  */
 export function validatePath(world: ReadonlyWorld, state: State, from: Pos, path: readonly Pos[], budget: number, options: MoveOptions = {}): PathCheck {
     if (!path.length) return { ok: false, reason: 'A move needs a path', at: 0 };

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
-    fixtureWorld, initialState, inRing, NOISES, npcsInside, soundRing, type FixtureWall, type Material, type PersonDef, type Pos,
-    type ReadonlyWorld, type State
+    fixtureWorld, initialState, inRing, noiseRadius, NOISES, npcsInside, soundRing, type FixtureWall, type Material, type PersonDef,
+    type Pos, type ReadonlyWorld, type State
 } from '../../src/sim';
 
 const P = (x: number, y: number): Pos => ({ x, y });
@@ -21,6 +21,7 @@ function reachEast(wall: FixtureWall | undefined, radius: number): number {
 // The wall in the corridor stands between x = 2 and x = 3.
 const at2: [Pos, Pos] = [P(2, 0), P(3, 0)];
 const door = (start: 'open' | 'closed' | 'locked', material: Material = 'soft'): FixtureWall => ({ between: at2, material, door: { id: 'd', start } });
+const wall = (material: Material, extra: Partial<FixtureWall> = {}): FixtureWall => ({ between: at2, material, ...extra });
 
 describe('the noise flood (§8.9)', () => {
     it.each([
@@ -29,13 +30,15 @@ describe('the noise flood (§8.9)', () => {
         ['a closed door', door('closed'), 5],
         ['a locked door', door('locked'), 5],
         ['a closed steel door', door('closed', 'reinforced'), 5],
-        ['a Soft wall', { between: at2, material: 'soft' as const }, 5],
-        ['a glass wall', { between: at2, material: 'glass' as const }, 5],
-        ['a Reinforced wall', { between: at2, material: 'reinforced' as const }, 2],
-        ['a Vault wall', { between: at2, material: 'vault' as const }, 2],
+        ['a Soft wall', wall('soft'), 5],
+        ['a glass wall', wall('glass'), 5],
+        ['teller glass', wall('tellerGlass'), 2],
+        ['a fence', wall('reinforced', { blocksSound: false }), 8],
+        ['a Reinforced wall', wall('reinforced'), 2],
+        ['a Vault wall', wall('vault'), 2],
         ['a closed vault door', door('closed', 'vault'), 2]
-    ])('radius 8 past %s reaches x = %s', (_, wall, x) => {
-        expect(reachEast(wall, 8)).toBe(x);
+    ])('radius 8 past %s reaches x = %s', (_, w, x) => {
+        expect(reachEast(w, 8)).toBe(x);
     });
 
     it('reaches nothing past a closed door when it has fewer than 3 tiles of reach left there', () => {
@@ -47,25 +50,34 @@ describe('the noise flood (§8.9)', () => {
         const breached = setup(['..........'], [door('closed')]);
         breached.state.doors.d = { status: 'breached' };
         expect(soundRing(breached.world, breached.state, P(0, 0), 6).tiles.length).toBe(7);
-        const holed = setup(['..........'], [{ between: at2, material: 'reinforced' }]);
-        holed.state.edges['northSouth 3 0'] = { blocksMove: false, blocksSight: false };
+        const holed = setup(['..........'], [wall('reinforced')]);
+        holed.state.edges['northSouth 3 0'] = { blocksMove: false, blocksSight: false, blocksSound: false };
         expect(soundRing(holed.world, holed.state, P(0, 0), 6).tiles.length).toBe(7);
     });
 
-    it('reaches exactly the tiles within its radius of movement cost on open floor', () => {
+    it('rounds a diagonal down: radius 1 reaches the eight neighbours, radius 0 only its tile', () => {
+        const { world, state } = setup(['.....', '.....', '.....']);
+        expect(soundRing(world, state, P(2, 1), 1).tiles.length).toBe(9);
+        expect(soundRing(world, state, P(2, 1), 0).tiles.map(t => t.pos)).toEqual([P(2, 1)]);
+    });
+
+    it('floods from several tiles at once', () => {
+        const { world, state } = setup(['..........']);
+        expect(soundRing(world, state, [P(2, 0), P(7, 0)], 1).tiles.map(t => t.pos.x)).toEqual([1, 2, 3, 6, 7, 8]);
+    });
+
+    it('reaches exactly the tiles within its radius of movement cost, rounded down, on open floor', () => {
         const { world, state } = setup(Array.from({ length: 9 }, () => '.........'));
         const ring = soundRing(world, state, P(4, 4), 2);
-        const expected: string[] = [];
+        const expected: Pos[] = [];
         for (let y = 0; y < 9; y++) for (let x = 0; x < 9; x++) {
             const dx = Math.abs(x - 4), dy = Math.abs(y - 4);
-            if (3 * Math.min(dx, dy) + 2 * (Math.max(dx, dy) - Math.min(dx, dy)) <= 4) expected.push(`${x},${y}`);
+            // Octile cost in half-steps; 2.5 tiles rounds down to 2.
+            if (3 * Math.min(dx, dy) + 2 * (Math.max(dx, dy) - Math.min(dx, dy)) <= 5) expected.push(P(x, y));
         }
-        expect(ring.tiles.map(t => `${t.pos.x},${t.pos.y}`)).toEqual(expected.sort((a, b) => {
-            const [ax, ay] = a.split(',').map(Number), [bx, by] = b.split(',').map(Number);
-            return ay! - by! || ax! - bx!;
-        }));
-        expect(inRing(ring, P(5, 5))).toBe(true);
-        expect(inRing(ring, P(6, 5))).toBe(false);
+        expect(ring.tiles.map(t => t.pos)).toEqual(expected);
+        expect(inRing(ring, P(6, 5))).toBe(true);
+        expect(inRing(ring, P(6, 6))).toBe(false);
     });
 
     it('rings through a closed door exactly 3 tiles shorter on the far side', () => {
@@ -91,10 +103,10 @@ describe('the noise flood (§8.9)', () => {
     });
 
     it('never slips diagonally past the end of a wall', () => {
-        // A Vault wall between (0,0) and (0,1); the tile under it is reached only round its end.
+        // A Vault wall between (0,0) and (0,1); the tile under it is reached only round its end (3 tiles).
         const { world, state } = setup(['...', '...'], [{ between: [P(0, 0), P(0, 1)], material: 'vault' }]);
         expect(soundRing(world, state, P(0, 0), 2).byIndex.get(1 * 3 + 0)).toBeUndefined();
-        expect(soundRing(world, state, P(0, 0), 3).byIndex.get(1 * 3 + 0)?.remaining).toBe(0);
+        expect(soundRing(world, state, P(0, 0), 3).byIndex.get(1 * 3 + 0)?.remaining).toBe(1);
     });
 
     it('ignores furniture', () => {
@@ -107,5 +119,12 @@ describe('the noise flood (§8.9)', () => {
         state.npcs[3]!.status = 'unconscious';
         const ring = soundRing(world, state, P(0, 0), NOISES.dash.min);
         expect(npcsInside(state, ring)).toEqual(['b', 'a']);
+    });
+
+    it('needs the radius of a command shout, and keeps others within their range', () => {
+        expect(() => noiseRadius('commandShout')).toThrow(/command radius/);
+        expect(noiseRadius('commandShout', 7)).toBe(7);
+        expect(noiseRadius('knockout')).toBe(2);
+        expect(() => noiseRadius('knockout', 4)).toThrow(/2–3/);
     });
 });

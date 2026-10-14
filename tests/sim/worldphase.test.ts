@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { InvariantError, registerWorldHook, startCarrier, type Intent, type State } from '../../src/sim';
+import { IllegalCommand, InvariantError, registerWorldHook, startCarrier, type Intent, type State } from '../../src/sim';
 import { smallBank, step } from './helpers';
 
 /*
@@ -77,6 +77,11 @@ describe('the world phase', () => {
         });
         const late: State = { ...state, turn: 99 };
         expect(() => step(world, late, { type: 'endTurn' })).toThrow(InvariantError);
+        // A refusal from a hook is a bug too: the world phase has no player command to refuse.
+        registerWorldHook('devices', 'test.refuse', ctx => {
+            if (ctx.state.turn === 98) throw new IllegalCommand('no');
+        });
+        expect(() => step(world, { ...state, turn: 98 }, { type: 'endTurn' })).toThrow(InvariantError);
     });
 
     it('carries out the intents the last world phase committed, whatever the act steps decide', () => {

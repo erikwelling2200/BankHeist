@@ -4,29 +4,50 @@
  * system so its commands, events and world-phase hooks are registered before the first command is played.
  */
 
+// Systems. A package appends its module here, keeping the block in alphabetical order (registrations don't depend on
+// the order: placeholders give way to real ones, and inits and hooks run sorted by name).
+// --- systems: begin
 import './core/engine';
 import './crew/actions';
+import './crew/movement';
+import './geo/move';
+import './geo/sound';
 import './rules/carriers';
+import './rules/doors';
+// --- systems: end
 
 export * from './core/types';
 export * from './core/grid';
 export { Dice, DICE_WINDOW, OddsStop, PreviewRollError, type Mode, type PendingOdds } from './core/rng';
 export {
     commit, preview, COMBAT_STATUSES, IllegalCommand, InvariantError, registerCommand, registerWorldHook, worldHooks, WORLD_STEPS,
-    type Ctx, type CommitResult, type PreviewResult, type Reducer, type WorldHook, type WorldPhase, type WorldStep
+    type Ctx, type CommitResult, type PreviewResult, type Reducer, type RegisterOptions, type WorldHook, type WorldPhase, type WorldStep
 } from './core/engine';
 export { registerEvents, eventClass, recordUndo, popUndo, type EventClass, type UndoStack } from './core/undo';
-export { initialState, crewMember, edgeNow, spendActions, newId, type CrewStart } from './core/state';
-export { serialise, deserialise, appendRecent, RECENT_EVENTS, SAVE_FORMAT, SaveFormatError, type Save, type Saved } from './core/save';
-export { assertPlainJson, clonePlain, deepFreeze, hashOf, sortedIds, stableJson } from './core/json';
+export {
+    initialState, crewMember, edgeNow, spendActions, newId, defaultRules, registerRuleDefaults, registerStateInit,
+    registerNpcInit, registerCrewInit, type CrewStart, type StateInit, type NpcInit, type CrewInit
+} from './core/state';
+export {
+    serialise, deserialise, serialiseState, deserialiseState, serialiseWorld, deserialiseWorld, appendRecent, RECENT_EVENTS,
+    SAVE_FORMAT, SaveFormatError, type Save, type Saved, type SavedState
+} from './core/save';
+export {
+    assertPlainJson, clonePlain, deepFreeze, devChecksOn, hashOf, isPlainJson, isReservedKey, samePlain, setDevChecks, sortedIds,
+    stableJson
+} from './core/json';
 export { startCarrier } from './rules/carriers';
 export { freezeWorld } from './world/freeze';
 export { fixtureWorld, type FixtureOptions, type FixtureWall } from './world/fixture';
-export { registerMoveHook, type MoveHook, type MoveMode } from './crew/actions';
 export {
-    dashBudget, inHeavyArmour, LYING_STATUSES, moveBudget, occupancy, pathTo, reachable, reachAt, stepCost, validatePath,
-    type MoveOptions, type Occupant, type PathCheck, type Reach, type ReachTile
+    crewHasKey, crewMoveOptions, registerDashCheck, registerMoveHook, type DashCheck, type MoveHook, type MoveMode
+} from './crew/movement';
+export {
+    dashBudget, doorBetween, doorStatus, inHeavyArmour, LYING_STATUSES, moveBudget, occupancy, pathTo, reachable, reachAt, stepCost,
+    validatePath, type Climb, type ClimbSide, type MoveOptions, type Occupant, type PathCheck, type Reach, type ReachTile
 } from './geo/move';
-export { DEAF_STATUSES, inRing, makeNoise, npcsInside, soundEdgeCost, soundRing, type Ring, type SoundTile } from './geo/sound';
+export {
+    DEAF_STATUSES, inRing, makeNoise, noiseRadius, npcsInside, soundBudget, soundEdgeCost, soundRing, type Ring, type SoundTile
+} from './geo/sound';
 export * from './data/movement';
 export * from './data/noise';

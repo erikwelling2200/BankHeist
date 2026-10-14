@@ -1,6 +1,8 @@
 import { edgeBetween, edgeKey } from '../core/grid';
 import { clonePlain } from '../core/json';
-import { DEFAULT_RULES, type CameraDef, type DoorDef, type DoorStart, type Lock, type Material, type PersonDef, type Pos, type ReadonlyWorld, type Rules, type Tile, type WallEdge, type WorldObject, type Zone } from '../core/types';
+import { defaultRules } from '../core/state';
+import { type CameraDef, type DoorDef, type DoorStart, type Lock, type Material, type PersonDef, type Pos, type ReadonlyWorld, type Rules, type Tile, type WallEdge, type WorldObject, type Zone } from '../core/types';
+import type { ClimbSide } from '../geo/move';
 import { freezeWorld } from './freeze';
 
 /*
@@ -10,7 +12,8 @@ import { freezeWorld } from './freeze';
  *     #  a low object that blocks movement and gives half cover (a desk, a counter)
  *     T  a tall object that blocks movement and sight (a shelf, a column)
  *     ^  raised floor (a mezzanine, the loading dock, §14.7)
- *     /  stairs, and H  a ladder: ground-level climb tiles, the only way onto raised floor
+ *     /  stairs, and H  a ladder: ground-level climb tiles, the only way onto raised floor. Each leads to the one raised
+ *        tile beside it (orthogonally); a climb tile with no raised neighbour, or more than one, is an error.
  *
  * Objects stand on public floor unless `zones` (the same grid, in `.`, `s` and `x` only) says otherwise. Walls stand
  * on the edges between two orthogonally neighbouring tiles and are listed apart, each with its material and, for a
@@ -21,6 +24,8 @@ export interface FixtureWall {
     /** The tiles either side of the edge. */
     between: [Pos, Pos];
     material?: Material;
+    /** False for a segment that carries sound for free (a fence). */
+    blocksSound?: boolean;
     door?: { id: string; lock?: Lock; start?: DoorStart };
 }
 
@@ -39,6 +44,7 @@ const ZONES: Readonly<Record<string, Zone>> = { '.': 'public', s: 'staff', x: 's
 const OBJECTS = new Set(['#', 'T']);
 const CLIMB: Readonly<Record<string, 'stairs' | 'ladder'>> = { '/': 'stairs', H: 'ladder' };
 const FLOORS = new Set(['^', ...Object.keys(CLIMB)]);
+const CLIMB_SIDES: readonly (readonly [ClimbSide, Pos])[] = [['n', { x: 0, y: -1 }], ['e', { x: 1, y: 0 }], ['s', { x: 0, y: 1 }], ['w', { x: -1, y: 0 }]];
 
 /** Materials that let sight through (§8.3: glass doesn't block it). */
 const SEE_THROUGH: readonly Material[] = ['glass', 'tellerGlass'];
@@ -58,12 +64,16 @@ export function fixtureWorld(map: readonly string[], options: FixtureOptions = {
             const z = zones ? zones[y]![x]! : c in ZONES ? c : '.';
             const zone = ZONES[z];
             if (!zone) throw new Error(`Unknown zone '${z}' at (${x}, ${y}): zones are '.', 's' and 'x'`);
-            const tile: Tile = { zone, raised: c === '^', lit: true, blocksMove: OBJECTS.has(c), tall: c === 'T', halfCover: c === '#', room: null };
-            const climb = CLIMB[c];
-            if (climb) tile.climb = climb;
-            tiles.push(tile);
+            tiles.push({ zone, raised: c === '^', lit: true, blocksMove: OBJECTS.has(c), tall: c === 'T', halfCover: c === '#', room: null });
         });
     });
+    map.forEach((line, y) => [...line].forEach((c, x) => {
+        const kind = CLIMB[c];
+        if (!kind) return;
+        const sides = CLIMB_SIDES.filter(([, d]) => map[y + d.y]?.[x + d.x] === '^');
+        if (sides.length !== 1) throw new Error(`The climb tile at (${x}, ${y}) needs exactly one raised neighbour, not ${sides.length}`);
+        tiles[y * width + x]!.climb = { kind, to: sides[0]![0] };
+    }));
     for (const p of options.dark ?? []) {
         if (p.x < 0 || p.y < 0 || p.x >= width || p.y >= height) throw new Error(`Dark tile (${p.x}, ${p.y}) is off the map`);
         tiles[p.y * width + p.x]!.lit = false;
@@ -76,6 +86,7 @@ export function fixtureWorld(map: readonly string[], options: FixtureOptions = {
         const edge = edgeBetween(a, b), key = edgeKey(edge), material = wall.material ?? 'soft';
         if (edges[key]) throw new Error(`Two walls on the edge '${key}'`);
         const built: WallEdge = { ...edge, material, blocksSight: !SEE_THROUGH.includes(material), blocksMove: true };
+        if (wall.blocksSound !== undefined) built.blocksSound = wall.blocksSound;
         if (wall.door) {
             const { id, lock = 'none', start = 'closed' } = wall.door;
             if (doors[id]) throw new Error(`Two doors with the id '${id}'`);
@@ -91,6 +102,6 @@ export function fixtureWorld(map: readonly string[], options: FixtureOptions = {
         objects: clonePlain([...(options.objects ?? [])]),
         people: clonePlain([...(options.people ?? [])]),
         cameras: clonePlain([...(options.cameras ?? [])]),
-        rules: { ...DEFAULT_RULES, ...options.rules }
+        rules: { ...defaultRules(), ...options.rules }
     });
 }

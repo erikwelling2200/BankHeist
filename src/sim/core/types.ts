@@ -49,11 +49,6 @@ export interface Tile {
     zone: Zone;
     /** A raised tile (a mezzanine, a landing): its observers see over low objects (§14.7). */
     raised: boolean;
-    /**
-     * A stair or ladder tile (§14.7): the only way between a raised tile and the ground. A step between tiles of
-     * different height needs one of the two to be a climb tile, and must be orthogonal. Absent on ordinary floor.
-     */
-    climb?: 'stairs' | 'ladder';
     /** Lit at the start; darkness halves vision (§8.3). */
     lit: boolean;
     /** Something stands on it that nobody walks through (a desk, a counter, a column). */
@@ -132,26 +127,26 @@ export interface CameraDef {
     room: string | null;
 }
 
-/** The numbers of the rules that a bank or a difficulty might change (§6.3, §8.3, §9.1). */
-export interface Rules {
+/** The engine's own rule numbers (§6.3, §8.3, §9.1). */
+export interface CoreRules {
     actionsPerTurn: number;
-    /** Move's reach in tiles (§6.3); diagonals cost 1.5. */
     moveTiles: number;
-    /** Move's reach in heavy armour (§6.3). */
-    heavyMoveTiles: number;
-    /** Dash's reach in tiles (§6.3). */
-    dashTiles: number;
     coreRange: number;
     peripheralRange: number;
     cameraRange: number;
     minCarrierCountdown: number;
 }
 
-export const DEFAULT_RULES: Readonly<Rules> = {
+/**
+ * The numbers of the rules that a bank or a difficulty might change. A package adds its own by augmenting `Rules` and
+ * registering their defaults with `registerRuleDefaults`; world builders take `defaultRules()`, which has them all.
+ */
+export interface Rules extends CoreRules {}
+
+/** The engine's defaults; `defaultRules()` adds every package's. */
+export const DEFAULT_RULES: Readonly<CoreRules> = {
     actionsPerTurn: 2,
     moveTiles: 5,
-    heavyMoveTiles: 4,
-    dashTiles: 10,
     coreRange: 6,
     peripheralRange: 8,
     cameraRange: 7,
@@ -278,11 +273,15 @@ export interface BankState {
 /** One roll of the dice, kept so a heist's luck can be shown. */
 export interface DiceRoll {
     turn: number;
+    /** Which call rolled it: `odds` is a roll a preview showed the chance of. */
+    kind: 'next' | 'int' | 'chance' | 'odds';
     stream: string;
     /** What the roll was for, for the log ("hit jun", "resist"). */
     reason: string;
     /** The raw draw in [0, 1), or the integer for `Dice.int`. */
     value: number;
+    /** The chance of success, for `chance` and `odds`: the roll succeeded if `value < p`. */
+    p?: number;
 }
 
 export type Phase = 'crew' | 'world';
@@ -317,10 +316,8 @@ export interface State {
 
 /** Every command's fields by its type. Augment it to add a command. */
 export interface CommandMap {
-    /** Walks `path` (each step to a neighbouring tile, the last the destination) for 1 action, up to `moveTiles` (§6.3). */
+    /** A stub until the movement package: walks `path` (each step one tile, the last the destination) for 1 action. */
     move: { crew: string; path: Pos[] };
-    /** Like move, for 2 actions and up to `dashTiles`, with a quiet noise of radius 2 at the destination (§6.3). */
-    dash: { crew: string; path: Pos[] };
     /** The crew member is done for this turn: spends their remaining actions. */
     wait: { crew: string };
     /** Ends the crew phase and plays the world phase (§6.1). */
