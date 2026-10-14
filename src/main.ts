@@ -1,7 +1,5 @@
 import Phaser from 'phaser';
 import { registerSW } from 'virtual:pwa-register';
-import { usePersonStyle } from './art/bank/people';
-import { PERSON_STYLES } from './art/bank/peopleStyles';
 import { bankFromAddress } from './bankSource';
 import { roomGallery } from './gen/gallery';
 import type { GeneratedBank } from './gen/model';
@@ -15,12 +13,6 @@ import { Fullscreen } from './ui/Fullscreen';
 import './style.css';
 
 const params = new URLSearchParams(location.search), scene = params.get('scene') ?? 'bank';
-// `?people=lean`, `chunky`, `noir` or `hibit` draws the cast in another style, to compare (peopleStyles.ts).
-const peopleStyle = params.get('people');
-if (peopleStyle) {
-    if (!PERSON_STYLES[peopleStyle]) throw new Error(`No people style '${peopleStyle}': try ${Object.keys(PERSON_STYLES).join(', ')}`);
-    usePersonStyle(PERSON_STYLES[peopleStyle]);
-}
 // `?scene=rooms` is the room gallery: every room type furnished in a few sizes (`?seed=` picks other parcels).
 const gallery = scene === 'rooms' ? roomGallery(Number(params.get('seed') ?? 1)) : undefined;
 const bank = gallery ? { data: gallery.data, generated: undefined } : ['props', 'officer', 'demo'].includes(scene) ? undefined : generateAddressed();

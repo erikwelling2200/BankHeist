@@ -14,8 +14,6 @@ Top-down 2D pixel-art stealth game. Phaser 4 + TypeScript + Vite, shipped as an 
   police officer's animation preview at `/?scene=officer`, and the room gallery at `/?scene=rooms`: every room type the
   generator furnishes, in four sizes and shapes, furnished and staffed by the real parcels (`src/gen/gallery.ts`;
   `?seed=` picks other parcels). Check furnishing changes there first.
-  `?people=lean`, `chunky`, `noir` or `hibit` draws the cast in an alternative style to compare
-  (`src/art/bank/peopleStyles.ts`); the standard drawing stays the default.
 - `docs/design/research.md` holds the key research findings behind each design decision, with the full notes per area in
   `docs/design/research/`.
 - The design's hard promises: the safe-floor overlay and every preview use the same rules as the real outcome; every

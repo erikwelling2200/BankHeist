@@ -1,6 +1,6 @@
 import type Phaser from 'phaser';
 import { bakeLighting } from '../../art/bank/lamps';
-import { LIGHT_PROXY, LOOKS, person, PERSON_HEIGHT } from '../../art/bank/people';
+import { LOOKS, person, PERSON_HEIGHT } from '../../art/bank/people';
 import { PixelBitmap } from '../../art/PixelBitmap';
 import { TILE } from '../../level/level';
 import type { LevelPerson, PersonFacing as Facing } from '../../level/plan';
@@ -19,7 +19,7 @@ const PATROL_WAIT_MS = 1500;
  */
 interface PersonSprite {
     person: LevelPerson;
-    views: Record<Facing, { bitmap: PixelBitmap; normals: Uint8ClampedArray; proxy?: { bitmap: PixelBitmap; normals: Uint8ClampedArray } }>;
+    views: Record<Facing, { bitmap: PixelBitmap; normals: Uint8ClampedArray }>;
     texture: Phaser.Textures.CanvasTexture;
     image: Phaser.GameObjects.Image;
     shadow: Phaser.GameObjects.Image;
@@ -59,8 +59,8 @@ export class People {
             // A mask or a pose set on the person is drawn over their look.
             const spec = { ...look, mask: p.mask ?? look.mask, pose: p.pose ?? look.pose };
             const view = (facing: Facing) => {
-                const bitmap = person(spec, facing), proxy = LIGHT_PROXY.get(bitmap);
-                return { bitmap, normals: bitmap.normalMap(), proxy: proxy && { bitmap: proxy, normals: proxy.normalMap() } };
+                const bitmap = person(spec, facing);
+                return { bitmap, normals: bitmap.normalMap() };
             };
             const views = { front: view('front'), back: view('back') };
             const key = `person-${i}`, { width, height } = views.front.bitmap;
@@ -69,7 +69,7 @@ export class People {
             const x = (p.tx + 0.5) * TILE, y = (p.ty + 0.5) * TILE;
             this.sprites.push({
                 person: p, views, texture, x, y, facing: p.facing, light: 0,
-                image: add.image(0, 0, key).setOrigin(0, 0).setScale(PERSON_HEIGHT / height),
+                image: add.image(0, 0, key).setOrigin(0, 0),
                 shadow: add.image(0, 0, p.pose ? KEY.lyingShadow : KEY.shadow).setDepth(DEPTH.shadows).setAlpha(0.55),
                 patrol: patrolOf(p, x, y)
             });
@@ -89,14 +89,9 @@ export class People {
         p.y = y;
         if (facing) p.facing = facing;
         const box: Box = { x: Math.round(x - PERSON_SIZE.w / 2), y: Math.round(y - PERSON_SIZE.d / 2), z: 0, ...PERSON_SIZE, facing: 'south' };
-        const { bitmap, normals, proxy } = p.views[p.facing];
-        // A drawing at a multiple of the art's resolution stands in the same 16x24 place and is lit through its stand-in.
-        const density = bitmap.height / PERSON_HEIGHT;
-        const left = Math.round(box.x + box.w / 2 - bitmap.width / density / 2), top = baseLine(box) - PERSON_HEIGHT;
-        const lamps = this.baker.lampsReaching(footprintPoints(box)), exposure = this.baker.standingAt(x, y);
-        const lit = proxy
-            ? relightDense(bitmap, proxy.bitmap, bakeLighting(proxy.bitmap, left, top, AMBIENT, lamps, EVERYWHERE, exposure, proxy.normals))
-            : bakeLighting(bitmap, left, top, AMBIENT, lamps, EVERYWHERE, exposure, normals);
+        const { bitmap, normals } = p.views[p.facing];
+        const left = Math.round(box.x + box.w / 2 - bitmap.width / 2), top = baseLine(box) - PERSON_HEIGHT;
+        const lit = bakeLighting(bitmap, left, top, AMBIENT, this.baker.lampsReaching(footprintPoints(box)), EVERYWHERE, this.baker.standingAt(x, y), normals);
         p.texture.context.putImageData(new ImageData(new Uint8ClampedArray(lit), bitmap.width, bitmap.height), 0, 0);
         p.texture.refresh();
         p.image.setPosition(left, top).setDepth(DEPTH.standing + baseLine(box));
@@ -165,23 +160,6 @@ function patrolOf(p: LevelPerson, x: number, y: number): PersonSprite['patrol'] 
     if (!tiles?.length) return undefined;
     const points: [number, number][] = [[x, y], ...tiles.map((t): [number, number] => [(t.tx + 0.5) * TILE, (t.ty + 0.5) * TILE])];
     return { points, leg: 0, t: 0, dir: 1, wait: PATROL_WAIT_MS };
-}
-
-/**
- * Lights a drawing made at a multiple of the art's resolution by the light its stand-in received: each pixel takes the
- * lit-to-unlit ratio of the stand-in's pixel it falls in.
- */
-function relightDense(bitmap: PixelBitmap, proxy: PixelBitmap, litProxy: Uint8ClampedArray): Uint8ClampedArray {
-    const out = new Uint8ClampedArray(bitmap.colors), density = bitmap.width / proxy.width;
-    for (let y = 0; y < bitmap.height; y++) for (let x = 0; x < bitmap.width; x++) {
-        const i = (y * bitmap.width + x) * 4;
-        if (!out[i + 3]) continue;
-        const px = Math.floor(x / density), py = Math.floor(y / density), j = (py * proxy.width + px) * 4;
-        // Where the stand-in is empty (the drawings' outlines differ by a pixel), borrow the light of the middle of the body.
-        const k = proxy.colors[j + 3] ? j : ((Math.floor(proxy.height * 0.6) * proxy.width + Math.floor(proxy.width / 2)) * 4);
-        for (let c = 0; c < 3; c++) out[i + c] = (bitmap.colors[i + c]! * litProxy[k + c]!) / Math.max(1, proxy.colors[k + c]!);
-    }
-    return out;
 }
 
 /** Mean brightness (0-255) of the opaque pixels of RGBA colours. */

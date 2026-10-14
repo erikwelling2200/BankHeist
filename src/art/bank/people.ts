@@ -46,7 +46,7 @@ export interface PersonSpec {
     pose?: PersonPose;
 }
 
-export const H = { hair: 1, face: 0.95, torso: 0.8, arm: 0.85, legs: 0.6, shoes: 0.35 };
+const H = { hair: 1, face: 0.95, torso: 0.8, arm: 0.85, legs: 0.6, shoes: 0.35 };
 
 /**
  * How the cast's silhouettes are edged: the same inner edge as the furniture, so people and props read as one world.
@@ -61,27 +61,6 @@ export const PERSON_EDGE: Edge = inner(0.3);
  * mask goes over the face; someone with a `pose` is drawn lying down instead, the same for both facings.
  */
 export function person(spec: PersonSpec, facing: 'front' | 'back', edge: Edge = PERSON_EDGE): PixelBitmap {
-    if (style) return style(spec, facing);
-    return standardPerson(spec, facing, edge);
-}
-
-/** Draws a person in another style than the standard one (`peopleStyles.ts`, chosen with `?people=` to compare). */
-export type PersonStyle = (spec: PersonSpec, facing: 'front' | 'back') => PixelBitmap;
-let style: PersonStyle | undefined;
-
-/** Draws everyone from now on in `next`, or in the standard style when it is undefined. */
-export function usePersonStyle(next: PersonStyle | undefined): void {
-    style = next;
-}
-
-/**
- * A drawing at a multiple of the art's resolution (a style with double-density people) is lit through this stand-in at
- * the art's resolution, the same person drawn the standard way: lamps and normals work per world pixel.
- */
-export const LIGHT_PROXY = new WeakMap<PixelBitmap, PixelBitmap>();
-
-/** The standard drawing: 16x24, about four heads tall, edged inside the silhouette. */
-export function standardPerson(spec: PersonSpec, facing: 'front' | 'back', edge: Edge = PERSON_EDGE): PixelBitmap {
     if (spec.pose) return lying(spec, spec.pose, edge);
     const b = new PixelBitmap(PERSON_WIDTH, PERSON_HEIGHT);
     const s = spec.short ?? 0;
