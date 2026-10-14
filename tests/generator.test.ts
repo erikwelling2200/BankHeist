@@ -126,6 +126,23 @@ describe('a generated bank', () => {
         }
     });
 
+    it('stands its teller counter where the teller line meets the lobby, with one gate through it', () => {
+        for (const b of samples) {
+            const teller = b.rooms.find(r => r.type === 'tellerLine')!, lobbies = b.rooms.filter(r => r.type === 'lobby').map(r => r.id);
+            const gates = b.doors.filter(d => (d.a === teller.id && lobbies.includes(d.b)) || (d.b === teller.id && lobbies.includes(d.a)));
+            const counter = b.props.find(p => p.kind === 'counter');
+            expect(gates.length, `${b.tier} ${b.archetype}`).toBe(1);
+            expect(counter, `${b.tier} ${b.archetype}`).toMatchObject({ ty: teller.y + teller.h - 1, gate: gates[0]!.tx });
+        }
+    });
+
+    it('has one of each staff and secure room, so no wing doubles another', () => {
+        for (const b of samples) {
+            const types = b.rooms.filter(r => r.bank && !['lobby', 'staffCorridor', 'restroom'].includes(r.type)).map(r => r.type);
+            expect(types.filter((t, i) => types.indexOf(t) !== i), `${b.tier} ${b.archetype}`).toEqual([]);
+        }
+    });
+
     it('walks its patrols through tiles clear of furniture and walls, one straight leg at a time', () => {
         for (const b of samples) for (const p of b.people.filter(p => p.route)) {
             let prev = { tx: p.tx, ty: p.ty };
@@ -146,10 +163,13 @@ describe('headline features (§17.6)', () => {
         throw new Error(`No seed rolled ${headline}`);
     };
 
-    it('builds a drive-through teller window onto the lane, with its tube terminal', () => {
+    it('builds a drive-through teller window onto the lane, staffed, with its counter and tube terminal', () => {
         const b = find('driveThrough', { tier: 'city', archetype: 'twoWing', plot: 'cornerLot' });
-        expect(b.level.walls.some(w => w.kind === 'tellerWindow')).toBe(true);
+        const windows = b.level.walls.filter(w => w.kind === 'tellerWindow');
+        expect(windows.length).toBe(2);
         expect(b.props.some(p => p.kind === 'tubeTerminal')).toBe(true);
+        expect(b.props.some(p => p.kind === 'backCounter' && p.tx === windows[0]!.tx - 1 && p.facing === 'west')).toBe(true);
+        expect(b.people.some(p => p.traits.includes('drive-through window') && p.tx === windows[0]!.tx - 2)).toBe(true);
     }, 120000);
 
     it('gives a bank in a mall a second pair of front doors', () => {

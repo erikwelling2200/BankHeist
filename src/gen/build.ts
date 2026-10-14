@@ -231,7 +231,8 @@ export function bankDoors(site: Site, plot: Plot, layout: Layout, rooms: GenRoom
     }
     // Open pairs meet without a wall; record one opening between each so the room graph knows they connect.
     for (const room of rooms) for (const other of neighboursOf(site, room).filter(r => bank.has(r) && isOpenPair(room.type, r.type))) {
-        if (room.type === 'lobby' && other.type === 'tellerLine') continue;
+        // The counter's only way through is its gate (`counterGate`).
+        if ([room.type, other.type].includes('lobby') && [room.type, other.type].includes('tellerLine')) continue;
         if (rooms.indexOf(other) < rooms.indexOf(room)) continue;
         if (!site.doors.some(d => (d.a === room.id && d.b === other.id) || (d.a === other.id && d.b === room.id))) connect(site, room, other, 'none', rng, true);
     }

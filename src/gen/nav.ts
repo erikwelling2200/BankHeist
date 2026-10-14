@@ -19,11 +19,11 @@ export class Nav {
     private readonly blockedTiles: Uint8Array;
     private readonly doorAt = new Map<string, Door>();
 
-    constructor(readonly site: Site, furnish: Furnisher, gate?: P) {
+    constructor(readonly site: Site, furnish: Furnisher) {
         const { width, height } = site;
         this.blockedTiles = new Uint8Array(width * height);
         for (let y = 0; y < height; y++) for (let x = 0; x < width; x++) {
-            if (site.owner[y]![x]! < 0 || (furnish.blocked(x, y) && !(gate && gate.x === x && gate.y === y))) this.blockedTiles[y * width + x] = 1;
+            if (site.owner[y]![x]! < 0 || furnish.blocked(x, y)) this.blockedTiles[y * width + x] = 1;
         }
         for (const d of site.doors) this.doorAt.set(edgeKey(d), d);
     }

@@ -132,7 +132,17 @@ class Parcel {
 type ParcelFn = (p: Parcel, ctx: ParcelContext) => void;
 
 /** What the parcels need to know beyond the room: where the counter's gate is, the tier's numbers, the front door. */
-export interface ParcelContext { gateX: number; tellers: number; frontDoorX: number; metalDetector: boolean; motionSensors: boolean; dyePacks: boolean; vaultClass: string }
+export interface ParcelContext {
+    gateX: number;
+    tellers: number;
+    frontDoorX: number;
+    metalDetector: boolean;
+    motionSensors: boolean;
+    dyePacks: boolean;
+    vaultClass: string;
+    /** The inside tile of the drive-through's teller window, its top half. */
+    driveWindow?: { x: number; y: number };
+}
 
 const COVER: LevelProp['kind'][] = ['plant', 'filingCabinet', 'waterCooler'];
 const STORE: LevelProp['kind'][] = ['boxes', 'shelving'];
@@ -161,12 +171,16 @@ export const PARCELS: Partial<Record<RoomType, ParcelFn[]>> = {
 function tellerLine(style: 'backCounters' | 'cabinets' | 'mixed'): ParcelFn {
     return (p, ctx) => {
         const { room } = p, row = room.y + room.h - 1;
-        // The counter along the front row, a window every four tiles, the gate where the doors put it.
+        // The counter along the front row where it meets the lobby (the atrium's gallery takes the rest of it, behind its
+        // railing), a window every four tiles, the gate where the doors put it.
+        const lobby = p.site.rooms.find(r => r.type === 'lobby' && r.bank && p.site.sharedEdges(room, r).some(e => e.run === 'eastWest'))!;
+        const front = p.site.sharedEdges(room, lobby).filter(e => e.run === 'eastWest').map(e => e.tx);
+        const x0 = Math.min(...front), x1 = Math.max(...front) + 1;
         const windows: number[] = [];
-        for (let x = room.x + 2; x < room.x + room.w - 2; x += 4) if (Math.abs(x - ctx.gateX) > 1) windows.push(x);
+        for (let x = x0 + 2; x < x1 - 2; x += 4) if (Math.abs(x - ctx.gateX) > 1) windows.push(x);
         const open = windows.slice(0, Math.max(1, ctx.tellers));
-        const counter: LevelProp = { kind: 'counter', tx: room.x, ty: row, width: room.w, stations: windows, closed: windows.filter(x => !open.includes(x)), gate: ctx.gateX };
-        p.f.try(counter, room);
+        const counter: LevelProp = { kind: 'counter', tx: x0, ty: row, width: x1 - x0, stations: windows, closed: windows.filter(x => !open.includes(x)), gate: ctx.gateX };
+        if (!p.f.try(counter, room)) throw new Error(`The teller counter doesn't fit the front row of ${room.id}`);
         for (const x of open) {
             if (p.f.stand(x, row - 1)) p.out.stations.push({ tx: x, ty: row - 1, facing: 'front', role: 'teller', room: room.id });
             p.out.alarms.push({ tx: x, ty: row - 1, name: 'Teller window alarm button', room: room.id });
@@ -184,23 +198,34 @@ function lobby(style: 'queue' | 'waiting' | 'open'): ParcelFn {
     return (p, ctx) => {
         const { room } = p;
         const front = room.y + room.h - 1;
-        p.f.try({ kind: 'mat', tx: ctx.frontDoorX, ty: front }, room);
-        if (ctx.metalDetector) p.f.try({ kind: 'metalDetector', tx: ctx.frontDoorX, ty: front - 2, span: [2, 1] }, room);
-        // Queue rails from the counter, either side of the runner, with customers in the queue.
-        if (style !== 'open') {
-            const qx = ctx.frontDoorX - 1;
-            p.f.try({ kind: 'queueRail', tx: qx, ty: room.y + 1, length: 4, facing: 'east' }, room);
-            p.f.try({ kind: 'queueRail', tx: qx + 3, ty: room.y + 1, length: 4, facing: 'west' }, room);
+        // A lobby in two pieces (the atrium) gets one set of fittings: the queue where it meets the counter, the mat
+        // and the detector where the doors are, the seating in the piece with the doors.
+        const teller = p.site.rooms.find(r => r.type === 'tellerLine' && r.bank)!;
+        const atCounter = p.site.sharedEdges(room, teller).length > 0;
+        const atDoors = p.site.doors.some(d => (d.a === room.id || d.b === room.id) && d.run === 'eastWest' && d.tx === ctx.frontDoorX && d.ty === room.y + room.h);
+        if (atDoors) {
+            p.f.try({ kind: 'mat', tx: ctx.frontDoorX, ty: front }, room);
+            if (ctx.metalDetector) p.f.try({ kind: 'metalDetector', tx: ctx.frontDoorX, ty: front - 2, span: [2, 1] }, room);
         }
-        for (let i = 0; i < 4; i++) {
-            const dx = ctx.frontDoorX - room.x + (i % 2), dy = 1 + Math.floor(i / 2);
-            p.station('queue', p.mirror ? room.w - 1 - dx : dx, dy, 'back');
+        if (atCounter) {
+            // The row in front of the counter stays free for the customers at the windows.
+            for (const e of p.site.sharedEdges(room, teller)) if (e.run === 'eastWest') p.f.keep(e.tx, e.ty);
+            // Queue rails from the counter, either side of the runner, with customers in the queue.
+            const qx = Math.min(Math.max(ctx.frontDoorX, room.x + 1), room.x + room.w - 6) - 1;
+            if (style !== 'open') {
+                p.f.try({ kind: 'queueRail', tx: qx, ty: room.y + 1, length: 4, facing: 'east' }, room);
+                p.f.try({ kind: 'queueRail', tx: qx + 3, ty: room.y + 1, length: 4, facing: 'west' }, room);
+            }
+            for (let i = 0; i < 4; i++) {
+                const dx = qx + 1 - room.x + (i % 2), dy = 1 + Math.floor(i / 2);
+                p.station('queue', p.mirror ? room.w - 1 - dx : dx, dy, 'back');
+            }
+            p.put({ kind: 'writingDesk', dx: room.w - 4, dy: 2, wide: 2 }) || p.put({ kind: 'writingDesk', dx: 2, dy: 2, wide: 2 });
         }
-        if (style !== 'open') {
+        if (style !== 'open' && atDoors) {
             p.put({ kind: 'sofa', dx: 1, dy: Math.max(2, room.h - 5) });
             p.put({ kind: 'coffeeTable', dx: 1, dy: Math.max(2, room.h - 5) + 2 });
         }
-        p.put({ kind: 'writingDesk', dx: room.w - 4, dy: 2, wide: 2 }) || p.put({ kind: 'writingDesk', dx: 2, dy: 2, wide: 2 });
         p.put({ kind: 'brochureRack', dx: 0, dy: room.h - 3, facing: 'east', alignX: 'west' });
         p.put({ kind: 'plant', dx: 0, dy: 0, alignX: 'west', alignY: 'north' });
         p.put({ kind: 'plant', dx: room.w - 1, dy: room.h - 1, alignX: 'east' });
@@ -385,6 +410,7 @@ function mantrap(p: Parcel): void {
 /** Furnishes every bank room with one of its type's parcels, mirrored at random. */
 export function furnishBank(site: Site, rooms: GenRoom[], furnish: Furnisher, rng: Rng, ctx: ParcelContext): Furnished {
     const out = emptyFurnished();
+    if (ctx.driveWindow) driveThrough(site, furnish, ctx.driveWindow, out);
     // The rooms with fixed pieces first, so the slots fill in round them.
     const order: RoomType[] = ['tellerLine', 'antechamber', 'vault', 'cctvRoom', 'managerOffice', 'atmRoom', 'lobby'];
     const sorted = [...rooms].sort((a, b) => rank(order, a.type) - rank(order, b.type));
@@ -394,8 +420,52 @@ export function furnishBank(site: Site, rooms: GenRoom[], furnish: Furnisher, rn
         const pick = rng.fork(room.id);
         const parcel = new Parcel(room, furnish, pick, pick.chance(0.5), out, site);
         pick.pick(parcels)(parcel, ctx);
+        fill(parcel);
     }
     return out;
+}
+
+/** What fills out a room stretched past its parcel's size, by type: more of what the room already holds. */
+const FILL: Partial<Record<RoomType, LevelProp['kind'][]>> = {
+    managerOffice: ['filingCabinet', 'bookshelf', 'plant'],
+    breakRoom: ['lockers', 'plant', 'waterCooler'],
+    atmRoom: STORE,
+    cleanersCloset: STORE,
+    alarmCloset: STORE,
+    loadingBay: ['boxes', 'boxes', 'shelving'],
+    restroom: ['bin'],
+    cctvRoom: ['filingCabinet', 'boxes']
+};
+
+/**
+ * A parcel is laid out for a room of its type's usual size; a room the layout stretched (a wing's last room takes what
+ * is left) gets a second table where it has one, and cover along its walls for every ten tiles over twenty.
+ */
+function fill(p: Parcel): void {
+    const pool = FILL[p.room.type];
+    if (!pool) return;
+    if (p.h >= 8 && (p.room.type === 'breakRoom' || p.room.type === 'managerOffice')) {
+        const dx = Math.max(1, Math.floor(p.w / 2) - 1), dy = p.h - 3;
+        if (p.put({ kind: 'diningTable', dx, dy, wide: 2 })) {
+            p.put({ kind: 'chair', dx: dx - 1, dy, facing: 'east' });
+            p.put({ kind: 'chair', dx: dx + 2, dy, facing: 'west' });
+        }
+    }
+    const extra = Math.min(6, Math.floor((p.w * p.h - 20) / 10));
+    for (let i = 0; i < extra; i++) p.slot(pool);
+}
+
+/**
+ * The drive-through's station (its counter went in with the window), before the room's own parcel: the teller behind
+ * the counter, with the alarm button and a cash drawer.
+ */
+function driveThrough(site: Site, furnish: Furnisher, window: { x: number; y: number }, out: Furnished): void {
+    const room = site.roomAt(window.x, window.y)!;
+    const teller = { tx: window.x - 1, ty: window.y };
+    if (!furnish.stand(teller.tx, teller.ty)) throw new Error(`No room for the drive-through teller in ${room.type}`);
+    out.stations.push({ ...teller, facing: 'front', role: 'driveTeller', room: room.id });
+    out.alarms.push({ ...teller, name: 'Drive-through alarm button', room: room.id });
+    out.loot.push({ ...teller, name: 'Drive-through cash drawer', value: 4000, weight: 'light', room: room.id });
 }
 
 const rank = (order: RoomType[], t: RoomType) => (order.includes(t) ? order.indexOf(t) : order.length);

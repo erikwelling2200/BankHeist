@@ -74,6 +74,7 @@ export function populate(ctx: Ctx): Population {
         const head = i === 0 && spec.dualControl;
         add({ role: head ? 'headTeller' : 'teller', look: head ? 'headTeller' : rng.pick(['teller', 'tellerB']), observer: 'staff', tx: s.tx, ty: s.ty, facing: s.facing });
     });
+    for (const s of stationsOf('driveTeller')) add({ role: 'teller', look: rng.pick(['teller', 'tellerB']), observer: 'staff', tx: s.tx, ty: s.ty, facing: s.facing, traits: ['drive-through window'] });
     const manager = stationsOf('manager')[0];
     if (manager) add({ role: 'manager', look: 'manager', observer: 'staff', tx: manager.tx, ty: manager.ty, facing: manager.facing });
     const operator = stationsOf('operator')[0];

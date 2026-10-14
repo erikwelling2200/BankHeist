@@ -146,7 +146,9 @@ function twoWing(ctx: Ctx, variant: 'twoWing' | 'threeKeys' | 'mezzanineWatch'):
     // The west wing: rooms along the outside, its corridor along the lobby, the restrooms across the front.
     // The east wing: the CCTV room in another wing than the vault, the break room, the ATM room on the front. The
     // room at the top of a wing touches the vault corridor, so the CCTV room never goes there (§17.7).
-    const breakInMiddle = mb >= 4 && !mezzanine;
+    // The break room goes in the middle band when there is one (beside the mezzanine's CCTV room and stairs, when
+    // there is room left there), and the wings get the cleaner's closet instead.
+    const breakInMiddle = mezzanine ? cw - 2 - Math.min(8, cw - 6) >= 4 : mb >= 4;
     const westRooms: Stacked[] = [{ type: 'managerOffice', min: 4, pref: 6, required: true, stretch: true }, ...(breakInMiddle ? [] : [{ type: 'cleanersCloset' as const, min: 3, pref: 3 }])];
     const west = stack(0, top, D - restH, rw, 'west', managerFront ? westRooms.reverse() : westRooms);
     const east = stack(W - rw, top, D, rw, 'east', [
@@ -250,19 +252,20 @@ function fortress(ctx: Ctx): Layout | undefined {
     pieces.push(piece('staffCorridor', coreX, coreH, coreW, ring, 'centre'));
     const top = coreH + ring;
     if (tellerY - top >= 4) {
-        const half = Math.floor(coreW / 2);
+        // Without an operator the cleaner's closet is the west wing's back corner (the alarm closet is in the core).
+        const half = spec.operator ? Math.floor(coreW / 2) : coreW;
         pieces.push(piece('breakRoom', coreX, top, half, tellerY - top, 'centre'), piece('cleanersCloset', coreX + half, top, coreW - half, tellerY - top, 'centre'));
     } else return undefined;
-    // Outside the ring: the alarm closet and the loading bay at the back corners, offices down the sides.
+    // Outside the ring: the alarm closet (in the core when there is no server room) and the loading bay at the back
+    // corners, offices down the sides; the break room is the one in the centre.
     const westRooms = stack(0, 0, D, ow, 'west', [
-        { type: 'alarmCloset', min: 4, pref: 5, required: spec.operator },
+        spec.operator ? { type: 'alarmCloset', min: 4, pref: 5, required: true } : { type: 'cleanersCloset', min: 3, pref: 4 },
         { type: 'managerOffice', min: 4, pref: 6, required: true, stretch: true },
         { type: 'restroom', min: 4, pref: 5, required: true }
     ]);
     const eastRooms = stack(W - ow, 0, D, ow, 'east', [
         { type: tier === 'small' ? 'staffCorridor' : 'loadingBay', min: 5, pref: 6, required: true },
         ...(spec.operator ? [{ type: 'cctvRoom' as const, min: 4, pref: 5, required: true }] : []),
-        { type: 'breakRoom', min: 4, pref: 5 },
         { type: 'atmRoom', min: 3, pref: 4, stretch: true }
     ]);
     if (!westRooms || !eastRooms) return undefined;

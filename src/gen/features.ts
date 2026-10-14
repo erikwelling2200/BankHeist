@@ -1,5 +1,5 @@
 import type { Furnisher } from './furnish';
-import type { GenRoom, Headline } from './model';
+import type { GenRoom, Headline, RoomType } from './model';
 import type { Plot } from './plot';
 import type { Rng } from './rng';
 import type { Site } from './site';
@@ -9,17 +9,22 @@ import type { Site } from './site';
  * drive-through teller lane on the side road or the back lot, and the many exits of a bank in a mall. (The atrium's
  * skylight, the mezzanine CCTV room, the scaffolding next door and the old bank's walls are built where those are.)
  */
+
+/** Rooms the drive-through window may open from, best first. */
+const DRIVE_ROOMS: RoomType[] = ['atmRoom', 'breakRoom', 'managerOffice', 'cleanersCloset'];
 export function buildFeatures(site: Site, plot: Plot, bank: GenRoom[], headlines: Headline[], rng: Rng, frontDoorX: number, furnish: Furnisher): { window?: { x: number; y: number } } {
     const out: { window?: { x: number; y: number } } = {};
     const east = plot.lot.x + plot.lot.w;
     if (headlines.includes('driveThrough') && plot.side) {
-        // A teller window in the bank's east wall, onto the lane, from the first staff room along it.
-        const rooms = bank.filter(r => r.x + r.w === east && (r.type === 'atmRoom' || r.type === 'breakRoom' || r.type === 'tellerLine' || r.type === 'managerOffice' || r.type === 'staffCorridor'));
-        for (const room of rng.shuffle(rooms)) {
-            const y = room.y + Math.floor(room.h / 2), e = { run: 'northSouth' as const, tx: east, ty: y };
-            const kind = site.wallAt(e)?.kind;
-            if (kind !== 'brick' && kind !== 'plaster') continue;
-            site.setWall(e, 'tellerWindow');
+        // A two-tile teller window in the bank's east wall, onto the lane, from a staff room wide enough for its desk
+        // and the teller behind it (a corridor would be blocked), best first; the tube terminal on its island.
+        const rooms = bank.filter(r => r.x + r.w === east && r.w >= 3 && r.h >= 2 && DRIVE_ROOMS.includes(r.type)).sort((a, b) => DRIVE_ROOMS.indexOf(a.type) - DRIVE_ROOMS.indexOf(b.type));
+        for (const room of rooms) {
+            const y = room.y + Math.floor((room.h - 1) / 2), edges = [y, y + 1].map(ty => ({ run: 'northSouth' as const, tx: east, ty }));
+            if (!edges.every(e => site.wallAt(e)?.kind === 'brick' || site.wallAt(e)?.kind === 'plaster')) continue;
+            if (!furnish.canStand(east - 2, y)) continue;
+            if (!furnish.try({ kind: 'backCounter', tx: east - 1, ty: y, width: 2, facing: 'west', alignX: 'east' }, room)) continue;
+            for (const e of edges) site.setWall(e, 'tellerWindow');
             furnish.try({ kind: 'tubeTerminal', tx: east + 2, ty: y });
             out.window = { x: east - 1, y };
             break;

@@ -34,6 +34,8 @@ export interface Shell {
     gateX: number;
     frontDoorX: number;
     skylight?: { x: number; y: number };
+    /** The inside tile of the drive-through's teller window, its top half. */
+    driveWindow?: { x: number; y: number };
 }
 
 /** Archetypes a tier can have: Mezzanine Watch needs a CCTV operator to put up on the mezzanine. */
@@ -80,11 +82,11 @@ export function buildShell(rng: Rng, shape: ReturnType<typeof rollShape>): Shell
     if (!bankDoors(site, plot, layout, bank, rng.fork('doors'))) return undefined;
     const { gateX } = counterGate(site, bank, rng.fork('gate'));
     const furnish = new Furnisher(site);
-    buildFeatures(site, plot, bank, headlines, rng.fork('features'), door, furnish);
+    const { window: driveWindow } = buildFeatures(site, plot, bank, headlines, rng.fork('features'), door, furnish);
     for (const n of neighbours) finishNeighbour(site, n, furnish, rng.fork(`finish-${n.slot.side}`));
     railings(site);
     const skylight = layout.skylight ? { x: plot.lot.x + layout.skylight.x, y: plot.lot.y + layout.skylight.y } : undefined;
-    return { tier, archetype, plotKind, headlines, plot, site, bank, neighbours, furnish, gateX, frontDoorX: door, skylight };
+    return { tier, archetype, plotKind, headlines, plot, site, bank, neighbours, furnish, gateX, frontDoorX: door, skylight, ...(driveWindow ? { driveWindow } : {}) };
 }
 
 /** A seed as text: `layout-population`. */
@@ -125,7 +127,8 @@ export function generateBank(opts: GenerateOptions): GeneratedBank {
         if (!shell) continue;
         const bank = finishBank(shell, roll, new Rng(opts.population ^ (attempt * 0x9e3779b1)), spec, opts);
         bank.validation.attempts = attempt + 1;
-        bank.validation.relaxed = relaxed.map(r => RULES[r]);
+        // Only the relaxed rules this bank actually breaks: relaxing goes by the attempt count, not by which rule failed.
+        bank.validation.relaxed = relaxed.map(r => RULES[r]).filter(rule => bank.validation.results.some(x => x.rule === rule && !x.ok));
         last = bank;
         const failed = bank.validation.results.filter(r => !r.ok && !relaxed.some(x => RULES[x] === r.rule));
         if (!failed.length) return bank;
@@ -139,10 +142,8 @@ function finishBank(shell: Shell, rng: Rng, people: Rng, spec: TierSpec, opts: G
     const { site, plot, bank, furnish, tier, archetype, headlines } = shell;
     const vaultClass = rng.fork('vault').pick(spec.vaultClasses);
     const timeLock = archetype === 'threeKeys' || headlines.includes('armouredCar') || rng.fork('timelock').chance(spec.timeLock);
-    const parcelCtx = { gateX: shell.gateX, tellers: spec.tellers[1], frontDoorX: shell.frontDoorX, metalDetector: spec.metalDetector, motionSensors: spec.motionSensors, dyePacks: spec.dyePacks, vaultClass };
+    const parcelCtx = { gateX: shell.gateX, tellers: spec.tellers[1], frontDoorX: shell.frontDoorX, metalDetector: spec.metalDetector, motionSensors: spec.motionSensors, dyePacks: spec.dyePacks, vaultClass, ...(shell.driveWindow ? { driveWindow: shell.driveWindow } : {}) };
     const furnished = furnishBank(site, bank, furnish, rng.fork('parcels'), parcelCtx);
-    const teller = bank.find(r => r.type === 'tellerLine')!;
-    const gate = { x: shell.gateX, y: teller.y + teller.h - 1 };
     // Full-height furniture blocks sight (§8.3); low furniture doesn't. A grid, read for every line of sight.
     const tallGrid = new Uint8Array(site.width * site.height);
     const markTall = () => {
@@ -152,8 +153,8 @@ function finishBank(shell: Shell, rng: Rng, people: Rng, spec: TierSpec, opts: G
     };
     markTall();
     const tall = (x: number, y: number) => tallGrid[y * site.width + x] === 1;
-    const ways = placeWays({ site, plot, bank, neighbours: shell.neighbours, furnished, furnish, nav: new Nav(site, furnish, gate), rng: rng.fork('ways'), tier, frontDoorX: shell.frontDoorX, skylight: shell.skylight, softOutside: archetype === 'fortress' });
-    const nav = new Nav(site, furnish, gate);
+    const ways = placeWays({ site, plot, bank, neighbours: shell.neighbours, furnished, furnish, nav: new Nav(site, furnish), rng: rng.fork('ways'), tier, frontDoorX: shell.frontDoorX, skylight: shell.skylight, softOutside: archetype === 'fortress' });
+    const nav = new Nav(site, furnish);
     markTall();
     const traffic = trafficTiles(site, nav, bank);
     const cameras = placeCameras(site, furnish, nav, furnished.cameraSlots, traffic, rng.fork('cameras').int(...spec.cameras), rng.fork('camera-pick'), tall);

@@ -66,7 +66,7 @@ export class Furnisher {
             if (room && this.site.roomAt(x, y) !== room) return false;
             // Nothing on stairs, and nothing standing in front of a door or where someone stands.
             if (this.site.tiles[y]![x] === 'z' && box.h > 0) return false;
-            if (box.z === 0 && box.h > 0 && (this.isKept(x, y) || this.standing.has(`${x},${y}`))) return false;
+            if (box.z === 0 && box.h > 0 && !isGap(prop, x, y) && (this.isKept(x, y) || this.standing.has(`${x},${y}`))) return false;
         }
         // Flat things lie on one floor level, whatever they are.
         if (box.h === 0 && new Set(tilesOfBox(box).map(t => this.site.heightAt(t.x, t.y))).size > 1) return false;
@@ -99,8 +99,13 @@ export class Furnisher {
     /** Whether a tile has something standing on it a person can't walk through. */
     blocked(x: number, y: number): boolean {
         const person = place({ tx: x, ty: y }, PERSON_SIZE);
-        return this.boxes.some(b => b.box.h > 0 && b.box.z < PERSON_SIZE.h && boxesOverlap(b.box, person));
+        return this.boxes.some(b => b.box.h > 0 && b.box.z < PERSON_SIZE.h && !isGap(b.prop, x, y) && boxesOverlap(b.box, person));
     }
+}
+
+/** The counter's gate: a flap people walk through, so its tile stays a way through the counter. */
+function isGap(prop: LevelProp, x: number, y: number): boolean {
+    return prop.kind === 'counter' && prop.gate === x && prop.ty === y;
 }
 
 function tilesOfBox(box: Box): { x: number; y: number }[] {
