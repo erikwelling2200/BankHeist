@@ -42,3 +42,8 @@
 }
 /* The briefing hangs below the generator bar, however many rows it wraps to (the bar sets --generator-bar-bottom). */
 .briefing { top: calc(var(--generator-bar-bottom, max(48px, calc(env(safe-area-inset-top) + 40px))) + 8px); }
+/* `?scene=hud`: the stealth HUD alone, over a dark tiled floor that stands in for the map, with a picker for the samples. */
+body.hud-preview { background: radial-gradient(ellipse at 45% 55%, #2a2a30 0%, #15161f 70%), #0b0d17; }
+body.hud-preview::before { content: ''; position: fixed; inset: 0; background-image: linear-gradient(rgba(242, 230, 200, 0.05) 1px, transparent 1px), linear-gradient(90deg, rgba(242, 230, 200, 0.05) 1px, transparent 1px); background-size: 32px 32px; }
+.hud-preview-picker { position: fixed; z-index: 6; top: calc(max(8px, env(safe-area-inset-top)) + 48px); left: 50%; transform: translateX(-50%); max-width: 300px; height: 44px; padding: 0 8px; border: 1px solid rgba(242, 230, 200, 0.35); border-radius: 6px; background: rgba(11, 13, 23, 0.82); color: #f2e6c8; font: 500 13px ui-sans-serif, system-ui, sans-serif; }
+.hud-preview-picker option { color: #0b0d17; }
