@@ -153,15 +153,21 @@ export class BankScene extends Phaser.Scene {
     private held = new Map<number, { x: number; y: number }>();
     private mapWidth = 0;
     private mapHeight = 0;
+    /** How long each stage of the last `create` took, in milliseconds (`debugState.timings`), and the first frame after it. */
+    private timings: Record<string, number> = {};
+    /** Nothing moves by itself (`?still`, for screenshot tests): the clouds hold still, nobody patrols, no dust drifts. */
+    private still = false;
 
     constructor() {
         super('bank');
     }
 
     create(): void {
+        const started = performance.now();
         this.bank = this.registry.get('bankData') as BankData;
         if (!this.bank) throw new Error("No bank to draw: set the registry's 'bankData' before starting the scene");
         this.forgetLastBank();
+        this.still = this.registry.get('still') === true;
         this.level = this.bank.level;
         this.held.clear();
         this.walls = [];
@@ -172,30 +178,47 @@ export class BankScene extends Phaser.Scene {
         this.mapWidth = this.level.tiles[0]!.length * TILE;
         this.mapHeight = this.level.tiles.length * TILE;
 
-        const boxes = this.bank.props.map(p => propBox(p, this.level.walls));
-        const props = this.bank.props.map((p, i): PlacedProp => {
-            const box = boxes[i]!, art = propArt(p, propSize(p), box.facing), under = isOnTop(p.kind) ? supportOf(box, boxes) : undefined;
-            return { p, box, art, under, left: box.x - art.originX, top: frontRow(box, under) - art.lit.height };
+        this.timings = {};
+        const props = this.timed('prop art', () => {
+            const boxes = this.bank.props.map(p => propBox(p, this.level.walls));
+            return this.bank.props.map((p, i): PlacedProp => {
+                const box = boxes[i]!, art = propArt(p, propSize(p), box.facing), under = isOnTop(p.kind) ? supportOf(box, boxes) : undefined;
+                return { p, box, art, under, left: box.x - art.originX, top: frontRow(box, under) - art.lit.height };
+            });
         });
-        const far = farFront(this.level);
-        this.lamps = [
-            ...roomLamps(this.bank.rooms), ...windowPatches(this.level, streetFront(this.level).line), ...(far ? windowPatches(this.level, far.line, 'south') : []),
-            ...props.flatMap(propLamps), ...props.filter(({ p }) => p.kind === 'skylight').map(({ box }) => skylightLamp(box))
-        ];
-        this.reach = new LampReach(lightBlockers(this.level), this.lamps);
-        this.exposure = buildExposure(this.level);
-        this.litTiles = tileLight(this.level, this.lamps, this.reach).map(row => row.map(light => light >= LIT));
+        this.timed('lamp reach', () => {
+            const far = farFront(this.level);
+            this.lamps = [
+                ...roomLamps(this.bank.rooms), ...windowPatches(this.level, streetFront(this.level).line), ...(far ? windowPatches(this.level, far.line, 'south') : []),
+                ...props.flatMap(propLamps), ...props.filter(({ p }) => p.kind === 'skylight').map(({ box }) => skylightLamp(box))
+            ];
+            this.reach = new LampReach(lightBlockers(this.level), this.lamps);
+            this.litTiles = tileLight(this.level, this.lamps, this.reach).map(row => row.map(light => light >= LIT));
+        });
+        this.timed('exposure', () => (this.exposure = buildExposure(this.level)));
 
-        this.buildFloor(props.filter(({ box }) => box.h === 0));
-        this.buildWalls();
-        const occluders = this.buildProps(props.filter(({ box }) => box.h > 0));
-        this.buildPeople();
-        this.buildLightMaps(occluders);
+        this.timed('floor', () => this.buildFloor(props.filter(({ box }) => box.h === 0)));
+        this.timed('walls', () => this.buildWalls());
+        const occluders = this.timed('props', () => this.buildProps(props.filter(({ box }) => box.h > 0)));
+        this.timed('people', () => this.buildPeople());
+        this.timed('light maps', () => this.buildLightMaps(occluders));
         this.casters.length = 0;
-        this.buildAtmosphere();
-        this.setupCamera();
-        this.updateWalls(0);
-        for (const w of this.walls) this.setWallStep(w, w.target);
+        this.timed('atmosphere', () => this.buildAtmosphere());
+        this.timed('camera', () => {
+            this.setupCamera();
+            this.updateWalls(0);
+            for (const w of this.walls) this.setWallStep(w, w.target);
+        });
+        this.timings.create = performance.now() - started;
+        // The first frame uploads the textures and compiles the camera's filters, which the player waits for too.
+        this.game.events.once(Phaser.Core.Events.POST_RENDER, () => (this.timings['first frame'] = performance.now() - started - this.timings.create!));
+    }
+
+    /** Runs one stage of `create`, timed into `timings` and the browser's performance timeline (`bank: <stage>`). */
+    private timed<T>(stage: string, run: () => T): T {
+        const start = performance.now(), result = run();
+        this.timings[stage] = performance.measure(`bank: ${stage}`, { start }).duration;
+        return result;
     }
 
     /**
@@ -212,9 +235,11 @@ export class BankScene extends Phaser.Scene {
         // Real time since the last frame. Phaser's smoothed delta is capped at 60fps's for its first 120 frames and while
         // the window is out of focus, so on a slow device everything would crawl; a long pause still counts as a short one.
         const deltaMs = Math.min(this.game.loop.rawDelta, 100), dt = deltaMs / 1000;
-        this.cloudDrift.x += dt * 4;
-        this.cloudDrift.y += dt * 1.5;
-        this.placeClouds();
+        if (!this.still) {
+            this.cloudDrift.x += dt * 4;
+            this.cloudDrift.y += dt * 1.5;
+            this.placeClouds();
+        }
         if (this.cursors) {
             const cam = this.cameras.main;
             const dx = (this.cursors.right.isDown ? 1 : 0) - (this.cursors.left.isDown ? 1 : 0);
@@ -222,7 +247,7 @@ export class BankScene extends Phaser.Scene {
             cam.scrollX += (dx * PAN_SPEED * dt) / this.zoom;
             cam.scrollY += (dy * PAN_SPEED * dt) / this.zoom;
         }
-        for (const p of this.people) if (p.patrol) this.walk(p, deltaMs);
+        if (!this.still) for (const p of this.people) if (p.patrol) this.walk(p, deltaMs);
         this.updateWalls(deltaMs);
     }
 
@@ -230,7 +255,7 @@ export class BankScene extends Phaser.Scene {
     get debugState() {
         const cam = this.cameras.main;
         return {
-            ready: true, width: this.mapWidth, height: this.mapHeight, lamps: this.lamps.length,
+            ready: true, width: this.mapWidth, height: this.mapHeight, lamps: this.lamps.length, timings: this.timings,
             zoom: this.zoom, zoomLevels: this.zoomLevels, tilesHigh: cam.height / TILE, map: !!this.mapView,
             midX: cam.midPoint.x, midY: cam.midPoint.y,
             /** Where the plot shows, in CSS pixels from the canvas's top-left corner. */
@@ -712,6 +737,7 @@ export class BankScene extends Phaser.Scene {
             mote.addTo(this.textures, KEY.mote);
         }
         // Dust drifting in the sun shafts just inside the glass.
+        if (this.still) return;
         this.add.particles(0, 0, KEY.mote, {
             x: { min: TILE, max: this.mapWidth - TILE },
             y: { min: front - 4 * TILE, max: front - 4 },

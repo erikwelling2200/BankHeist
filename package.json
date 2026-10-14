@@ -9,9 +9,12 @@
     "preview": "vite preview --host --port 4173",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
-    "test:e2e": "playwright test",
+    "test:e2e": "playwright test --grep-invert @visual",
+    "test:smoke": "playwright test --grep @smoke",
+    "test:visual": "playwright test --grep @visual",
+    "test:visual:update": "playwright test --grep @visual --update-snapshots",
     "sweep": "vitest run --config scripts/vitest.sweep.config.ts",
-    "screenshot": "playwright test -g \"lit scene\""
+    "screenshot": "playwright test -g \"boots into the bank\""
   },
   "dependencies": {
     "phaser": "^4.2.1"

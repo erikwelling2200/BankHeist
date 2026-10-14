@@ -15,7 +15,7 @@ import './style.css';
 const params = new URLSearchParams(location.search), scene = params.get('scene') ?? 'bank';
 // `?scene=rooms` is the room gallery: every room type furnished in a few sizes (`?seed=` picks other parcels).
 const gallery = scene === 'rooms' ? roomGallery(Number(params.get('seed') ?? 1)) : undefined;
-const bank = gallery ? { data: gallery.data, generated: undefined } : ['props', 'officer', 'demo'].includes(scene) ? undefined : bankFromAddress();
+const bank = gallery ? { data: gallery.data, generated: undefined } : ['props', 'officer', 'demo'].includes(scene) ? undefined : generateAddressed();
 
 const game = new Phaser.Game({
     type: Phaser.WEBGL,
@@ -34,7 +34,8 @@ const game = new Phaser.Game({
     // four facings, `?scene=demo` the old stack demo, `?scene=officer` the police officer's animation preview.
     // `?scene=lobby` is an older link to the bank.
     scene: [{ bank: BankScene, lobby: BankScene, rooms: BankScene, props: PropSheetScene, officer: OfficerScene, demo: VaultScene }[scene] ?? BankScene],
-    callbacks: { preBoot: g => g.registry.set('bankData', bank?.data) }
+    // `?still` stops what moves by itself (drifting clouds, patrols, dust), so screenshots of a view match pixel for pixel.
+    callbacks: { preBoot: g => g.registry.set('bankData', bank?.data).set('still', params.has('still')) }
 });
 
 let panels: { briefing: Briefing; bar: GeneratorBar } | undefined;
@@ -65,12 +66,19 @@ function showAddressedBank(): void {
     document.body.classList.add('generating');
     // Two frames, so the busy state is painted before generating blocks the page.
     requestAnimationFrame(() => requestAnimationFrame(() => {
-        const next = bankFromAddress();
+        const next = generateAddressed();
         game.registry.set('bankData', next.data);
         game.scene.getScene('bank')!.scene.restart();
         showPanels(next.generated);
         document.body.classList.remove('generating');
     }));
+}
+
+/** The addressed bank, its generating timed into the browser's performance timeline (`bank: generate`) for profiling. */
+function generateAddressed(): ReturnType<typeof bankFromAddress> {
+    const start = performance.now(), next = bankFromAddress();
+    performance.measure('bank: generate', { start });
+    return next;
 }
 
 if (bank?.generated) {
