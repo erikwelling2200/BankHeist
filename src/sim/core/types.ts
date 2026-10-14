@@ -134,8 +134,29 @@ export interface WorldObject {
     monitors?: number;
 }
 
-/** What someone does from a turn on (§16.3), as the generator writes schedules. */
-export interface ScheduleBlock { from: number; activity: string; room: string }
+/**
+ * What someone does in a time block (§16.1–16.3), as the generator writes it (`src/gen/model.ts` `Activity` says what
+ * each means) and `rules/npc/schedule.ts` runs it.
+ */
+export type Activity =
+    | 'post' | 'window' | 'break' | 'lunch' | 'shiftChange' | 'cashRun' | 'inspection' | 'smokeBreak' | 'serviceVisit'
+    | 'queue' | 'wait' | 'counter' | 'patrol' | 'sweep' | 'closingSweep' | 'leave' | 'offMap';
+
+/** What someone does from a turn on (§16.3). Blocks are in order of `from`; a block lasts until the next one. */
+export interface ScheduleBlock {
+    from: number;
+    activity: Activity;
+    /** What an NPC's card says it is doing ("lunch (out of the building)"). */
+    label: string;
+    /** The room it happens in, or '' (a route, the street). */
+    room: string;
+    /** Where to stand; for `leave` and `offMap` the tile where they leave the map and come back in. */
+    at?: Pos;
+    /** Which way to face once there. */
+    facing?: Facing;
+    /** The waypoints of a walking activity (patrol, sweep: there and back; closing sweep: once). */
+    route?: Pos[];
+}
 
 /** An NPC as the bank was built with them (§16.2): who they are and their day. Where they are now is in `State.npcs`. */
 export interface PersonDef {
@@ -219,6 +240,8 @@ export interface CrewState {
 export interface NpcStatusMap {
     calm: true; curious: true; investigating: true; alerted: true; hostile: true;
     commanded: true; tied: true; unconscious: true; dead: true;
+    /** Off the map (gone home, out to lunch): not there to see, hear, block or be met (§16.3, rules/npc). */
+    away: true;
 }
 export type NpcStatus = keyof NpcStatusMap;
 

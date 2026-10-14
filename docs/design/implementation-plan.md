@@ -200,10 +200,12 @@ Each package lists its goal, the design sections it covers, the files, what it d
     phase must rewrite `npc.intent` at once (in the same command), so its telegraph shows during that crew phase and
     the world phase's perception (`sightingsAlong`, judged on the intents frozen at the start of the phase) looks along
     the new facing and path. A want formed in a world phase becomes the intent committed at its end (§6.2).
-  - **Notes (done):** the generator writes typed blocks (`ScheduleBlock`: `Activity` post, window, break, lunch,
-    shiftChange, cashRun, inspection, smokeBreak, serviceVisit, queue, wait, counter, patrol, sweep, closingSweep,
-    leave, offMap; `at`/`facing` or `route`; `label` for the card). Its extra rolls (customers leaving and coming back)
-    are a `routines` stream, so timelines, the sweep and the visual baselines are unchanged. `rules/npc/`:
+  - **Notes (done):** `src/gen/routines.ts` types each person's text schedule into `GenPerson.routine` (`RoutineBlock`:
+    `Activity` post, window, break, lunch, shiftChange, cashRun, inspection, smokeBreak, serviceVisit, queue, wait,
+    counter, patrol, sweep, closingSweep, leave, offMap; `at`/`facing` or `route`; `label` for the card), which
+    `worldFromBank` turns into `PersonDef.schedule`. Its rolls (customers leaving and coming back) are a `routines`
+    stream; population.ts is untouched, and the sweep and the visual baselines are unchanged. A person's event that
+    clashes with an earlier one of theirs waits until they are free, its timeline entry with it. `rules/npc/`:
     `schedule.ts` (queries: `activityAt`, `nextActivity` "vault inspection in 6", `scheduleTurns`/`nextScheduleTurn`
     and `startingOn` for Wait for), `behaviour.ts` (goals from wants: Curious faces, Investigating walks hurried and an
     enforcer frisks next to them, one investigates (`investigatorOf`/`pickInvestigator`) and the others watch, a lost

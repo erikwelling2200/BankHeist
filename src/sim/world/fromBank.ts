@@ -1,4 +1,4 @@
-import type { GeneratedBank, GenRoom } from '../../gen/model';
+import type { GeneratedBank, GenRoom, RoutineBlock } from '../../gen/model';
 import { CATALOG } from '../../level/catalog';
 import { floorHeight, RAISED_HEIGHT, type LevelProp, type PersonFacing } from '../../level/plan';
 import type { Facing as PropFacing } from '../../level/space';
@@ -6,7 +6,7 @@ import { propTileGrids, wallLookup } from '../../level/tileProps';
 import { edgeKey } from '../core/grid';
 import { defaultRules } from '../core/state';
 import {
-    type CameraDef, type DoorDef, type Facing, type ObserverClass, type PersonDef, type ReadonlyWorld, type Tile,
+    type CameraDef, type DoorDef, type Facing, type ObserverClass, type PersonDef, type ReadonlyWorld, type ScheduleBlock, type Tile,
     type WallEdge, type WorldObject, type Zone
 } from '../core/types';
 import { freezeWorld } from './freeze';
@@ -25,7 +25,7 @@ import { DOOR_KINDS, WALL_MATERIALS } from './materials';
  *   lock (§6.9).
  * - objects: the props the rules act on (panels, consoles, hatches; `OBJECT_KINDS`), the CCTV desk's recorder, the
  *   manager's PC, the alarm buttons that start a §9.1 carrier, and the loot.
- * - people: their role, observer class and schedule (as the generator writes it; M1-06 compiles it); cameras with
+ * - people: their role, observer class and schedule (the typed `routine` with its tiles, run by rules/npc); cameras with
  *   their facings, two for a panning one.
  */
 
@@ -65,6 +65,15 @@ const MAX_STEP = RAISED_HEIGHT / 3;
  * button (the operator verifies through the cameras instead).
  */
 export const NOT_CARRIERS: ReadonlySet<string> = new Set(['Alarm panel', 'CCTV console panic button']);
+
+/** A schedule block in the rules' terms: tiles as positions. */
+function scheduleBlock(b: RoutineBlock): ScheduleBlock {
+    const out: ScheduleBlock = { from: b.from, activity: b.activity, label: b.label, room: b.room };
+    if (b.at) out.at = { x: b.at.tx, y: b.at.ty };
+    if (b.facing) out.facing = b.facing;
+    if (b.route) out.route = b.route.map(t => ({ x: t.tx, y: t.ty }));
+    return out;
+}
 
 const zoneOf = (room: GenRoom): Zone => (room.zone === 'outdoors' || room.zone === 'neighbour' ? 'public' : room.zone);
 const litOf = (room: GenRoom): boolean => room.light !== 'none' || room.zone === 'outdoors';
@@ -164,7 +173,7 @@ export function worldFromBank(bank: GeneratedBank): ReadonlyWorld {
 
     const people: PersonDef[] = bank.people.map(p => ({
         id: p.id, name: p.name, role: p.role, observer: p.observer satisfies ObserverClass, pos: { x: p.tx, y: p.ty },
-        facing: PERSON_FACING[p.facing], schedule: p.schedule.map(b => ({ from: b.from, activity: b.activity, room: b.room }))
+        facing: PERSON_FACING[p.facing], schedule: (p.routine ?? []).map(scheduleBlock)
     }));
     const cameras: CameraDef[] = bank.cameras.map(c => ({
         id: c.id, pos: { x: c.tx, y: c.ty }, facings: c.pan ? [c.pan[0], c.pan[1]] : [PROP_FACING[c.facing]], room: c.room

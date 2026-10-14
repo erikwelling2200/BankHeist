@@ -28,7 +28,8 @@ describe('registering systems', () => {
     });
 
     it("fills in the engine's placeholder hooks under their names", () => {
-        registerWorldHook('passiveNpcs', 'npcs.passive', ctx => { ctx.state.npcs[0]!.facing = 'w'; });
+        registerWorldHook('combatNpcs', 'npcs.combat', ctx => { ctx.state.npcs[0]!.facing = 'w'; });
+        expect(worldHooks().combatNpcs).toEqual(['npcs.combat']);
         expect(worldHooks().passiveNpcs).toEqual(['perception.world', 'trespass.deadlines', 'npcs.passive']);
         const { world, state } = smallBank();
         expect(step(world, state, { type: 'endTurn' }).state.npcs[0]!.facing).toBe('w');

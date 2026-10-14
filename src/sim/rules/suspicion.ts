@@ -79,8 +79,11 @@ declare module '../core/types' {
     }
 }
 
-/** NPC states that don't build suspicion or Expose anyone (§8.7 eyes down; out cold and dead see nothing at all). */
-export const EYES_DOWN: ReadonlySet<NpcStatus> = new Set<NpcStatus>(['commanded', 'tied', 'unconscious', 'dead']);
+/**
+ * NPC states that don't build suspicion or Expose anyone (§8.7 eyes down; out cold and dead see nothing at all, and
+ * nor does anyone away from the map).
+ */
+export const EYES_DOWN: ReadonlySet<NpcStatus> = new Set<NpcStatus>(['commanded', 'tied', 'unconscious', 'dead', 'away']);
 
 export const isEyesDown = (npc: DeepReadonly<NpcState>): boolean => EYES_DOWN.has(npc.status);
 

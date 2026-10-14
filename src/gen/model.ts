@@ -120,6 +120,40 @@ export interface GenCamera {
 /** What someone does from a turn on (§16.1): a time block. */
 export interface ScheduleBlock { from: number; activity: string; room: string }
 
+/**
+ * What someone does in a time block (§16.1–16.3), as the rules run it (`src/sim/rules/npc`); `routines.ts` derives it
+ * from the schedule:
+ * - standing activities, at `at` facing `facing`: `post` (a desk, a console, a guard post), `window` (teller window duty),
+ *   `break` (in the break room), `lunch`, `shiftChange`, `cashRun` and `inspection` (at the vault door), `smokeBreak`
+ *   (outside the alley door), `serviceVisit` (the IT technician at the server room or alarm closet), and for customers
+ *   `queue`, `wait` (the waiting area, the brochures) and `counter` (at a teller window);
+ * - walking ones, along `route`: `patrol` and `sweep` there and back, `closingSweep` once through every room;
+ * - leaving: `leave` walks to `at` (outside the front door) and leaves the map; `offMap` is the same for someone who
+ *   comes back later (the manager's lunch out). A later block on the map brings them back in at that tile.
+ */
+export type Activity =
+    | 'post' | 'window' | 'break' | 'lunch' | 'shiftChange' | 'cashRun' | 'inspection' | 'smokeBreak' | 'serviceVisit'
+    | 'queue' | 'wait' | 'counter' | 'patrol' | 'sweep' | 'closingSweep' | 'leave' | 'offMap';
+
+/** A tile, as the generator gives them. */
+export interface TilePos { tx: number; ty: number }
+
+/** A typed time block of someone's routine, in order of `from`; it lasts until the next one. */
+export interface RoutineBlock {
+    from: number;
+    activity: Activity;
+    /** What the briefing and an NPC's card say about it ("lunch (out of the building)"). */
+    label: string;
+    /** The room it happens in ('' when it has none of its own: a route, the street). */
+    room: string;
+    /** Where to stand, or for `leave` and `offMap` the tile where they leave the map (and come back in). */
+    at?: TilePos;
+    /** Which way to face once there. */
+    facing?: Compass;
+    /** The waypoints of a walking activity, in order, starting where it starts. */
+    route?: TilePos[];
+}
+
 /** A person of the bank (§16.2) with their place in the population: role, schedule and traits. */
 export interface GenPerson extends LevelPerson {
     id: string;
@@ -127,6 +161,8 @@ export interface GenPerson extends LevelPerson {
     name: string;
     observer: 'civilian' | 'staff' | 'enforcer';
     schedule: ScheduleBlock[];
+    /** The schedule as typed blocks with their tiles, for the rules (`routines.ts`). */
+    routine?: RoutineBlock[];
     traits: string[];
     /** Hidden from the briefing until discovered (an off-duty cop looks like a customer, §16.2). */
     hidden?: boolean;

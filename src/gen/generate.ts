@@ -14,6 +14,7 @@ import { roomMetrics } from './metrics';
 import { Nav, siteGrids } from './nav';
 import { furnishBank } from './parcels';
 import { populate } from './population';
+import { planRoutines } from './routines';
 import { placeCameras, planGuards, trafficTiles } from './security';
 import { RELAX_ORDER, RULES, validate, type Rule } from './validate';
 
@@ -160,6 +161,7 @@ function finishBank(shell: Shell, rng: Rng, people: Rng, spec: TierSpec, opts: G
     const guards = planGuards(nav, bank, furnish, rng.fork('guards'), rng.fork('guard-count').int(...spec.guards), spec.chief, { x: shell.frontDoorX, y: plot.lot.y + plot.lot.h - 1 });
     const softDepositWall = shell.neighbours.some(n => n.party && n.soft && n.slot.kind === 'cafe' && bank.some(r => r.type === 'depositBoxes' && site.sharedEdges(n.party!, r).length));
     const pop = populate({ rng: people, tier, headlines, bank, neighbours: shell.neighbours, furnished, guards, nav, furnish, timeLock, softDepositWall, sidewalkY: plot.sidewalkY, width: site.width });
+    planRoutines({ nav, furnish, bank, furnished, people: pop.people, timeline: pop.timeline, opportunities: pop.opportunities, rng: people.fork('routines') });
     const locks = keyGraph({ archetype, vaultClass, timeLock, dualControl: spec.dualControl, rooms: bank, doors: site.doors, people: pop.people });
     const results = validate({ site, nav, bank, doors: site.doors, approaches: ways.approaches, cameras, guards, furnished, getaways: ways.getaways, exits: ways.exits, traffic, tall });
     const metrics = roomMetrics(nav, bank, furnish.boxes, tall);

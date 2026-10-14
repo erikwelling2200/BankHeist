@@ -15,6 +15,11 @@ import './geo/move';
 import './geo/sound';
 import './rules/carriers';
 import './rules/doors';
+import './rules/npc/act';
+import './rules/npc/behaviour';
+import './rules/npc/intent';
+import './rules/npc/schedule';
+import './rules/npc/walk';
 import './rules/perceive';
 import './rules/profile';
 import './rules/suspicion';
@@ -48,7 +53,7 @@ export {
     crewHasKey, crewMoveOptions, registerDashCheck, registerMoveHook, type DashCheck, type MoveHook, type MoveMode
 } from './crew/movement';
 export {
-    dashBudget, doorBetween, doorStatus, inHeavyArmour, LYING_STATUSES, moveBudget, occupancy, pathTo, reachable, reachAt, stepCost,
+    ABSENT_STATUSES, dashBudget, doorBetween, doorStatus, inHeavyArmour, LYING_STATUSES, moveBudget, occupancy, pathTo, reachable, reachAt, stepCost,
     validatePath, type MoveOptions, type Occupant, type PathCheck, type Reach, type ReachTile
 } from './geo/move';
 export {
@@ -78,3 +83,17 @@ export {
     sightsAlongWalk, witness, witnessAct, worldPoses, type AlongOptions, type AssessOptions, type PathAssessment, type PoseAt,
     type Reaction, type ReactionInput, type Sighting, type WorldPhaseOptions, type WorldPoses, type Why
 } from './rules/perceive';
+export {
+    activityAt, blockIndexAt, LEAVING_ACTIVITIES, nextActivity, nextScheduleTurn, ROUTE_ACTIVITIES, routeMode, scheduleTurns, startingOn,
+    wayBackIn, type ScheduledActivity
+} from './rules/npc/schedule';
+export {
+    behaviourGoal, decidesFor, friskSatisfied, investigatorOf, pickInvestigator, reactionOf, registerReaction, ROUTINE_STATUSES, statusFor,
+    topWant, type Goal, type GoalKind, type Reaction as NpcReaction, type ReactionPlan, type RouteProgress, type Search
+} from './rules/npc/behaviour';
+export { committedEnd, reconsider } from './rules/npc/intent';
+export { npcActSightings } from './rules/npc/act';
+export {
+    crewTiles, intentEnd, isPresent, npcCanPass, npcMoveOptions, othersTiles, paceBudget, personOf, planWalk, resolveWalks, walksIntent,
+    type Pace, type PlannedWalk, type Walked, type WalkTarget
+} from './rules/npc/walk';

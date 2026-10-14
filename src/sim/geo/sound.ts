@@ -131,8 +131,8 @@ export function soundRing(world: ReadonlyWorld, state: State, sources: Pos | rea
 /** Whether a ring reaches `p`. */
 export const inRing = (ring: Ring, p: Pos): boolean => p.x >= 0 && p.x < ring.width && ring.byIndex.has(p.y * ring.width + p.x);
 
-/** NPCs who can't hear: out cold or dead. */
-export const DEAF_STATUSES: ReadonlySet<NpcStatus> = new Set<NpcStatus>(['unconscious', 'dead']);
+/** NPCs who can't hear: out cold, dead or away from the map. */
+export const DEAF_STATUSES: ReadonlySet<NpcStatus> = new Set<NpcStatus>(['unconscious', 'dead', 'away']);
 
 /** The NPCs inside a ring who can hear it, in resolution order (§6.1). */
 export function npcsInside(state: State, ring: Ring): string[] {

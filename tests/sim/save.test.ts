@@ -78,13 +78,13 @@ describe('saving', () => {
  * NpcStatusMap, CarrierKindMap or adds a field must also fill it in below, or a change of shape goes unnoticed.
  */
 const SHAPE_HASHES: Record<number, string> = {
-    1: '1cce9b6d976f2d64'
+    1: '05d9175d08df0e36'
 };
 
 /** Paths whose objects are records by id, not structs. */
 const RECORDS = new Set([
     'world.edges', 'world.doors', 'state.doors', 'state.edges', 'state.objects', 'state.cameras', 'state.rng',
-    'state.npcs[].suspicion', 'state.npcs[].lastSeen'
+    'state.npcs[].suspicion', 'state.npcs[].lastSeen', 'state.npcs[].frisked'
 ]);
 
 /** Two shapes as one: the union of their fields, and "a|b" where a field has two types. */
@@ -127,6 +127,12 @@ describe('the save format', () => {
         full.npcs[0]!.challenges = [{ crew: 'mara', deadline: 3 }];
         full.npcs[0]!.wants = [{ kind: 'escort', crew: 'mara', tile: { x: 1, y: 1 }, decided: { turn: 1, phase: 'world' }, until: 3 }];
         full.npcs[0]!.lastSeen = { jun: { tile: { x: 0, y: 0 }, turn: 1 } };
+        full.npcs[0]!.intent = { path: [{ x: 1, y: 1 }], facing: 'n', action: { kind: 'raiseAlarm', carrier: 'tellerButton', crew: 'jun' } };
+        full.npcs[0]!.goal = { kind: 'investigate', crew: 'jun', tile: { x: 1, y: 1 }, block: 0 };
+        full.npcs[0]!.route = { block: 0, leg: 1, dir: -1, stalled: 0 };
+        full.npcs[0]!.search = { tile: { x: 1, y: 1 }, until: 3 };
+        full.npcs[0]!.frisked = { jun: 2 };
+        full.npcs[0]!.reported = ['mara'];
         full.cameraReports = [{ camera: 'cam', crew: 'jun', tile: { x: 0, y: 0 }, turn: 1, phase: 'crew' }];
         full.crew[0]!.notoriety = 2;
         full.edges['eastWest 0 1'] = { material: 'soft', blocksMove: false, blocksSight: false, blocksSound: false, midHeight: false };
@@ -147,7 +153,13 @@ describe('the save format', () => {
                     { id: 'cash', kind: 'loot', pos: { x: 0, y: 0 }, facing: 's', loot: { value: 5000, weight: 'light' } }
                 ],
                 cameras: [{ id: 'cam', pos: { x: 0, y: 0 }, facings: ['s', 'e'], room: 'lobby', seesInDark: true }],
-                people: world.people.map(p => ({ ...p, schedule: [{ from: 1, activity: 'work', room: 'lobby' }] })),
+                people: world.people.map(p => ({
+                    ...p,
+                    schedule: [
+                        { from: 1, activity: 'post' as const, label: 'at post', room: 'lobby', at: { x: 0, y: 0 }, facing: 's' as const },
+                        { from: 2, activity: 'patrol' as const, label: 'patrol', room: '', route: [{ x: 0, y: 0 }, { x: 1, y: 0 }] }
+                    ]
+                })),
                 tiles: world.tiles.map((t, i) => (i === 1 ? { ...t, climb: { kind: 'stairs' as const, to: 'n' as const } } : i ? t : { ...t, room: 'lobby', midHeight: true })),
                 edges: Object.fromEntries(Object.entries({
                     ...world.edges,

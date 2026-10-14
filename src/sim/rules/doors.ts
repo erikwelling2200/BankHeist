@@ -1,6 +1,7 @@
 import { registerWorldHook } from '../core/engine';
 import { sortedIds } from '../core/json';
 import type { Pos } from '../core/types';
+import { ABSENT_STATUSES } from '../geo/move';
 import { registerEvents } from '../core/undo';
 
 /*
@@ -27,7 +28,7 @@ registerWorldHook('devices', 'doors.swingShut', ctx => {
     const standing = new Set<string>();
     const at = (p: Pos): string => `${p.x},${p.y}`;
     for (const c of state.crew) standing.add(at(c.pos));
-    for (const n of state.npcs) standing.add(at(n.pos));
+    for (const n of state.npcs) if (!ABSENT_STATUSES.has(n.status)) standing.add(at(n.pos));
     for (const id of sortedIds(world.doors)) {
         const def = world.doors[id]!, door = state.doors[id];
         if (!door || door.status !== 'open' || door.propped || def.start === 'open' || def.lock === 'vault') continue;

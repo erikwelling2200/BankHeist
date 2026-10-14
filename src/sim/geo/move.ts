@@ -22,7 +22,7 @@ import { DIAGONAL_COST, HALF_STEPS_PER_TILE, HEAVY_ARMOUR_ITEM, ORTHOGONAL_COST 
  *   raised tile on its `climb.to` side. A step between tiles of different height must be that one step, either way.
  * - People: a mover may pass through their own side (crew through crew, NPCs through NPCs) and through anyone lying
  *   down (commanded, tied, unconscious, dead), but never through the other side standing up, and nobody ends a move on
- *   anyone's tile. §6.3 is silent; this is our call.
+ *   anyone's tile. §6.3 is silent; this is our call. NPCs away from the map (`ABSENT_STATUSES`) aren't anywhere.
  */
 
 declare module '../core/types' {
@@ -48,6 +48,9 @@ export interface MoveOptions {
 /** NPC statuses in which they lie on the floor: they can be stepped over, but not stood on. */
 export const LYING_STATUSES: ReadonlySet<NpcStatus> = new Set<NpcStatus>(['commanded', 'tied', 'unconscious', 'dead']);
 
+/** NPC statuses in which they aren't on the map at all (gone out, rules/npc): nobody meets them anywhere. */
+export const ABSENT_STATUSES: ReadonlySet<NpcStatus> = new Set<NpcStatus>(['away']);
+
 /** What stands on a tile: nothing, someone who can be stepped past, or someone who can't. */
 export type Occupant = 'none' | 'passable' | 'blocking';
 
@@ -64,7 +67,7 @@ export function occupancy(world: ReadonlyWorld, state: State, options: MoveOptio
         if (occupant === 'blocking' || !out.has(i)) out.set(i, occupant);
     };
     for (const c of state.crew) if (c.id !== options.mover) put(c.pos, moverIsNpc ? 'blocking' : 'passable');
-    for (const n of state.npcs) if (n.id !== options.mover) put(n.pos, !moverIsNpc && !LYING_STATUSES.has(n.status) ? 'blocking' : 'passable');
+    for (const n of state.npcs) if (n.id !== options.mover && !ABSENT_STATUSES.has(n.status)) put(n.pos, !moverIsNpc && !LYING_STATUSES.has(n.status) ? 'blocking' : 'passable');
     return out;
 }
 

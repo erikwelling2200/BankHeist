@@ -2,16 +2,18 @@ import { describe, expect, it } from 'vitest';
 import { Rng } from '../../src/gen/rng';
 import {
     assessPath, assessWorldPhase, commit, crewMoveOptions, dueChallenge, EYES_DOWN, FACINGS, fixtureWorld, initialState, moveBudget,
-    sightMap, validatePath, type CameraDef, type CrewStart, type FixtureWall, type ObserverClass, type PersonDef, type Pos,
-    type ReadonlyWorld, type Sighting, type State
+    sightMap, validatePath, type CameraDef, type CrewStart, type FixtureWall, type Intent, type ObserverClass, type PersonDef, type Pos,
+    type ReadonlyWorld, type ScheduleBlock, type Sighting, type State
 } from '../../src/sim';
 
 /*
  * The promise of §8.8 for perception: what the shared assessments say a move or a world phase does is what it does.
  * Random worlds (three zones split by walls with a door and a pane of glass each, tall and low objects, a raised strip,
- * NPCs of every class with random walks, some on edge or commanded, sometimes a panning camera), random crew loadouts
- * and random moves. Before each move, `assessPath`; before each world phase, `assessWorldPhase` for every crew member
- * where they stand; then the real outcome is compared with the prediction, NPC by NPC: exposure, challenges and pips.
+ * NPCs of every class with random walks, some on edge or commanded, then on random schedules and following their
+ * suspicion, M1-06; sometimes a panning camera), random crew loadouts and random moves. Before each move,
+ * `assessPath`; before each world phase, `assessWorldPhase` for every crew member where they stand (frisks and guards
+ * told included); then the real outcome is compared with the prediction, NPC by NPC: exposure, challenges and pips.
+ * Every NPC walks the intent it committed: all of it, or its start when a crew member stands in the way.
  * Whether a move stays undoable is predicted too (it does exactly when nothing would act).
  *
  * PERCEPTION_PROBE_WORLDS=2000 npm test -- perception.property runs a larger sample.
@@ -65,10 +67,23 @@ function makeWorld(rng: Rng): Built {
     for (let i = 0, n = rng.int(2, 6); i < n; i++) {
         const observer = rng.pick(['civilian', 'staff', 'enforcer'] as ObserverClass[]);
         const role = observer === 'civilian' ? 'customer' : observer === 'staff' ? rng.pick(['teller', 'manager']) : rng.pick(['guard', 'chief']);
-        people.push({ id: `n${i}`, name: `n${i}`, role, observer, pos: take(), facing: rng.pick(FACINGS), schedule: [] });
+        people.push({ id: `n${i}`, name: `n${i}`, role, observer, pos: take(), facing: rng.pick(FACINGS), schedule: randomSchedule(rng, free) });
     }
     const cameras: CameraDef[] = rng.chance(0.5) ? [{ id: 'cam', pos: take(), facings: [rng.pick(FACINGS), rng.pick(FACINGS)], room: null }] : [];
     return { world: fixtureWorld(map.map(r => r.join('')), { zones: zoneRows, walls, people, cameras }), free };
+}
+
+/** A schedule of the kinds the generator writes (M1-06): standing somewhere, or a route there and back, changing now and then. */
+function randomSchedule(rng: Rng, free: readonly Pos[]): ScheduleBlock[] {
+    const out: ScheduleBlock[] = [];
+    for (let from = 1; from <= 4; from += rng.int(1, 3)) {
+        const kind = rng.int(0, 2);
+        if (kind === 0) continue;
+        out.push(kind === 1
+            ? { from, activity: 'post', label: 'post', room: '', at: rng.pick(free), facing: rng.pick(FACINGS) }
+            : { from, activity: 'patrol', label: 'patrol', room: '', route: [rng.pick(free), rng.pick(free), rng.pick(free)] });
+    }
+    return out;
 }
 
 function randomPath(rng: Rng, world: ReadonlyWorld, from: Pos, steps: number, occupied: Set<string>): Pos[] {
@@ -118,7 +133,7 @@ describe('perception previews (property)', () => {
     it(`match the outcome over ${WORLDS} random worlds`, () => {
         const rng = new Rng(20261014);
         const failures: string[] = [];
-        let moves = 0, acting = 0, deadlines = 0, worldActing = 0;
+        let moves = 0, acting = 0, deadlines = 0, worldActing = 0, walked = 0, frisks = 0;
         for (let w = 0; w < WORLDS; w++) {
             const { world, free } = makeWorld(rng);
             const crew = [0, 1].map(i => ({ id: `c${i}`, pos: free.splice(rng.int(0, free.length - 1), 1)[0]!, ...rng.pick(LOADOUTS) }));
@@ -153,13 +168,25 @@ describe('perception previews (property)', () => {
                     const found = assessWorldPhase(world, state, sight, c.id, c.pos);
                     if (found.length) worldActing++;
                     if (found.some(s => s.why.includes('trespass'))) deadlines++;
+                    if (found.some(s => s.why.includes('frisk') || s.why.includes('told'))) frisks++;
                     before[c.id] = effectOf(state, c.id);
                     expected[c.id] = predict(state, c.id, found);
                     // A challenge falling due ends, whatever its outcome.
                     const due = dueChallenge(state, c.id);
                     if (due) expected[c.id]![due.npc.id]!.challenged = false;
                 }
+                const committed: Record<string, Intent> = Object.fromEntries(state.npcs.map(n => [n.id, n.intent]));
                 const result = commit(world, state, { type: 'endTurn' });
+                // Every NPC walks its committed intent: all of it, or the start of it when the crew stood in its way.
+                const blocked = new Set(result.events.flatMap(e => (e.type === 'npcBlocked' ? [e.npc] : [])));
+                for (const e of result.events) {
+                    if (e.type !== 'npcWalked') continue;
+                    walked++;
+                    const path = committed[e.npc]!.path;
+                    const ok = blocked.has(e.npc) ? e.path.length < path.length && JSON.stringify(path.slice(0, e.path.length)) === JSON.stringify(e.path)
+                        : JSON.stringify(path) === JSON.stringify(e.path);
+                    if (!ok) failures.push(`world ${w} turn ${turn} ${e.npc}: walked ${JSON.stringify(e.path)}, committed ${JSON.stringify(path)}`);
+                }
                 for (const c of state.crew) {
                     const got = effectOf(result.state, c.id);
                     for (const id of Object.keys(got)) {
@@ -180,5 +207,8 @@ describe('perception previews (property)', () => {
         expect(acting).toBeGreaterThan(WORLDS / 4);
         expect(worldActing).toBeGreaterThan(WORLDS / 4);
         expect(deadlines).toBeGreaterThan(0);
+        // NPCs walk their schedules and their investigations, and the overlay foresees frisks.
+        expect(walked).toBeGreaterThan(WORLDS);
+        expect(frisks).toBeGreaterThan(0);
     }, Math.max(10_000, WORLDS * 20));
 });

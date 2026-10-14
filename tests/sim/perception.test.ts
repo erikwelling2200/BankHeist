@@ -27,7 +27,7 @@ const LOADOUT: Record<Profile, Partial<CrewStart>> = {
 const ZONE_CHAR: Record<Zone, string> = { public: '.', staff: 's', secure: 'x' };
 
 /** An open floor of one zone. */
-function floor(zone: Zone, w = 15, h = 15, options: { people?: PersonDef[]; cameras?: CameraDef[]; walls?: FixtureWall[] } = {}): ReadonlyWorld {
+function floor(zone: Zone, w = 15, h = 15, options: { people?: PersonDef[]; cameras?: CameraDef[]; walls?: FixtureWall[]; dark?: Pos[] } = {}): ReadonlyWorld {
     const row = ZONE_CHAR[zone].repeat(w);
     return fixtureWorld(Array.from({ length: h }, () => row), options);
 }
@@ -343,7 +343,8 @@ describe('a crew move', () => {
         expect(clean.undoable).toBe(true);
         expect(clean.events.map(e => e.type)).toEqual(['moved']);
         const concealed = step(world, state, { type: 'move', crew: 'mara', path: [P(1, 3), P(2, 2)] });
-        expect(concealed.events.map(e => e.type)).toEqual(['moved', 'perceptionCheck', 'suspicionRaised']);
+        // The guard turns Curious, and shows it at once (its new facing, M1-06).
+        expect(concealed.events.map(e => e.type)).toEqual(['moved', 'perceptionCheck', 'suspicionRaised', 'npcStatus']);
         expect(events(concealed.events, 'suspicionRaised')).toEqual([{ type: 'suspicionRaised', npc: 'guard', crew: 'mara', added: 1, total: 1, why: ['friskRange'] }]);
         expect(concealed.undoable).toBe(false);
     });
@@ -396,27 +397,39 @@ describe('suspicion pips', () => {
     const world = floor('public', 15, 15, { people: [person('g', 'enforcer', P(3, 7), 'e')] });
 
     it('turn Curious, then Investigating, and decay when unseen', () => {
+        // Rows 11 and below are dark: seen only within half range (§8.3), somewhere to get out of sight.
+        const dark: Pos[] = [];
+        for (let y = 11; y < 15; y++) for (let x = 0; x < 15; x++) dark.push(P(x, y));
+        const world = floor('public', 15, 15, { people: [person('g', 'enforcer', P(3, 7), 'e')], dark });
         let state = initialState(world, { seed: 1, crew: [{ id: 'jun', pos: P(4, 9), items: ['pistol'] }] });
-        // One step into frisk range and Core: +1, Curious.
+        // One step into frisk range and Core: +1, Curious: the guard turns to face him at once (telegraphed, M1-06).
         state = step(world, state, { type: 'move', crew: 'jun', path: [P(4, 8)] }).state;
         expect(state.npcs[0]!.suspicion).toEqual({ jun: 1 });
         expect(state.npcs[0]!.wants).toEqual([{ kind: 'face', crew: 'jun', tile: P(4, 8), decided: { turn: 1, phase: 'crew' } }]);
-        // The world phase: the guard stands and still sees him: +1 more, Investigating.
+        expect(state.npcs[0]!.intent).toEqual({ path: [], facing: 'se' });
+        expect(state.npcs[0]!.status).toBe('curious');
+        // The world phase: the guard turns and still sees him: +1 more, Investigating: a hurried walk over, to frisk.
         const world1 = step(world, state, { type: 'endTurn' });
         state = world1.state;
         expect(state.npcs[0]!.suspicion).toEqual({ jun: 2 });
         expect(state.npcs[0]!.wants.map(w => w.kind)).toEqual(['investigate']);
         expect(state.npcs[0]!.wants[0]!.decided).toEqual({ turn: 1, phase: 'world' });
-        // Out of sight behind the guard: one pip a world phase.
-        state = step(world, state, { type: 'move', crew: 'jun', path: [P(3, 8), P(2, 8)] }).state;
+        expect(state.npcs[0]!.intent).toEqual({ path: [P(4, 7)], facing: 's', action: { kind: 'frisk', crew: 'jun' } });
+        // Into the dark behind the guard: one pip a world phase. Losing the trail, it searches where it stands for two
+        // world phases, looking round, then goes back to its routine.
+        state = step(world, state, { type: 'move', crew: 'jun', path: [P(3, 9), P(2, 10), P(1, 11)] }).state;
+        state = step(world, state, { type: 'move', crew: 'jun', path: [P(0, 12)] }).state;
         expect(state.npcs[0]!.suspicion).toEqual({ jun: 2 });
         const world2 = step(world, state, { type: 'endTurn' });
         expect(world2.state.npcs[0]!.suspicion).toEqual({ jun: 1 });
         expect(events(world2.events, 'suspicionDecayed')).toEqual([{ type: 'suspicionDecayed', npc: 'g', crew: 'jun', total: 1 }]);
         expect(world2.state.npcs[0]!.wants.map(w => w.kind)).toEqual(['face']);
+        expect(world2.state.npcs[0]!.search).toEqual({ tile: P(4, 8), until: 4 });
         const world3 = step(world, world2.state, { type: 'endTurn' }).state;
         expect(world3.npcs[0]!.suspicion).toEqual({});
         expect(world3.npcs[0]!.wants).toEqual([]);
+        expect(world3.npcs[0]!.status).toBe('investigating');
+        expect(step(world, world3, { type: 'endTurn' }).state.npcs[0]!.status).toBe('calm');
     });
 
     it('Expose at 3, for good', () => {

@@ -81,7 +81,7 @@ export const ARC_TAN: Readonly<Record<HalfAngle, readonly [number, number] | nul
 };
 
 /** NPC states that see nothing. */
-export const BLIND_STATUSES: readonly NpcStatus[] = ['unconscious', 'dead'];
+export const BLIND_STATUSES: readonly NpcStatus[] = ['unconscious', 'dead', 'away'];
 
 export interface VisionProfiles { calm: VisionProfile; alerted: VisionProfile; camera: VisionProfile; darkCamera: VisionProfile; crew: VisionProfile }
 

@@ -13,6 +13,8 @@ import {
 import { bandAt, cameraObserver, fieldOn, npcObserver, type Band, type Observer, type SightField } from '../geo/cones';
 import { sightMap, type SightMap } from '../geo/los';
 import { doorBetween, doorStatus } from '../geo/move';
+import { npcActSightings } from './npc/act';
+import { reconsider } from './npc/intent';
 import { crewLook, readProfile, type CrewLook } from './profile';
 import { addSuspicion, expose, isEyesDown, isExposedTo, markSeen, refreshWant } from './suspicion';
 import { challenge, deadlineOutcome, hasWarned, isWarned } from './trespass';
@@ -41,7 +43,8 @@ import { challenge, deadlineOutcome, hasWarned, isWarned } from './trespass';
  * All of them are pure: they take the sight map once (`sightMap(world, state)`) and read fields with `fieldOn`, return
  * structured `Sighting`s (who, from where, which cell, why) and change nothing. `applySightings` is the one place that
  * turns sightings into suspicion, exposure, challenges and camera reports. NPCs never act on them in the crew phase
- * (§6.2): they form wants (suspicion.ts) that the world phase carries out.
+ * (§6.2): they form wants (suspicion.ts) that the world phase carries out; in a crew phase the NPCs whose wants changed
+ * commit their new intent at once (npc/intent.ts `reconsider`), so it is telegraphed before the world phase.
  *
  * **Within one move** every sighting is judged against the state before the move, with the doors the walk opens
  * (`assessPath`), and applied together at the end, so a guard who Exposes the crew member mid-move doesn't read the
@@ -62,7 +65,7 @@ declare module '../core/types' {
 /** Why a sighting came out as it did, for "who and why" (§8.8). */
 export type Why =
     | 'onEdge' | 'notoriety' | 'uniform' | 'seenThrough' | 'friskRange' | 'outOfFriskRange' | 'peripheral' | 'secondOffence'
-    | 'illegal' | 'cameraOnly' | 'trespass';
+    | 'illegal' | 'cameraOnly' | 'trespass' | 'frisk' | 'told';
 
 export interface ReactionInput {
     look: CrewLook;
@@ -398,13 +401,16 @@ export interface WorldPhaseOptions extends AssessOptions {
 
 /**
  * What the coming world phase does to a crew member standing on `tile` (the hatched overlay): the sightings that act,
- * then the trespass deadline if one falls due (`deadlineOutcome`, trespass.ts, which the deadline hook uses too).
+ * then the trespass deadline if one falls due (`deadlineOutcome`, trespass.ts, which the deadline hook uses too), then
+ * what the NPCs' committed actions do at the end of their walks (a frisk, a guard told: `npcActSightings`, npc/act.ts,
+ * the same walks the act step takes).
  */
 export function assessWorldPhase(world: ReadonlyWorld, state: State, sight: SightMap, crewId: string, tile: Pos, options: WorldPhaseOptions = {}): Sighting[] {
     const poses = options.poses?.sight === sight ? options.poses : worldPoses(world, state, sight);
     const out = worldSightings(world, state, poses, crewId, tile, options.look).filter(s => s.outcome !== '-');
     const deadline = deadlineOutcome(world, state, crewId, tile, options.look);
     if (deadline) out.push(deadline);
+    out.push(...npcActSightings(world, state, crewId, tile, options.look));
     return out;
 }
 
@@ -457,6 +463,8 @@ export function applySightings(ctx: Ctx, sightings: readonly Sighting[]): void {
         else if (s.outcome === 'T') challenge(ctx, npc, s.crew, s.tile);
         refreshWant(state, npc, s.crew, s.tile);
     }
+    // In a crew phase a changed want rewrites the NPC's intent at once (§6.2): the telegraph shows now.
+    reconsider(ctx);
 }
 
 /** A crew member ended an action where they stand (§8.5). Every action calls this after it is done (M1-07). */
