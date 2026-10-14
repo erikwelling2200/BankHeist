@@ -2,11 +2,11 @@ import { describe, expect, it } from 'vitest';
 import { generateBank } from '../../src/gen/generate';
 import {
     cameraObserver, clonePlain, commit, crewPicture, decodeBits, deserialise, encodeBits, fieldOn, fixtureWorld, floorKnowledge, freezeWorld,
-    hashOf, initialState, isUnknownRisk, pathTo, knownBlockers, knownView, makeNoise, markerKind, npcObserver, preview, projectEvents, reachable,
+    hashOf, initialState, isKnownNow, isUnknownRisk, noticedUnseen, pathTo, projectPreviewEvents, SaveFormatError, knownBlockers, knownView, makeNoise, markerKind, npcObserver, preview, projectEvents, reachable,
     serialise, sightMap, tileAt, updateKnowledge, worldFromBank, type Command, type FixtureOptions, type PersonDef, type Pos, type ReadonlyWorld,
     type SimEvent, type State, type World
 } from '../../src/sim';
-import { registerTestCommand, step } from './helpers';
+import { registerTestCommand, scouted, step } from './helpers';
 
 /*
  * M1-10, what the crew knows (§8.8, §8.15, §17.8): seen tiles, live / predicted / ghost NPCs, unknown risk, sound
@@ -163,17 +163,58 @@ describe('NPCs: live, known routines, predicted markers and ghosts', () => {
         expect(markerKind(world, step(world, away(state), { type: 'wait', crew: 'jun' }).state, 'clerk')).toBe(null);
     });
 
-    it('reveals an NPC that comes into view, even one only passed on the way', () => {
-        // The clerk stands in an alcove off the corridor, seen only from the tiles in front of it.
+    it('stops a move where a stranger comes into view, and reveals one only passed on the way', () => {
+        // The clerk stands in an alcove off the corridor, seen only from the tile in front of it.
         const world = fixtureWorld(['.........', 'TTTT.TTTT', 'TTTT.TTTT'], { people: [clerk(P(4, 2), { facing: 'n' })] });
         const state = initialState(world, { seed: 1, crew: [{ id: 'jun', pos: P(0, 0) }] });
         expect(markerKind(world, state, 'clerk')).toBe(null);
-        const moved = step(world, state, { type: 'move', crew: 'jun', path: [P(1, 0), P(2, 0), P(3, 0), P(4, 0), P(5, 0)] });
+        const path = [P(1, 0), P(2, 0), P(3, 0), P(4, 0), P(5, 0)];
+        const moved = step(world, state, { type: 'move', crew: 'jun', path });
+        // Someone new: the move stops where the clerk came into view, the action spent.
+        expect(moved.state.crew[0]!.pos).toEqual(P(4, 0));
+        expect(moved.state.crew[0]!.actionsLeft).toBe(1);
+        expect(moved.events).toContainEqual({ type: 'moveCut', crew: 'jun', npc: 'clerk', reason: 'spotted', at: P(4, 0), planned: path });
         expect(revealed(moved.events)).toContain('npc clerk');
         expect(moved.undoable).toBe(false);
-        // A crew member at (8, 0) can't see into the alcove; it was seen on the way, so it is a ghost now.
-        const on = step(world, patch(moved.state, s => { s.crew[0]!.actionsLeft = 2; }), { type: 'move', crew: 'jun', path: [P(6, 0), P(7, 0), P(8, 0)] }).state;
-        expect(knownView(world, on).npcs).toEqual([expect.objectContaining({ id: 'clerk', kind: 'ghost', pos: P(4, 2) })]);
+        // A preview tells nothing of it: the drawn path, no cut, nothing revealed.
+        const pv = preview(world, state, { type: 'move', crew: 'jun', path });
+        const shown = projectPreviewEvents(world, state, pv);
+        expect(shown).toEqual([{ type: 'moved', crew: 'jun', from: P(0, 0), to: P(5, 0), path }]);
+        // Known now (once seen, never a stranger again): walking past it doesn't stop. Out of view it is still where it
+        // was until the world phase, then a ghost.
+        const on = step(world, moved.state, { type: 'move', crew: 'jun', path: [P(5, 0), P(6, 0), P(7, 0), P(8, 0)] }).state;
+        expect(knownView(world, on).npcs).toEqual([expect.objectContaining({ id: 'clerk', kind: 'live', pos: P(4, 2) })]);
+        expect(markerKind(world, step(world, on, { type: 'endTurn' }).state, 'clerk')).toBe('ghost');
+        // Forgotten long ago, then passed on the way (seen only from (4, 0)): revealed, a ghost where it was passed.
+        const old = patch(state, s => { s.knowledge.npcs.clerk = { at: P(4, 2), facing: 'n', turn: -5, live: false, routine: false, rota: false, watched: 1, watchedTurn: -5, tick: 0 }; });
+        const past = step(world, old, { type: 'move', crew: 'jun', path });
+        expect(past.state.crew[0]!.pos).toEqual(P(5, 0));
+        expect(revealed(past.events)).toContain('npc clerk');
+        expect(markerKind(world, step(world, past.state, { type: 'endTurn' }).state, 'clerk')).toBe('ghost');
+        // In playback, its events from that move are told even though it is out of view at the end.
+        const told: SimEvent[] = [...past.events, { type: 'npcStatus', npc: 'clerk', status: 'curious' }];
+        expect(projectEvents(world, past.state, told, old).at(-1)).toEqual({ type: 'npcStatus', npc: 'clerk', status: 'curious' });
+    });
+
+    it('sees NPCs crossing the crew’s view in the world phase', () => {
+        // The walker goes along row 0 past the end of the shaft the crew looks up from (4, 5).
+        const world = fixtureWorld(['.........', 'TTTT.TTTT', 'TTTT.TTTT', 'TTTT.TTTT', 'TTTT.TTTT', 'TTTT.TTTT'], {
+            people: [{
+                id: 'walker', name: 'W', role: 'clerk', observer: 'staff', pos: P(1, 0), facing: 'e',
+                schedule: [{ from: 1, activity: 'post', label: 'a', room: '', at: P(1, 0), facing: 'e' }, { from: 2, activity: 'post', label: 'b', room: '', at: P(8, 0), facing: 'e' }]
+            }]
+        });
+        let s = initialState(world, { seed: 1, crew: [{ id: 'jun', pos: P(4, 5) }] });
+        expect(markerKind(world, s, 'walker')).toBe(null);
+        const seen: string[] = [];
+        for (let i = 0; i < 3 && !seen.length; i++) {
+            const r = step(world, s, { type: 'endTurn' });
+            s = r.state;
+            seen.push(...revealed(r.events).filter(x => x.startsWith('npc')));
+        }
+        expect(seen).toEqual(['npc walker']);
+        expect(s.knowledge.npcs.walker).toMatchObject({ at: P(4, 0), watched: 1, live: false });
+        expect(markerKind(world, s, 'walker')).toBe('ghost');
     });
 });
 
@@ -243,33 +284,213 @@ describe('the projection', () => {
     });
 });
 
+describe('previews tell nothing new', () => {
+    it('drops what a preview would give away about an NPC the crew doesn’t know', () => {
+        // Corridor on row 0; shelves on row 1 with a gap at x = 6; the hidden clerk stands behind the gap.
+        const world = fixtureWorld(['............', 'TTTTTT.TTTTT', '............'], { people: [clerk(P(6, 2), { id: 'hidden', facing: 'n' })] });
+        const state = initialState(world, { seed: 1, crew: [{ id: 'jun', pos: P(0, 0) }] });
+        const path = [P(1, 0), P(2, 0), P(3, 0), P(4, 0), P(5, 0), P(6, 0), P(7, 0)];
+        const pv = preview(world, state, { type: 'dash', crew: 'jun', path });
+        // The truth: heard, cut where it came into view, revealed.
+        expect(pv.events.map(e => e.type)).toEqual(expect.arrayContaining(['heard', 'moveCut', 'revealed']));
+        const shown = projectPreviewEvents(world, state, pv);
+        expect(JSON.stringify(shown)).not.toContain('hidden');
+        expect(shown.map(e => e.type)).toEqual(['moved', 'noise']);
+        expect(shown[0]).toMatchObject({ to: P(7, 0), path });
+        // Played back after the commit, the crew has seen it: it is told.
+        const done = step(world, state, { type: 'dash', crew: 'jun', path });
+        expect(projectEvents(world, done.state, done.events, state).map(e => e.type)).toEqual(expect.arrayContaining(['heard', 'moveCut']));
+    });
+
+    it('says when an unseen NPC noticed a move, without saying who', () => {
+        // The clerk stands in the dark at the far end: it sees the crew in the lit corridor, the crew can't see it.
+        const dark = [P(6, 0), P(7, 0), P(8, 0)];
+        const world = fixtureWorld(['.........'], { people: [clerk(P(7, 0), { id: 'hidden' })], dark, zones: ['sssssssss'] });
+        // Every tile known already (the clerk's dark corner included, earlier), so the move reveals nothing.
+        const state = patch(initialState(world, { seed: 1, crew: [{ id: 'jun', pos: P(0, 0) }] }), s => {
+            s.knowledge.seen = encodeBits(new Uint8Array(9).fill(1));
+        });
+        expect(markerKind(world, state, 'hidden')).toBe(null);
+        const r = step(world, state, { type: 'move', crew: 'jun', path: [P(1, 0)] });
+        expect(revealed(r.events)).toEqual([]);
+        expect(r.undoable).toBe(false);
+        expect(projectEvents(world, r.state, r.events, state).some(e => JSON.stringify(e).includes('hidden'))).toBe(false);
+        expect(noticedUnseen(world, state, r)).toBe(true);
+        const quiet = step(world, scouted(world, state), { type: 'wait', crew: 'jun' });
+        expect(noticedUnseen(world, state, quiet)).toBe(false);
+    });
+});
+
+describe('moving in unknown space', () => {
+    // The crew can't see the dark tile (2, 2) from row 0, past the shelves, until it is next to it.
+    const blind = fixtureWorld(['.....', '.TTT.', '.....'], { people: [clerk(P(2, 2), { id: 'hidden', facing: 'n' })], dark: [P(2, 2)] });
+    const state = initialState(blind, { seed: 1, crew: [{ id: 'jun', pos: P(0, 0) }] }), stranger = state;
+    const path = [P(0, 1), P(0, 2), P(1, 2), P(2, 2), P(3, 2)];
+
+    it('stops where a stranger comes into view on the way', () => {
+        const r = step(blind, state, { type: 'move', crew: 'jun', path });
+        // From (0, 2) the dark tile two steps on is within half range.
+        expect(r.events).toContainEqual({ type: 'moveCut', crew: 'jun', npc: 'hidden', reason: 'spotted', at: P(0, 2), planned: path });
+    });
+
+    it('plans through an unseen NPC’s tile and bumps into it', () => {
+        // Seen long ago, forgotten: no stranger, but not where the crew can plan around it either.
+        const state = patch(stranger, s => { s.knowledge.npcs.hidden = { at: P(4, 0), facing: 'n', turn: -5, live: false, routine: false, rota: false, watched: 1, watchedTurn: -5, tick: 0 }; });
+        expect(markerKind(blind, state, 'hidden')).toBe(null);
+        // Known, it would be in the way: a move through it is refused.
+        const known = patch(state, s => { s.knowledge.npcs.hidden = { at: P(2, 2), facing: 'n', turn: 1, live: true, routine: false, rota: false, watched: 1, watchedTurn: 1, tick: 9 }; });
+        expect(() => preview(blind, known, { type: 'move', crew: 'jun', path })).toThrow(/./);
+        const r = step(blind, state, { type: 'move', crew: 'jun', path });
+        expect(r.state.crew[0]!.pos).toEqual(P(1, 2));
+        expect(r.state.crew[0]!.actionsLeft).toBe(1);
+        expect(r.events).toContainEqual({ type: 'moveCut', crew: 'jun', npc: 'hidden', reason: 'bump', at: P(1, 2), planned: path });
+        expect(markerKind(blind, r.state, 'hidden')).toBe('live');
+        expect(r.undoable).toBe(false);
+        // The preview shows the drawn path: the crew can't know.
+        const shown = projectPreviewEvents(blind, state, preview(blind, state, { type: 'move', crew: 'jun', path }));
+        expect(shown.find(e => e.type === 'moved')).toMatchObject({ to: P(3, 2), path });
+        expect(JSON.stringify(shown)).not.toContain('hidden');
+        expect(shown.some(e => e.type === 'moveCut' || e.type === 'revealed')).toBe(false);
+    });
+
+    it('bumps before the first step when the NPC stands right there', () => {
+        const next = patch(state, s => {
+            s.crew[0]!.pos = P(1, 2);
+            s.knowledge.npcs.hidden = { at: P(4, 0), facing: 'n', turn: -5, live: false, routine: false, rota: false, watched: 1, watchedTurn: -5, tick: 0 };
+        });
+        const r = step(blind, next, { type: 'move', crew: 'jun', path: [P(2, 2), P(3, 2)] });
+        expect(r.state.crew[0]!.pos).toEqual(P(1, 2));
+        expect(r.events.some(e => e.type === 'moved')).toBe(false);
+        expect(r.events).toContainEqual(expect.objectContaining({ type: 'moveCut', reason: 'bump', at: P(1, 2) }));
+    });
+});
+
+describe('doors and other names in events', () => {
+    // Two rooms: the crew's, and a closed one behind a wall with a door on its far side the crew can't see.
+    const world = fixtureWorld(['....s....', '....s....'], {
+        walls: [{ between: [P(3, 0), P(4, 0)] }, { between: [P(3, 1), P(4, 1)] }, { between: [P(4, 0), P(5, 0)] }, { between: [P(4, 1), P(5, 1)], door: { id: 'far' } }],
+        people: [clerk(P(5, 1), { id: 'hidden' })]
+    });
+    const state = initialState(world, { seed: 1, crew: [{ id: 'jun', pos: P(0, 0) }] });
+
+    it('drops events naming an unknown NPC in any field, and doors out of sight', () => {
+        const events: SimEvent[] = [
+            { type: 'doorOpened', door: 'far', by: 'hidden' },
+            { type: 'doorClosed', door: 'far' },
+            { type: 'npcBlocked', npc: 'x', at: P(0, 0), next: P(1, 0), by: 'hidden' } as unknown as SimEvent,
+            { type: 'waited', crew: 'jun' }
+        ];
+        expect(projectEvents(world, state, events)).toEqual([{ type: 'waited', crew: 'jun' }]);
+        expect(knownView(world, state).doors).toEqual([]);
+        const near = patch(state, s => { s.crew[0]!.pos = P(6, 0); });
+        const seen = step(world, near, { type: 'wait', crew: 'jun' }).state;
+        expect(knownView(world, seen).doors).toEqual([{ id: 'far', status: 'closed', inView: true }]);
+        expect(projectEvents(world, seen, [{ type: 'doorClosed', door: 'far' }])).toEqual([{ type: 'doorClosed', door: 'far' }]);
+    });
+});
+
+describe('routines and the bank going loud', () => {
+    const corridor = (options: FixtureOptions = {}): { world: ReadonlyWorld; state: State } => {
+        const world = fixtureWorld(['.'.repeat(30)], { people: [clerk(P(5, 0), { id: 'guard', role: 'guard', observer: 'enforcer' })], ...options });
+        return { world, state: initialState(world, { seed: 3, crew: [{ id: 'jun', pos: P(25, 0) }] }) };
+    };
+
+    it('stops every prediction once the bank is loud', () => {
+        const { world } = corridor();
+        const rota = freezeWorld({ ...(clonePlain(world) as World), intel: { guardRota: true } });
+        const s = initialState(rota, { seed: 3, crew: [{ id: 'jun', pos: P(25, 0) }] });
+        expect(markerKind(rota, s, 'guard')).toBe('predicted');
+        const loud = step(rota, patch(s, x => { x.bank.loud = true; }), { type: 'wait', crew: 'jun' }).state;
+        expect(markerKind(rota, loud, 'guard')).toBe('ghost');
+    });
+
+    it('keeps the Guard rota through a knock-off: the routine is known again once it is back on it', () => {
+        const { world } = corridor();
+        const rota = freezeWorld({ ...(clonePlain(world) as World), intel: { guardRota: true } });
+        const s = initialState(rota, { seed: 3, crew: [{ id: 'jun', pos: P(25, 0) }] });
+        const off = step(rota, patch(s, x => { x.npcs[0]!.wants = [{ kind: 'face', crew: 'jun', tile: P(25, 0), decided: { turn: 1, phase: 'crew' } }]; }), { type: 'wait', crew: 'jun' }).state;
+        expect(markerKind(rota, off, 'guard')).toBe('ghost');
+        const back = step(rota, patch(off, x => { x.npcs[0]!.wants = []; }), { type: 'wait', crew: 'jun' });
+        expect(markerKind(rota, back.state, 'guard')).toBe('predicted');
+        expect(revealed(back.events)).toEqual(['routine guard']);
+    });
+});
+
 describe('unknown risk', () => {
-    it('is never safe where an unseen NPC could watch: every seen tile an NPC in unscouted space sees is hatched grey', () => {
+    it('reads hatched grey from tiles not seen since the world phase, not only from tiles never seen', () => {
+        // The stranger has walked onto tiles the crew saw earlier and has since left behind.
+        const world = fixtureWorld(['.'.repeat(40)], { people: [clerk(P(39, 0), { id: 'stranger' })] });
+        let s = initialState(world, { seed: 1, crew: [{ id: 'jun', pos: P(0, 0) }] });
+        s = step(world, patch(s, x => { x.crew[0]!.pos = P(14, 0); }), { type: 'wait', crew: 'jun' }).state;
+        // Fresh this crew phase: 0..24. After a world phase only what the crew sees now (4..24) is fresh.
+        expect(floorKnowledge(world, s, P(2, 0))).toBe('scouted');
+        s = step(world, s, { type: 'endTurn' }).state;
+        expect(floorKnowledge(world, s, P(2, 0))).toBe('unknownRisk');
+        // Within reach of the stale tiles (3 and 25 are 9 away from 12, 11 from 14).
+        expect(floorKnowledge(world, s, P(12, 0))).toBe('unknownRisk');
+        expect(floorKnowledge(world, s, P(14, 0))).toBe('scouted');
+        // Walking back makes them fresh again.
+        s = step(world, patch(s, x => { x.crew[0]!.pos = P(0, 0); }), { type: 'wait', crew: 'jun' }).state;
+        expect(floorKnowledge(world, s, P(2, 0))).toBe('scouted');
+        expect(floorKnowledge(world, s, P(30, 0))).toBe('unscouted');
+    });
+
+    it('is never green where an NPC the crew doesn’t see or predict could watch, through a played heist', () => {
         let checked = 0;
         for (const bankSpec of [
             { tier: 'small' as const, archetype: 'twoWing' as const, layout: 2000, population: 1 },
             { tier: 'city' as const, archetype: 'atrium' as const, layout: 2000, population: 1 }
         ]) {
-            const { world, state } = generatedHeist(bankSpec, 2);
-            const sight = sightMap(world, state);
-            const observers = [
-                ...state.npcs.flatMap(n => (seenAt(world, state, n.pos) ? [] : [npcObserver(world, { ...n, alerted: true })])),
-                ...world.cameras.flatMap(c => (seenAt(world, state, c.pos) ? [] : [cameraObserver(world, state, c.id)]))
-            ];
-            for (const o of observers) {
-                if (!o) continue;
-                for (const t of fieldOn(sight, o).tiles) {
-                    const k = floorKnowledge(world, state, t);
-                    expect(k, `(${t.x}, ${t.y}) seen by an unknown observer at (${o.pos.x}, ${o.pos.y})`).not.toBe('scouted');
-                    checked++;
+            let { world, state } = generatedHeist(bankSpec, 2);
+            for (let turn = 0; turn < 4; turn++) {
+                // Each crew member walks as far as it can toward the bank, then the world phase.
+                for (const c of state.crew) {
+                    const reach = reachable(world, crewPicture(world, state), c.pos, 10, { mover: c.id });
+                    const to = reach.tiles.filter(t => t.canEnd).sort((a, b) => a.pos.y - b.pos.y || a.cost - b.cost)[0];
+                    const path = to && pathTo(reach, to.pos);
+                    if (path?.length) state = commit(world, state, { type: 'move', crew: c.id, path }).state;
+                }
+                for (const when of ['crew phase', 'after the world phase']) {
+                    const sight = sightMap(world, state);
+                    const observers = [
+                        ...state.npcs.flatMap(n => (isKnownNow(world, state, n.id) ? [] : [npcObserver(world, { ...n, alerted: true })])),
+                        ...world.cameras.flatMap(c => (state.knowledge.cameras.includes(c.id) ? [] : [cameraObserver(world, state, c.id)]))
+                    ];
+                    for (const o of observers) {
+                        if (!o) continue;
+                        for (const t of fieldOn(sight, o).tiles) {
+                            expect(floorKnowledge(world, state, t), `${when}: (${t.x}, ${t.y}) seen from (${o.pos.x}, ${o.pos.y})`).not.toBe('scouted');
+                            checked++;
+                        }
+                    }
+                    if (when === 'crew phase') state = commit(world, state, { type: 'endTurn' }).state;
                 }
             }
-            // Grey is never anything but grey.
             for (let y = 0; y < world.height; y++) for (let x = 0; x < world.width; x++) {
                 if (!seenAt(world, state, P(x, y))) expect(isUnknownRisk(world, state, P(x, y))).toBe(false);
             }
         }
         expect(checked).toBeGreaterThan(0);
+    });
+});
+
+describe('sound pings and storage', () => {
+    it('pings a noise from many tiles where its sources centre', () => {
+        registerTestCommand('knowledgeTestLine', ctx => { makeNoise(ctx, 'pistol', [P(2, 0), P(3, 0), P(4, 0), P(5, 0), P(6, 0)], 'test line'); });
+        const world = fixtureWorld(['.'.repeat(12)]);
+        const state = initialState(world, { seed: 1, crew: [{ id: 'jun', pos: P(0, 0) }] });
+        expect(step(world, state, { type: 'knowledgeTestLine' } as unknown as Command).state.knowledge.pings[0]!.at).toEqual(P(4, 0));
+    });
+
+    it('has one string per tile set, and refuses a broken one at load', () => {
+        expect(() => decodeBits(encodeBits(new Uint8Array(7)).slice(0, -1) + '/', 7)).toThrow(/past its 7 tiles/);
+        const world = fixtureWorld(['.'.repeat(12)]);
+        const state = initialState(world, { seed: 1, crew: [{ id: 'jun', pos: P(0, 0) }] });
+        const text = serialise({ genVersion: 'test', world, state });
+        expect(deserialise(text).state.knowledge).toEqual(state.knowledge);
+        const broken = text.replace(`"seen":"${state.knowledge.seen}"`, `"seen":"${state.knowledge.seen}A"`);
+        expect(() => deserialise(broken)).toThrow(SaveFormatError);
+        expect(() => deserialise(text.replace('"phaseTick":', '"phaseTickX":'))).toThrow(SaveFormatError);
     });
 });
 
@@ -297,8 +518,8 @@ function generatedHeist(spec: { tier: 'small' | 'city' | 'hq'; archetype: Parame
 describe('on a generated bank', () => {
     const spec = { tier: 'city' as const, archetype: 'atrium' as const, layout: 2000, population: 1 };
 
-    it('updates in under 2 ms after a move with 4 crew', () => {
-        const { world, state } = generatedHeist(spec, 4);
+    it.each([spec, { tier: 'hq' as const, archetype: 'atrium' as const, layout: 2000, population: 1 }])('updates in under 2 ms after a move with 4 crew ($tier)', bank => {
+        const { world, state } = generatedHeist(bank, 4);
         // Every reachable tile of the first crew member, each a fresh place to look from (no cached field).
         const reach = reachable(world, state, state.crew[0]!.pos, 60, { mover: 'c0' }).tiles.filter(t => t.canEnd).map(t => t.pos);
         const samples: number[] = [];
@@ -324,7 +545,7 @@ describe('on a generated bank', () => {
         const t3 = performance.now();
         for (const t of fresh) fieldOn(sight, { pos: t.pos, facing: 'n', profile: { name: 'probe', blindInDark: false, arcs: [{ band: 'core', range: world.rules.crewRange, half: 180 }] } });
         const fieldMs = (performance.now() - t3) / fresh.length;
-        console.log(`one fresh crew field ${fieldMs.toFixed(3)} ms; knowledge update over ${samples.length} moves: mean ${mean.toFixed(3)} ms, p95 ${p95.toFixed(3)} ms; whole ${route.length}-tile move commit ${moveMs.toFixed(2)} ms (${move.events.length} events)`);
+        console.log(`${bank.tier}: one fresh crew field ${fieldMs.toFixed(3)} ms; knowledge update over ${samples.length} moves: mean ${mean.toFixed(3)} ms, p95 ${p95.toFixed(3)} ms; whole ${route.length}-tile move commit ${moveMs.toFixed(2)} ms (${move.events.length} events)`);
         expect(mean).toBeLessThan(2);
         // Unknown risk for every reachable tile of a crew member, as the overlay would ask.
         const t2 = performance.now();

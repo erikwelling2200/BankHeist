@@ -76,13 +76,36 @@ function parse(text: string, what: string): Record<string, unknown> {
 }
 
 /** The state part of a save, checked: the state, the recent events and the undo stack. */
-function readState(data: Record<string, unknown>): SavedState {
+/**
+ * A package's check of its own fields of a loaded state: a reason the state can't be read, or undefined. `world` is
+ * given when the save holds it (`deserialise`), so sizes can be checked against it.
+ */
+export type StateCheck = (state: Record<string, unknown>, world?: ReadonlyWorld) => string | undefined;
+
+const STATE_CHECKS = new Map<string, StateCheck>();
+
+/** Registers a check run on every loaded state (and each undo snapshot); a failure is a `SaveFormatError`. */
+export function registerStateCheck(name: string, check: StateCheck): void {
+    if (STATE_CHECKS.has(name)) throw new Error(`There is already a state check named '${name}'`);
+    STATE_CHECKS.set(name, check);
+}
+
+function runChecks(state: unknown, path: string, world?: ReadonlyWorld): void {
+    for (const name of [...STATE_CHECKS.keys()].sort()) {
+        const problem = STATE_CHECKS.get(name)!(state as Record<string, unknown>, world);
+        if (problem) throw new SaveFormatError(`${path}: ${problem}`);
+    }
+}
+
+function readState(data: Record<string, unknown>, world?: ReadonlyWorld): SavedState {
     const { state, recent, undo } = data;
     if (!state || typeof state !== 'object') throw new SaveFormatError('The save has no state');
     if (!Array.isArray(recent) || !Array.isArray(undo)) throw new SaveFormatError('The save has no recent events or undo stack');
     const keys = stateKeys();
     checkState(state, 'state', keys);
     undo.forEach((s, i) => checkState(s, `undo[${i}]`, keys));
+    runChecks(state, 'state', world);
+    undo.forEach((s, i) => runChecks(s, `undo[${i}]`, world));
     recent.forEach((e, i) => {
         if (!e || typeof e !== 'object' || typeof (e as { type?: unknown }).type !== 'string') throw new SaveFormatError(`recent[${i}] isn't an event`);
     });
@@ -118,7 +141,8 @@ export function deserialise(text: string): Saved {
     const data = parse(text, 'save');
     if (typeof data.genVersion !== 'string') throw new SaveFormatError('The save has no generator version');
     if (!data.world || typeof data.world !== 'object') throw new SaveFormatError('The save has no world');
-    return { genVersion: data.genVersion, world: readWorld(data.world, 'save'), ...readState(data) };
+    const world = readWorld(data.world, 'save');
+    return { genVersion: data.genVersion, world, ...readState(data, world) };
 }
 
 /** The world alone, saved once when a heist starts; the autosave after each action is `serialiseState`. */

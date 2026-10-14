@@ -3,7 +3,7 @@ import {
     activityAt, assessWorldPhase, commit, fixtureWorld, hashOf, initialState, investigatorOf, nextActivity, nextScheduleTurn, preview,
     sightMap, type Command, type CrewStart, type FixtureWall, type PersonDef, type Pos, type ReadonlyWorld, type ScheduleBlock, type SimEvent, type State
 } from '../../src/sim';
-import { step } from './helpers';
+import { scouted, step } from './helpers';
 
 /*
  * M1-06 scenarios on small fixtures: schedules walked at the routine pace through doors that swing shut behind;
@@ -241,7 +241,8 @@ describe('suspicion and search', () => {
 describe('trespass', () => {
     it('walks the challenger over, then escorts to the boundary and goes back to its post', () => {
         const world = bank([person('clerk', 'clerk', 'staff', P(12, 2), 'w', [post(1, P(12, 2), 'w')])]);
-        let state = start(world, [{ id: 'jun', pos: P(4, 2) }]);
+        // Scouted, so the move doesn't stop at the door when the clerk comes into view (rules/knowledge.ts).
+        let state = scouted(world, start(world, [{ id: 'jun', pos: P(4, 2) }]));
         // Through the door into the staff room, in the clerk's view: challenged.
         let r = step(world, state, { type: 'move', crew: 'jun', path: [P(5, 2), P(6, 2), P(7, 2)] });
         expect(events(r.events, 'challenged')).toHaveLength(1);

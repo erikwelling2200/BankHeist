@@ -80,9 +80,9 @@ export function play(world: ReadonlyWorld, state: State, commands: readonly Comm
  */
 export function scouted(world: ReadonlyWorld, state: State): State {
     const s = clonePlain(state);
-    s.knowledge.seen = encodeBits(new Uint8Array(world.width * world.height).fill(1));
+    s.knowledge.seen = s.knowledge.fresh = encodeBits(new Uint8Array(world.width * world.height).fill(1));
     for (const n of s.npcs) {
-        s.knowledge.npcs[n.id] = { at: { ...n.pos }, facing: n.facing, turn: s.turn, live: false, routine: true, watched: 3, watchedTurn: s.turn };
+        s.knowledge.npcs[n.id] = { at: { ...n.pos }, facing: n.facing, turn: s.turn, live: false, routine: true, rota: false, watched: 3, watchedTurn: s.turn, tick: s.knowledge.tick };
     }
     return s;
 }

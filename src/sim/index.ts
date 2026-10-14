@@ -41,7 +41,7 @@ export {
 } from './core/state';
 export {
     serialise, deserialise, serialiseState, deserialiseState, serialiseWorld, deserialiseWorld, appendRecent, RECENT_EVENTS,
-    SAVE_FORMAT, SaveFormatError, type Save, type Saved, type SavedState
+    registerStateCheck, SAVE_FORMAT, SaveFormatError, type Save, type Saved, type SavedState, type StateCheck
 } from './core/save';
 export {
     assertPlainJson, clonePlain, deepFreeze, devChecksOn, hashOf, isPlainJson, isReservedKey, samePlain, setDevChecks, sortedIds,
@@ -51,7 +51,8 @@ export { startCarrier } from './rules/carriers';
 export { freezeWorld } from './world/freeze';
 export { fixtureWorld, type FixtureOptions, type FixtureWall } from './world/fixture';
 export {
-    crewHasKey, crewMoveOptions, registerDashCheck, registerMoveHook, type DashCheck, type MoveHook, type MoveMode
+    crewHasKey, crewMoveOptions, planningState, registerDashCheck, registerMoveHook, registerMoveLimit, registerPlanView, type DashCheck,
+    type MoveCut, type MoveHook, type MoveLimit, type MoveMode, type PlanView
 } from './crew/movement';
 export {
     ABSENT_STATUSES, dashBudget, doorBetween, doorStatus, inHeavyArmour, LYING_STATUSES, moveBudget, occupancy, pathTo, reachable, reachAt, stepCost,
@@ -95,9 +96,9 @@ export {
 } from './rules/npc/behaviour';
 export { committedEnd, reconsider } from './rules/npc/intent';
 export {
-    blueprint, crewPicture, floorKnowledge, isKnownNow, isUnknownRisk, knownBlockers, knownNpcIds, knownView, markerKind, onRoutine, projectEvents, unknownReach,
-    updateKnowledge, type Blueprint, type FloorKnowledge, type Intel, type Knowledge, type KnownCamera, type KnownView, type MarkerKind, type NpcKnowledge, type NpcMarker,
-    type Ping
+    blueprint, crewPicture, floorKnowledge, isKnownNow, isUnknownRisk, knownBlockers, knownNpcIds, knownView, markerKind, noticedUnseen, onRoutine,
+    projectEvents, projectPreviewEvents, unknownReach, updateKnowledge, type Blueprint, type FloorKnowledge, type Intel, type Knowledge, type KnownCamera,
+    type KnownDoor, type KnownView, type MarkerKind, type NpcKnowledge, type NpcMarker, type Ping, type ProjectOptions, type UpdateOptions
 } from './rules/knowledge';
 export { bitsCount, decodeBits, encodeBits } from './rules/knowledgeBits';
 export { npcActSightings } from './rules/npc/act';

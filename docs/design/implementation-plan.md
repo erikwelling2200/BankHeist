@@ -281,35 +281,48 @@ Each package lists its goal, the design sections it covers, the files, what it d
   - **Files:** `src/sim/rules/knowledge.ts`.
   - **Depends on:** M1-04, M1-06. **∥** M1-08.
   - **Accept:** a predicted NPC knocked off its routine turns into a ghost; an unscouted tile is never safe.
-  - **Notes (sim side done; the Session and scene call sites are still to wire):** `rules/knowledge.ts` keeps
-    `State.knowledge`: the seen tiles as a 6-tiles-per-character bitset string (`knowledgeBits.ts`), the rooms and
-    cameras seen, whether the CCTV room is scouted (until then known cameras read `unknown` and count as live), what
-    the crew knows of each NPC it has seen (last place, facing and turn, live, turns watched, routine known) and the
-    loud noises heard (`pings`, kept `rules.pingTurns` turns). It is updated by an engine command hook after every
-    command (`registerCommandHook`, the world phase included), by a move hook at every step of a move (what is passed
-    on the way counts) and by a noise hook (`registerNoiseHook` in geo/sound.ts). Crew fields come from `fieldOn`
-    with the facing ignored (360°). A known routine (3 turns in view in stealth while on routine, or the Guard rota,
-    `World.intel.guardRota`) is predicted at the NPC's true position while `onRoutine` holds (calm or away, not on
-    edge, no wants, a schedule goal): routines are deterministic, so the prediction is the truth. Once it doesn't
-    hold the tag and the watch count are dropped and the NPC is a ghost at its last known place for `rules.ghostTurns`
-    (2) turns (`rules.ghosts`, decision 16). Every new tile, NPC in view (or seen on the way), staff or secure room,
-    camera, CCTV room and known routine emits `revealed`, so a move that shows anything new is final and one through
-    known space with nobody new in view stays undoable (decision 13). The blueprint (`blueprint(world)`, the public
-    floor and the exterior; `World.intel.blueprints` for all) is layout, not scouting: an unseen tile is `unscouted`
-    (grey) in `floorKnowledge` whatever the blueprint says. Unknown risk (`isUnknownRisk`) is a seen tile within
-    `unknownReach` (10, halved on a dark tile) of an unseen tile with a clear line: worked out per tile on demand and
-    cached per sight map and seen set (a move's reach, about 300 tiles, takes ~2 ms cold). A tile seen before but out
-    of view now is not unknown risk: the promise covers the NPCs the crew knows about (§8.8). Measured on a city bank
-    with 4 crew: one update after a move 0.23 ms mean (0.52 ms p95), one more step of a move ~0.17 ms.
-    **Call sites:** `projectPreview` (src/game/session.ts) filters `result.events` with
-    `projectEvents(world, result.state, result.events, before)` before `confirmView`; world-phase playback visits and
-    describes only `projectEvents(world, after, events, before)`; reach, tap snapping and drag validation
-    (src/scenes/bank/sim.ts, `sim.path` in src/game/debug.ts) run on `crewPicture(world, state)` (only the NPCs the
-    crew sees or predicts); the overlay and HUD draw `knownView(world, state)` (markers live / predicted with route /
-    ghost with "seen N turns ago", seen and in-view tiles, blueprint, known cameras with status, pings,
-    `unknownRisk(p)`). The safe floor (M1-09) reads `floorKnowledge` per tile: `unscouted` → grey, `unknownRisk` →
-    hatched grey where the known NPCs leave it green. A committed move into an unseen NPC's tile is still refused by
-    `validatePath` on the true state: M1-07 should make it stop short instead.
+  - **Notes (done in the sim; call sites in src/game listed below):** `rules/knowledge.ts` keeps `State.knowledge`:
+    the seen tiles and the fresh tiles (decision 24) as 6-tiles-per-character bitset strings (`knowledgeBits.ts`,
+    one string per set), the rooms and cameras seen, whether the CCTV room is scouted (until then known cameras read
+    `unknown` and count as live), each door's status when last seen, what the crew knows of each NPC it has seen
+    (last place, facing and turn, live, turns watched, routine known, from the rota) and the loud noises heard
+    (`pings`, where the sources centre, kept `rules.pingTurns` turns). It is updated by an engine command hook after
+    every command (`registerCommandHook`, with the command's events, the world phase included), by a move hook at
+    every step of a move and by a noise hook (`registerNoiseHook`); loaded saves are checked (`registerStateCheck`,
+    a `SaveFormatError` for a broken tile set or record). SAVE_FORMAT stays 1 (save policy: the integrator bumps it).
+    - **NPCs.** Live while in view, and until the next world phase once seen in this crew phase (it hasn't moved).
+      NPCs seen on the way count: at a crew move's steps, along their own world-phase walks across the crew's view
+      (`npcWalked` against the crew's fields at the end of the phase; a door opened and shut again mid-walk is not
+      seen through), and when bumped into. A known routine (3 turns seen, in stealth, on routine; or the Guard rota,
+      again whenever back on it) is predicted at the NPC's true position while `onRoutine` holds and the bank is in
+      stealth: routines are deterministic, so the prediction is the truth. Otherwise it is a ghost at its last known
+      place for `rules.ghostTurns` (2) turns (`rules.ghosts`, decision 16).
+    - **Undo.** Every new tile, NPC in view (or seen on the way), staff or secure room, camera, CCTV room and known
+      routine emits `revealed`, so a move that shows anything new is final and one through known space with nobody
+      new in view stays undoable (decision 13). A move an unseen NPC noticed is final too (its perception check), with
+      nothing shown about who: `noticedUnseen(world, before, result)` lets the UI say "something stirred".
+    - **Moving in unknown space.** Moves are planned and validated on `crewPicture` (`registerPlanView`): an unseen
+      NPC's tile reads as open. The move stops on the step before an NPC standing in its way (or before ending on
+      anyone) and at the step where an NPC the crew has never seen comes into view (`registerMoveLimit`), worked out
+      before the first step on the doors as the walk opens them; the action is spent, a `moveCut` event says why, and
+      perception judges exactly the tiles walked. The preview (the truth) stops there too, but its projection shows
+      the drawn path: a preview can't promise the whole path through unknown space.
+    - **Unknown risk** (`isUnknownRisk`, `floorKnowledge`): a seen tile that isn't fresh, or that a tile that isn't
+      fresh sees within `unknownReach` (10, halved on a dark tile). Worked out per tile on demand, cached per sight
+      map and fresh set. The blueprint (`blueprint(world)`) is layout, not scouting: an unseen tile is `unscouted`.
+    - **Measured** (4 crew): one update after a move 0.32 ms mean on a city bank, 0.13–0.60 ms on HQ banks; one more
+      step of a move ~0.1 ms; unknown risk over a move's reach 1.5 ms (city) to 4.7 ms (HQ atrium) cold.
+    - **Projection and call sites.** `projectEvents(world, after, events, before, { mode })` drops events naming an
+      unknown NPC in any of `npc`, `by`, `guard`, `source`, `observer`, unknown cameras, and door events nobody of the
+      crew sees (unless a crew member opened it), and cuts `heard` lists. Preview mode (`projectPreviewEvents(world,
+      before, result)`) judges by `before` alone, drops `revealed` and shows a cut move along its drawn path;
+      playback mode (the default) also tells about NPCs seen during the command. `projectPreview` in
+      src/game/session.ts must switch to `projectPreviewEvents(world, before, result)` (its current call is the
+      playback form); world-phase playback and committed actions keep `projectEvents(world, after, events, before)`.
+      Reach, tap snapping and drag validation use `crewPicture`; the overlay and HUD draw `knownView` (markers,
+      seen / fresh / in-view tiles, doors as known, blueprint, cameras, pings, `unknownRisk(p)`); the safe floor
+      (M1-09) reads `floorKnowledge` per tile: `unscouted` → grey, `unknownRisk` → hatched grey where the known NPCs
+      leave it green.
 - [ ] **M1-11 Auto-advance and Wait for.**
   - **Covers:** §6.5.
   - **Work:** multi-turn routes; the interrupt conditions; "until the manager leaves" and similar.
@@ -578,6 +591,12 @@ Later milestones: within each milestone, the `∥` notes in §3 apply. UI packag
     warned.
 23. **Civilians in the Secure zone (M1-05).** §8.4 doesn't list them; they read the Staff zone's civilian column (only
     Armed and Heavy matter to them, §8.2).
+24. **Unknown risk from stale tiles (M1-10 review).** Hatched grey comes from tiles not seen since the last world phase
+    ended, not only from tiles never seen: NPCs move only in the world phase, so a tile the crew has seen since then
+    holds nobody it doesn't know about, while one seen earlier may. Green therefore means that no NPC, known or not,
+    sees the tile during this crew phase. The fresh set restarts at the end of each world phase from what the crew sees
+    then, and grows with every step and command. (The hatched world-phase overlay, about where NPCs walk next, still
+    covers only the known NPCs' committed walks.)
 
 ### Critical files for implementation
 

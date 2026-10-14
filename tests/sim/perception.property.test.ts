@@ -5,6 +5,7 @@ import {
     sightMap, validatePath, type CameraDef, type CrewStart, type FixtureWall, type Intent, type ObserverClass, type PersonDef, type Pos,
     type ReadonlyWorld, type ScheduleBlock, type Sighting, type State
 } from '../../src/sim';
+import { scouted } from './helpers';
 
 /*
  * The promise of §8.8 for perception: what the shared assessments say a move or a world phase does is what it does.
@@ -133,6 +134,7 @@ describe('perception previews (property)', () => {
     it(`match the outcome over ${WORLDS} random worlds`, () => {
         const rng = new Rng(20261014);
         const failures: string[] = [];
+        let quietUndoable = 0;
         let moves = 0, acting = 0, deadlines = 0, worldActing = 0, walked = 0, frisks = 0, preCases = 0;
         for (let w = 0; w < WORLDS; w++) {
             const { world, free } = makeWorld(rng);
@@ -144,6 +146,9 @@ describe('perception previews (property)', () => {
                 const path = randomPath(rng, world, npc.pos, rng.int(0, 4), occupiedBy(state));
                 npc.intent = rng.chance(0.5) ? { path, facing: rng.pick(FACINGS) } : { path };
             }
+            // The crew knows the whole floor and everyone on it, so no move stops for a stranger coming into view and
+            // undo depends on perception (rules/knowledge.ts tests what the crew learns).
+            state = scouted(world, state);
             for (let turn = 0; turn < 4; turn++) {
                 // The hatched overlay of the turn's last move, taken before it: its tile's world phase.
                 let lastPre: { crew: string; found: Sighting[] } | undefined;
@@ -166,6 +171,7 @@ describe('perception previews (property)', () => {
                     if (JSON.stringify(got) !== JSON.stringify(expected)) failures.push(`world ${w} move ${JSON.stringify(path)}: expected ${JSON.stringify(expected)}, got ${JSON.stringify(got)}`);
                     // Seeing something new (rules/knowledge.ts) makes a quiet move final too.
                     const revealed = result.events.some(e => e.type === 'revealed');
+                    if (quiet && !revealed) quietUndoable++;
                     if ((quiet && !revealed) !== result.undoable) failures.push(`world ${w} move ${JSON.stringify(path)}: undoable ${result.undoable}, predicted ${quiet && !revealed}`);
                     state = result.state;
                 }
@@ -220,6 +226,7 @@ describe('perception previews (property)', () => {
         // The sample has to exercise the rules, not only quiet floors.
         expect(moves).toBeGreaterThan(WORLDS * 3);
         expect(acting).toBeGreaterThan(WORLDS / 4);
+        expect(quietUndoable).toBeGreaterThan(WORLDS);
         expect(worldActing).toBeGreaterThan(WORLDS / 4);
         expect(deadlines).toBeGreaterThan(0);
         // NPCs walk their schedules and their investigations, and the overlay foresees frisks.

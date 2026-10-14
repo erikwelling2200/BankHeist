@@ -1,10 +1,12 @@
 import { IllegalCommand, registerCommand, type Ctx } from '../core/engine';
 import { facingToward } from '../core/grid';
 import { crewMember, spendActions } from '../core/state';
-import type { CrewState, DeepReadonly, DoorDef, DoorStatus, Pos } from '../core/types';
+import type { CrewState, DeepReadonly, DoorDef, DoorStatus, Pos, ReadonlyWorld, State } from '../core/types';
 import { registerEvents } from '../core/undo';
 import { DASH_ACTIONS, MOVE_ACTIONS } from '../data/movement';
-import { dashBudget, doorBetween, doorStatus, inHeavyArmour, moveBudget, validatePath, type MoveOptions } from '../geo/move';
+import {
+    ABSENT_STATUSES, dashBudget, doorBetween, doorStatus, inHeavyArmour, moveBudget, occupancy, validatePath, type MoveOptions
+} from '../geo/move';
 import { makeNoise } from '../geo/sound';
 
 /*
@@ -13,6 +15,15 @@ import { makeNoise } from '../geo/sound';
  * overlay uses, and opens the doors it walks through. It is undoable unless something it triggers reveals something:
  * perception (M1-05) hangs its checks on each step and on the end through `registerMoveHook`, and the events those
  * emit block undo; so does anyone hearing the dash (`heard`).
+ *
+ * **Moving in unknown space (§8.15).** A path is planned and checked against the bank as the crew pictures it
+ * (`registerPlanView`: rules/knowledge.ts shows only the NPCs the crew sees or predicts), so a tile an unseen NPC stands
+ * on reads as open. The move then finds out: it stops on the step before an NPC standing in its way, or before ending
+ * on anyone (`bump`), and limits (`registerMoveLimit`, e.g. knowledge stopping at the step where an NPC the crew has
+ * never seen comes into view) can stop it earlier. The stop is always a tile of the drawn path, worked out before the
+ * first step, so perception judges exactly the tiles walked; the action is spent and a `moveCut` event says why. A
+ * preview (the truth) shows the stop; what the player is shown of it is the projection's business (projectEvents in
+ * preview mode keeps the drawn path): the preview can't promise the whole path through unknown space.
  */
 
 declare module '../core/types' {
@@ -23,6 +34,11 @@ declare module '../core/types' {
     interface EventMap {
         /** Someone opened a door by walking through it. Seen or not is perception's business. */
         doorOpened: { door: string; by: string };
+        /**
+         * A crew move stopped short of the drawn path (`planned`) at `at`: it bumped into an NPC the crew didn't know
+         * stood there (`bump`), or an NPC it had never seen came into view (`spotted`).
+         */
+        moveCut: { crew: string; npc: string; reason: 'bump' | 'spotted'; at: Pos; planned: Pos[] };
     }
 }
 
@@ -62,6 +78,61 @@ export function registerDashCheck(name: string, check: DashCheck): void {
     DASH_CHECKS.set(name, check);
 }
 
+/** The bank as the crew plans a move against (rules/knowledge.ts: only the NPCs it sees or predicts). Default: the truth. */
+export type PlanView = (world: ReadonlyWorld, state: State) => State;
+
+let planView: PlanView = (_world, state) => state;
+
+/** Sets the view moves are planned and checked against (one only; knowledge registers it). */
+export function registerPlanView(view: PlanView): void {
+    planView = view;
+}
+
+/** The state a crew move is planned and checked against. */
+export const planningState = (world: ReadonlyWorld, state: State): State => planView(world, state);
+
+/** Why a move stops short: how many steps of the path it keeps, the NPC and the reason. */
+export interface MoveCut { keep: number; npc: string; reason: 'bump' | 'spotted' }
+
+/** Says where a move stops short, if it does (`path` already cut by the limits before it). */
+export type MoveLimit = (ctx: Ctx, member: CrewState, path: readonly Pos[], mode: MoveMode) => MoveCut | undefined;
+
+const MOVE_LIMITS = new Map<string, MoveLimit>();
+
+/** Adds a named limit to every crew move; limits run by name after the bump. */
+export function registerMoveLimit(name: string, limit: MoveLimit, options: { replace?: boolean } = {}): void {
+    if (MOVE_LIMITS.has(name) && !options.replace) throw new Error(`Move limit '${name}' already exists; pass replace: true to change it`);
+    MOVE_LIMITS.set(name, limit);
+}
+
+/** The bump: the step before the first NPC standing on the path, or before the last tile when anyone is on it. */
+const bump: MoveLimit = (ctx, member, path) => {
+    const { world, state } = ctx;
+    const people = occupancy(world, state, { mover: member.id });
+    for (let i = 0; i < path.length; i++) {
+        const p = path[i]!, who = people.get(p.y * world.width + p.x);
+        if (!who || who === 'none') continue;
+        const npc = state.npcs.find(n => n.pos.x === p.x && n.pos.y === p.y && !ABSENT_STATUSES.has(n.status));
+        if (npc && (who === 'blocking' || i === path.length - 1)) return { keep: i, npc: npc.id, reason: 'bump' };
+    }
+    return undefined;
+};
+
+/** The part of the path the move walks, and why it stops short (see the header). */
+function cutPath(ctx: Ctx, member: CrewState, path: readonly Pos[], mode: MoveMode): { walked: Pos[]; cut: MoveCut | undefined } {
+    let keep = path.length, cut: MoveCut | undefined;
+    for (const limit of [bump, ...[...MOVE_LIMITS.keys()].sort().map(k => MOVE_LIMITS.get(k)!)]) {
+        const found = limit(ctx, member, path.slice(0, keep), mode);
+        if (found && found.keep < keep) { keep = found.keep; cut = found; }
+    }
+    if (cut) {
+        // Nobody ends a move on anyone's tile: back up to one free.
+        const people = occupancy(ctx.world, ctx.state, { mover: member.id });
+        while (keep > 0 && (people.get(path[keep - 1]!.y * ctx.world.width + path[keep - 1]!.x) ?? 'none') !== 'none') keep--;
+    }
+    return { walked: path.slice(0, keep).map(p => ({ x: p.x, y: p.y })), cut };
+}
+
 /** Whether a crew member holds the key to a locked door. Keys arrive with the key graph (M1-06/M1-07): none yet. */
 export function crewHasKey(_member: DeepReadonly<CrewState>, _door: DeepReadonly<DoorDef>): boolean {
     return false;
@@ -75,7 +146,8 @@ export function crewMoveOptions(member: DeepReadonly<CrewState>): MoveOptions {
     };
 }
 
-function walk(ctx: Ctx, member: CrewState, path: readonly Pos[], mode: MoveMode): void {
+function walk(ctx: Ctx, member: CrewState, planned: readonly Pos[], mode: MoveMode): void {
+    const { walked: path, cut } = cutPath(ctx, member, planned, mode);
     for (const h of hooks()) h.start?.(ctx, member, path, mode);
     const from = member.pos;
     let prev = from;
@@ -95,13 +167,19 @@ function walk(ctx: Ctx, member: CrewState, path: readonly Pos[], mode: MoveMode)
         for (const h of hooks()) h.step?.(ctx, member, path, i, mode);
     }
     const copy = path.map(p => ({ x: p.x, y: p.y }));
-    ctx.emit({ type: 'moved', crew: member.id, from, to: { x: member.pos.x, y: member.pos.y }, path: copy });
-    if (mode === 'dash') makeNoise(ctx, 'dash', copy, `dash ${member.id}`);
+    if (copy.length) ctx.emit({ type: 'moved', crew: member.id, from, to: { x: member.pos.x, y: member.pos.y }, path: copy });
+    if (cut) {
+        ctx.emit({
+            type: 'moveCut', crew: member.id, npc: cut.npc, reason: cut.reason, at: { x: member.pos.x, y: member.pos.y },
+            planned: planned.map(p => ({ x: p.x, y: p.y }))
+        });
+    }
+    if (mode === 'dash' && copy.length) makeNoise(ctx, 'dash', copy, `dash ${member.id}`);
     for (const h of hooks()) h.end?.(ctx, member, path, mode);
 }
 
 function check(ctx: Ctx, member: CrewState, path: readonly Pos[], budget: number): void {
-    const result = validatePath(ctx.world, ctx.state, member.pos, path, budget, crewMoveOptions(member));
+    const result = validatePath(ctx.world, planningState(ctx.world, ctx.state), member.pos, path, budget, crewMoveOptions(member));
     if (!result.ok) throw new IllegalCommand(result.reason);
 }
 
@@ -124,4 +202,4 @@ registerCommand('dash', (ctx, cmd) => {
 });
 
 // Opening a door shows what is behind it only to whoever looks: perception decides, so the event itself doesn't block.
-registerEvents({ doorOpened: { undoBlocking: false } });
+registerEvents({ doorOpened: { undoBlocking: false }, moveCut: { undoBlocking: true } });

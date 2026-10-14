@@ -7,7 +7,7 @@ import {
     type FixtureWall, type ObserverClass, type Outcome, type PersonDef, type Pos, type Profile, type ReadonlyWorld, type SimEvent,
     type State, type Zone
 } from '../../src/sim';
-import { registerTestCommand, step, testCommand } from './helpers';
+import { registerTestCommand, scouted, step, testCommand } from './helpers';
 
 const P = (x: number, y: number): Pos => ({ x, y });
 
@@ -356,7 +356,8 @@ describe('a crew move', () => {
             { between: [P(4, 3), P(5, 3)] }, { between: [P(4, 4), P(5, 4)] }
         ];
         const world = lobby([person('teller', 'staff', P(8, 2), 'w')], { walls });
-        const state = initialState(world, { seed: 1, crew: [{ id: 'jun', pos: P(2, 2), items: ['assaultRifle'] }] });
+        // Scouted, so the move doesn't stop at the door when the teller comes into view (rules/knowledge.ts).
+        const state = scouted(world, initialState(world, { seed: 1, crew: [{ id: 'jun', pos: P(2, 2), items: ['assaultRifle'] }] }));
         const sight = sightMap(world, state);
         // With the door shut the teller sees nothing of the lobby.
         expect(assessEnd(world, state, sight, 'jun', P(3, 2))).toEqual([]);

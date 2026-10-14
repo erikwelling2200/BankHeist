@@ -1,7 +1,8 @@
 /*
  * A set of tiles as a short string, for the state (implementation plan §5: big per-tile data is stored compactly,
  * since the state is copied on every command). Six tiles per character, in the base64 alphabet (no character JSON has
- * to escape): character i holds tiles 6i to 6i + 5, the lowest bit first. Decoding is cached by string, so asking the
+ * to escape): character i holds tiles 6i to 6i + 5, the lowest bit first, and the bits past the last tile are 0 (so
+ * each set has exactly one string). Decoding is cached by string, so asking the
  * same set again costs a lookup; the arrays it returns are shared and must not be changed (copy them with `slice`).
  */
 
@@ -33,8 +34,11 @@ export function decodeBits(text: string, length: number): Uint8Array {
         const v = VALUE[text.charCodeAt(c)] ?? -1;
         if (v < 0) throw new Error(`'${text[c]}' isn't a tile-set character`);
         for (let j = 0; j < 6; j++) {
+            if (!(v & (1 << j))) continue;
             const i = c * 6 + j;
-            if (i < length && v & (1 << j)) bits[i] = 1;
+            // One string per set: the bits past the last tile are always 0.
+            if (i >= length) throw new Error(`The tile set has bits past its ${length} tiles`);
+            bits[i] = 1;
         }
     }
     if (CACHE.size >= KEEP) CACHE.delete(CACHE.keys().next().value!);
