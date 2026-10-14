@@ -9,6 +9,7 @@
 // --- systems: begin
 import './core/engine';
 import './crew/actions';
+import './geo/cones';
 import './rules/carriers';
 // --- systems: end
 
@@ -35,9 +36,9 @@ export {
 export { startCarrier } from './rules/carriers';
 export { freezeWorld } from './world/freeze';
 export { fixtureWorld, type FixtureOptions, type FixtureWall } from './world/fixture';
-export { buildSightMap, hasLineOfSight, lineOfSight, sightMap, type SightMap } from './geo/los';
+export { BLOCKS, buildSightMap, CLEAR, hasLineOfSight, lineOfSight, MID, sightInputs, sightMap, type SightMap } from './geo/los';
 export {
-    ALERTED_RANGE_BONUS, ALERTED_STATUSES, ARC_TAN, bandAt, bandOf, BLIND_STATUSES, cameraObserver, CREW_RANGE, crewObserver, fieldOn,
+    ALERTED_STATUSES, ARC_TAN, bandAt, bandOf, BLIND_STATUSES, cameraObserver, crewObserver, fieldOn,
     inArc, npcObserver, profilesOf, rangeOn, sees, seenTiles, seesOn, visionProfiles,
     type Arc, type Band, type HalfAngle, type Observer, type SightField, type VisionProfile, type VisionProfiles
 } from './geo/cones';

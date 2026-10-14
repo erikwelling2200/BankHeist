@@ -5,10 +5,11 @@ import { Nav } from '../../src/gen/nav';
 import { Rng } from '../../src/gen/rng';
 import type { Site } from '../../src/gen/site';
 import {
-    ALERTED_RANGE_BONUS, bandAt, buildSightMap, cameraObserver, crewObserver, edgeKey, edgeNow, FACINGS, fixtureWorld, hasLineOfSight, inArc,
+    bandAt, fieldOn, sightInputs, buildSightMap, cameraObserver, crewObserver, edgeKey, edgeNow, FACINGS, fixtureWorld, hasLineOfSight, inArc,
     initialState, lineOfSight, npcObserver, profilesOf, sees, seenTiles, sightMap, type Facing, type FixtureWall, type HalfAngle,
     type NpcState, type Observer, type Pos, type ReadonlyWorld, type State
 } from '../../src/sim';
+import { smallBank } from './helpers';
 
 const P = (x: number, y: number): Pos => ({ x, y });
 const at = (world: ReadonlyWorld): State => initialState(world, { seed: 1, crew: [] });
@@ -243,7 +244,7 @@ describe('cones', () => {
     });
 
     const world = fixtureWorld(open(25));
-    const look = (name: 'calm' | 'alerted' | 'camera' | 'crew', facing: Facing = 'e'): Observer => ({ pos: P(12, 12), facing, profile: profilesOf(world)[name] });
+    const look = (name: 'calm' | 'alerted' | 'camera' | 'darkCamera' | 'crew', facing: Facing = 'e'): Observer => ({ pos: P(12, 12), facing, profile: profilesOf(world)[name] });
     const band = (o: Observer, dx: number, dy: number, w = world): string | null => sees(w, at(w), o, P(o.pos.x + dx, o.pos.y + dy));
 
     it('gives calm NPCs a Core of 6 tiles and 90°, a Peripheral of 8 and 140°, by Euclidean distance', () => {
@@ -260,7 +261,7 @@ describe('cones', () => {
     });
 
     it('lets Alerted NPCs see 2 further and Peripheral as Core (§8.7)', () => {
-        expect(ALERTED_RANGE_BONUS).toBe(2);
+        expect(world.rules.alertedRangeBonus).toBe(2);
         const alerted = look('alerted');
         expect([8, 9, 10, 11].map(d => band(alerted, d, 0))).toEqual(['core', 'core', 'core', null]);
         expect(band(alerted, 2, 4)).toBe('core');
@@ -280,10 +281,13 @@ describe('cones', () => {
         const dark: Pos[] = [];
         for (let x = 0; x < 25; x++) dark.push(P(x, 12));
         const dim = fixtureWorld(open(25), { dark });
-        const o = (name: 'calm' | 'alerted' | 'camera' | 'crew'): Observer => ({ pos: P(12, 12), facing: 'e', profile: profilesOf(dim)[name] });
+        const o = (name: 'calm' | 'alerted' | 'camera' | 'darkCamera' | 'crew'): Observer => ({ pos: P(12, 12), facing: 'e', profile: profilesOf(dim)[name] });
         expect([3, 4, 5].map(d => band(o('calm'), d, 0, dim))).toEqual(['core', 'peripheral', null]);
         expect([5, 6].map(d => band(o('alerted'), d, 0, dim))).toEqual(['core', null]);
-        expect([3, 4].map(d => band(o('camera'), d, 0, dim))).toEqual(['core', null]);
+        // Cameras below Regional HQ are blind in the dark; the rest see half as far.
+        expect([1, 3, 4].map(d => band(o('camera'), d, 0, dim))).toEqual([null, null, null]);
+        expect([3, 4].map(d => band(o('darkCamera'), d, 0, dim))).toEqual(['core', null]);
+        expect(band(o('camera'), 5, 1, dim)).toBe('core');
         expect([-5, -6].map(d => band(o('crew'), d, 0, dim))).toEqual(['core', null]);
         // A lit tile next to the dark row is seen as far as ever.
         expect(band(o('calm'), 5, 1, dim)).toBe('core');
@@ -345,5 +349,72 @@ describe('observers', () => {
                 expect(field.tiles[0]).toBeDefined();
             }
         }
+    });
+});
+
+describe('more sight rules', () => {
+    it('hides someone beside a doorway from a line that grazes the door jamb', () => {
+        // A wall between columns 2 and 3, with an open door in row 2.
+        const walls: FixtureWall[] = [0, 1, 2, 3, 4].map(y => ({ between: [P(2, y), P(3, y)], ...(y === 2 ? { door: { id: 'door', start: 'open' as const } } : {}) }));
+        const world = fixtureWorld(open(6).slice(0, 5), { walls }), state = at(world), m = sightMap(world, state);
+        expect(lineOfSight(m, P(0, 2), P(5, 2))).toBe(true); // straight through the doorway
+        expect(lineOfSight(m, P(2, 2), P(3, 1))).toBe(false); // round the jamb, diagonally
+        expect(lineOfSight(m, P(2, 2), P(3, 3))).toBe(false);
+        expect(lineOfSight(m, P(1, 0), P(4, 3))).toBe(false); // exactly through the jamb's corner
+        expect(lineOfSight(m, P(1, 1), P(4, 3))).toBe(true); // through the doorway off the corners
+        const shut = { ...state, doors: { door: { status: 'closed' as const } } };
+        expect(hasLineOfSight(world, shut, P(0, 2), P(5, 2))).toBe(false);
+    });
+
+    it('lets something of middle height block the ground but not a line with a raised end', () => {
+        const world = fixtureWorld(['.....', '.....', '.....'], {
+            midHeight: [P(2, 0)], raised: [P(0, 1), P(4, 2)],
+            walls: [{ between: [P(1, 1), P(2, 1)], midHeight: true }, { between: [P(1, 2), P(2, 2)], midHeight: true, door: { id: 'gate', start: 'closed' } }]
+        });
+        const state = at(world), m = sightMap(world, state);
+        expect(lineOfSight(m, P(0, 0), P(4, 0))).toBe(false); // a van between two people on the ground
+        expect(lineOfSight(m, P(0, 0), P(2, 0))).toBe(true); // the van itself is seen
+        expect(lineOfSight(m, P(0, 1), P(4, 1))).toBe(true); // from a raised tile over a middle-height edge
+        expect(lineOfSight(m, P(4, 1), P(0, 1))).toBe(true); // and back: the ground sees a raised tile over it
+        expect(lineOfSight(m, P(1, 1), P(3, 1))).toBe(false); // ground to ground
+        expect(lineOfSight(m, P(0, 2), P(4, 2))).toBe(true); // raised end
+        expect(lineOfSight(m, P(0, 2), P(3, 2))).toBe(false);
+        expect(lineOfSight(sightMap(world, { ...state, doors: { gate: { status: 'open' } } }), P(0, 2), P(3, 2))).toBe(true);
+    });
+
+    it('rebuilds the sight map when any of its inputs changes, and reuses it while none does', () => {
+        const { world, state } = smallBank();
+        const base = sightMap(world, state);
+        expect(sightMap(world, structuredClone(state))).toBe(base);
+        const door = { ...state, doors: { ...state.doors, staffDoor: { status: 'open' as const } } };
+        const edge = { ...state, edges: { [edgeKey({ run: 'northSouth', tx: 6, ty: 0 })]: { blocksSight: false } } };
+        const keys = new Set([state, door, edge].map(s => sightInputs(world, s)));
+        expect(keys.size).toBe(3);
+        expect(sightMap(world, door)).not.toBe(base);
+        expect(lineOfSight(sightMap(world, door), P(5, 1), P(6, 1))).toBe(true);
+        expect(sightMap(world, edge)).not.toBe(base);
+        expect(lineOfSight(sightMap(world, edge), P(5, 0), P(6, 0))).toBe(true);
+        // Up to four maps are kept: a preview alternating with the real state rebuilds neither.
+        expect(sightMap(world, state)).toBe(base);
+        expect(lineOfSight(sightMap(world, state), P(5, 0), P(6, 0))).toBe(false);
+    });
+
+    it('caches fields by the profile itself, and hands them out frozen', () => {
+        const world = fixtureWorld(open(12)), state = at(world), m = sightMap(world, state);
+        const calm = profilesOf(world).calm, narrow = { ...calm, arcs: [{ band: 'core' as const, range: 2, half: 45 as const }] };
+        const wide = fieldOn(m, { pos: P(6, 6), facing: 'e', profile: calm }), small = fieldOn(m, { pos: P(6, 6), facing: 'e', profile: narrow });
+        expect(small).not.toBe(wide);
+        expect(small.tiles.length).toBeLessThan(wide.tiles.length);
+        expect(Object.isFrozen(wide) && Object.isFrozen(wide.tiles) && Object.isFrozen(wide.tiles[0])).toBe(true);
+        expect(() => { (wide.tiles as Pos[]).push(P(0, 0)); }).toThrow();
+    });
+
+    it('takes a camera\'s night vision from its definition', () => {
+        const cameras = [{ id: 'cheap', pos: P(0, 0), facings: ['e'] as ['e'], room: null }, { id: 'hq', pos: P(0, 1), facings: ['e'] as ['e'], room: null, seesInDark: true }];
+        const world = fixtureWorld(['......', '......'], { cameras, dark: [P(2, 0), P(2, 1)] });
+        const state = at(world);
+        expect(sees(world, state, cameraObserver(world, state, 'cheap')!, P(2, 0))).toBe(null);
+        expect(sees(world, state, cameraObserver(world, state, 'cheap')!, P(4, 0))).toBe('core');
+        expect(sees(world, state, cameraObserver(world, state, 'hq')!, P(2, 1))).toBe('core');
     });
 });

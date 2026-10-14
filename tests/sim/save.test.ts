@@ -78,7 +78,7 @@ describe('saving', () => {
  * NpcStatusMap, CarrierKindMap or adds a field must also fill it in below, or a change of shape goes unnoticed.
  */
 const SHAPE_HASHES: Record<number, string> = {
-    1: 'ab1a0f13837a21a7'
+    1: '3ab6dcb7a2296b00'
 };
 
 /** Paths whose objects are records by id, not structs. */
@@ -121,7 +121,7 @@ describe('the save format', () => {
         full.npcs[0]!.suspicion = { jun: 1 };
         full.npcs[0]!.exposedTo = ['jun'];
         full.npcs[0]!.intent = { path: [{ x: 1, y: 1 }], facing: 'n' };
-        full.edges['eastWest 0 1'] = { material: 'soft', blocksMove: false, blocksSight: false };
+        full.edges['eastWest 0 1'] = { material: 'soft', blocksMove: false, blocksSight: false, midHeight: false };
         full.objects.panel = { disabled: true, open: false };
         full.cameras.cam = { facing: 0, live: true };
         full.crew[0]!.loadout.items = ['pistol'];
@@ -133,9 +133,10 @@ describe('the save format', () => {
             world: {
                 ...world,
                 objects: [{ id: 'panel', kind: 'alarmPanel', pos: { x: 0, y: 0 }, facing: 's' }],
-                cameras: [{ id: 'cam', pos: { x: 0, y: 0 }, facings: ['s', 'e'], room: 'lobby' }],
+                cameras: [{ id: 'cam', pos: { x: 0, y: 0 }, facings: ['s', 'e'], room: 'lobby', seesInDark: true }],
                 people: world.people.map(p => ({ ...p, schedule: [{ from: 1, activity: 'work', room: 'lobby' }] })),
-                tiles: world.tiles.map((t, i) => (i ? t : { ...t, room: 'lobby' }))
+                tiles: world.tiles.map((t, i) => (i ? t : { ...t, room: 'lobby', midHeight: true })),
+                edges: Object.fromEntries(Object.entries(world.edges).map(([k, e]) => [k, { ...e, midHeight: false }]))
             },
             state: full,
             recent: [{ type: 'waited', crew: 'jun' }],

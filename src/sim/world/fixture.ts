@@ -20,6 +20,8 @@ export interface FixtureWall {
     /** The tiles either side of the edge. */
     between: [Pos, Pos];
     material?: Material;
+    /** A middle-height barrier (sight passes only for a raised end, see geo/los.ts); it doesn't block sight otherwise. */
+    midHeight?: boolean;
     door?: { id: string; lock?: Lock; start?: DoorStart };
 }
 
@@ -30,6 +32,8 @@ export interface FixtureOptions {
     dark?: readonly Pos[];
     /** Raised tiles (a mezzanine, a landing), by position. */
     raised?: readonly Pos[];
+    /** Tiles with something of middle height on them (a vehicle), by position. */
+    midHeight?: readonly Pos[];
     people?: readonly PersonDef[];
     cameras?: readonly CameraDef[];
     objects?: readonly WorldObject[];
@@ -68,6 +72,10 @@ export function fixtureWorld(map: readonly string[], options: FixtureOptions = {
         if (p.x < 0 || p.y < 0 || p.x >= width || p.y >= height) throw new Error(`Raised tile (${p.x}, ${p.y}) is off the map`);
         tiles[p.y * width + p.x]!.raised = true;
     }
+    for (const p of options.midHeight ?? []) {
+        if (p.x < 0 || p.y < 0 || p.x >= width || p.y >= height) throw new Error(`Middle-height tile (${p.x}, ${p.y}) is off the map`);
+        tiles[p.y * width + p.x]!.midHeight = true;
+    }
 
     const edges: Record<string, WallEdge> = {}, doors: Record<string, DoorDef> = {};
     for (const wall of options.walls ?? []) {
@@ -75,7 +83,8 @@ export function fixtureWorld(map: readonly string[], options: FixtureOptions = {
         for (const p of [a, b]) if (p.x < 0 || p.y < 0 || p.x >= width || p.y >= height) throw new Error(`Wall tile (${p.x}, ${p.y}) is off the map`);
         const edge = edgeBetween(a, b), key = edgeKey(edge), material = wall.material ?? 'soft';
         if (edges[key]) throw new Error(`Two walls on the edge '${key}'`);
-        const built: WallEdge = { ...edge, material, blocksSight: !SEE_THROUGH.includes(material), blocksMove: true };
+        const built: WallEdge = { ...edge, material, blocksSight: !wall.midHeight && !SEE_THROUGH.includes(material), blocksMove: true };
+        if (wall.midHeight) built.midHeight = true;
         if (wall.door) {
             const { id, lock = 'none', start = 'closed' } = wall.door;
             if (doors[id]) throw new Error(`Two doors with the id '${id}'`);

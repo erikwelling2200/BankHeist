@@ -1,5 +1,6 @@
 import { FACING_STEP } from '../core/grid';
-import type { CameraDef, CrewState, Facing, NpcState, NpcStatus, Pos, ReadonlyWorld, Rules, State, DeepReadonly } from '../core/types';
+import { registerRuleDefaults } from '../core/state';
+import type { CameraDef, CrewState, DeepReadonly, Facing, NpcState, NpcStatus, Pos, ReadonlyWorld, Rules, State } from '../core/types';
 import { lineOfSight, sightMap, type SightMap } from './los';
 
 /*
@@ -12,6 +13,9 @@ import { lineOfSight, sightMap, type SightMap } from './los';
  *   rounded down (6 → 3, 7 → 3): a tile that isn't lit is seen only within half of each arc's range. What counts is
  *   whether the *seen* tile is lit, so a guard in a dark room still sees the lit lobby, but nobody sees far into the
  *   dark.
+ * - **Cameras in the dark.** Only cameras built to see in the dark (`CameraDef.seesInDark`: Regional HQ tier and up,
+ *   set by the world builder from the tier, §8.3) see an unlit tile, at half range like anyone; the rest are blind on
+ *   it.
  * - **Arcs** are centred on one of the eight facings and measured by their half-angle: a tile is inside when the angle
  *   between the facing and the direction to it is at most the half-angle. The test is integer (decision 5): with f the
  *   facing's step and d the offset, `|f × d| ≤ tan(half) · (f · d)` and `f · d > 0`; tan 45° is exactly 1, and tan 35°
@@ -22,7 +26,25 @@ import { lineOfSight, sightMap, type SightMap } from './los';
  *   always seen, in its best band.
  * - **Bands.** A profile is a list of arcs, each Core or Peripheral; a tile gets the best band of any arc that holds
  *   it. Alerted NPCs list their Peripheral arc as Core (§8.7).
+ *
+ * For many questions in one evaluation (perception over a path, the safe-floor overlay, the crew's knowledge), take
+ * `sightMap(world, state)` once and ask `seesOn` and `fieldOn`; `sees` and `seenTiles` are the one-off forms.
  */
+
+declare module '../core/types' {
+    interface Rules {
+        /** How far crew members see, all round (§8.15). */
+        crewRange: number;
+        /** How much further Alerted NPCs see, in both arcs (§8.7: Core 8, Peripheral 10). */
+        alertedRangeBonus: number;
+    }
+    interface CameraDef {
+        /** It sees in the dark (Regional HQ tier and up, §8.3), at half range; otherwise it is blind on unlit tiles. */
+        seesInDark?: boolean;
+    }
+}
+
+registerRuleDefaults({ crewRange: 10, alertedRangeBonus: 2 });
 
 /** How well a tile is seen. */
 export type Band = 'core' | 'peripheral';
@@ -33,9 +55,11 @@ export type HalfAngle = 35 | 45 | 70 | 180;
 export interface Arc { band: Band; range: number; half: HalfAngle }
 
 export interface VisionProfile {
-    /** Names the profile in caches and debug output: 'calm', 'alerted', 'camera', 'crew'. */
+    /** Names the profile in debug output: 'calm', 'alerted', 'camera', 'crew'. */
     name: string;
     arcs: readonly Arc[];
+    /** Sees nothing on an unlit tile (cameras without `seesInDark`); otherwise darkness halves its ranges. */
+    blindInDark: boolean;
 }
 
 /**
@@ -49,28 +73,27 @@ export const ARC_TAN: Readonly<Record<HalfAngle, readonly [number, number] | nul
     180: null
 };
 
-/** How much further Alerted NPCs see, both arcs (§8.7: Core 8, Peripheral 10). */
-export const ALERTED_RANGE_BONUS = 2;
-
-/** Crew members see all round them this far (§8.15). */
-export const CREW_RANGE = 10;
-
 /** NPC states that see nothing. */
 export const BLIND_STATUSES: readonly NpcStatus[] = ['unconscious', 'dead'];
 
-/** NPC states that see on edge: further, and Peripheral as Core (§8.7). */
+/**
+ * NPC states that see on edge: further, and Peripheral as Core (§8.7). A stopgap until M1-05 makes Alerted a flag of
+ * its own (a commanded guard stays Alerted); `npcObserver` takes that flag when it exists.
+ */
 export const ALERTED_STATUSES: readonly NpcStatus[] = ['alerted', 'hostile'];
 
-export interface VisionProfiles { calm: VisionProfile; alerted: VisionProfile; camera: VisionProfile; crew: VisionProfile }
+export interface VisionProfiles { calm: VisionProfile; alerted: VisionProfile; camera: VisionProfile; darkCamera: VisionProfile; crew: VisionProfile }
 
-/** The vision profiles of §8.3 and §8.15 from a bank's rules. */
+/** The vision profiles of §8.3, §8.7 and §8.15 from a bank's rules. */
 export function visionProfiles(rules: DeepReadonly<Rules>): VisionProfiles {
-    const bonus = ALERTED_RANGE_BONUS;
+    const bonus = rules.alertedRangeBonus;
+    const camera: Arc[] = [{ band: 'core', range: rules.cameraRange, half: 35 }];
     return {
-        calm: { name: 'calm', arcs: [{ band: 'core', range: rules.coreRange, half: 45 }, { band: 'peripheral', range: rules.peripheralRange, half: 70 }] },
-        alerted: { name: 'alerted', arcs: [{ band: 'core', range: rules.coreRange + bonus, half: 45 }, { band: 'core', range: rules.peripheralRange + bonus, half: 70 }] },
-        camera: { name: 'camera', arcs: [{ band: 'core', range: rules.cameraRange, half: 35 }] },
-        crew: { name: 'crew', arcs: [{ band: 'core', range: CREW_RANGE, half: 180 }] }
+        calm: { name: 'calm', blindInDark: false, arcs: [{ band: 'core', range: rules.coreRange, half: 45 }, { band: 'peripheral', range: rules.peripheralRange, half: 70 }] },
+        alerted: { name: 'alerted', blindInDark: false, arcs: [{ band: 'core', range: rules.coreRange + bonus, half: 45 }, { band: 'core', range: rules.peripheralRange + bonus, half: 70 }] },
+        camera: { name: 'camera', blindInDark: true, arcs: camera },
+        darkCamera: { name: 'darkCamera', blindInDark: false, arcs: camera },
+        crew: { name: 'crew', blindInDark: false, arcs: [{ band: 'core', range: rules.crewRange, half: 180 }] }
     };
 }
 
@@ -96,6 +119,7 @@ export const rangeOn = (range: number, lit: boolean): number => (lit ? range : M
 
 /** The best band of `profile`'s arcs that holds the offset (dx, dy) on a tile lit or not, ignoring walls. */
 export function bandOf(profile: VisionProfile, facing: Facing, dx: number, dy: number, lit: boolean): Band | null {
+    if (!lit && profile.blindInDark) return null;
     let best: Band | null = null;
     for (const arc of profile.arcs) {
         const r = rangeOn(arc.range, lit);
@@ -118,8 +142,8 @@ export function profilesOf(world: ReadonlyWorld): VisionProfiles {
 }
 
 /**
- * An NPC as an observer, or null while it sees nothing (out cold, dead). Commanded and tied NPCs still see with the
- * calm profile; whether what they see counts (eyes down, §8.7) is for perception to decide.
+ * An NPC as an observer, or null while it sees nothing (out cold, dead). Commanded and tied NPCs still see; whether
+ * what they see counts (eyes down, §8.7) is for perception to decide.
  */
 export function npcObserver(world: ReadonlyWorld, npc: DeepReadonly<NpcState>): Observer | null {
     if (BLIND_STATUSES.includes(npc.status)) return null;
@@ -129,15 +153,15 @@ export function npcObserver(world: ReadonlyWorld, npc: DeepReadonly<NpcState>): 
 
 /**
  * A camera as an observer, or null when it is dead or looped (not live). `next` gives the facing it pans to in the
- * coming world phase, which is telegraphed (§8.3). A camera's tier-dependent blindness in the dark comes with power cuts
- * (M4); until then darkness halves its range like anyone's.
+ * coming world phase, which is telegraphed (§8.3).
  */
 export function cameraObserver(world: ReadonlyWorld, state: State, id: string, next = false): Observer | null {
     const def: DeepReadonly<CameraDef> | undefined = world.cameras.find(c => c.id === id);
     const now = state.cameras[id];
     if (!def || !now || !now.live) return null;
     const facing = def.facings[(now.facing + (next ? 1 : 0)) % def.facings.length]!;
-    return { pos: def.pos, facing, profile: profilesOf(world).camera };
+    const p = profilesOf(world);
+    return { pos: def.pos, facing, profile: def.seesInDark ? p.darkCamera : p.camera };
 }
 
 /** A crew member as an observer: all round, 10 tiles (§8.15). */
@@ -162,32 +186,39 @@ export function sees(world: ReadonlyWorld, state: State, observer: Observer, til
     return seesOn(sightMap(world, state), observer, tile);
 }
 
-/** Everything an observer sees: each tile with its band. */
+/** Everything an observer sees. Frozen: it is shared by everyone who asks. Read bands with `bandAt`. */
 export interface SightField {
     readonly width: number;
-    /** Per tile, row-major: 0 unseen, 1 Core, 2 Peripheral. */
-    readonly bands: Uint8Array;
+    readonly height: number;
     /** The seen tiles, row by row from the north-west. */
-    readonly tiles: readonly Pos[];
+    readonly tiles: readonly Readonly<Pos>[];
 }
+
+/** Each field's bands per tile, row-major: 0 unseen, 1 Core, 2 Peripheral. Kept out of the field so nobody can write them. */
+const BANDS = new WeakMap<SightField, Uint8Array>();
 
 /** The band of a tile in a field. */
 export function bandAt(field: SightField, p: Pos): Band | null {
-    if (p.x < 0 || p.y < 0 || p.x >= field.width) return null;
-    const b = field.bands[p.y * field.width + p.x];
+    if (p.x < 0 || p.y < 0 || p.x >= field.width || p.y >= field.height) return null;
+    const b = BANDS.get(field)![p.y * field.width + p.x];
     return b === 1 ? 'core' : b === 2 ? 'peripheral' : null;
 }
 
-/** Fields already worked out, per sight map, by observer. Dropped wholesale when full: the content never depends on it. */
-const FIELDS = new WeakMap<SightMap, Map<string, SightField>>();
+/**
+ * Fields already worked out, per sight map, per profile (by identity), by position and facing. Dropped wholesale when
+ * full: the content never depends on it.
+ */
+const FIELDS = new WeakMap<SightMap, WeakMap<VisionProfile, Map<string, SightField>>>();
 const MAX_FIELDS = 1024;
 
-/** Every tile the observer sees on a sight map, worked out once per map and observer. Treat the result as read-only. */
+/** Every tile the observer sees on a sight map, worked out once per map and observer. */
 export function fieldOn(m: SightMap, observer: Observer): SightField {
     const { pos, facing, profile } = observer;
-    const key = `${profile.name} ${pos.x} ${pos.y} ${facing}`;
-    let cache = FIELDS.get(m);
-    if (!cache) FIELDS.set(m, cache = new Map());
+    let byProfile = FIELDS.get(m);
+    if (!byProfile) FIELDS.set(m, byProfile = new WeakMap());
+    let cache = byProfile.get(profile);
+    if (!cache) byProfile.set(profile, cache = new Map());
+    const key = `${pos.x} ${pos.y} ${facing}`;
     const known = cache.get(key);
     if (known) return known;
     const bands = new Uint8Array(m.width * m.height), tiles: Pos[] = [];
@@ -197,16 +228,17 @@ export function fieldOn(m: SightMap, observer: Observer): SightField {
             const band = seesOn(m, observer, { x, y });
             if (!band) continue;
             bands[y * m.width + x] = band === 'core' ? 1 : 2;
-            tiles.push({ x, y });
+            tiles.push(Object.freeze({ x, y }));
         }
     }
-    const field: SightField = { width: m.width, bands, tiles };
+    const field: SightField = Object.freeze({ width: m.width, height: m.height, tiles: Object.freeze(tiles) });
+    BANDS.set(field, bands);
     if (cache.size >= MAX_FIELDS) cache.clear();
     cache.set(key, field);
     return field;
 }
 
-/** Every tile the observer sees now, with its band. */
+/** Every tile the observer sees now, with its band; for many observers in one evaluation use `sightMap` and `fieldOn`. */
 export function seenTiles(world: ReadonlyWorld, state: State, observer: Observer): SightField {
     return fieldOn(sightMap(world, state), observer);
 }
