@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import {
-    defaultRules, deserialiseState, fixtureWorld, initialState, registerCommand, registerCrewInit, registerNpcInit,
+    defaultRules, deserialiseState, fixtureWorld, initialState, registerCrewInit, registerNpcInit,
     registerRuleDefaults, registerStateInit, registerWorldHook, serialiseState, worldHooks, type State
 } from '../../src/sim';
-import { SCRIPT, smallBank, step } from './helpers';
+import { registerTestCommand, smallBank, step, testCommand } from './helpers';
 
 /*
  * How packages plug in from their own modules, whatever order they are imported in. This file registers real systems
@@ -12,14 +12,19 @@ import { SCRIPT, smallBank, step } from './helpers';
 
 describe('registering systems', () => {
     it("lets a real command take a placeholder's place, and never the other way round", () => {
+        // A command of its own: the engine's placeholder 'move' is already filled in by the movement package.
         const { world, state } = smallBank();
-        registerCommand('move', ctx => { ctx.state.crew[0]!.actionsLeft = 0; });
-        expect(step(world, state, SCRIPT[0]!).state.crew[0]!.actionsLeft).toBe(0);
-        registerCommand('move', () => { throw new Error('a stub'); }, { placeholder: true });
-        expect(step(world, state, SCRIPT[0]!).state.crew[0]!.actionsLeft).toBe(0);
-        expect(() => registerCommand('move', () => {})).toThrow(/already registered/);
-        registerCommand('move', ctx => { ctx.state.crew[0]!.actionsLeft = 1; }, { replace: true });
-        expect(step(world, state, SCRIPT[0]!).state.crew[0]!.actionsLeft).toBe(1);
+        const cmd = testCommand({ type: 'testPlaced', crew: 'jun' });
+        registerTestCommand('testPlaced', () => { throw new Error('a stub'); }, { placeholder: true });
+        registerTestCommand('testPlaced', ctx => { ctx.state.crew[0]!.actionsLeft = 0; });
+        expect(step(world, state, cmd).state.crew[0]!.actionsLeft).toBe(0);
+        registerTestCommand('testPlaced', () => { throw new Error('a stub'); }, { placeholder: true });
+        expect(step(world, state, cmd).state.crew[0]!.actionsLeft).toBe(0);
+        expect(() => registerTestCommand('testPlaced', () => {})).toThrow(/already registered/);
+        registerTestCommand('testPlaced', ctx => { ctx.state.crew[0]!.actionsLeft = 1; }, { replace: true });
+        expect(step(world, state, cmd).state.crew[0]!.actionsLeft).toBe(1);
+        // And the real move took the engine's placeholder's place.
+        expect(() => step(world, state, { type: 'move', crew: 'jun', path: [{ x: 3, y: 0 }] })).toThrow(/Can't step/);
     });
 
     it("fills in the engine's placeholder hooks under their names", () => {

@@ -457,7 +457,8 @@ Later milestones: within each milestone, the `∥` notes in §3 apply. UI packag
    - vault, vaultDoor, thick → Vault
    - window, doorGlass, curtain, doorTower → Glass
    - tellerWindow → Teller glass
-   - fence → passes sight and sound, blocks movement
+   - fence → passes sight and sound, blocks movement (`blocksSound: false` on the edge)
+   - Sound (§8.9, M1-03): Glass (windows, glass doors, curtains) counts as Soft, costing 3 tiles of reach; Teller glass is armoured and counts as Reinforced, stopping it. A closed door costs 3 whatever its material, except a vault door, which stops it.
    - rail → half cover, low
 9. **Doors.** Leaf doors start closed and close themselves at the end of the world phase unless propped (§3's staff door swings shut). Doors with a lock are locked. Staff carry the keys their role and the key graph give them.
 10. **Lit.** A room is lit unless its light is `none` and it is indoors; outdoors is lit by day. Power cuts and darkness come in M4, and the baked lamps are not a rules input.

@@ -9,7 +9,11 @@
 // --- systems: begin
 import './core/engine';
 import './crew/actions';
+import './crew/movement';
+import './geo/move';
+import './geo/sound';
 import './rules/carriers';
+import './rules/doors';
 // --- systems: end
 
 export * from './core/types';
@@ -35,3 +39,15 @@ export {
 export { startCarrier } from './rules/carriers';
 export { freezeWorld } from './world/freeze';
 export { fixtureWorld, type FixtureOptions, type FixtureWall } from './world/fixture';
+export {
+    crewHasKey, crewMoveOptions, registerDashCheck, registerMoveHook, type DashCheck, type MoveHook, type MoveMode
+} from './crew/movement';
+export {
+    dashBudget, doorBetween, doorStatus, inHeavyArmour, LYING_STATUSES, moveBudget, occupancy, pathTo, reachable, reachAt, stepCost,
+    validatePath, type Climb, type ClimbSide, type MoveOptions, type Occupant, type PathCheck, type Reach, type ReachTile
+} from './geo/move';
+export {
+    DEAF_STATUSES, inRing, makeNoise, noiseRadius, npcsInside, soundBudget, soundEdgeCost, soundRing, type Ring, type SoundTile
+} from './geo/sound';
+export * from './data/movement';
+export * from './data/noise';

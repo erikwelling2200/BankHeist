@@ -24,7 +24,7 @@ registerCommand('move', (ctx, cmd) => {
     const from = member.pos;
     member.facing = facingToward(cmd.path.at(-2) ?? from, to) ?? member.facing;
     member.pos = { x: to.x, y: to.y };
-    ctx.emit({ type: 'moved', crew: member.id, from, to: member.pos });
+    ctx.emit({ type: 'moved', crew: member.id, from, to: member.pos, path: cmd.path.map(p => ({ x: p.x, y: p.y })) });
 }, { placeholder: true });
 
 registerCommand('wait', (ctx, cmd) => {

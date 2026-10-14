@@ -332,7 +332,8 @@ export type CommandOf<K extends CommandType> = Extract<Command, { type: K }>;
 
 /** Every event's fields by its type. Augment it to add an event, and classify it with `registerEvents`. */
 export interface EventMap {
-    moved: { crew: string; from: Pos; to: Pos };
+    /** A crew member walked `path` (without `from`; its last tile is `to`). */
+    moved: { crew: string; from: Pos; to: Pos; path: Pos[] };
     waited: { crew: string };
     phaseStarted: { phase: Phase; turn: number };
     /** Something on the map became known to the crew: a room, a person, a key (§8.15). */
