@@ -166,6 +166,20 @@ Each package lists its goal, the design sections it covers, the files, what it d
   - **Note from M1-04:** Alerted must be a flag separate from the NPC's status: a commanded guard stays Alerted (§8.7).
     `npcObserver` (geo/cones.ts) reads `alerted`/`hostile` statuses as Alerted until that flag exists; switch it over.
   - **Accept:** every cell of §8.4 is tested, Core and Peripheral, using cases taken from `scripts/ui-mockups/rules.py`; the trespass sequence; the on-edge reading.
+  - **Notes (done):** the one copy of each rule is in `rules/perceive.ts`: `reaction` (the matrix lookup with every
+    modifier), `assessStep` (mid-move, only `!`), `assessEnd`, `sightingsAlong` / `assessWorldPhase` (an NPC walking
+    its committed intent; doors it walks through open for the rest of its walk; cameras at the facing they pan to) and
+    `witness` (illegal acts), all pure and returning `Sighting`s (who, from where, cell, outcome, why);
+    `applySightings` is the only writer. A move judges its steps and end against the NPCs as the move began and
+    applies them together at the end; the world phase judges every sighting before applying any, before anyone moves
+    (`perception.world`, passiveNpcs order −100), then checks trespass deadlines (−90); decay runs in devices (40).
+    A sighting that reads "—" is no perception check in the crew phase (undo stays free) but stops decay in the world
+    phase. `NpcState.alerted` is the on-edge flag (cones.ts reads it); statuses are M1-06's. NPCs hand their reactions
+    to M1-06 as `NpcState.wants` (react > challenge > escort > investigate > face, with the tile last seen and when it
+    was decided); camera `!`s queue in `State.cameraReports` for M1-08. Later actions call `perceiveEnd(ctx, crew)`
+    after every action and `witnessAct(ctx, crew, act)` for illegal acts. Frisk range is Chebyshev (rules.py uses
+    Euclidean 2.2); civilians in the Secure zone read the Staff zone's civilian column (rules.py: nothing). Only the
+    staff uniform is in (the guard and courier uniforms are M2-03's; `holsterable` marks the pistols they affect).
 - [ ] **M1-06 NPC schedules and intents.**
   - **Covers:** §6.1, §6.4, §16.1, §16.3, §8.5 (Curious turns, Investigating walks), "one investigates, the others watch".
   - **Work:**

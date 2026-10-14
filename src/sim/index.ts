@@ -15,6 +15,10 @@ import './geo/move';
 import './geo/sound';
 import './rules/carriers';
 import './rules/doors';
+import './rules/perceive';
+import './rules/profile';
+import './rules/suspicion';
+import './rules/trespass';
 // --- systems: end
 
 export * from './core/types';
@@ -54,7 +58,19 @@ export * from './data/movement';
 export * from './data/noise';
 export { BLOCKS, buildSightMap, CLEAR, hasLineOfSight, lineOfSight, MID, sightInputs, sightMap, type SightMap } from './geo/los';
 export {
-    ALERTED_STATUSES, ARC_TAN, bandAt, bandOf, BLIND_STATUSES, cameraObserver, crewObserver, fieldOn,
+    ARC_TAN, bandAt, bandOf, BLIND_STATUSES, cameraObserver, crewObserver, fieldOn,
     inArc, npcObserver, profilesOf, rangeOn, sees, seenTiles, seesOn, visionProfiles,
     type Arc, type Band, type HalfAngle, type Observer, type SightField, type VisionProfile, type VisionProfiles
 } from './geo/cones';
+export * from './data/items';
+export * from './data/matrix';
+export { checkLoadout, crewLook, crewProfile, friskFinds, notorietySteps, readProfile, type CrewLook } from './rules/profile';
+export {
+    addSuspicion, alertNpc, expose, EYES_DOWN, isEyesDown, isExposedTo, markSeen, MAX_PIPS, pipsOf, refreshWant, setEscort,
+    type CameraReport, type Challenge, type LastSeen, type Want, type WantKind
+} from './rules/suspicion';
+export { challenge, challengeDeadline, challengerOf, hasWarned, isWarned } from './rules/trespass';
+export {
+    applySightings, assessEnd, assessStep, assessWorldPhase, perceiveEnd, posesAlong, reaction, sightingsAlong, witness, witnessAct,
+    type AlongOptions, type AssessOptions, type Reaction, type ReactionInput, type Sighting, type Why
+} from './rules/perceive';

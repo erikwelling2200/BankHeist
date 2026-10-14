@@ -128,7 +128,8 @@ describe('the rules engine', () => {
 
     it('returns every roll of a command, beyond the window the state keeps', () => {
         const { world, state } = smallBank();
-        const many = { ...state, npcs: Array.from({ length: 40 }, (_, i) => ({ ...state.npcs[0]!, id: `n${i}` })) };
+        // Clones with no person in the world: out cold, so perception (which needs their observer class) skips them.
+        const many = { ...state, npcs: Array.from({ length: 40 }, (_, i) => ({ ...state.npcs[0]!, id: `n${i}`, status: 'unconscious' as const })) };
         const result = step(world, many, { type: 'endTurn' });
         expect(result.rolls).toHaveLength(40);
         expect(result.state.dice).toEqual(result.rolls.slice(-DICE_WINDOW));
@@ -167,7 +168,8 @@ describe('the rules engine', () => {
     it('runs the world phase in the order of §6.1 and starts the next crew phase', () => {
         expect(WORLD_STEPS).toEqual(['passiveNpcs', 'combatNpcs', 'devices', 'commitIntents', 'crewPhase']);
         expect(worldHooks()).toEqual({
-            passiveNpcs: ['npcs.passive'], combatNpcs: ['npcs.combat'], devices: ['devices.carriers', 'test.dice', 'doors.swingShut'],
+            passiveNpcs: ['perception.world', 'trespass.deadlines', 'npcs.passive'], combatNpcs: ['npcs.combat'],
+            devices: ['devices.carriers', 'test.dice', 'perception.decay', 'doors.swingShut'],
             commitIntents: ['npcs.intents'], crewPhase: ['crew.actions']
         });
         const { world, state } = smallBank();

@@ -1,0 +1,106 @@
+import { HEAVY_ARMOUR_ITEM } from './movement';
+
+/*
+ * What the crew carries (§7.3) and how it looks (§7.4), from the weapon table (§12.1), the throwables, charges and
+ * gadgets (§12.2) and the crew's armour (§12.3). Only what the profile needs so far: each item's slot and the profile
+ * it shows. The combat numbers (aim, recoil, damage, threat, magazine) join the weapons when combat does (M2, M3).
+ *
+ * - **Profile** is how conspicuous an item is when it is visible (§7.4): Clean, Concealed (under a jacket, a closed
+ *   duffel), Armed (a visible long gun) or Heavy (an LMG, heavy armour).
+ * - **Packed** items are out of sight (`Loadout.packed`): a long gun or armour in the duffel, or a DMR in its case.
+ *   A packed item shows as at most `packed`: the case or the duffel is Concealed (§7.3, §12.1 "Concealed when cased").
+ *   An item with `cased` carries its own case; anything else needs a duffel, which holds one long gun and one armour
+ *   piece (§7.3).
+ * - **Holstered** pistols count as Clean under a guard's uniform (§8.14); the disguise package reads `holsterable`.
+ */
+
+export type Profile = 'clean' | 'concealed' | 'armed' | 'heavy';
+
+/** The profiles from least to most conspicuous (§7.4). */
+export const PROFILES: readonly Profile[] = ['clean', 'concealed', 'armed', 'heavy'];
+
+export const profileRank = (p: Profile): number => PROFILES.indexOf(p);
+
+/** The profile `steps` higher, capped at Heavy (on edge, Notoriety). */
+export const raiseProfile = (p: Profile, steps: number): Profile => PROFILES[Math.min(PROFILES.length - 1, profileRank(p) + steps)]!;
+
+/** The more conspicuous of two profiles. */
+export const maxProfile = (a: Profile, b: Profile): Profile => (profileRank(b) > profileRank(a) ? b : a);
+
+/** Loadout slots (§7.3). */
+export type Slot = 'primary' | 'sidearm' | 'armour' | 'gadget' | 'fixed';
+
+export interface ItemDef {
+    slot: Slot;
+    /** How it shows when visible (§7.4). */
+    profile: Profile;
+    /** It has its own case and may be packed without a duffel (the DMR). */
+    cased?: boolean;
+    /** It may go in the duffel (long guns and armour, §7.3). */
+    duffel?: 'longGun' | 'armour';
+    /** A pistol that counts as Clean when holstered under a guard's uniform (§8.14). */
+    holsterable?: boolean;
+}
+
+/** What a packed item shows as, at most: its case or the duffel (§7.3). */
+export const PACKED_PROFILE: Profile = 'concealed';
+
+/** The duffel gadget (§7.3): holds one long gun and one armour piece. */
+export const DUFFEL_ITEM = 'duffel';
+
+export const ITEMS = {
+    // Weapons (§12.1). Unarmed is no item.
+    taser: { slot: 'sidearm', profile: 'clean' },
+    pistol: { slot: 'sidearm', profile: 'concealed', holsterable: true },
+    suppressedPistol: { slot: 'sidearm', profile: 'concealed', holsterable: true },
+    machinePistol: { slot: 'sidearm', profile: 'concealed' },
+    smg: { slot: 'primary', profile: 'armed', duffel: 'longGun' },
+    shotgun: { slot: 'primary', profile: 'armed', duffel: 'longGun' },
+    assaultRifle: { slot: 'primary', profile: 'armed', duffel: 'longGun' },
+    dmr: { slot: 'primary', profile: 'armed', duffel: 'longGun', cased: true },
+    lmg: { slot: 'primary', profile: 'heavy', duffel: 'longGun' },
+    // Armour (§12.3).
+    lightVest: { slot: 'armour', profile: 'concealed', duffel: 'armour' },
+    mediumArmour: { slot: 'armour', profile: 'armed', duffel: 'armour' },
+    [HEAVY_ARMOUR_ITEM]: { slot: 'armour', profile: 'heavy', duffel: 'armour' },
+    // Throwables, charges and gadgets (§12.2).
+    flashbang: { slot: 'gadget', profile: 'concealed' },
+    smoke: { slot: 'gadget', profile: 'concealed' },
+    noisemaker: { slot: 'gadget', profile: 'clean' },
+    breachCharge: { slot: 'gadget', profile: 'concealed' },
+    shapedCharge: { slot: 'gadget', profile: 'concealed' },
+    thermite: { slot: 'gadget', profile: 'armed' },
+    drill: { slot: 'gadget', profile: 'armed' },
+    tripwire: { slot: 'gadget', profile: 'concealed' },
+    jammer: { slot: 'gadget', profile: 'concealed' },
+    hackingKit: { slot: 'gadget', profile: 'clean' },
+    lockpick: { slot: 'gadget', profile: 'clean' },
+    glassCutter: { slot: 'gadget', profile: 'clean' },
+    medkit: { slot: 'gadget', profile: 'clean' },
+    [DUFFEL_ITEM]: { slot: 'gadget', profile: 'concealed' },
+    ammoBag: { slot: 'gadget', profile: 'concealed' },
+    reinforcementKit: { slot: 'gadget', profile: 'concealed' },
+    // Everyone carries these (§7.3). The mask counts only when worn (`Loadout.masked`).
+    zipTies: { slot: 'fixed', profile: 'clean' },
+    phone: { slot: 'fixed', profile: 'clean' },
+    mask: { slot: 'fixed', profile: 'clean' },
+    scanner: { slot: 'fixed', profile: 'clean' }
+} as const satisfies Record<string, ItemDef>;
+
+export type ItemId = keyof typeof ITEMS;
+
+export const isItem = (id: string): id is ItemId => Object.hasOwn(ITEMS, id);
+
+export function itemDef(id: string): ItemDef {
+    if (!isItem(id)) throw new Error(`No item '${id}'`);
+    return ITEMS[id];
+}
+
+/** Wearing a mask sets the profile to Heavy (§6.3, §7.4). */
+export const MASK_PROFILE: Profile = 'heavy';
+
+/** Things carried in the hands that show (§7.4): a loot bag, a body. Augmented by the carrying package (M2-04). */
+export const CARRIED: Readonly<Record<string, Profile>> = {
+    lootBag: 'armed',
+    body: 'armed'
+};

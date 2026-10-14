@@ -84,7 +84,7 @@ const SHAPE_HASHES: Record<number, string> = {
 /** Paths whose objects are records by id, not structs. */
 const RECORDS = new Set([
     'world.edges', 'world.doors', 'state.doors', 'state.edges', 'state.objects', 'state.cameras', 'state.rng',
-    'state.npcs[].suspicion'
+    'state.npcs[].suspicion', 'state.npcs[].lastSeen'
 ]);
 
 /** Two shapes as one: the union of their fields, and "a|b" where a field has two types. */
@@ -121,11 +121,19 @@ describe('the save format', () => {
         full.npcs[0]!.suspicion = { jun: 1 };
         full.npcs[0]!.exposedTo = ['jun'];
         full.npcs[0]!.intent = { path: [{ x: 1, y: 1 }], facing: 'n' };
+        full.npcs[0]!.alerted = true;
+        full.npcs[0]!.alertCause = 'exposed jun';
+        full.npcs[0]!.warned = ['mara'];
+        full.npcs[0]!.challenges = [{ crew: 'mara', deadline: 3 }];
+        full.npcs[0]!.wants = [{ kind: 'escort', crew: 'mara', tile: { x: 1, y: 1 }, decided: { turn: 1, phase: 'world' }, until: 3 }];
+        full.npcs[0]!.lastSeen = { jun: { tile: { x: 0, y: 0 }, turn: 1 } };
+        full.cameraReports = [{ camera: 'cam', crew: 'jun', tile: { x: 0, y: 0 }, turn: 1, phase: 'crew' }];
+        full.crew[0]!.notoriety = 2;
         full.edges['eastWest 0 1'] = { material: 'soft', blocksMove: false, blocksSight: false, blocksSound: false, midHeight: false };
         full.doors.staffDoor = { status: 'open', propped: true };
         full.objects.panel = { disabled: true, open: false };
         full.cameras.cam = { facing: 0, live: true };
-        full.crew[0]!.loadout.items = ['pistol'];
+        full.crew[0]!.loadout = { items: ['pistol', 'duffel'], packed: ['assaultRifle'], uniform: 'staff', masked: false, carrying: 'lootBag' };
         full.dice.push({ turn: 1, kind: 'chance', stream: 'combat', reason: 'hit', value: 0.5, p: 0.7 });
         full.rng.combat = 5;
         full.carriers.push({ id: 'carrier-9', kind: 'tellerButton', source: 'teller', pos: { x: 0, y: 0 }, countdown: 2, started: { turn: 1, phase: 'world' }, halted: null });
