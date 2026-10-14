@@ -43,10 +43,13 @@ export const WALL_MATERIALS: Readonly<Record<WallKind, Readonly<WallMaterial>>> 
     curtain: clear('glass'),
     doorTower: clear('glass'),
     tellerWindow: clear('tellerGlass'),
-    // A chain-link fence passes sight and sound but nobody, and no tool opens it; a railing is low: half cover.
-    fence: clear('boundary'),
-    rail: { ...clear('boundary'), halfCover: true }
+    // A chain-link fence and a railing pass sight, sound and bullets but nobody; a railing is low: half cover.
+    fence: clear('fence'),
+    rail: { ...clear('rail'), halfCover: true }
 };
 
-/** The wall kinds that are doors: each stands where the generator put a door, and opens. */
-export const DOOR_KINDS: readonly WallKind[] = ['doorWood', 'doorKeycard', 'doorService', 'doorGlass', 'doorTower', 'doorBack', 'vaultDoor'];
+/**
+ * The wall kinds that are doors: each stands where the generator put a door, or beside one as its other leaf, and
+ * opens. A rolling shutter is a door too (the loading bay's).
+ */
+export const DOOR_KINDS: readonly WallKind[] = ['doorWood', 'doorKeycard', 'doorService', 'doorGlass', 'doorTower', 'doorBack', 'vaultDoor', 'shutter'];

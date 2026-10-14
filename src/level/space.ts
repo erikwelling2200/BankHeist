@@ -1,4 +1,4 @@
-import { TILE } from './level';
+import { TILE } from './constants';
 
 /**
  * The world's 3D scale and how objects occupy it. One pixel is about 8cm in every direction, so a tile is about 1.3m,

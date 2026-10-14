@@ -36,8 +36,8 @@ export interface FixtureOptions {
 const ZONES: Readonly<Record<string, Zone>> = { '.': 'public', s: 'staff', x: 'secure' };
 const OBJECTS = new Set(['#', 'T']);
 
-/** Materials that let sight through (§8.3: glass doesn't block it). */
-const SEE_THROUGH: readonly Material[] = ['glass', 'tellerGlass'];
+/** Materials that let sight through (§8.3: glass doesn't block it, nor do railings and fences). */
+const SEE_THROUGH: readonly Material[] = ['glass', 'tellerGlass', 'rail', 'fence'];
 
 export function fixtureWorld(map: readonly string[], options: FixtureOptions = {}): ReadonlyWorld {
     const height = map.length, width = map[0]?.length ?? 0;
@@ -68,7 +68,7 @@ export function fixtureWorld(map: readonly string[], options: FixtureOptions = {
         for (const p of [a, b]) if (p.x < 0 || p.y < 0 || p.x >= width || p.y >= height) throw new Error(`Wall tile (${p.x}, ${p.y}) is off the map`);
         const edge = edgeBetween(a, b), key = edgeKey(edge), material = wall.material ?? 'soft';
         if (edges[key]) throw new Error(`Two walls on the edge '${key}'`);
-        const built: WallEdge = { ...edge, material, blocksSight: !SEE_THROUGH.includes(material), blocksMove: true };
+        const built: WallEdge = { ...edge, material, blocksSight: !SEE_THROUGH.includes(material), blocksMove: true, ...(material === 'rail' ? { halfCover: true as const } : {}) };
         if (wall.door) {
             const { id, lock = 'none', start = 'closed' } = wall.door;
             if (doors[id]) throw new Error(`Two doors with the id '${id}'`);

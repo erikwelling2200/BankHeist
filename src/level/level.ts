@@ -1,6 +1,6 @@
 import type { Point } from '../logic/vision';
-
-export const TILE = 16;
+import { TILE } from './constants';
+export { TILE };
 
 /**
  * Legend: `#` wall, `.` floor, `P` player start, `G` gold bar, `L` ceiling lamp, `E` exit,

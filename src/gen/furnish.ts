@@ -1,4 +1,4 @@
-import { TILE } from '../level/level';
+import { TILE } from '../level/constants';
 import { isOnTop, propBox, propSpan } from '../level/catalog';
 import type { LevelProp } from '../level/plan';
 import { boxesOverlap, PERSON_SIZE, place, type Box } from '../level/space';

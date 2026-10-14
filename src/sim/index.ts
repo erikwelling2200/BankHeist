@@ -22,5 +22,6 @@ export { assertPlainJson, clonePlain, deepFreeze, hashOf, sortedIds, stableJson 
 export { startCarrier } from './rules/carriers';
 export { freezeWorld } from './world/freeze';
 export { fixtureWorld, type FixtureOptions, type FixtureWall } from './world/fixture';
-export { worldFromBank, OBJECT_KINDS } from './world/fromBank';
+export { worldFromBank, NOT_CARRIERS, OBJECT_KINDS } from './world/fromBank';
 export { WALL_MATERIALS, DOOR_KINDS, type WallMaterial } from './world/materials';
+export { packWorld, unpackWorld, packTiles, unpackTiles, type PackedTiles, type PackedWorld } from './world/compact';

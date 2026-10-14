@@ -1,7 +1,7 @@
 import { propBox, propSpan } from './catalog';
-import { TILE } from './level';
+import { TILE } from './constants';
 import type { LevelProp } from './plan';
-import { boxesOverlap, PERSON_SIZE, place, WALL_HEIGHT, type Box } from './space';
+import { boxesOverlap, PERSON_SIZE, place, px, WALL_HEIGHT, type Box } from './space';
 import type { Wall, WallRun } from './walls';
 
 /*
@@ -11,8 +11,10 @@ import type { Wall, WallRun } from './walls';
  *
  * - **blocked:** something standing on the floor fills the spot a person stands on in the middle of the tile (a desk,
  *   a counter, a bin); the counter's gate stays open.
- * - **tall:** full-height furniture standing on the floor touches the tile (a shelf, a column): it blocks sight.
- * - **halfCover:** blocked by something low, not tall: a desk or a counter to crouch behind (§11.4).
+ * - **tall:** full-height furniture standing on the floor fills that same spot (a shelf, a column): it blocks sight.
+ *   Standing in front of a shelf against the wall, where the shelf only reaches into the tile's edge, doesn't.
+ * - **halfCover:** blocked, not tall, by something standing on the floor at least `HALF_COVER_HEIGHT` tall: a desk, a
+ *   counter, a planter, a sofa, a chair (§11.4). A bin, a wet-floor sign or a coffee table doesn't hide anyone.
  */
 
 /** A prop and the box it fills in the world. */
@@ -37,6 +39,12 @@ export function isGap(prop: LevelProp, x: number, y: number): boolean {
 
 /** Whether a box is full-height furniture standing on the floor, which blocks sight (§8.3). */
 export const isTall = (box: Box): boolean => box.h >= WALL_HEIGHT - 4 && box.z === 0;
+
+/**
+ * The least height of something on the floor that gives half cover (§11.4), about a desk's: a desk (0.75m), a sofa
+ * (0.85m) and a counter (1.2m) do; a bin (0.6m) and a coffee table (0.45m) don't.
+ */
+export const HALF_COVER_HEIGHT = px(0.7);
 
 /** Whether a placed prop stands in the way of a person in the middle of tile (x, y). */
 export function blocksMoveAt(placed: PlacedProp, x: number, y: number): boolean {
@@ -80,16 +88,18 @@ export function wallLookup(walls: readonly Wall[]): WallAt {
 /** The blocked, tall and half-cover grids of a `width` × `height` map from its placed props. */
 export function tileGrids(width: number, height: number, placed: readonly PlacedProp[]): TileGrids {
     const n = width * height, blocked = new Uint8Array(n), tall = new Uint8Array(n), halfCover = new Uint8Array(n);
+    const cover = new Uint8Array(n);
     for (const p of placed) {
-        const isFull = isTall(p.box);
+        const full = isTall(p.box), low = p.box.z === 0 && p.box.h >= HALF_COVER_HEIGHT;
         for (const { x, y } of tilesOfBox(p.box)) {
-            if (x < 0 || y < 0 || x >= width || y >= height) continue;
+            if (x < 0 || y < 0 || x >= width || y >= height || !blocksMoveAt(p, x, y)) continue;
             const i = y * width + x;
-            if (isFull) tall[i] = 1;
-            if (blocksMoveAt(p, x, y)) blocked[i] = 1;
+            blocked[i] = 1;
+            if (full) tall[i] = 1;
+            else if (low) cover[i] = 1;
         }
     }
-    for (let i = 0; i < n; i++) if (blocked[i] && !tall[i]) halfCover[i] = 1;
+    for (let i = 0; i < n; i++) if (cover[i] && !tall[i]) halfCover[i] = 1;
     return { width, height, blocked, tall, halfCover };
 }
 

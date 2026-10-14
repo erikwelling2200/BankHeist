@@ -21,10 +21,7 @@ const ALLOWED = ['src/sim/', 'src/level/', 'src/gen/'];
  * Files the walk may reach that break the rules on purpose, each with its reason. They may only be used to build the
  * World, never by a rule during play.
  */
-const BUILD_ONLY: Readonly<Record<string, string>> = {
-    // worldFromBank reaches it for TILE only (through src/level/catalog.ts and tileProps.ts), once, to build the World.
-    'src/level/level.ts': "The old demo's level parser orders patrol waypoints with Math.atan2; it goes with the demo in M1-16."
-};
+const BUILD_ONLY: Readonly<Record<string, string>> = {};
 
 /** Globals the rules may not name. */
 const BANNED_GLOBALS = new Set(['Date', 'globalThis', 'performance', 'crypto', 'window', 'document', 'self', 'navigator', 'process', 'eval', 'Function', 'Intl']);

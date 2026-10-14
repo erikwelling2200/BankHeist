@@ -150,6 +150,7 @@ function finishBank(shell: Shell, rng: Rng, people: Rng, spec: TierSpec, opts: G
     const parcelCtx = { gateX: shell.gateX, tellers: spec.tellers[1], frontDoorX: shell.frontDoorX, metalDetector: spec.metalDetector, motionSensors: spec.motionSensors, dyePacks: spec.dyePacks, vaultClass, ...(shell.driveWindow ? { driveWindow: shell.driveWindow } : {}) };
     const furnished = furnishBank(site, bank, furnish, rng.fork('parcels'), parcelCtx);
     // What the furniture blocks: movement, and sight where it is full height (§8.3). The same grids build the rules' World.
+    // Built again after the ways in, which add props of their own (ladders, hatches, grates, the getaway van).
     const ways = placeWays({ site, plot, bank, neighbours: shell.neighbours, furnished, furnish, nav: new Nav(site, siteGrids(site)), rng: rng.fork('ways'), tier, frontDoorX: shell.frontDoorX, skylight: shell.skylight, softOutside: archetype === 'fortress' });
     const grids = siteGrids(site);
     const nav = new Nav(site, grids);

@@ -1,4 +1,4 @@
-import { TILE } from '../level/level';
+import { TILE } from '../level/constants';
 import type { Placed } from './furnish';
 import type { GenRoom, RoomType } from './model';
 import type { Nav } from './nav';

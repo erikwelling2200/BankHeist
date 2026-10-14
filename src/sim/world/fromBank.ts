@@ -16,13 +16,14 @@ import { DOOR_KINDS, WALL_MATERIALS } from './materials';
  * generator hands out, through the same pieces it used itself, so the two agree:
  *
  * - tiles: the zone of their room (the street and the neighbours count as Public, implementation plan §6.7), raised and
- *   floor height from the floor, lit unless the room has no light and is indoors (§6.10: the baked lamps are art, not
+ *   floor height from the floor (a flight of stairs is ground floor; its top step is the climb onto the landing), lit unless the room has no light and is indoors (§6.10: the baked lamps are art, not
  *   rules), and what the furniture does from `src/level/tileProps.ts`, the grids the generator's `Nav` reads. Tiles
  *   off the map are walls of nothing: no room, blocked and tall.
  * - edges: every wall segment, with its material from `materials.ts` and the door that stands in it.
  * - doors: every door with a leaf (open doorways and counter gates are gaps, not doors): closed, or locked if it has a
  *   lock (§6.9).
- * - objects: the props the rules act on (panels, consoles, hatches; `OBJECT_KINDS`), the alarm stations and the loot.
+ * - objects: the props the rules act on (panels, consoles, hatches; `OBJECT_KINDS`), the CCTV desk's recorder, the
+ *   manager's PC, the alarm buttons that start a §9.1 carrier, and the loot.
  * - people: their role, observer class and schedule (as the generator writes it; M1-06 compiles it); cameras with
  *   their facings, two for a panning one.
  */
@@ -50,8 +51,19 @@ export const OBJECT_KINDS: Partial<Record<LevelProp['kind'], string>> = {
     ventGrille: 'vent',
     manhole: 'manhole',
     skylight: 'skylight',
-    wallLadder: 'ladder'
+    wallLadder: 'ladder',
+    // The back lot's generator: the building's backup power (§14.1 Powered).
+    generator: 'generator'
 };
+
+/** The most a person climbs between neighbouring tiles without stairs: a step of a flight (as `src/gen/site.ts`). */
+const MAX_STEP = RAISED_HEIGHT / 3;
+
+/**
+ * Alarm stations that start no carrier of §9.1: the alarm closet's panel (an object of its own) and the CCTV console's
+ * button (the operator verifies through the cameras instead).
+ */
+export const NOT_CARRIERS: ReadonlySet<string> = new Set(['Alarm panel', 'CCTV console panic button']);
 
 const zoneOf = (room: GenRoom): Zone => (room.zone === 'outdoors' || room.zone === 'neighbour' ? 'public' : room.zone);
 const litOf = (room: GenRoom): boolean => room.light !== 'none' || room.zone === 'outdoors';
@@ -59,7 +71,8 @@ const litOf = (room: GenRoom): boolean => room.light !== 'none' || room.zone ===
 export function worldFromBank(bank: GeneratedBank): ReadonlyWorld {
     const { tiles: floors, walls } = bank.level;
     const height = floors.length, width = floors[0]?.length ?? 0;
-    const grids = propTileGrids(width, height, bank.props, wallLookup(walls));
+    const wallOn = wallLookup(walls);
+    const grids = propTileGrids(width, height, bank.props, wallOn);
 
     // Which room each tile is in: the rooms' parts tile the map (the generator's owner grid, §17).
     const owner: (GenRoom | undefined)[] = new Array<GenRoom | undefined>(width * height).fill(undefined);
@@ -78,6 +91,22 @@ export function worldFromBank(bank: GeneratedBank): ReadonlyWorld {
             zone: zoneOf(room), raised: floor === RAISED_HEIGHT, floor, lit: litOf(room),
             blocksMove: grids.blocked[i] === 1, tall: grids.tall[i] === 1, halfCover: grids.halfCover[i] === 1, room: room.id
         });
+    }
+
+    // Stairs (§14.7): the flight is ground floor, and its top step leads onto the raised landing beside it.
+    const SIDES = [['n', 0, -1], ['e', 1, 0], ['s', 0, 1], ['w', -1, 0]] as const;
+    for (let y = 0; y < height; y++) for (let x = 0; x < width; x++) {
+        const tile = tiles[y * width + x]!;
+        if (tile.raised || !tile.room || floors[y]![x] !== 'z') continue;
+        for (const [to, dx, dy] of SIDES) {
+            const nx = x + dx, ny = y + dy, next = nx >= 0 && ny >= 0 && nx < width && ny < height ? tiles[ny * width + nx]! : undefined;
+            if (!next?.raised || !next.room || next.floor - tile.floor > MAX_STEP) continue;
+            // Up through a doorway or a door, not through a wall or a railing.
+            const wall = wallOn(dx ? { run: 'northSouth', tx: Math.max(x, nx), ty: y } : { run: 'eastWest', tx: x, ty: Math.max(y, ny) });
+            if (wall && !DOOR_KINDS.includes(wall.kind)) continue;
+            tile.climb = { kind: 'stairs', to };
+            break;
+        }
     }
 
     const doorAt = new Map(bank.doors.filter(d => !d.open).map(d => [edgeKey(d), d]));
@@ -122,12 +151,14 @@ export function worldFromBank(bank: GeneratedBank): ReadonlyWorld {
         if (!kind) continue;
         add(kind, prop.tx, prop.ty, PROP_FACING[prop.facing ?? CATALOG[prop.kind].facing ?? 'south'], kind === 'cctvDesk' ? { monitors: bank.monitors } : {});
     }
+    // The CCTV desk holds the footage recorder (§8.12): 1 action to destroy or take it.
+    for (const o of objects.filter(o => o.kind === 'cctvDesk')) add('recorder', o.pos.x, o.pos.y, o.facing);
     // A manager's PC: the desk in the manager's office (documents, the camera feeds' log-in).
     for (const prop of bank.props) {
         if (prop.kind !== 'desk' || bank.rooms.find(r => r.id === roomAt(prop.tx, prop.ty))?.type !== 'managerOffice') continue;
         add('managerPc', prop.tx, prop.ty, PROP_FACING[prop.facing ?? 'south']);
     }
-    for (const a of bank.alarms) add('alarmButton', a.tx, a.ty, 's', { name: a.name });
+    for (const a of bank.alarms) if (!NOT_CARRIERS.has(a.name)) add('alarmButton', a.tx, a.ty, 's', { name: a.name });
     for (const l of bank.loot) add('loot', l.tx, l.ty, 's', { name: l.name, loot: { value: l.value, weight: l.weight } });
 
     const people: PersonDef[] = bank.people.map(p => ({

@@ -1,3 +1,4 @@
+import { packWorld, unpackWorld, type PackedWorld } from '../world/compact';
 import { freezeWorld } from '../world/freeze';
 import { assertPlainJson } from './json';
 import type { ReadonlyWorld, SimEvent, State, World } from './types';
@@ -19,7 +20,8 @@ export interface Save {
     format: number;
     /** The generator that built the world ('fixture' for test worlds), so a seed-only save can be rebuilt later. */
     genVersion: string;
-    world: World;
+    /** The world with its tiles packed by field (`world/compact.ts`): most of a save's size otherwise. */
+    world: PackedWorld;
     state: State;
     recent: SimEvent[];
     undo: State[];
@@ -43,7 +45,7 @@ export function serialise(saved: { genVersion: string; world: ReadonlyWorld; sta
     const save = {
         format: SAVE_FORMAT,
         genVersion: saved.genVersion,
-        world: saved.world,
+        world: packWorld(saved.world),
         state: saved.state,
         recent: (saved.recent ?? []).slice(-RECENT_EVENTS),
         undo: saved.undo ?? []
@@ -84,5 +86,11 @@ export function deserialise(text: string): Saved {
     save.recent.forEach((e, i) => {
         if (!e || typeof e !== 'object' || typeof (e as { type?: unknown }).type !== 'string') throw new SaveFormatError(`recent[${i}] isn't an event`);
     });
-    return { genVersion: save.genVersion, world: freezeWorld(save.world), state: save.state, recent: save.recent, undo: save.undo };
+    let world: World;
+    try {
+        world = unpackWorld(save.world);
+    } catch (e) {
+        throw new SaveFormatError(`The save's world can't be unpacked: ${(e as Error).message}`);
+    }
+    return { genVersion: save.genVersion, world: freezeWorld(world), state: save.state, recent: save.recent, undo: save.undo };
 }

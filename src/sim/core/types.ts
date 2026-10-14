@@ -33,8 +33,12 @@ export type Facing = 'n' | 'ne' | 'e' | 'se' | 's' | 'sw' | 'w' | 'nw';
 /** The legal status of a floor tile (§8.1). The street and the pavement count as Public. */
 export type Zone = 'public' | 'staff' | 'secure';
 
-/** What a wall segment or object is made of (§14.1); decides what passes it and what breaks it (§14.2). */
-export type Material = 'glass' | 'tellerGlass' | 'soft' | 'reinforced' | 'vault' | 'boundary';
+/**
+ * What a wall segment or object is made of (§14.1); decides what passes it and what breaks it (§14.2). A railing and a
+ * chain-link fence stop people but let sight, sound and bullets through (a railing is also half cover); Boundary is
+ * the plot's edge, which nothing passes or opens.
+ */
+export type Material = 'glass' | 'tellerGlass' | 'soft' | 'reinforced' | 'vault' | 'rail' | 'fence' | 'boundary';
 
 /** How a door locks (§14.1); the same set as the generator's `Lock`. */
 export type Lock = 'none' | 'mechanical' | 'keycard' | 'maglock' | 'vault';
@@ -44,6 +48,16 @@ export type ObserverClass = 'civilian' | 'staff' | 'enforcer';
 
 // ---------------------------------------------------------------------------------------------------------- World
 
+/** The orthogonal sides a climb tile can lead to. */
+export type ClimbSide = 'n' | 'e' | 's' | 'w';
+
+/** A stair or ladder tile's way up (§14.7). */
+export interface Climb {
+    kind: 'stairs' | 'ladder';
+    /** The side of the raised tile it leads to. */
+    to: ClimbSide;
+}
+
 /** One floor tile and what stands on it (§14.1). Objects that matter to rules beyond these flags are `WorldObject`s. */
 export interface Tile {
     zone: Zone;
@@ -51,6 +65,8 @@ export interface Tile {
     raised: boolean;
     /** How high the floor is, in art pixels: 0 on the ground, a storey when raised, between on stairs (§14.7 step limit). */
     floor: number;
+    /** A stair or ladder tile (§14.7): ground floor, the only way onto the raised tile on its `to` side. */
+    climb?: Climb;
     /** Lit at the start; darkness halves vision (§8.3). */
     lit: boolean;
     /** Something stands on it that nobody walks through (a desk, a counter, a column). */
@@ -100,7 +116,8 @@ export interface DoorDef {
 
 /**
  * Something the crew can interact with (§6.3 Interact): a panel, a console, a drawer, loot. `kind` names what it is;
- * the package that handles a kind gives it its rules, and its live state goes in `State.objects`.
+ * the package that handles a kind gives it its rules, and its live state goes in `State.objects`. `pos` is the tile it
+ * stands or hangs on; one on a furniture tile (a console, a desk) is used from a tile next to it.
  */
 export interface WorldObject {
     id: string;
