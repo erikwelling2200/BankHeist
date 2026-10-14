@@ -35,7 +35,7 @@ async function shot(page: Page, name: string): Promise<void> {
     await frames(page, 2);
     await page.waitForFunction(() => (window as any).game.scene.getScene('bank')?.debugState.settled !== false, null, { timeout: 20000 });
     await frames(page, 2);
-    await expect(page.locator('canvas')).toHaveScreenshot(`${name}.png`, { ...tolerance, timeout: 20000 });
+    await expect(page.locator('canvas')).toHaveScreenshot(`${name}.png`, { ...tolerance, timeout: 60000 });
 }
 
 const toggleMap = (page: Page) => page.evaluate(() => (window as any).game.scene.getScene('bank').toggleMap());

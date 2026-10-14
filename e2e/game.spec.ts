@@ -20,7 +20,10 @@ async function boot(page: Page, scene: 'bank' | 'example' | 'vault' = 'vault', q
     return errors;
 }
 
-test('boots into the bank without errors', async ({ page }) => {
+/** `npm run test:smoke` runs only the tests tagged `@smoke`: a quick check that every page still boots. */
+const SMOKE = { tag: '@smoke' };
+
+test('boots into the bank without errors', SMOKE, async ({ page }) => {
     const errors = await boot(page, 'bank');
     await page.locator('canvas').screenshot({ path: 'screenshots/start.png' });
     expect(errors).toEqual([]);
@@ -280,7 +283,7 @@ test.describe('generated banks (§17)', () => {
     });
 
     for (const archetype of ['twoWing', 'atrium', 'threeKeys', 'fortress', 'mezzanineWatch']) {
-        test(`draws a ${archetype} bank that passes its checks`, async ({ page }) => {
+        test(`draws a ${archetype} bank that passes its checks`, archetype === 'twoWing' ? SMOKE : {}, async ({ page }) => {
             const errors = await boot(page, 'bank', `seed=31-2&tier=city&archetype=${archetype}`);
             const g = await generated(page);
             expect(g.archetype).toBe(archetype);
@@ -377,7 +380,7 @@ test.describe('the generator bar', () => {
         expect(errors).toEqual([]);
     });
 
-    test('regenerates the bank as an archetype is picked, and again on Regenerate', async ({ page }) => {
+    test('regenerates the bank as an archetype is picked, and again on Regenerate', SMOKE, async ({ page }) => {
         const errors = await boot(page, 'bank', 'seed=5-5&tier=city');
         const bar = page.locator('.generator-bar');
         await expect(bar).toBeVisible();
@@ -419,7 +422,7 @@ test.describe('the generator bar', () => {
     });
 });
 
-test('shows every room type furnished in the room gallery', async ({ page }) => {
+test('shows every room type furnished in the room gallery', SMOKE, async ({ page }) => {
     await page.setViewportSize({ width: 1600, height: 1000 });
     const errors: string[] = [];
     page.on('pageerror', e => errors.push(e.message));
@@ -435,7 +438,7 @@ test('shows every room type furnished in the room gallery', async ({ page }) => 
     expect(errors).toEqual([]);
 });
 
-test('renders every prop in its four facings', async ({ page }) => {
+test('renders every prop in its four facings', SMOKE, async ({ page }) => {
     const errors: string[] = [];
     page.on('pageerror', e => errors.push(e.message));
     page.on('console', m => { if (m.type() === 'error') errors.push(m.text()); });

@@ -6,9 +6,9 @@ import { PixelBitmap } from '../PixelBitmap';
 /*
  * Lamp light, worked out once rather than by the engine's lights, so walls block it. Phaser's Light2D lights have no
  * occlusion: a lamp in the lobby lit the pavement through the shop front. Walls never move, so each lamp's reach is
- * traced against them when the level loads, and everything lit is baked with the same formula Light2D uses (ambient
- * plus, per light, colour × intensity × (1 - d²/r²) × the normal map's facing towards the light), so baked and engine
- * lighting look alike. The same reach answers which tiles are lit for the rules.
+ * traced against them once, a pixel at a time as it is first needed, and everything lit is baked with the same formula
+ * Light2D uses (ambient plus, per light, colour × intensity × (1 - d²/r²) × the normal map's facing towards the light),
+ * so baked and engine lighting look alike. The same reach answers which tiles are lit for the rules.
  */
 
 /**
@@ -110,8 +110,9 @@ export class LampReach {
         // is clear, unmarched. That is most of a lamp's own room.
         const b = Math.floor(j / BLOCK) * Math.ceil(mask.size / BLOCK) + Math.floor(i / BLOCK);
         if (mask.open[b] === -1) {
-            const x0 = mask.left + i - (i % BLOCK) - 1, y0 = mask.top + j - (j % BLOCK) - 1;
-            mask.open[b] = this.wallsIn(ray, Math.min(x0, ray.startX), Math.min(y0, ray.startY), Math.max(x0 + BLOCK + 1, ray.startX), Math.max(y0 + BLOCK + 1, ray.startY)) === 0 ? 1 : 0;
+            const x0 = Math.min(mask.left + i - (i % BLOCK) - 1, ray.startX), x1 = Math.max(mask.left + i - (i % BLOCK) + BLOCK, ray.startX);
+            const y0 = Math.min(mask.top + j - (j % BLOCK) - 1, ray.startY), y1 = Math.max(mask.top + j - (j % BLOCK) + BLOCK, ray.startY);
+            mask.open[b] = this.wallsIn(ray, x0, y0, x1, y1) === 0 ? 1 : 0;
         }
         if (mask.open[b] === 1) return true;
         ray.dx = dx;

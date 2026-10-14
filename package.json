@@ -11,8 +11,8 @@
     "test": "vitest run",
     "test:e2e": "playwright test --grep-invert @visual",
     "test:smoke": "playwright test --grep @smoke",
-    "test:visual": "playwright test --grep @visual",
-    "test:visual:update": "playwright test --grep @visual --update-snapshots",
+    "test:visual": "playwright test --grep @visual --fully-parallel",
+    "test:visual:update": "playwright test --grep @visual --fully-parallel --update-snapshots",
     "sweep": "vitest run --config scripts/vitest.sweep.config.ts",
     "screenshot": "playwright test -g \"boots into the bank\""
   },

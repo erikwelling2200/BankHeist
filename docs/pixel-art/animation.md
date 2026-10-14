@@ -211,7 +211,7 @@ step for only 1–3 game frames, uneven *(medium confidence: read from the zelda
 steps to drawings was not fully traced)*.
 
 The step size follows from the scale *(inference)*: a 1.4 m/s walk is 17.5 px/s, and a 0.7 m step is about 9 px. The
-game's patrols walk at exactly that speed (`WALK_SPEED = px(1.4)` in `src/scenes/BankScene.ts`), and the preview should
+game's patrols walk at exactly that speed (`WALK_SPEED = px(1.4)` in `src/scenes/bank/people.ts`), and the preview should
 match it, so a preview walk and a patrol look the same.
 
 | Cycle | Per frame | Step per frame | Per cycle | Speed |
@@ -553,7 +553,7 @@ since the last update, also across the loop's end, so a hitch never drops a shot
 
 - `pixelArt: true` sets `roundPixels`, but still round positions yourself, once, from the foot anchor, so the logic,
   the bake and the shadow agree. `movePerson` already rounds the box.
-- Keep camera zoom whole-numbered (`BankScene.applyZoom` does).
+- Keep camera zoom whole-numbered (`BankCamera.applyZoom` does).
 - Sort by the feet: depth is `DEPTH.standing + baseLine(box)`. A crouch or dive keeps the same foot baseline so the
   figure doesn't flip in front of or behind its cover. Cover beside him on the side of the threat (west, for a shot to
   the west, see section 4) shares about his baseline, so the sort barely decides anything; what matters is that the
@@ -562,7 +562,7 @@ since the last update, also across the loop's end, so a hitch never drops a shot
 - The shadow is anchored to the footprint, not the sprite bounds. During a dive it follows the floor path while only
   the sprite lifts; a crouch can use a shadow 2 px wider.
 - Flash, smear, dust and shells are separate effect sprites placed from the same rounded anchor. In the bank, light
-  them through `BankScene.bake` or draw the flash unlit; the one-frame light on the officer's front is a relight of his
+  them through `Baker.bake` or draw the flash unlit; the one-frame light on the officer's front is a relight of his
   frame with the flash lamp (above).
 
 ### Tests
