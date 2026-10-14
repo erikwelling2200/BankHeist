@@ -12,7 +12,7 @@ import { part, roundBands, rows, Turn, View, type Faces, type Part, type PropArt
 
 const S = PAL.steel, W = PAL.walnut, O = PAL.oak, C = PAL.cloth.white;
 /** Bank-note bundles: grey-green paper with a paler band. */
-const CASH = [mix(PAL.leaf[2], PAL.paper[1], 0.45), mix(PAL.leaf[3], PAL.paper[2], 0.5), mix(PAL.leaf[4], PAL.paper[3], 0.55)] as const;
+export const CASH = [mix(PAL.leaf[2], PAL.paper[1], 0.45), mix(PAL.leaf[3], PAL.paper[2], 0.5), mix(PAL.leaf[4], PAL.paper[3], 0.55)] as const;
 /** A dim CCTV picture: grey-blue, unlit. */
 const FEED = [mix(PAL.emissive.screen[0], S[1], 0.5), mix(PAL.emissive.screen[1], S[3], 0.55), mix(PAL.emissive.screen[2], S[5], 0.5)] as const;
 

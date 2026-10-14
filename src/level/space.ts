@@ -101,5 +101,39 @@ export function boxesOverlap(a: Box, b: Box): boolean {
 /** The screen row of a box's front edge at floor level: its base line, which also orders drawing back to front. */
 export const baseLine = (box: Box): number => box.y + box.d;
 
+/**
+ * The box something raised stands on (a monitor on a desk): the one among `boxes` whose top is at its elevation and
+ * whose footprint holds its own.
+ */
+export function supportOf(box: Box, boxes: readonly Box[]): Box {
+    const under = boxes.find(b => b !== box && b.z + b.h === box.z && b.x <= box.x && box.x + box.w <= b.x + b.w && b.y <= box.y && box.y + box.d <= b.y + b.d);
+    if (!under) throw new Error(`Nothing under the ${box.w}x${box.d} box at (${box.x}, ${box.y}) has its top at ${box.z} and room for it`);
+    return under;
+}
+
+/**
+ * The screen row a box's front edge is drawn on, at its elevation. On the floor or a wall that is its base line less its
+ * elevation. On another box's top it is where that top is drawn, and tops are drawn at `TOP_DEPTH` of their depth, so a
+ * mug at the back of a desk stands at the back of the desk's top as drawn rather than floating above it.
+ */
+export function frontRow(box: Box, support?: Box): number {
+    if (support === undefined) return baseLine(box) - box.z;
+    return baseLine(support) - box.z - Math.round((baseLine(support) - baseLine(box)) * TOP_DEPTH);
+}
+
+/**
+ * Where a box comes when drawing back to front. Usually its base line; but a thing standing on another box has its base
+ * line on that box's top, behind its front edge, so ordering by it would hide a mug behind the desk it stands on.
+ * Instead it comes just after its support, in the gap before the next whole row (a person in front of the desk still
+ * covers both), and things on one top keep their own order, back to front.
+ */
+export function drawLine(box: Box, support?: Box): number {
+    if (support === undefined) return baseLine(box);
+    return baseLine(support) + 0.5 + (0.4 * (baseLine(box) - support.y)) / (support.d + 1);
+}
+
+/** How far a prop's unlit layer (its screens and lamps) is drawn in front of it: within its row, after its own lit pixels. */
+export const GLOW_DEPTH = 0.05;
+
 /** People stand in the middle of their tile: about 0.5m across the shoulders, 0.3m front to back, 1.75m tall. */
 export const PERSON_SIZE: Size = { w: px(0.5), d: px(0.3), h: px(1.75) };

@@ -103,9 +103,11 @@ export interface Room {
 
 /**
  * Static furniture and dressing. `tx`/`ty` is the north-west tile of the tiles the object occupies; its size, default
- * facing, alignment and elevation come from `CATALOG` (catalog.ts), and an entry can override facing, alignment or span.
+ * facing, alignment and elevation come from `CATALOG` (catalog.ts), and an entry can override facing, alignment, span or
+ * elevation. Things that stand on another prop (a monitor on a desk) take their elevation from the level: the height of
+ * that prop's top, in pixels.
  */
-type Placed = { tx: number; ty: number } & Partial<Pick<Placement, 'span' | 'alignX' | 'alignY' | 'facing'>>;
+type Placed = { tx: number; ty: number } & Partial<Pick<Placement, 'span' | 'alignX' | 'alignY' | 'facing' | 'elevation'>>;
 
 export type LevelProp = Placed & (
     | { kind: 'counter'; width: number; stations: number[]; closed: number[]; gate: number }
@@ -124,6 +126,8 @@ export type LevelProp = Placed & (
     | { kind: 'dumpster' | 'generator' }
     | { kind: 'tree' | 'bench' | 'rifleCase' }
     | { kind: 'floorGrate' | 'ventGrille' | 'roofHatch' | 'metalDetector' | 'motionSensor' | 'pillar' | 'tubeTerminal' | 'skylight' }
+    | { kind: 'meetingTable' | 'coatStand' | 'whiteboard' | 'cashBags' | 'cleaningTrolley' | 'wetFloorSign' }
+    | { kind: 'monitor' | 'deskLamp' | 'paperStack' | 'mug' | 'photoFrame' | 'cashCounter' | 'microwave' | 'cake' }
 );
 
 export type PersonFacing = 'front' | 'back';
