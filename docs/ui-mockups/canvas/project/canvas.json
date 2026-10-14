@@ -367,7 +367,7 @@
       "maxH": 520,
       "fill": "gray",
       "page": "hud",
-      "text": "Two layers. World UI (tints, rings, cones, arrows, plates) is pixel art drawn at twice the art resolution over the 16px grid. Screen UI (portraits, buttons, chips, numbers) is HTML, so it stays crisp.\n\nLeft thumb: crew and camera. Right thumb: actions, Confirm, Undo. Top: the bank's state and its clock. End turn is a hold, top right, away from Confirm.\n\nTo pinch-zoom any frame: claude.ai/artifact/QQCaptekEV1Upr1MbVAMkY"
+      "text": "Every frame is the game itself: the example bank, rendered by the build. Two layers on top. World UI (tints, rings, cones, arrows, plates) is pixel art drawn at twice the art resolution over the 16px grid. Screen UI (portraits, buttons, chips, numbers) is HTML, so it stays crisp.\n\nLeft thumb: crew and camera. Right thumb: actions, Confirm, Undo. Top: the bank's state and its clock. End turn is a hold, top right, away from Confirm.\n\nTo pinch-zoom any frame: claude.ai/artifact/QQCaptekEV1Upr1MbVAMkY"
     },
     "t-stealth": {
       "x": 0,

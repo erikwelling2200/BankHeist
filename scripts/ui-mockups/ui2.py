@@ -19,6 +19,10 @@ HOSTILE, CIV, CREWBLUE = RED, (214, 210, 200), (110, 160, 220)
 
 def cx(t): return t * TS + TS // 2
 
+# The game's people are 16x24 art pixels standing in the middle of their tile: the head reaches about HEAD UI pixels above
+# the tile's top edge and the feet stand FEET below it. Someone lying face down fills their tile instead.
+HEAD, FEET, LYING = 30, 19, 10
+
 def layer(w, h): return Image.new('RGBA', (w, h), (0, 0, 0, 0))
 
 def put(im, x, y, c, a=255):
@@ -111,15 +115,16 @@ def tints(im, info, skip=()):
                 elif k == 'grey':
                     put(im, x0 + px, y0 + py, (14, 14, 20), 120 if (px + py) % 2 else 150)
                 elif py % 2 == 0:
-                    put(im, x0 + px, y0 + py, c, 40 if k == 'safe' else 70)
+                    put(im, x0 + px, y0 + py, c, 80 if k == 'safe' else 110)
         for (dx, dy) in ((0, -1), (0, 1), (-1, 0), (1, 0)):
             nk = kinds.get((tx + dx, ty + dy))
             if nk == k or (k == 'safe' and nk is not None): continue
             for i in range(TS):
                 if dx == 0: x, y = x0 + i, y0 + (1 if dy < 0 else TS - 2)
                 else: x, y = x0 + (1 if dx < 0 else TS - 2), y0 + i
-                put(im, x, y, c, 235)
-                put(im, x + (1 if dx == 0 and dy > 0 else 0) * 0, y, c, 235)
+                put(im, x, y, c, 245)
+                put(im, x - dx, y - dy, c, 245)
+                put(im, x - 2 * dx, y - 2 * dy, INK, 90)
         g = glyphs.get((tx, ty))
         if k == 'grey' or g == '?': glyph(im, G['q'], x0 + 13, y0 + 12, GREY)
         elif g in ('+1', '+2'):
@@ -152,25 +157,16 @@ def arrow(im, tiles, c=BONE, a=230):
         line(im, bx, by, round(bx - 9 * math.cos(ang + s * 0.55)), round(by - 9 * math.sin(ang + s * 0.55)), c, a)
         line(im, bx - 1, by, round(bx - 1 - 9 * math.cos(ang + s * 0.55)), round(by - 9 * math.sin(ang + s * 0.55)), c, a, shadow=False)
 
-def blocks_px(blocks_sight, x0, y0, x1, y1):
-    n = int(max(abs(x1 - x0), abs(y1 - y0)) / 6) + 1
-    tx1, ty1 = int(x1 // TS), int(y1 // TS)
-    for i in range(1, n):
-        x = x0 + (x1 - x0) * i / n; y = y0 + (y1 - y0) * i / n
-        tx, ty = int(x // TS), int(y // TS)
-        if (tx, ty) != (tx1, ty1) and blocks_sight(tx, ty): return True
-    return False
-
-def cone(im, blocks_sight, tx, ty, facing, rng, half, c, fill=40, dotted=False):
-    """Vision or watch cone: scanline fill, hairline edge, clipped by walls."""
-    ox, oy = cx(tx), cx(ty); R = rng * TS
+def cone(im, sight, tx, ty, facing, rng, half, c, fill=40, dotted=False):
+    """Vision or watch cone: scanline fill, hairline edge, clipped by walls. `sight(ox, oy)` gives a Sight from a point."""
+    ox, oy = cx(tx), cx(ty); R = rng * TS; sees = sight(ox, oy)
     for y in range(max(0, oy - R), min(im.height, oy + R)):
         for x in range(max(0, ox - R), min(im.width, ox + R)):
             d = math.hypot(x - ox, y - oy)
             if d > R or d < 10: continue
             da = abs((math.degrees(math.atan2(y - oy, x - ox)) - facing + 180) % 360 - 180)
             if da > half: continue
-            if blocks_px(blocks_sight, ox, oy, x, y): continue
+            if not sees(x, y): continue
             edge = abs(da - half) < 50 / max(d, 1) or R - d < 1
             if edge:
                 if not dotted or (int(d) // 3) % 2 == 0: put(im, x, y, c, 220)
@@ -191,18 +187,18 @@ def ring(im, tiles, c, fill=0, dotted=True):
                 elif dy == 1: X, Y = x0 + k, y0 + TS - 1
                 elif dx == -1: X, Y = x0, y0 + k
                 else: X, Y = x0 + TS - 1, y0 + k
-                put(im, X, Y, c, 240)
+                put(im, X, Y, c, 245); put(im, X - dx, Y - dy, c, 200)
 
-def arcs(im, blocks_sight, sx, sy, ang, aim, rec, bullets, rng, c=(236, 214, 160)):
+def arcs(im, sight, sx, sy, ang, aim, rec, bullets, rng, c=(236, 214, 160)):
     """Shot cone: each bullet's arc as a hairline, bullet 1 brightest; faint scanline fill; cut at blockers."""
-    R = rng * TS; widest = aim + (bullets - 1) * rec
+    R = rng * TS; widest = aim + (bullets - 1) * rec; sees = sight(sx, sy)
     for y in range(max(0, int(sy - R)), min(im.height, int(sy + R))):
         for x in range(max(0, int(sx - R)), min(im.width, int(sx + R))):
             d = math.hypot(x - sx, y - sy)
             if d > R or d < 10: continue
             da = abs((math.degrees(math.atan2(y - sy, x - sx)) - ang + 180) % 360 - 180)
             if da > widest / 2 + 0.01: continue
-            if blocks_px(blocks_sight, sx, sy, x, y): continue
+            if not sees(x, y): continue
             k = next((b for b in range(bullets) if da <= (aim + b * rec) / 2), bullets - 1)
             on_edge = any(abs(da - (aim + b * rec) / 2) < 28 / max(d, 1) for b in range(bullets))
             if on_edge: put(im, x, y, c, 235 if k == 0 else max(90, 220 - k * 25))
@@ -218,7 +214,7 @@ def bracket(im, tx, ty, c, w=1, h=1, arm=6):
         line(im, x, y, x + sx * arm, y, c); line(im, x, y, x, y + sy * arm, c)
 
 def crew_ring(im, tx, ty, c):
-    ox, oy = cx(tx), ty * TS + 29
+    ox, oy = cx(tx), ty * TS + FEET
     for a in range(0, 360, 3):
         x = ox + round(12 * math.cos(math.radians(a))); y = oy + round(4 * math.sin(math.radians(a)))
         if 200 < a < 340: continue
@@ -236,13 +232,13 @@ def plate(im, x, y, w, h, c):
     rect(im, x, y, x + w - 1, y + h - 1, (12, 11, 15), 215)
     frame(im, x, y, x + w - 1, y + h - 1, c, 235)
 
-def badge(im, tx, ty, kind, c, n=None, sym=None, dx=0):
+def badge(im, tx, ty, kind, c, n=None, sym=None, dx=0, lying=False):
     """A state plate over an NPC's head: thin border in the signal colour, glyph and countdown in that colour."""
     rows = G[kind]; gwid, ghei = len(rows[0]), len(rows)
     extra = (num_w(n) + 3) if n is not None else 0
     extra += (len(DIG[sym][0]) + 3) if sym else 0
     w, h = gwid + 8 + extra, max(ghei, 8) + 8
-    x = cx(tx) - w // 2 + dx; y = ty * TS - h - 1
+    x = cx(tx) - w // 2 + dx; y = ty * TS - h - 1 - (LYING if lying else HEAD)
     plate(im, x, y, w, h, c)
     glyph(im, rows, x + 4, y + (h - ghei) // 2, c, shadow=False)
     xx = x + 4 + gwid + 2
@@ -257,9 +253,9 @@ def pips(im, tx, ty, n, c, total=3, dy=0):
         if i < n: rect(im, x, y, x + 3, y + 3, c); rect(im, x + 1, y + 4, x + 4, y + 4, INK, 190); rect(im, x + 4, y + 1, x + 4, y + 3, INK, 190)
         else: frame(im, x, y, x + 3, y + 3, (110, 106, 118), 230)
 
-def marker(im, tx, ty, kind):
+def marker(im, tx, ty, kind, lying=False):
     """Bodies in the cone: hostile diamond, civilian circle, crew triangle, as outlined shapes above the head."""
-    x, y = cx(tx), ty * TS - 4
+    x, y = cx(tx), ty * TS - 4 - (LYING if lying else HEAD)
     shapes = {
         'hostile': (HOSTILE, ['....x....', '...x.x...', '..x.x.x..', '.x.xxx.x.', 'x.xxxxx.x', '.x.xxx.x.', '..x.x.x..', '...x.x...', '....x....']),
         'civ': (CIV, ['...xxx...', '.xx...xx.', '.x.xxx.x.', 'x.xxxxx.x', 'x.xxxxx.x', 'x.xxxxx.x', '.x.xxx.x.', '.xx...xx.', '...xxx...']),

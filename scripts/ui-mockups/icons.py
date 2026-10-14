@@ -6,7 +6,7 @@ import sys, os, math, random
 from PIL import Image, ImageDraw
 OUT = sys.argv[1]
 os.makedirs(OUT, exist_ok=True)
-BONE, INK = (226, 218, 198), (8, 7, 10)
+BONE, INK = (242, 230, 200), (11, 13, 23)   # the game HUD's cream and night blue (src/style.css)
 N = 24
 
 def L(d, pts, w=2): d.line(pts, fill=BONE, width=w)
@@ -113,7 +113,7 @@ def portrait(seed, skin, hair, shirt, style='short', mask=None, accent=(150, 150
         for x in range(48):
             v = 26 + int(10 * (1 - y / 48)) + rnd.randint(-2, 2)
             p[x, y] = (v, v - 2, v + 3)
-    s = SK[skin]
+    s = skin if isinstance(skin, tuple) else SK[skin]
     lit, mid, dark = shade(s, 1.08), shade(s, 0.86), shade(s, 0.58)
     cxf, cyf = 24, 23
     # neck and shoulders
@@ -164,6 +164,13 @@ def portrait(seed, skin, hair, shirt, style='short', mask=None, accent=(150, 150
         for y in range(2, 15):
             for x in range(11, 37):
                 if (((x - 24) / 13) ** 2 + ((y - 14) / 10) ** 2 <= 1 and y < 13) or ((x - 24) ** 2 + (y - 5) ** 2 < 16): hair_px(x, y)
+    elif style == 'ponytail':
+        for y in range(6, 15):
+            for x in range(11, 37):
+                if ((x - 24) / 13) ** 2 + ((y - 15) / 9) ** 2 <= 1 and y < 12 + abs(x - 24) // 6: hair_px(x, y)
+        for y in range(14, 40):
+            for x in range(34, 40):
+                if abs(x - (36 + (y - 14) // 10)) < 2 + (1 if 20 < y < 32 else 0): hair_px(x, y, 0.8)
     elif style == 'buzz':
         for y in range(8, 14):
             for x in range(12, 36):
@@ -232,24 +239,35 @@ def portrait(seed, skin, hair, shirt, style='short', mask=None, accent=(150, 150
     return im
 
 CREWC = {'mara': (96, 192, 206), 'jun': (206, 116, 184), 'dex': (150, 132, 224), 'sol': (218, 200, 162)}
-P = {
- 'mara': portrait(1, 3, (110, 46, 36), (50, 58, 70), 'long', scar=False),
- 'jun': portrait(2, 1, (22, 20, 24), (72, 68, 62), 'buzz', stubble=True),
- 'dex': portrait(3, 0, (60, 40, 30), (38, 40, 46), 'bald', stubble=True, scar=True),
- 'sol': portrait(4, 2, (28, 24, 24), (54, 48, 62), 'bun'),
- 'mara-m': portrait(1, 3, (110, 46, 36), (50, 58, 70), 'long', mask='balaclava', accent=CREWC['mara']),
- 'jun-m': portrait(2, 1, (22, 20, 24), (72, 68, 62), 'buzz', mask='hockey', accent=CREWC['jun']),
- 'dex-m': portrait(3, 0, (60, 40, 30), (38, 40, 46), 'bald', mask='skull', accent=CREWC['dex']),
- 'sol-m': portrait(4, 2, (28, 24, 24), (54, 48, 62), 'bun', mask='gas', accent=CREWC['sol']),
- 'guard': portrait(5, 0, (60, 40, 30), (40, 56, 96), 'cap', stubble=True),
- 'teller': portrait(6, 3, (150, 104, 60), (104, 56, 66), 'bun'),
- 'manager': portrait(7, 1, (46, 38, 38), (38, 38, 54), 'short'),
- 'cleaner': portrait(8, 2, (30, 26, 24), (66, 100, 110), 'short', stubble=True),
- 'customer': portrait(9, 0, (140, 100, 64), (128, 110, 84), 'long'),
- 'police': portrait(10, 1, (40, 30, 28), (30, 38, 80), 'police'),
- 'swat': portrait(11, 0, (40, 30, 28), (36, 40, 46), 'helmet'),
- 'operator': portrait(12, 3, (96, 66, 40), (58, 76, 66), 'buzz', stubble=True),
- 'negotiator': portrait(13, 2, (70, 70, 70), (86, 86, 96), 'short'),
+
+# Faces and clothes from the game's own ramps (src/art/palette.ts) and looks (src/art/bank/people.ts), so a portrait is
+# the same person as the sprite in the bank: the ramp's light step for skin, the top step for hair, a middle one for cloth.
+def hexc(v): return ((v >> 16) & 255, (v >> 8) & 255, v & 255)
+SKIN = {'pale': hexc(0xc89a80), 'tan': hexc(0xb07e60), 'brown': hexc(0x84553f), 'dark': hexc(0x583630)}
+HAIR = {'black': hexc(0x2c2630), 'brown': hexc(0x5c3e30), 'auburn': hexc(0x80402e), 'grey': hexc(0xa3a0a2), 'blond': hexc(0xbca06a)}
+CLOTH = {'olive': hexc(0x3d4e36), 'black': hexc(0x2e2a34), 'charcoal': hexc(0x302e37), 'guard': hexc(0x2d3a56), 'skyShirt': hexc(0x86a0b6),
+         'navy': hexc(0x29324c), 'teal': hexc(0x2a5254), 'beige': hexc(0x9c8160), 'grey': hexc(0x55565b)}
+LOOK = {
+    'mara': (1, SKIN['pale'], HAIR['auburn'], CLOTH['olive'], 'ponytail', {}),
+    'jun': (2, SKIN['tan'], HAIR['black'], CLOTH['black'], 'short', {}),
+    'dex': (3, SKIN['pale'], HAIR['brown'], CLOTH['charcoal'], 'buzz', {'stubble': True, 'scar': True}),
+    'sol': (4, SKIN['brown'], HAIR['black'], CLOTH['olive'], 'buzz', {'stubble': True}),
 }
+MASK = {'mara': 'balaclava', 'jun': 'hockey', 'dex': 'skull', 'sol': 'gas'}
+P = {}
+for who, (seed, skin, hair, cloth, style, extra) in LOOK.items():
+    P[who] = portrait(seed, skin, hair, cloth, style, **extra)
+    P[who + '-m'] = portrait(seed, skin, hair, cloth, style, mask=MASK[who], accent=CREWC[who], **extra)
+P.update({
+ 'guard': portrait(5, SKIN['brown'], HAIR['black'], CLOTH['guard'], 'cap'),
+ 'teller': portrait(6, SKIN['tan'], HAIR['brown'], CLOTH['skyShirt'], 'bun'),
+ 'manager': portrait(7, SKIN['tan'], HAIR['grey'], CLOTH['navy'], 'short'),
+ 'cleaner': portrait(8, SKIN['dark'], HAIR['black'], CLOTH['teal'], 'bun'),
+ 'customer': portrait(9, SKIN['tan'], HAIR['black'], CLOTH['beige'], 'long'),
+ 'police': portrait(10, SKIN['tan'], HAIR['brown'], CLOTH['navy'], 'police'),
+ 'swat': portrait(11, SKIN['pale'], HAIR['brown'], CLOTH['charcoal'], 'helmet'),
+ 'operator': portrait(12, SKIN['pale'], HAIR['brown'], CLOTH['charcoal'], 'buzz', stubble=True),
+ 'negotiator': portrait(13, SKIN['brown'], HAIR['grey'], CLOTH['grey'], 'short'),
+})
 for k, im in P.items(): im.save(os.path.join(OUT, f'p-{k}.png'))
 print(len(ICONS), 'icons', len(P), 'portraits')

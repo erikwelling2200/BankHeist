@@ -9,7 +9,6 @@
 <body>
 <x-dc>
 <helmet>
-<link href="https://fonts.googleapis.com/css2?family=Oswald:wght@400;500;600&amp;family=Share+Tech+Mono&amp;display=swap" rel="stylesheet">
 <style>body{margin:0;background:#0b0d17}
 .pin{position:absolute;transform:translate(-50%,-100%);display:flex;flex-direction:column;align-items:center}
 .pin img.p{width:40px;height:40px;image-rendering:auto;border:2px solid var(--c);background:var(--ink)}
@@ -18,19 +17,19 @@
 </style>
 </helmet>
 <div class="phone">
-  <img src="img/tactical.png" alt="The whole bank plot at a glance" style="position:absolute;left:130px;top:0;width:585px;height:390px;image-rendering:auto;filter:saturate(.7) brightness(.8)">
+  <img src="img/tactical.png" alt="The whole bank plot at a glance" style="position:absolute;left:0;top:0;width:844px;height:390px;image-rendering:auto;filter:brightness(.85)">
   <div class="notch"></div>
 
   <!-- at this zoom a tile is too small to tap, so everything you can act on becomes a large pin; tap one to zoom in on it -->
-  <div class="pin" style="left: 282px; top: 230px; --c: var(--mara)"><img class="p" src="img/p-mara.png" alt="Mara"></div>
-  <div class="pin" style="left: 477px; top: 256px; --c: var(--jun)"><img class="p" src="img/p-jun.png" alt="Jun"></div>
-  <div class="pin" style="left: 520px; top: 336px; --c: var(--dex)"><img class="p" src="img/p-dex.png" alt="Dex, in the van"></div>
-  <div class="mark" style="left: 380px; top: 222px; border-color: var(--amber)"><img class="ic m" src="img/i-eye.png" alt="Guard"><span class="pip on" style="--c: var(--jun)"></span></div>
-  <div class="mark" style="left: 410px; top: 50px"><img class="ic m" src="img/i-loot.png" alt="Vault"><img class="ic s" src="img/i-lock.png" alt="locked"></div>
-  <div class="mark" style="left: 197px; top: 50px"><img class="ic m" src="img/i-eye.png" alt="CCTV room"><span class="num" style="font-size:16px">&#215;8</span></div>
-  <div class="mark" style="left: 276px; top: 38px"><img class="ic m" src="img/i-bell.png" alt="Alarm panel"></div>
-  <!-- off the bank but on the map: the nest across the street -->
-  <div class="mark" style="left: 740px; top: 340px; border-color: var(--sol)"><img src="img/p-sol.png" alt="Sol, sniper nest" style="width:26px;height:26px;image-rendering:pixelated;border-radius:1px"><span class="num" style="font-size:16px">&#9654;</span></div>
+  <div class="pin" style="left: 350px; top: 168px; --c: var(--mara)"><img class="p" src="img/p-mara.png" alt="Mara"></div>
+  <div class="pin" style="left: 401px; top: 202px; --c: var(--jun)"><img class="p" src="img/p-jun.png" alt="Jun"></div>
+  <div class="pin" style="left: 307px; top: 278px; --c: var(--dex)"><img class="p" src="img/p-dex.png" alt="Dex, in the van"></div>
+  <div class="mark" style="left: 452px; top: 208px; border-color: var(--amber)"><img class="ic m" src="img/i-eye.png" alt="Guard"><span class="pip on" style="--c: var(--jun)"></span></div>
+  <div class="mark" style="left: 401px; top: 55px"><img class="ic m" src="img/i-loot.png" alt="Vault"><img class="ic s" src="img/i-lock.png" alt="locked"></div>
+  <div class="mark" style="left: 571px; top: 182px"><img class="ic m" src="img/i-eye.png" alt="CCTV room"><span class="num" style="font-size:16px">&#215;6</span></div>
+  <div class="mark" style="left: 282px; top: 46px"><img class="ic m" src="img/i-bell.png" alt="Alarm panel"></div>
+  <!-- across the street: Sol in the nest -->
+  <div class="mark" style="left: 469px; top: 352px; border-color: var(--sol)"><img src="img/p-sol.png" alt="Sol, sniper nest" style="width:26px;height:26px;image-rendering:pixelated;border-radius:1px"></div>
 
   <div class="ltools">
     <button class="btn on" aria-label="Tactical map, on"><img class="ic" src="img/i-map.png" alt=""></button>
@@ -45,7 +44,7 @@
     <button class="btn" aria-label="Sound map"><img class="ic" src="img/i-ear.png" alt=""></button>
   </div>
   <button class="endturn" aria-label="End turn, hold"><img class="ic" src="img/i-end.png" alt=""></button>
-  <div class="tap" style="left: 477px; top: 236px"></div>
+  <div class="tap" style="left: 401px; top: 178px"></div>
   <div class="homebar"></div>
 </div>
 </x-dc>

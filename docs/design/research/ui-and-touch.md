@@ -98,6 +98,15 @@ gritty tone (§1). The mockups now use:
   place of a small shield icon that was easy to miss. When the shot comes from outside the cover's 90° arc, the bar
   turns into a dashed grey line (flanked), which matches §11.4's "greyed out when flanked".
 
+## Revision: the game's own look
+
+The game's art moved on after the first mockups: a ¾ view with walls between tiles, baked lamp and sun light, and a
+HUD of night-blue glass panels with cream monospace labels (`src/style.css`). The mockups now match it instead of
+imitating it. Every world frame is rendered by the game itself (the example bank, with the scene's cast swapped in),
+the world UI is drawn over that, and the HUD uses the game's colours, soft corners and system fonts in place of
+Oswald and Share Tech Mono. The perception rules behind the overlays run on the example bank's real walls, doors and
+furniture.
+
 ## A conflict in the design document
 
 §20.1 asks for a close zoom of "about 11 tiles high" and also for "a tile roughly 10mm". A landscape phone screen is

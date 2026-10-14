@@ -63,7 +63,7 @@ strip is read, not touched, except for the ledger button.
 
 | Colour | When |
 | --- | --- |
-| Bone | A clean action: no suspicion, no noise anyone hears. |
+| Cream | A clean action: no suspicion, no noise anyone hears. |
 | Amber | The preview costs something: a pip on someone, an exposed tile, a noise someone hears. |
 | Red | Lethal fire. |
 | Steel blue | Commands and Watch. |
@@ -73,11 +73,14 @@ the player never has to memorise icons.
 
 ## Visual language
 
-The tone is gritty, not cartoonish (§1). That means hairline strokes with a 1px ink drop shadow instead of fat
-outlines, muted signal colours, faint scanline fills where an edge already carries the meaning, dark plates with a
-thin border in the signal colour instead of filled stickers, and square corners. Type is **Oswald** for labels and
-numbers and **Share Tech Mono** for small data. Pixel fonts were rejected because their 2 and 5 read as S and 8 in
-countdowns.
+The tone is gritty, not cartoonish (§1), and the UI wears the game's own look: the HUD matches `src/style.css`, and
+every mockup frame is rendered by the game itself (the example bank, its lighting and its people), with the world UI
+drawn over it. World UI uses hairline strokes with a 1px ink drop shadow instead of fat outlines, muted signal colours,
+faint scanline fills where an edge already carries the meaning, and dark plates with a thin border in the signal colour
+instead of filled stickers. HUD panels are night-blue glass (`rgba(11, 13, 23, 0.72)`) with a thin cream border and
+soft 6–8px corners. Labels and numbers use the system monospace (`ui-monospace, Menlo, Consolas`) with a hard drop
+shadow, as the game's buttons do, and reading text uses the system sans. Pixel fonts were rejected because their 2 and
+5 read as S and 8 in countdowns.
 
 ### Signal palette
 
@@ -88,8 +91,8 @@ countdowns.
 | Exposed / hostile | `#d44638` brick red | `#c8508a` magenta |
 | Command / your control | `#8ab6d6` steel blue | `#b8d8e8` pale blue |
 | Cover | `#acd8f4` light blue | (unchanged) |
-| GO | `#d8b45a` gold | (unchanged) |
-| Text and neutral UI | `#e4dcc8` bone | (unchanged) |
+| GO and money | `#f2c94c` gold | (unchanged) |
+| Text and neutral UI | `#f2e6c8` cream | (unchanged) |
 
 ### Crew
 
@@ -140,7 +143,7 @@ blue. A dashed line in the crew colour links a new pip to its cause during the w
 
 ### In the cone and in cover
 
-- **Bodies in a shot cone** wear an outlined marker above the head: a red diamond for hostiles, a bone circle for
+- **Bodies in a shot cone** wear an outlined marker above the head: a red diamond for hostiles, a pale circle for
   civilians, a blue triangle for crew.
 - **Half cover** is a 3px light-blue bar on the protected edge of the target's tile, with a soft glow and end ticks.
   When the shot comes from outside the cover's 90° arc, the bar becomes a dashed grey line (flanked, §11.4).

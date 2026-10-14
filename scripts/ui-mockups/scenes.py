@@ -1,169 +1,185 @@
-# Renders every world-space mockup frame. Usage: python3 scenes.py <out-dir> [scene ...]
-# Each frame is four layers, as the game would draw them: floor art (16px grid, scaled 2x), floor UI (drawn at 2x),
-# actors (16px art, scaled 2x), actor UI (drawn at 2x). So UI pixels are half the size of art pixels.
-import sys, os, math
+# Every world-space mockup frame, staged in the game's example bank and drawn by the game itself.
+#
+#   python3 scenes.py cast <dir> [scene ...]      writes <dir>/cast.json: who stands where, and the view, for capture.mjs
+#   node capture.mjs <dir> [scene ...]            renders <scene>-world.png, -floor.png (and -ghosts.png) with the game
+#   python3 scenes.py compose <dir> [scene ...]   draws the world UI over them and writes <dir>/<scene>.png
+#
+# A frame is four layers, as the game would draw them: the floor (the capture without the cast), floor UI (tints, paths,
+# rings, cones), the cast (lifted out of the difference between the two captures) and actor UI (plates, pips, markers).
+# UI is drawn at twice the art resolution, on a layer the size of the whole map, and cropped to the view.
+import sys, os, math, json
 sys.path.insert(0, os.path.dirname(__file__))
-from PIL import Image
-import bh
-from bh import grid, W, H, T, WALLS, figure, prone, is_wall, blocks_sight, ring_tiles
+from PIL import Image, ImageChops
+import level as lv
+from level import W, H, ringTiles, reachable, los, Sight
 import ui2 as u
 from ui2 import TS, cx, SAFE, AMBER, RED, GREY, CMD, BONE, INK, DIM, CREW
-from rules import Npc, overlay_for, reachable, los
+from rules import Npc, overlayFor
 
-OUT = sys.argv[1]
-ONLY = set(sys.argv[2:])
-os.makedirs(OUT, exist_ok=True)
-_base = None
+CREWLOOK = {'mara': ('crewMara', 'balaclava'), 'jun': ('crewJun', 'hockey'), 'dex': ('crewDex', 'skull'), 'sol': ('crewSol', 'respirator')}
+
+def sprite(deg):
+    """The game draws people facing the camera or away from it: away when they look north."""
+    return 'back' if -135 < ((deg + 180) % 360 - 180) < -45 else 'front'
+
+def sight(ox, oy): return Sight(ox, oy, TS)
 
 class Scene:
-    def __init__(self):
-        global _base
-        if _base is None:
-            cache = os.path.join(OUT, '.base-cache.png')
-            src = os.path.join(os.path.dirname(__file__), 'bh.py')
-            if os.path.exists(cache) and os.path.getmtime(cache) > os.path.getmtime(src): _base = Image.open(cache).convert('RGB')
-            else: _base = bh.render_world(); _base.save(cache)
-        self.world = _base.copy()
-        self.actors = Image.new('RGBA', self.world.size, (0, 0, 0, 0))
-        self.under = u.layer(self.world.width * 2, self.world.height * 2)
-        self.over = u.layer(self.world.width * 2, self.world.height * 2)
+    """A view of the example bank: its top-left corner in tiles (and art pixels more), its size in CSS pixels."""
+    def __init__(self, tx0, ty0, dx=0, dy=0, width=844, height=390, mapView=False, outlines=None, moveProps=None, plotOnly=False):
+        self.left, self.top, self.width, self.height = tx0 * 16 + dx, ty0 * 16 + dy, width, height
+        self.mapView, self.outlines, self.moveProps, self.plotOnly = mapView, outlines, moveProps, plotOnly
+        self.people, self.ghosts = [], []
+        self.under = u.layer(W * TS, H * TS)
+        self.over = u.layer(W * TS, H * TS)
 
-    def place(self, spr, tx, ty, alpha=1.0):
-        x, y = tx * T, ty * T
-        if alpha >= 0.99: bh.shadow(self.world, x, y)
-        if alpha < 1:
-            spr = spr.copy(); spr.putalpha(spr.split()[3].point(lambda v: int(v * alpha)))
-        self.actors.alpha_composite(spr, (x, y))
+    def add(self, look, x, y, facing=90, pose=None, mask=None, ghost=False):
+        p = {'look': look, 'tx': x, 'ty': y, 'facing': sprite(facing)}
+        if pose: p['pose'] = pose
+        if mask: p['mask'] = mask
+        (self.ghosts if ghost else self.people).append(p)
 
-    def compose(self):
-        im = bh.up(self.world, 2).convert('RGBA')
-        im.alpha_composite(self.under)
-        im.alpha_composite(bh.up(self.actors, 2))
-        im.alpha_composite(self.over)
+    def crew(self, who, x, y, facing=-90, masked=False, sel=False, ring=True):
+        look, mask = CREWLOOK[who]
+        if ring: u.crew_ring(self.under, x, y, CREW[who])
+        self.add(look, x, y, facing, mask=mask if masked else None)
+        if sel: u.bracket(self.over, x, y, CREW[who])
+
+    def prone(self, look, x, y, tied=False):
+        self.add(look, x, y, pose='tied' if tied else 'prone')
+
+    def shot(self):
+        s = {'left': self.left, 'top': self.top, 'width': self.width, 'height': self.height, 'people': self.people}
+        if self.ghosts: s['ghosts'] = self.ghosts
+        if self.mapView: s['map'] = True
+        if self.outlines: s['outlines'] = self.outlines
+        if self.moveProps: s['moveProps'] = self.moveProps
+        return s
+
+    def compose(self, d, name, view):
+        floor = Image.open(os.path.join(d, f'{name}-floor.png')).convert('RGBA')
+        world = Image.open(os.path.join(d, f'{name}-world.png')).convert('RGBA')
+        if self.mapView:
+            plot = view['plot']
+            return (world.crop((round(plot['left']), round(plot['top']), round(plot['right']), round(plot['bottom']))) if self.plotOnly else world).convert('RGB')
+        ox, oy = -view['plot']['left'], -view['plot']['top']
+        crop = lambda layer: layer.crop((ox, oy, ox + self.width, oy + self.height))
+        im = floor.copy()
+        im.alpha_composite(crop(self.under))
+        im.alpha_composite(lifted(world, floor))
+        if self.ghosts:
+            g = lifted(Image.open(os.path.join(d, f'{name}-ghosts.png')).convert('RGBA'), floor)
+            g.putalpha(g.split()[3].point(lambda v: v * 11 // 20))
+            im.alpha_composite(g)
+        im.alpha_composite(crop(self.over))
         return im.convert('RGB')
 
-    def crop(self, tx0, ty0, w=844, h=390, offx=0, offy=0):
-        x0, y0 = tx0 * TS + offx * 2, ty0 * TS + offy * 2
-        return self.compose().crop((x0, y0, x0 + w, y0 + h))
+def lifted(img, floor):
+    """The pixels where the cast changed the picture: the people and their drop shadows."""
+    mask = ImageChops.difference(img.convert('RGB'), floor.convert('RGB')).convert('L').point(lambda v: 255 if v > 6 else 0)
+    out = img.copy(); out.putalpha(mask)
+    return out
 
-def save(name, im): im.save(os.path.join(OUT, name + '.png')); print('wrote', name)
+# ---------------------------------------------------------------- the lobby's people
+TELLERS = [('teller', 23), ('tellerB', 27), ('headTeller', 35)]
+COUNTER = [('customerSuit', 23), ('customerCoat', 27), ('customerDress', 35)]
 
-def fdir(deg):
-    deg = deg % 360
-    return 'right' if deg < 45 or deg >= 315 else 'down' if deg < 135 else 'left' if deg < 225 else 'up'
+def lobbyNpcs():
+    return [Npc('guard', 33, 23, -90, 'enf', future=(33, 21, -90))] + \
+        [Npc(look, x, 14, 90, 'staff') for look, x in TELLERS] + \
+        [Npc(look, x, 16, -90, 'civ') for look, x in COUNTER] + \
+        [Npc('customerCasual', 30, 18, -90, 'civ'), Npc('customerOld', 24, 21, -90, 'civ')]
 
-# ---- the cast
-def p_guard(s, x, y, f, a=1.0): s.place(figure('guard', fdir(f)), x, y, a)
-def p_teller(s, x, y, i=0): s.place(figure('teller', 'down', skin=i % 4, hair=[(90, 50, 30), (30, 26, 24), (160, 110, 60), (60, 40, 30)][i % 4], body=[(60, 70, 110), (110, 60, 70), (70, 96, 90), (90, 80, 120)][i % 4]), x, y)
-def p_civ(s, x, y, f='down', i=0, a=1.0): s.place(figure('civ', f, skin=i % 4, hair=[(40, 30, 28), (150, 110, 70), (20, 20, 20), (110, 60, 40)][i % 4], body=[(140, 120, 90), (60, 90, 80), (120, 60, 70), (80, 80, 110), (150, 140, 120)][i % 5]), x, y, a)
-CLEANER = dict(skin=2, hair=(30, 26, 24), body=(70, 110, 120), legs=(50, 70, 80))
-def p_cleaner(s, x, y, f, a=1.0): s.place(figure('civ', f, **CLEANER), x, y, a)
-LOOKS = {'mara': dict(skin=3, hair=(120, 50, 40), body=(52, 60, 74)), 'jun': dict(skin=1, hair=(20, 18, 22), body=(74, 70, 64)),
-         'dex': dict(skin=0, hair=(60, 40, 30), body=(40, 42, 48)), 'sol': dict(skin=2, hair=(30, 24, 24), body=(56, 50, 66))}
-def p_crew(s, who, x, y, f='down', masked=False, extra=None, sel=False):
-    u.crew_ring(s.under, x, y, CREW[who])
-    s.place(figure('mask' if masked else 'civ', f, extra=extra, extra_c=tuple(int(v * 0.8) for v in CREW[who]), **LOOKS[who]), x, y)
-    if sel: u.bracket(s.over, x, y, CREW[who])
-def p_prone(s, x, y, i=0, tied=False, body=None):
-    s.place(prone(body=body or [(140, 120, 90), (60, 90, 80), (120, 60, 70), (80, 80, 110), (150, 140, 120)][i % 5], skin=i % 4, tied=tied), x, y)
+def lobbyCast(s, skip=()):
+    for n in lobbyNpcs():
+        if n.name not in skip: s.add(n.name, n.x, n.y, n.facing)
 
-LOBBY_NPCS = lambda: [
-    Npc('guard', 20, 19, 0, 'enf', future=(23, 19, 0)),
-    Npc('teller1', 15, 14, 90, 'staff'), Npc('teller2', 20, 14, 90, 'staff'), Npc('teller3', 25, 14, 90, 'staff'),
-    Npc('teller4', 30, 14, 90, 'staff'), Npc('teller5', 35, 14, 90, 'staff'),
-    Npc('cust1', 24, 19, -90, 'civ'), Npc('cust2', 23, 20, -90, 'civ'), Npc('cust3', 31, 18, 180, 'civ'), Npc('cust4', 13, 21, 0, 'civ'),
-    Npc('cust5', 35, 20, 180, 'civ'),
-]
-def lobby_cast(s, skip=()):
-    if 'guard' not in skip: p_guard(s, 20, 19, 0)
-    for i, x in enumerate((15, 20, 25, 30, 35)):
-        if f'teller{i+1}' not in skip: p_teller(s, x, 14, i)
-    p_civ(s, 24, 19, 'up', 0); p_civ(s, 23, 20, 'up', 1); p_civ(s, 31, 18, 'left', 2); p_civ(s, 13, 21, 'right', 3); p_civ(s, 35, 20, 'left', 4)
-
-def los_tiles(src, radius):
+def losTiles(src, radius):
     return {(x, y) for y in range(H) for x in range(W)
-            if math.hypot(x - src[0], y - src[1]) <= radius and not is_wall(x, y) and los(src[0], src[1], x, y)}
+            if math.hypot(x - src[0], y - src[1]) <= radius and lv.walkable(x, y) and los(src[0], src[1], x, y)}
 
 # =============================================================== stealth
-def s_select():
-    s = Scene(); npcs = LOBBY_NPCS()
-    reach = reachable(28, 21, 5, {(n.x, n.y) for n in npcs})
-    u.tints(s.under, overlay_for(reach.keys(), npcs, 'concealed'), skip=((28, 21),))
-    lobby_cast(s)
-    u.arrow(s.over, [(20, 19), (21, 19), (22, 19), (23, 19)], BONE)
-    u.arrow(s.over, [(24, 19), (24, 18), (24, 16)], DIM)
-    p_crew(s, 'jun', 28, 21, 'up', sel=True); p_crew(s, 'mara', 12, 19, 'right')
-    return s.crop(10, 11)
+def sSelect():
+    s = Scene(16, 13); npcs = lobbyNpcs()
+    reach = reachable(30, 23, 5, {(n.x, n.y) for n in npcs})
+    u.tints(s.under, overlayFor(reach.keys(), npcs, 'concealed'), skip=((30, 23),))
+    lobbyCast(s)
+    u.arrow(s.over, [(33, 23), (33, 22), (33, 21)], BONE)
+    u.arrow(s.over, [(30, 18), (30, 17)], DIM)
+    s.crew('jun', 30, 23, sel=True); s.crew('mara', 21, 19, 0)
+    return s
 
-def s_path(stage):
-    s = Scene()
-    cnow = (37, 11, -90) if stage < 2 else (33, 11, 180)
-    cnext = (39, 12, 90) if stage < 2 else (29, 11, 180)
-    npcs = [Npc('teller5', 35, 14, 90, 'staff'), Npc('teller4', 30, 14, 90, 'staff'), Npc('cust5', 31, 18, 180, 'civ'),
-            Npc('cleaner', cnow[0], cnow[1], cnow[2], 'staff', future=cnext)]
-    route = [(35, 19), (36, 18), (37, 17), (38, 16), (39, 16), (40, 15), (40, 14)]
-    info = overlay_for(route[1:], npcs, 'clean')
-    bad = next((t for t in route[1:] if info[t][0] != 'safe'), None)
+ROUTE = [(37, 21), (38, 20), (38, 19), (38, 18), (38, 17), (38, 16), (38, 15), (38, 14)]
+
+def sPath(stage):
+    s = Scene(21, 10)
+    now = (42, 14, 180) if stage < 2 else (46, 16, 0)
+    nxt = (39, 14, 180) if stage < 2 else (48, 16, 0)
+    npcs = [Npc('headTeller', 35, 14, 90, 'staff'), Npc('tellerB', 27, 14, 90, 'staff'), Npc('customerDress', 35, 16, -90, 'civ'),
+            Npc('cleaner', now[0], now[1], now[2], 'staff', future=nxt)]
+    info = overlayFor(ROUTE[1:], npcs, 'clean')
+    bad = next((t for t in ROUTE[1:] if info[t][0] != 'safe'), None)
     u.tints(s.under, info)
-    p_teller(s, 35, 14, 4); p_teller(s, 30, 14, 3); p_civ(s, 31, 18, 'left', 2)
-    p_cleaner(s, cnow[0], cnow[1], fdir(cnow[2]))
-    u.arrow(s.over, [(cnow[0], cnow[1]), (cnext[0], cnext[1])], DIM)
+    for n in npcs: s.add(n.name, n.x, n.y, n.facing)
+    u.arrow(s.over, [(now[0], now[1]), (nxt[0], nxt[1])], DIM)
     if stage == 1:
-        p_cleaner(s, cnext[0], cnext[1], fdir(cnext[2]), 0.4)
-        u.cone(s.under, blocks_sight, cnext[0], cnext[1], cnext[2], 6, 45, AMBER, 26, dotted=True)
-        u.line(s.over, cx(cnext[0]), cx(cnext[1]), cx(bad[0]), cx(bad[1]), AMBER, 240, 3, 2)
+        s.add('cleaner', nxt[0], nxt[1], nxt[2], ghost=True)
+        u.cone(s.under, sight, nxt[0], nxt[1], nxt[2], 6, 45, AMBER, 26, dotted=True)
+        u.line(s.over, cx(nxt[0]), cx(nxt[1]) - 8, cx(bad[0]), cx(bad[1]), AMBER, 240, 3, 2)
         u.bracket(s.over, bad[0], bad[1], BONE)
-    u.path(s.under, route)
+    u.path(s.under, ROUTE)
     if bad and stage != 2: u.glyph_at_tile(s.over, bad[0], bad[1], 'eye', BONE)
-    p_crew(s, 'jun', 35, 19, 'up', sel=True)
-    return s.crop(20, 9)
+    s.crew('jun', 37, 21, sel=True)
+    s.add('customerCasual', 30, 18, -90)
+    return s, bad
 
-def s_noise(kind):
-    s = Scene()
+def sNoise(kind):
     if kind == 'quiet':
-        u.ring(s.under, ring_tiles((11, 3), 1), CMD, fill=26)
-        p_cleaner(s, 13, 8, 'up'); p_guard(s, 6, 9, 0)
-        p_crew(s, 'jun', 11, 3, 'up', sel=True)
-        return s.crop(1, 0, offy=8)
-    tiles = ring_tiles((28, 19), 8)
-    u.ring(s.under, tiles, RED, fill=14)
-    lobby_cast(s); p_cleaner(s, 38, 12, 'left')
-    p_crew(s, 'jun', 28, 19, 'left', sel=True)
-    for (x, y) in ((20, 19), (15, 14), (20, 14), (25, 14), (30, 14), (35, 14), (24, 19), (23, 20), (31, 18), (35, 20), (38, 12)):
-        if (x, y) in tiles: u.badge(s.over, x, y, 'waves', RED, sym='!')
-    return s.crop(10, 10)
+        s = Scene(2, 1, dy=6)
+        u.ring(s.under, ringTiles((13, 5), 1), CMD, fill=26)
+        s.add('guard', 18, 12, 180); s.add('operator', 24, 12, 180)
+        s.crew('jun', 13, 5, sel=True)
+        return s
+    s = Scene(16, 11)
+    tiles = ringTiles((27, 20), 8)
+    u.ring(s.under, tiles, RED, fill=40)
+    npcs = [n for n in lobbyNpcs() if n.name != 'guard'] + [Npc('guard', 33, 21, -90, 'enf')]
+    for n in npcs: s.add(n.name, n.x, n.y, n.facing)
+    s.crew('jun', 27, 20, 180, sel=True); s.crew('mara', 21, 19, 0)
+    for n in npcs:
+        if (n.x, n.y) in tiles: u.badge(s.over, n.x, n.y, 'waves', RED, sym='!')
+    return s
 
-def s_challenge():
-    s = Scene()
-    p_teller(s, 35, 14, 4); p_teller(s, 30, 14, 3)
-    p_guard(s, 40, 11, 180)
-    u.arrow(s.over, [(40, 11), (39, 12)], BONE)
-    u.badge(s.over, 40, 11, 'hand', AMBER)
-    u.tints(s.under, {(40, 16): 'safe'})
-    u.path(s.under, [(37, 12), (38, 13), (39, 14), (40, 15), (40, 16)], SAFE)
-    u.glyph_at_tile(s.over, 40, 16, 'run', SAFE)
-    p_crew(s, 'mara', 37, 12, 'right', sel=True)
-    u.badge(s.over, 37, 12, 'hand', AMBER, n=1)
-    return s.crop(21, 7)
+def sChallenge():
+    s = Scene(22, 10)
+    s.add('headTeller', 35, 14, 90); s.add('tellerB', 27, 14, 90); s.add('customerDress', 35, 16, -90)
+    s.add('guard', 39, 18, -120)
+    u.arrow(s.over, [(39, 18), (39, 17)], BONE)
+    u.badge(s.over, 39, 18, 'hand', AMBER)
+    u.tints(s.under, {(38, 16): 'safe'})
+    u.path(s.under, [(37, 14), (38, 15), (38, 16)], SAFE)
+    u.glyph_at_tile(s.over, 38, 16, 'run', SAFE)
+    s.crew('mara', 37, 14, 0, sel=True)
+    u.badge(s.over, 37, 14, 'hand', AMBER, n=1)
+    return s
 
-def s_carriers():
-    s = Scene()
-    p_guard(s, 20, 19, 0)
-    for i, x in enumerate((15, 20, 25, 30, 35)): p_teller(s, x, 14, i)
-    p_civ(s, 24, 19, 'down', 0); p_civ(s, 31, 18, 'left', 2); p_civ(s, 13, 21, 'right', 3)
-    p_crew(s, 'jun', 27, 18, 'left', extra='rifle')
-    u.cone(s.under, blocks_sight, 20, 19, -20, 8, 45, RED, 34)
-    u.badge(s.over, 30, 14, 'bell', RED, n=2)
-    u.badge(s.over, 20, 19, 'radio', RED, n=2)
-    u.arrow(s.over, [(13, 21), (14, 22), (19, 22), (22, 22)], RED)
-    u.badge(s.over, 13, 21, 'run', RED, n=3)
-    u.badge(s.over, 24, 19, 'drops', AMBER); u.badge(s.over, 31, 18, 'drops', AMBER)
-    return s.crop(15, 11)
+def sCarriers():
+    s = Scene(16, 11, dy=6)
+    lobbyCast(s, skip=('customerOld',))
+    s.add('customerOld', 24, 22, 90)
+    s.crew('jun', 29, 20, 180)
+    u.cone(s.under, sight, 33, 23, -150, 8, 45, RED, 34)
+    u.badge(s.over, 23, 14, 'bell', RED, n=2)
+    u.badge(s.over, 33, 23, 'radio', RED, n=2)
+    u.arrow(s.over, [(24, 22), (25, 23), (27, 25), (29, 26), (29, 27)], RED)
+    u.badge(s.over, 24, 22, 'run', RED, n=3)
+    for x, y in ((23, 16), (35, 16), (30, 18)): u.badge(s.over, x, y, 'drops', AMBER)
+    return s
 
 # =============================================================== takeover
-def command_rings(s, src, cmd_r):
-    cmd = los_tiles(src, cmd_r)
-    panic = ring_tiles(src, cmd_r + 3) - cmd
+def commandRings(s, src, cmdR):
+    cmd = losTiles(src, cmdR)
+    panic = ringTiles(src, cmdR + 3) - cmd
     u.ring(s.under, cmd, CMD, fill=34, dotted=False)
     for (x, y) in panic:
         for py in range(TS):
@@ -172,87 +188,77 @@ def command_rings(s, src, cmd_r):
     u.ring(s.under, panic | cmd, AMBER)
     return cmd, panic
 
-def s_go_preview():
-    s = Scene()
-    cmd, panic = command_rings(s, (28, 21), 9)
-    lobby_cast(s); p_cleaner(s, 38, 12, 'left'); p_civ(s, 42, 17, 'down', 1)
-    p_crew(s, 'dex', 28, 21, 'up', masked=True, extra='rifle', sel=True)
-    p_crew(s, 'mara', 41, 21, 'left', masked=True)
-    for (x, y) in ((24, 19), (23, 20), (31, 18), (35, 20), (15, 14), (20, 14), (25, 14), (30, 14), (35, 14), (13, 21), (42, 17), (38, 12)):
-        if (x, y) in cmd: u.badge(s.over, x, y, 'down', CMD)
-        elif (x, y) in panic: u.badge(s.over, x, y, 'drops', AMBER)
-    u.badge(s.over, 20, 19, 'star', CMD)
-    return s.crop(16, 11)
+def sGoPreview():
+    s = Scene(16, 12)
+    cmd, panic = commandRings(s, (30, 22), 9)
+    lobbyCast(s)
+    s.add('cleaner', 42, 22, 180)
+    s.crew('dex', 30, 22, masked=True, sel=True); s.crew('mara', 37, 24, 180, masked=True)
+    s.crew('jun', 22, 24, 0, masked=True); s.crew('sol', 25, 18, -45, masked=True)
+    for n in lobbyNpcs() + [Npc('cleaner', 42, 22, 180, 'staff')]:
+        if n.name == 'guard': continue
+        if (n.x, n.y) in cmd: u.badge(s.over, n.x, n.y, 'down', CMD)
+        elif (n.x, n.y) in panic: u.badge(s.over, n.x, n.y, 'drops', AMBER)
+    u.badge(s.over, 33, 23, 'star', CMD)
+    return s
 
-def s_go_after():
-    s = Scene()
-    for i, x in enumerate((15, 20, 25, 30, 35)):
-        p_prone(s, x, 14, body=[(60, 70, 110), (110, 60, 70), (70, 96, 90), (90, 80, 120), (60, 70, 110)][i]); u.pips(s.over, x, 14, 2, CMD, total=2, dy=4)
-    for (x, y, i) in ((24, 18, 0), (23, 20, 1), (31, 18, 2), (35, 20, 4), (13, 21, 3)):
-        p_prone(s, x, y, i); u.pips(s.over, x, y, 2, CMD, total=2, dy=4)
-    p_prone(s, 21, 19, tied=True, body=(40, 50, 90)); u.badge(s.over, 21, 19, 'knot', BONE)
-    p_crew(s, 'dex', 27, 20, 'up', masked=True, extra='rifle')
-    p_crew(s, 'mara', 30, 16, 'up', masked=True, sel=True)
-    p_crew(s, 'jun', 22, 19, 'left', masked=True)
-    u.ring(s.under, los_tiles((27, 20), 6), CMD)
-    u.badge(s.over, 27, 20, 'lock', CMD)
-    p_civ(s, 42, 17, 'down', 1); u.badge(s.over, 42, 17, 'phone', RED, n=2)
-    return s.crop(11, 11)
+HOSTAGES = [('customerSuit', 23, 17), ('customerCoat', 27, 17), ('customerDress', 34, 17), ('customerCasual', 30, 19), ('customerOld', 25, 21)]
 
-def s_lapse():
-    s = Scene()
-    p_prone(s, 24, 18, 0); u.pips(s.over, 24, 18, 1, CMD, total=2, dy=4)
-    p_prone(s, 23, 20, 1); u.pips(s.over, 23, 20, 2, CMD, total=2, dy=4)
-    p_prone(s, 31, 18, 2)
-    u.arrow(s.over, [(31, 18), (30, 19), (28, 21), (26, 22), (25, 23)], RED)
-    u.badge(s.over, 31, 18, 'run', RED, n=2)
-    p_prone(s, 33, 20, 3); u.badge(s.over, 33, 20, 'hand', RED, n=1)
-    p_prone(s, 35, 21, 4); u.badge(s.over, 35, 21, 'down', CMD)
-    p_crew(s, 'dex', 27, 19, 'right', masked=True, extra='rifle', sel=True)
-    p_crew(s, 'mara', 34, 16, 'down', masked=True)
-    return s.crop(18, 12)
+def sGoAfter():
+    s = Scene(16, 12)
+    for look, x in TELLERS: s.prone(look, x, 14); u.pips(s.over, x, 14, 2, CMD, total=2, dy=-12)
+    for look, x, y in HOSTAGES: s.prone(look, x, y); u.pips(s.over, x, y, 2, CMD, total=2, dy=-12)
+    s.prone('guard', 33, 22, tied=True); u.badge(s.over, 33, 22, 'knot', BONE, lying=True)
+    s.crew('dex', 30, 23, masked=True); u.badge(s.over, 30, 23, 'lock', CMD)
+    u.ring(s.under, losTiles((30, 23), 6), CMD)
+    s.crew('mara', 36, 21, 180, masked=True, sel=True); s.crew('jun', 22, 24, 0, masked=True)
+    s.add('customerHoodie', 17, 24, 0); u.badge(s.over, 17, 24, 'phone', RED, n=2)
+    return s
+
+def sLapse():
+    s = Scene(18, 13)
+    s.prone('customerSuit', 23, 17); u.pips(s.over, 23, 17, 1, CMD, total=2, dy=-12)
+    s.prone('customerCoat', 27, 17); u.pips(s.over, 27, 17, 2, CMD, total=2, dy=-12)
+    s.prone('customerCasual', 32, 18)
+    u.arrow(s.over, [(32, 18), (32, 19), (32, 21), (31, 23), (30, 25), (30, 27)], RED)
+    u.badge(s.over, 32, 18, 'run', RED, n=2, lying=True)
+    s.prone('customerHoodie', 34, 21); u.badge(s.over, 34, 21, 'hand', RED, n=1, lying=True)
+    s.prone('customerDress', 37, 22); u.badge(s.over, 37, 22, 'down', CMD, lying=True)
+    s.crew('dex', 28, 21, 0, masked=True, sel=True); s.crew('mara', 36, 17, 90, masked=True)
+    return s
 
 # =============================================================== loud
-def s_aim(bullets=6):
-    s = Scene()
-    p_civ(s, 33, 20, 'left', 1); p_prone(s, 27, 20, 0)
-    sx, sy, tx, ty = cx(24), cx(21), cx(31), cx(19)
-    u.arcs(s.under, blocks_sight, sx, sy, math.degrees(math.atan2(ty - sy, tx - sx)), 14, 3, bullets, 8)
-    p_guard(s, 31, 19, 180); p_guard(s, 30, 16, 180)
-    for i, x in enumerate((25, 35)): p_teller(s, x, 14, i + 2)
-    p_crew(s, 'mara', 24, 21, 'right', masked=True, sel=True)
-    u.cover_edge(s.over, 31, 19, 'w')                 # the desk covers his west edge, and the shot comes from the west
-    if bullets > 2: u.cover_edge(s.over, 33, 20, 'n', flanked=True)   # the bench north of the bystander doesn't face the shooter
-    u.marker(s.over, 31, 19, 'hostile')
-    u.marker(s.over, 30, 16, 'hostile')
-    if bullets > 2: u.marker(s.over, 33, 20, 'civ')
-    return s.crop(15, 12)
+def sAim(bullets=6):
+    s = Scene(18, 13)
+    shooter, target, bystander = (28, 25), (36, 18), (36, 20)
+    s.add('customerCasual', *bystander, 180); s.prone('customerOld', 31, 22)
+    sx, sy, tx, ty = cx(shooter[0]), cx(shooter[1]), cx(target[0]), cx(target[1])
+    u.arcs(s.under, sight, sx, sy, math.degrees(math.atan2(ty - sy, tx - sx)), 14, 3, bullets, 9)
+    s.add('guard', *target, 135)
+    s.add('headTeller', 35, 14, 90); s.add('tellerB', 27, 14, 90)
+    s.crew('mara', *shooter, -40, masked=True, sel=True)
+    u.cover_edge(s.over, target[0], target[1], 's')
+    if bullets > 2: u.cover_edge(s.over, bystander[0], bystander[1], 'n', flanked=True)
+    u.marker(s.over, target[0], target[1], 'hostile')
+    if bullets > 2: u.marker(s.over, bystander[0], bystander[1], 'civ')
+    return s
 
-def s_watch():
-    s = Scene()
-    u.cone(s.under, blocks_sight, 24, 23, -90, 8, 22, RED, 40)
-    s.place(figure('police', 'up'), 24, 23)
-    u.cone(s.under, blocks_sight, 32, 17, 150, 8, 30, CMD, 44)
-    p_crew(s, 'dex', 32, 17, 'left', masked=True, extra='rifle', sel=True)
-    p_crew(s, 'mara', 36, 18, 'left', masked=True)
-    for (x, y, i) in ((24, 18, 0), (23, 20, 1), (31, 19, 2)): p_prone(s, x, y, i)
-    return s.crop(15, 12)
+def sWatch():
+    s = Scene(16, 14)
+    u.cone(s.under, sight, 30, 27, -90, 8, 22, RED, 40)
+    s.add('police', 30, 27, -90)
+    u.cone(s.under, sight, 35, 20, 150, 8, 30, CMD, 44)
+    s.crew('dex', 35, 20, 150, masked=True, sel=True); s.crew('mara', 25, 18, 0, masked=True)
+    for look, x, y in HOSTAGES[:4]: s.prone(look, x, y)
+    return s
 
-def s_police():
-    s = Scene(); p = s.world.load()
-    for x in range(9, 14):
-        if grid[23][x] == 'G':
-            for py in range(5, 11):
-                for px in range(T):
-                    if (px * 7 + py * 3) % 5 == 0: p[x * T + px, 23 * T + py] = (40, 50, 60)
-    bh.van(p, 9, 26, (200, 202, 208), 3, 2, roof=(30, 40, 80))
-    bh.rect(p, 10 * T, 26 * T + 4, 10 * T + 6, 26 * T + 7, (190, 50, 50)); bh.rect(p, 10 * T + 7, 26 * T + 4, 10 * T + 13, 26 * T + 7, (60, 80, 200))
-    bh.van(p, 30, 27, (32, 36, 42), 4, 2)
-    for (x, y) in ((12, 25), (14, 25)): s.place(figure('police', 'up'), x, y)
-    u.cone(s.under, blocks_sight, 14, 25, -75, 8, 22, RED, 34)
-    u.bracket(s.over, 16, 23, RED); u.glyph_at_tile(s.over, 16, 23, 'bolt', RED); u.badge(s.over, 16, 23, 'bolt', RED, n=1, dx=0)
-    gx, gy = 28, 18
-    blast = los_tiles((gx, gy), 2)
+def sPolice():
+    s = Scene(15, 18, dy=8)
+    for x, y in ((25, 30), (27, 31)): s.add('police', x, y, -90)
+    u.cone(s.under, sight, 27, 31, -80, 8, 22, RED, 34)
+    u.bracket(s.over, 22, 28, RED); u.badge(s.over, 22, 28, 'bolt', RED, n=1)
+    gx, gy = 31, 22
+    blast = losTiles((gx, gy), 2)
     for (x, y) in blast:
         for py in range(TS):
             for px in range(TS):
@@ -260,137 +266,139 @@ def s_police():
     u.ring(s.under, blast, BONE, dotted=False)
     u.rect(s.over, cx(gx) - 3, cx(gy) - 3, cx(gx) + 2, cx(gy) + 2, (50, 60, 48)); u.rect(s.over, cx(gx) - 2, cx(gy) - 2, cx(gx) - 1, cx(gy) - 1, (120, 140, 110))
     u.plate(s.over, cx(gx) + 6, cx(gy) - 16, 10, 12, BONE); u.num(s.over, 1, cx(gx) + 9, cx(gy) - 13, BONE, shadow=False)
-    u.line(s.over, 44 * TS, 31 * TS, cx(33), cx(17), RED, 230, 3, 3)
-    u.rect(s.over, cx(33) - 1, cx(17) - 1, cx(33) + 1, cx(17) + 1, RED)
-    s.place(figure('police', 'right'), 19, 21, 0.3)
-    u.plate(s.over, cx(19) - 5, 21 * TS - 13, 10, 12, DIM); u.num(s.over, 1, cx(19) - 2, 21 * TS - 10, DIM, shadow=False)
-    p_crew(s, 'dex', 28, 16, 'down', masked=True, extra='rifle')
-    p_crew(s, 'mara', 31, 17, 'down', masked=True, sel=True)
-    p_crew(s, 'jun', 21, 16, 'down', masked=True)
-    for (x, y) in ((24, 19), (23, 20), (31, 20), (26, 20)): p_prone(s, x, y, body=(110, 100, 90))
-    return s.crop(8, 14, offy=8)
+    u.line(s.over, 44 * TS, 36 * TS, cx(35), cx(20) - 14, RED, 230, 3, 3)
+    u.rect(s.over, cx(35) - 1, cx(20) - 15, cx(35) + 1, cx(20) - 13, RED)
+    s.add('police', 20, 30, 0, ghost=True)
+    u.plate(s.over, cx(20) - 5, 30 * TS - 13 - u.HEAD, 10, 12, DIM); u.num(s.over, 1, cx(20) - 2, 30 * TS - 10 - u.HEAD, DIM, shadow=False)
+    s.crew('dex', 28, 20, 90, masked=True); s.crew('mara', 35, 20, 90, masked=True, sel=True); s.crew('jun', 22, 21, 90, masked=True)
+    for look, x, y in (('customerSuit', 25, 22), ('customerCoat', 27, 22), ('customerCasual', 33, 23), ('customerOld', 30, 24)): s.prone(look, x, y)
+    return s
 
-def s_tracers():
-    s = Scene()
-    p_crew(s, 'dex', 28, 16, 'down', masked=True, extra='rifle')
-    s.place(figure('swat', 'up'), 22, 22); s.place(figure('swat', 'up'), 25, 22)
-    for (x0, y0, x1, y1) in ((cx(22), cx(22) - 8, cx(28) - 6, cx(16) + 8), (cx(22) + 2, cx(22) - 8, cx(28) + 10, cx(16) - 6)):
+def sTracers():
+    s = Scene(16, 14)
+    s.crew('dex', 30, 19, 90, masked=True)
+    s.add('swat', 29, 26, -90); s.add('swat', 32, 26, -90)
+    for (x0, y0, x1, y1) in ((cx(29), cx(26) - 18, cx(30) - 6, cx(19) - 8), (cx(29) + 2, cx(26) - 18, cx(30) + 10, cx(19) - 20)):
         u.line(s.over, x0, y0, x1, y1, (244, 226, 170), 230, 6, 5)
-    for k in range(8): u.put(s.over, cx(27) + (k * 5) % 13 - 6, cx(16) + (k * 7) % 9 - 2, (240, 236, 220))
-    for (x, y) in ((24, 19), (23, 20), (31, 20)): p_prone(s, x, y, body=(110, 100, 90))
-    u.bracket(s.over, 22, 22, RED)
-    return s.crop(14, 13)
+    for k in range(8): u.put(s.over, cx(29) + (k * 5) % 13 - 6, cx(19) + (k * 7) % 9 - 12, (240, 236, 220))
+    for look, x, y in (('customerSuit', 25, 22), ('customerCoat', 27, 22), ('customerCasual', 34, 21)): s.prone(look, x, y)
+    u.bracket(s.over, 29, 26, RED)
+    return s
 
-def s_vehicle():
-    s = Scene()
+def sVehicle():
+    s = Scene(4, 22, dy=8)
+    van = (14, 31)
     reach = set()
-    for dx in range(-8, 9):
+    for dx in range(-9, 10):
         for dy in (-1, 0, 1):
-            if abs(dy) * 2 > abs(dx) or dx == 0 or not (0 <= 30 + dx and 30 + dx + 4 <= W): continue
-            reach |= {(x, y) for x in range(30 + dx, 34 + dx) for y in range(27 + dy, 29 + dy)}
-    u.tints(s.under, {t: 'safe' for t in reach if 26 <= t[1] <= 31})
-    u.rect(s.under, 37 * TS + 4, 28 * TS + 4, 41 * TS - 5, 30 * TS - 5, (32, 36, 42), 130)
-    u.footprint(s.over, 37, 28, 4, 2, BONE, solid=True)
-    u.path(s.over, [(33, 28), (35, 28), (36, 29), (38, 29)], BONE, end=False)
-    bh.van(s.world.load(), 30, 27, (32, 36, 42), 4, 2)
-    s.place(figure('civ', 'left', skin=1, body=(150, 140, 120)), 41, 25)
-    p_crew(s, 'jun', 29, 25, 'right', masked=True)
-    return s.crop(18, 19, offy=4)
+            if abs(dy) * 2 > abs(dx) or dx == 0: continue
+            reach |= {(x, y) for x in range(van[0] + dx, van[0] + dx + 4) for y in range(van[1] + dy, van[1] + dy + 2)}
+    u.tints(s.under, {t: 'safe' for t in reach if 30 <= t[1] <= 34 and 0 <= t[0] < W})
+    u.rect(s.under, 22 * TS + 4, 32 * TS + 4, 26 * TS - 5, 34 * TS - 5, (32, 36, 42), 130)
+    u.footprint(s.over, 22, 32, 4, 2, BONE, solid=True)
+    u.path(s.over, [(16, 31), (19, 31), (20, 32), (23, 32)], BONE, end=False)
+    s.add('passerby', 26, 29, 180)
+    s.crew('jun', 12, 29, 0, masked=True)
+    return s
 
-def s_throw():
-    s = Scene()
-    bh.van(s.world.load(), 22, 25, (32, 36, 42), 4, 2)
-    u.tints(s.under, {(24, 23): 'safe', (25, 22): 'safe', (24, 22): 'safe', (23, 23): 'safe', (25, 23): 'safe'})
-    p_crew(s, 'dex', 23, 21, 'down', masked=True, extra='bag', sel=True)
-    p_crew(s, 'jun', 24, 23, 'down', masked=True)
-    x0, y0, x1, y1 = cx(23), cx(21) - 8, cx(24), cx(23) - 8
+def sThrow():
+    s = Scene(19, 20, moveProps=[{'kind': 'van', 'tx': 29, 'ty': 31}])
+    u.tints(s.under, {(31, 29): 'safe', (32, 29): 'safe', (30, 29): 'safe', (31, 30): 'safe', (32, 30): 'safe'})
+    s.crew('dex', 30, 27, 90, masked=True, sel=True)
+    s.crew('jun', 32, 29, -90, masked=True)
+    x0, y0, x1, y1 = cx(30), cx(27) - 20, cx(32), cx(29) - 20
     for k in range(0, 31):
         t = k / 30
-        if k % 2 == 0: u.rect(s.over, round(x0 + (x1 - x0) * t), round(y0 + (y1 - y0) * t - math.sin(math.pi * t) * 22), round(x0 + (x1 - x0) * t), round(y0 + (y1 - y0) * t - math.sin(math.pi * t) * 22), BONE)
-    u.bracket(s.over, 24, 23, BONE)
-    return s.crop(12, 15)
+        if k % 2 == 0:
+            px, py = round(x0 + (x1 - x0) * t), round(y0 + (y1 - y0) * t - math.sin(math.pi * t) * 26)
+            u.rect(s.over, px, py, px, py, BONE)
+    u.bracket(s.over, 32, 29, BONE)
+    return s
 
-def s_route():
-    s = Scene()
-    route = [(13, 21), (14, 21), (15, 21), (16, 21), (17, 21), (18, 21), (19, 21), (20, 21), (21, 22), (22, 22), (23, 22), (24, 22), (25, 22), (26, 22), (27, 21), (28, 21), (29, 21)]
-    npcs = [Npc('guard', 20, 18, -90, 'enf', future=(20, 17, -90))]
-    u.tints(s.under, overlay_for(route[1:], npcs, 'clean'))
+def sRoute():
+    s = Scene(18, 13)
+    route = [(x, 22) for x in range(21, 37)]
+    npcs = [Npc('guard', 33, 20, -90, 'enf', future=(33, 19, -90))]
+    u.tints(s.under, overlayFor(route[1:], npcs, 'clean'))
     u.path(s.under, route)
-    for i, k in enumerate((5, 10, 16)):
+    for i, k in enumerate((5, 10, 15)):
         x, y = route[k]; u.plate(s.over, cx(x) - 5, cx(y) - 22, 10, 12, BONE); u.num(s.over, i + 1, cx(x) - 2, cx(y) - 19, BONE, shadow=False)
-    s.place(figure('guard', 'up'), 20, 18, 0.3)
-    for (a, b) in (((20, 18), (20, 16)), ((20, 16), (27, 16)), ((27, 16), (27, 19)), ((27, 19), (20, 19))):
-        u.line(s.under, cx(a[0]), cx(a[1]), cx(b[0]), cx(b[1]), DIM, 200, 1, 4)
-    u.bracket(s.over, 20, 18, DIM)
-    p_civ(s, 24, 19, 'up', 0); p_civ(s, 23, 20, 'up', 1); p_civ(s, 31, 18, 'left', 2)
-    for i, x in enumerate((15, 20, 25, 30)): p_teller(s, x, 14, i)
-    p_crew(s, 'mara', 13, 21, 'right', sel=True)
-    return s.crop(8, 11)
+    s.add('guard', 33, 20, -90, ghost=True)
+    u.line(s.under, cx(33), cx(26), cx(33), cx(18), DIM, 200, 1, 4)
+    u.bracket(s.over, 33, 20, DIM)
+    for look, x in TELLERS: s.add(look, x, 14, 90)
+    for look, x in COUNTER: s.add(look, x, 16, -90)
+    s.add('customerCasual', 30, 18, -90)
+    s.crew('mara', 21, 22, 0, sel=True)
+    return s
 
-def s_cause():
-    s = Scene()
-    lobby_cast(s)
-    p_crew(s, 'jun', 22, 18, 'left'); p_crew(s, 'mara', 12, 19, 'right')
-    u.cone(s.under, blocks_sight, 20, 19, 0, 6, 45, AMBER, 22, dotted=True)
-    u.line(s.over, cx(20) + 8, 19 * TS - 6, cx(22) - 6, 18 * TS + 6, CREW['jun'], 230, 3, 2)
-    u.pips(s.over, 20, 19, 1, CREW['jun'], dy=-6)
-    u.badge(s.over, 20, 19, 'q2', AMBER, dx=-22)
-    return s.crop(10, 11)
+def sCause():
+    s = Scene(16, 13)
+    lobbyCast(s, skip=('guard',))
+    s.add('guard', 33, 22, 180)
+    s.crew('jun', 29, 21, 0); s.crew('mara', 21, 19, 0)
+    u.cone(s.under, sight, 33, 22, 180, 6, 45, AMBER, 22, dotted=True)
+    u.line(s.over, cx(33) - 10, 22 * TS - u.HEAD + 4, cx(29) + 8, 21 * TS - u.HEAD + 10, CREW['jun'], 230, 3, 2)
+    u.pips(s.over, 33, 22, 1, CREW['jun'], dy=-u.HEAD - 8)
+    u.badge(s.over, 33, 22, 'q2', AMBER, dx=-22)
+    return s
 
-def s_wall():
-    s = Scene()
-    for x in range(10, 20):
-        for py in range(TS):
+def sWall():
+    s = Scene(4, 6)
+    for x in range(16, 20):
+        for py in range(-10, 10):
             for px in range(TS):
-                if (px + py) % 6 == 0: u.put(s.under, x * TS + px, 10 * TS + py, BONE, 150)
-    u.bracket(s.over, 10, 10, BONE, 10, 1, arm=10)
-    p_crew(s, 'dex', 14, 12, 'up', masked=True, extra='rifle', sel=True)
-    return s.crop(4, 5)
+                if (px + py) % 6 == 0: u.put(s.over, x * TS + px, 13 * TS + py, BONE, 150)
+    u.bracket(s.over, 16, 12, BONE, 4, 1, arm=10)
+    s.crew('dex', 17, 12, 90, masked=True, sel=True)
+    return s
 
-def s_desktop():
-    s = Scene(); npcs = [Npc('teller5', 35, 14, 90, 'staff'), Npc('teller4', 30, 14, 90, 'staff'), Npc('cust5', 31, 18, 180, 'civ'),
-                         Npc('cleaner', 37, 11, -90, 'staff', future=(39, 12, 90)), Npc('guard', 20, 19, 0, 'enf', future=(23, 19, 0))]
-    route = [(35, 19), (36, 18), (37, 17), (38, 16), (39, 16), (40, 15), (40, 14)]
-    u.tints(s.under, overlay_for(route[1:], npcs, 'clean'))
-    lobby_cast(s, skip=('teller4', 'teller5')); p_teller(s, 35, 14, 4); p_teller(s, 30, 14, 3)
-    p_cleaner(s, 37, 11, 'up'); u.arrow(s.over, [(37, 11), (39, 12)], DIM)
-    u.arrow(s.over, [(20, 19), (21, 19), (22, 19), (23, 19)], BONE)
-    u.path(s.under, route); u.glyph_at_tile(s.over, 40, 14, 'eye', BONE)
-    p_crew(s, 'jun', 35, 19, 'up', sel=True); p_crew(s, 'mara', 12, 19, 'right')
-    return s.crop(8, 8, 1280, 720)
+def sDesktop():
+    s = Scene(14, 8, width=1280, height=720)
+    npcs = [Npc('headTeller', 35, 14, 90, 'staff'), Npc('tellerB', 27, 14, 90, 'staff'), Npc('customerDress', 35, 16, -90, 'civ'),
+            Npc('cleaner', 42, 14, 180, 'staff', future=(39, 14, 180)), Npc('guard', 33, 23, -90, 'enf', future=(33, 21, -90))]
+    info = overlayFor(ROUTE[1:], npcs, 'clean')
+    bad = next(t for t in ROUTE[1:] if info[t][0] != 'safe')
+    u.tints(s.under, info)
+    lobbyCast(s); s.add('cleaner', 42, 14, 180)
+    u.arrow(s.over, [(42, 14), (39, 14)], DIM)
+    u.arrow(s.over, [(33, 23), (33, 22), (33, 21)], BONE)
+    u.path(s.under, ROUTE); u.glyph_at_tile(s.over, bad[0], bad[1], 'eye', BONE)
+    s.crew('jun', 37, 21, sel=True); s.crew('mara', 21, 19, 0)
+    return s
 
-def s_tactical():
-    s = Scene()
-    lobby_cast(s)
-    p_cleaner(s, 38, 12, 'left'); p_guard(s, 30, 8, 180)
-    s.place(figure('civ', 'down', skin=1, body=(50, 50, 70)), 5, 10); s.place(figure('civ', 'up', skin=2, body=(90, 100, 110)), 5, 4)
-    p_crew(s, 'mara', 12, 19, 'right'); p_crew(s, 'jun', 28, 21, 'up')
-    bh.van(s.world.load(), 30, 27, (32, 36, 42), 4, 2)
-    return s.compose()
+def sTactical():
+    s = Scene(0, 0, mapView=True)
+    lobbyCast(s)
+    s.add('cleaner', 42, 22, 180); s.add('guard', 30, 12, 180); s.add('operator', 47, 20, 180)
+    s.crew('mara', 21, 19, 0); s.crew('jun', 27, 23); s.crew('sol', 35, 40)
+    return s
 
-def s_blueprint():
-    s = Scene(); p = s.world.load()
-    known = lambda x, y: grid[y][x] in '.cRwkra' or y >= 23
-    for y in range(1, 23):
-        for x in range(1, 47):
-            if known(x, y): continue
-            for py in range(T):
-                for px in range(T):
-                    wall = grid[y][x] in WALLS and grid[y][x] not in 'GTE'
-                    p[x * T + px, y * T + py] = (22, 28, 44) if wall else ((36, 48, 76) if (px == 0 or py == 0) and (px + py) % 2 == 0 else (28, 37, 60))
-    for (qx, qy) in ((5, 4), (11, 3), (22, 4), (33, 4), (41, 4), (5, 11), (22, 8), (27, 12), (40, 8)):
-        u.glyph(s.over, u.G['q'], qx * TS + 14, qy * TS + 12, (120, 140, 180))
-    return s.compose()
+def sBlueprint():
+    rooms = [r for r in lv.DATA['rooms'] if r['zone'] in ('staff', 'secure')]
+    outlines = [{'x': r['x'], 'y': r['y'], 'w': r['w'], 'h': r['h'], 'name': r['name'], 'parts': r.get('parts') or [{k: r[k] for k in 'xywh'}]} for r in rooms]
+    return Scene(0, 0, mapView=True, outlines=outlines, plotOnly=True)
 
 SCENES = {
-    'stealth-select': s_select, 'stealth-path': lambda: s_path(0), 'stealth-why': lambda: s_path(1), 'stealth-wait': lambda: s_path(2),
-    'noise-quiet': lambda: s_noise('quiet'), 'noise-loud': lambda: s_noise('loud'), 'challenge': s_challenge, 'carriers': s_carriers,
-    'go-preview': s_go_preview, 'go-after': s_go_after, 'lapse': s_lapse, 'aim': s_aim, 'aim-tight': lambda: s_aim(2),
-    'watch': s_watch, 'police': s_police, 'tracers': s_tracers, 'vehicle': s_vehicle, 'throw': s_throw,
-    'route': s_route, 'cause': s_cause, 'desktop': s_desktop, 'wall': s_wall, 'tactical': s_tactical, 'blueprint': s_blueprint,
+    'stealth-select': sSelect, 'stealth-path': lambda: sPath(0)[0], 'stealth-why': lambda: sPath(1)[0], 'stealth-wait': lambda: sPath(2)[0],
+    'noise-quiet': lambda: sNoise('quiet'), 'noise-loud': lambda: sNoise('loud'), 'challenge': sChallenge, 'carriers': sCarriers,
+    'go-preview': sGoPreview, 'go-after': sGoAfter, 'lapse': sLapse, 'aim': sAim, 'aim-tight': lambda: sAim(2),
+    'watch': sWatch, 'police': sPolice, 'tracers': sTracers, 'vehicle': sVehicle, 'throw': sThrow,
+    'route': sRoute, 'cause': sCause, 'desktop': sDesktop, 'wall': sWall, 'tactical': sTactical, 'blueprint': sBlueprint,
 }
 
 if __name__ == '__main__':
-    for name, fn in SCENES.items():
-        if ONLY and name not in ONLY: continue
-        save(name, fn())
+    mode, out, only = sys.argv[1], sys.argv[2], set(sys.argv[3:])
+    os.makedirs(out, exist_ok=True)
+    names = [n for n in SCENES if not only or n in only]
+    if mode == 'cast':
+        castFile = os.path.join(out, 'cast.json')
+        cast = json.load(open(castFile)) if os.path.exists(castFile) else {}
+        cast.update({n: SCENES[n]().shot() for n in names})
+        json.dump(cast, open(castFile, 'w'), indent=1)
+        print('cast for', len(names), 'scenes')
+    elif mode == 'compose':
+        views = json.load(open(os.path.join(out, 'views.json')))
+        for n in names:
+            SCENES[n]().compose(out, n, views[n]).save(os.path.join(out, n + '.png')); print('wrote', n)
+    else: raise SystemExit('Usage: scenes.py cast|compose <dir> [scene ...]')
