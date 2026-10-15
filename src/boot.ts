@@ -10,7 +10,7 @@ import { OfficerScene } from './scenes/OfficerScene';
 import { PropSheetScene } from './scenes/PropSheetScene';
 import { Fullscreen } from './ui/Fullscreen';
 import { installDebugHandle, MemoryStorage, Session, webStorage } from './game';
-import { bankAddress, playPlan, savedHeist, startHeist } from './game/heist';
+import { bankAddress, playPlan, sameAddress, savedHeist, startHeist } from './game/heist';
 import type { BankData } from './level/bankData';
 import type { PlaySetup } from './scenes/BankScene';
 
@@ -20,19 +20,42 @@ import type { PlaySetup } from './scenes/BankScene';
  */
 export const PLAY_BANK = { seed: '31-2', tier: 'small', archetype: 'twoWing' } as const;
 
+/** The scenes `?scene=` can name here (`hud` never loads the game); `bank` and `lobby` are older links to the viewer. */
+const SCENES = ['bank', 'lobby', 'rooms', 'props', 'officer'];
+
 /**
- * Whether the address opens the game: the default page (`/`, `?play` being an older link to it), unless it names a
- * scene, the generated-bank viewer (`?view`) or the hand-made example bank (`?bank=example`).
+ * Whether the address opens the game: the default page (`/`), `?play` (the game's own address in another bank,
+ * `?play&seed=…`) or `?new`, unless it names a scene, the generated-bank viewer (`?view`) or the hand-made example bank
+ * (`?bank=example`). A bare `?seed=…` is an old link to the viewer (it was the default page), never a heist: it would
+ * start and autosave one in a random bank that `/` then resumes.
  */
-export const playsTheGame = (params: URLSearchParams): boolean => !params.has('scene') && !params.has('view') && params.get('bank') !== 'example';
+export const playsTheGame = (params: URLSearchParams): boolean =>
+    !params.has('scene') && !params.has('view') && params.get('bank') !== 'example' && (!params.has('seed') || params.has('play') || params.has('new'));
+
+/** Replaces the address's query with `params`, a bare flag (`view`, `play`) staying bare rather than `view=`. */
+function replaceQuery(params: URLSearchParams): void {
+    const query = params.toString().replace(/(^|&)(view|play|new)=(?=&|$)/g, '$1$2');
+    history.replaceState(null, '', `${location.pathname}${query ? `?${query}` : ''}`);
+}
 
 /** Starts the game on the scene the address names (`?scene=`, default the bank). Loaded only off the HUD page. */
 export function startGame(params: URLSearchParams, scene: string): void {
-    // The default page is the game (implementation plan §2.5): the pinned bank (or `&seed=`), played through a Session
-    // that autosaves to this browser and resumes (`&new` starts afresh, after asking).
+    // A scene that no longer exists (`?scene=demo`, the old stack demo) is dropped: the page is what it would be without it.
+    if (params.has('scene') && !SCENES.includes(scene)) {
+        params.delete('scene');
+        replaceQuery(params);
+        scene = 'bank';
+    }
+    // The default page is the game (implementation plan §2.5): the pinned bank (or `?play&seed=`), played through a
+    // Session that autosaves to this browser and resumes (`&new` starts afresh, after asking).
     if (playsTheGame(params)) {
         void preparePlay(params).then(({ bank, setup }) => launch(params, scene, bank, setup));
         return;
+    }
+    // An old link to the viewer (`?seed=…` without `play`) opens the viewer, and says so in its address.
+    if (!params.has('scene') && !params.has('view') && params.has('seed')) {
+        params = new URLSearchParams([['view', ''], ...params]);
+        replaceQuery(params);
     }
     // `?view` is the generated-bank viewer (`&seed=`, `tier`, `archetype`, `plot`, and the generator bar), `?bank=example`
     // the hand-made bank; `?scene=rooms` is the room gallery: every room type furnished in a few sizes (`?seed=` picks
@@ -118,13 +141,18 @@ function generateAddressed(): ReturnType<typeof bankFromAddress> {
     return next;
 }
 
-/** Writes the game's address: the bank's picks (no `play`, no `new`), so a reload resumes this heist in this bank. */
-function writePlayAddress(): void {
+/**
+ * Writes the game's address once its heist is settled: without a seed when the bank is the saved heist's (a reload
+ * resumes it) or the pinned one, else `?play&seed=…` with the bank's picks, so it reads as the game's, not the viewer's.
+ * Never `new`, so a reload doesn't ask again.
+ */
+function writePlayAddress(bank: GeneratedBank, saved: ReturnType<typeof savedHeist>): void {
+    const here = bankAddress(bank);
+    const pinned = here.seed === PLAY_BANK.seed && here.tier === PLAY_BANK.tier && here.archetype === PLAY_BANK.archetype;
     const params = new URLSearchParams(location.search);
-    params.delete('play');
-    params.delete('new');
-    const rest = params.toString();
-    history.replaceState(null, '', `${location.pathname}${rest ? `?${rest}` : ''}`);
+    for (const k of ['play', 'new', 'seed', 'tier', 'archetype', 'plot']) params.delete(k);
+    const rest = [...params];
+    replaceQuery(new URLSearchParams(pinned || sameAddress(saved?.address, here) ? rest : [['play', ''], ...Object.entries(here), ...rest]));
 }
 
 /**
@@ -142,10 +170,10 @@ async function preparePlay(params: URLSearchParams): Promise<{ bank: ReturnType<
         const next = new URLSearchParams(location.search);
         for (const k of ['seed', 'tier', 'archetype', 'plot']) next.delete(k);
         for (const [k, v] of Object.entries(address)) next.set(k, v);
-        history.replaceState(null, '', `${location.pathname}?${next}`);
+        next.delete('play');
+        replaceQuery(new URLSearchParams([['play', ''], ...next]));
     }
     const bank = generateAddressed();
-    writePlayAddress();
     const generated = bank.generated!;
     const started = performance.now();
     let plan = playPlan(saved, { seeded, fresh }, bankAddress(generated));
@@ -168,6 +196,7 @@ async function preparePlay(params: URLSearchParams): Promise<{ bank: ReturnType<
     }
     const resumed = !!session;
     session ??= startHeist(generated, target);
+    writePlayAddress(generated, savedHeist(target));
     const setupMs = performance.measure('bank: heist', { start: started }).duration;
     installDebugHandle(session);
     const s = session;

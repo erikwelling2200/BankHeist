@@ -164,11 +164,20 @@ export function mountHud(root: HTMLElement, callbacks: HudCallbacks, options: Hu
             const k = Math.min(1, (performance.now() - holdStart) / HOLD_MS);
             fill.style.width = `${k * 100}%`;
             if (k < 1) { holdFrame = requestAnimationFrame(step); return; }
-            stopHold();
-            if (vm && crewWithActionsLeft(vm.crew).length) open('prompt');
-            else callbacks.endTurn();
+            finishHold();
         };
         holdFrame = requestAnimationFrame(step);
+    };
+    /** The hold is complete: ask first if anyone still has actions, else end the turn. */
+    const finishHold = () => {
+        stopHold();
+        if (vm && crewWithActionsLeft(vm.crew).length) open('prompt');
+        else callbacks.endTurn();
+    };
+    /** Let go: a hold that lasted `HOLD_MS` counts even if no frame came to see it (slow frames), a shorter one doesn't. */
+    const releaseHold = () => {
+        if (holdStart && performance.now() - holdStart >= HOLD_MS) finishHold();
+        else stopHold(true);
     };
     const stopHold = (early = false) => {
         if (!holdStart) return;
@@ -183,7 +192,7 @@ export function mountHud(root: HTMLElement, callbacks: HudCallbacks, options: Hu
         try { endTurn.setPointerCapture(e.pointerId); } catch { /* a synthetic pointer */ }
         startHold();
     });
-    endTurn.addEventListener('pointerup', () => stopHold(true));
+    endTurn.addEventListener('pointerup', releaseHold);
     endTurn.addEventListener('pointercancel', () => stopHold(true));
     // A click without a pointer (the keyboard, assistive tech) can't hold: it always asks first, so one press never ends
     // the turn.

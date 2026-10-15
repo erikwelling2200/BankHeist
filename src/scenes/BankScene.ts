@@ -18,7 +18,7 @@ import { Walls } from './bank/walls';
 import { M1_CREW } from '../game/heist';
 import { CREW_COLOURS } from '../ui/hud/viewModels';
 
-/** What `?play` hands the scene through the registry (`play`): the Session and the bank it is played in. */
+/** What the game (`/`) hands the scene through the registry (`play`): the Session and the bank it is played in. */
 export type PlaySetup = Pick<PlayParts, 'session' | 'bank' | 'resumed'> & { /** How long finding or making the heist took (ms). */ setupMs?: number };
 
 /**
@@ -50,7 +50,7 @@ export class BankScene extends Phaser.Scene {
     private timings: Record<string, number> = {};
     /** Nothing moves by itself (`?still`, for screenshot tests): the clouds hold still, nobody patrols, no dust drifts. */
     private still = false;
-    /** Play mode (`?play`): the bank driven by a Session. */
+    /** Play mode (the game, `/`): the bank driven by a Session. */
     private play?: PlayMode;
 
     constructor() {
@@ -150,7 +150,7 @@ export class BankScene extends Phaser.Scene {
             raised: this.heights.state,
             /** Every wall has reached the height the view asks of it (as of the last frame), so a screenshot can be taken. */
             settled: this.walls.settled,
-            /** Play mode's selection, preview, playback and doors (`?play`). */
+            /** Play mode's selection, preview, playback and doors (the game, `/`). */
             play: this.play?.state
         };
     }

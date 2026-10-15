@@ -25,7 +25,7 @@ import type { People } from './people';
 import type { Walls } from './walls';
 
 /*
- * Play mode (`?play`, implementation plan §2.5, M1-13): the bank scene driven by a Session. The people stand where the
+ * Play mode (the game on `/`, implementation plan §2.5, M1-13): the bank scene driven by a Session. The people stand where the
  * state says (no real-time patrols), the crew with their rings; doors show open or closed; taps and drags on the map
  * become previews and commands (UI.md "Touch grammar"); the HUD (src/ui/hud) shows the Session's view models and
  * reports back; and the events of each commit and world phase play back (§20.5) at 1×, 2× or instantly.

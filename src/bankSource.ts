@@ -28,7 +28,7 @@ export function bankFromAddress(): { data: BankData; generated?: GeneratedBank }
     }
     params.set('seed', seedText(generated.seed));
     // A bare flag (`?view`) stays bare rather than turning into `view=`.
-    history.replaceState(null, '', `${location.pathname}?${params.toString().replace(/(^|&)(view|play)=(?=&|$)/g, '$1$2')}`);
+    history.replaceState(null, '', `${location.pathname}?${params.toString().replace(/(^|&)(view|play|new)=(?=&|$)/g, '$1$2')}`);
     const lobby = generated.rooms.find(r => r.type === 'lobby')!;
     const focus = { tx: lobby.x + Math.floor(lobby.w / 2), ty: lobby.y };
     const outlines = generated.rooms.filter(r => r.known === 'outline').map(r => ({ x: r.x, y: r.y, w: r.w, h: r.h, name: r.name, parts: r.parts }));

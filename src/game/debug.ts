@@ -64,7 +64,7 @@ export interface SimHandle {
     knows(id: string, state?: State): boolean;
     /**
      * For scripted e2e setups: starts a heist from `state` in this one's bank and save slot, replacing the one in
-     * progress; reloading the page (`?play`) then resumes it.
+     * progress; reloading the game (`/`) then resumes it.
      */
     restart(state: State): void;
 }

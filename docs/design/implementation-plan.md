@@ -88,7 +88,7 @@ src/ui/hud/   the HTML HUD from UI.md
   - long-press asks why
 - **HUD** reads view models from the Session; it never reads the state directly.
 - **Debugging and e2e:** `window.sim` exposes `{ state, world, preview(cmd), commit(cmd), endTurn() }`.
-- **Routes:** the game is the default page (`/`, `?play` kept as an alias); the generated-bank viewer moved to `?view` (M1-16). The visual tests open `?view…` where they used the default page, so they show what they did.
+- **Routes:** the game is the default page (`/`; in another bank `?play&seed=…`, `?new` to start afresh); the generated-bank viewer moved to `?view` (M1-16), and a bare `?seed=…` (an old link to it) opens it as `?view&seed=…`, never a heist. The visual tests open `?view…` where they used the default page, so they show what they did.
 
 ### 2.6 Tests
 
@@ -591,7 +591,9 @@ Each package lists its goal, the design sections it covers, the files, what it d
       Steady Hands); turn 73 is still Quiet. Every move is played along the path its safe-floor tile judged and its
       solid part must equal what the move did; when End turn follows it, its hatched part must equal what the world
       phase did and the tint must name the worst of the two. The route was found by a beam search over the real rules
-      (green or unknown-risk tiles only, nothing noticed) and recorded; the rules are deterministic.
+      (green or unknown-risk tiles only, nothing noticed) and recorded; the rules are deterministic. The one exception
+      is the step up behind the guard on turn 70: red, hatched, for the world phase the knockout then takes away. The
+      knockout and the panel work are previewed first, and the test checks that the preview was the outcome.
     - **Not in the run: stashing the body.** In a small branch nothing makes it possible yet:
       - every small bank's alarm panel is in the alarm closet behind a keycard door, and the crew has no keys
         (`crewHasKey` is false until M2-05), so the only way in is a door an NPC opened, held by standing in it;
@@ -603,6 +605,10 @@ Each package lists its goal, the design sections it covers, the files, what it d
         at half speed while dragging).
       The body therefore lies just inside the closet with the door shut. Once keys (M2-05) or zip-ties (M2-03) exist,
       the run can take the guard's keycard or tie him and stash him.
+    - **Known gaps.**
+      - No stashing a body on a small branch until keys (M2-05) or zip-ties (M2-03): the guard wakes after 4 world
+        phases, and the stashes are behind his locks (above).
+      - The patrol car has a single counter (its carrier, 2) until M3: taking the officers down is combat's.
 
 ### M2: Takeover and control
 

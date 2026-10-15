@@ -154,7 +154,7 @@ export {
 export { previewPicture } from './preview/picture';
 export { effectOf, isQuiet, noEffect, type Effect } from './preview/effect';
 export {
-    judgePath, judgeStay, overlayTiles, pathSafety, safeFloor, safeFloorJob, tintOf, tintRank, type FloorBand, type FloorJob, type FloorOptions, type FloorTile, type Judged,
+    effectKind, judgePath, judgeStay, overlayTiles, pathSafety, safeFloor, safeFloorJob, TINT_RANK, tintOf, tintRank, type FloorBand, type FloorJob, type FloorOptions, type FloorTile, type Judged,
     type PathOptions,
     type PathSafety, type PathStep, type SafeFloor, type Tint, type TintKind
 } from './preview/floor';

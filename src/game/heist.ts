@@ -8,7 +8,7 @@ import type { SaveStorage } from './storage';
 
 /*
  * A heist in a generated bank (implementation plan M1-13, M1-16): the World built from the bank, and the crew of two
- * starting beside their van. The scene asks for it on `?play`; resuming picks up the autosaved heist when it was played
+ * starting beside their van. The game (`/`) asks for it; resuming picks up the autosaved heist when it was played
  * in this same bank.
  */
 
@@ -77,7 +77,7 @@ export function newHeist(bank: GeneratedBank): { world: ReadonlyWorld; state: St
     return { world, state };
 }
 
-/** The storage key of the address of the bank the saved heist is played in, so `?play` can rebuild it to resume. */
+/** The storage key of the address of the bank the saved heist is played in, so the game can rebuild it to resume. */
 export const BANK_KEY = 'bank';
 
 /** What names a generated bank in the address (`?seed=…&tier=…&archetype=…&plot=…`). */
@@ -113,7 +113,7 @@ export function startHeist(bank: GeneratedBank, storage: SaveStorage, options: R
 }
 
 /**
- * What `?play` does about a saved heist: resume it, start a new one (nothing to lose), or ask before overwriting. Without
+ * What the game does about a saved heist: resume it, start a new one (nothing to lose), or ask before overwriting. Without
  * a seed in the address the saved heist resumes, whatever its bank; with the saved bank's own address it resumes too;
  * another bank, or `fresh` (`&new`), overwrites it only with the player's consent.
  */

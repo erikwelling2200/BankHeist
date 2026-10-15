@@ -104,9 +104,11 @@ export interface FloorOptions {
 
 // ---------------------------------------------------------------------------------------------------------- Tints
 
-const RANK: Record<Exclude<TintKind, 'grey' | 'unknownRisk'>, number> = { safe: 0, amber: 1, trespass: 2, camera: 3, red: 4 };
+/** How bad each tint kind is (grey and unknown risk aren't outcomes): the tint is the worse of now and next by it. */
+export const TINT_RANK: Readonly<Record<Exclude<TintKind, 'grey' | 'unknownRisk'>, number>> = { safe: 0, amber: 1, trespass: 2, camera: 3, red: 4 };
 
-function kindOf(e: DeepReadonly<Effect>): Exclude<TintKind, 'grey' | 'unknownRisk'> {
+/** The tint kind an outcome reads as (a `now` or `next` effect, or what really happened). */
+export function effectKind(e: DeepReadonly<Effect>): Exclude<TintKind, 'grey' | 'unknownRisk'> {
     if (e.exposed.length || e.watching.length) return 'red';
     if (e.cameras.length) return 'camera';
     if (e.challenged !== null) return 'trespass';
@@ -119,8 +121,8 @@ function kindOf(e: DeepReadonly<Effect>): Exclude<TintKind, 'grey' | 'unknownRis
  * together; the camera flag is set when a camera reports in either phase that counts toward the kind (now's always).
  */
 export function tintOf(now: DeepReadonly<Effect>, next: DeepReadonly<Effect> | null, knowledge: FloorKnowledge, unknownPath: boolean): Tint {
-    const a = kindOf(now), b = next ? kindOf(next) : 'safe';
-    const hatched = RANK[b] > RANK[a], kind = hatched ? b : a;
+    const a = effectKind(now), b = next ? effectKind(next) : 'safe';
+    const hatched = TINT_RANK[b] > TINT_RANK[a], kind = hatched ? b : a;
     const added: Record<string, number> = {};
     for (const e of next ? [now, next] : [now]) for (const id of Object.keys(e.pips)) added[id] = (added[id] ?? 0) + e.pips[id]!;
     const pips = Object.keys(added).sort().map(npc => ({ npc, pips: added[npc]! }));
@@ -626,7 +628,7 @@ export function judgeStay(world: ReadonlyWorld, state: State, crewId: string, op
 }
 
 /** Whether a tint warns of anything (not green, grey or hatched grey). */
-export const tintRank = (t: Tint): number => (t.kind === 'safe' || t.kind === 'grey' || t.kind === 'unknownRisk' ? 0 : RANK[t.kind]);
+export const tintRank = (t: Tint): number => (t.kind === 'safe' || t.kind === 'grey' || t.kind === 'unknownRisk' ? 0 : TINT_RANK[t.kind]);
 
 /**
  * The safe floor as the world UI overlay draws it (src/scenes/bank/overlay.ts `safeFloor`): sage, one or two pips,

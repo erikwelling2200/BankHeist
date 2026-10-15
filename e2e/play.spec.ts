@@ -1,4 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
+import { effectKind, TINT_RANK, type Effect } from '../src/sim';
 
 /** `npm run test:smoke` runs only the tests tagged `@smoke`. */
 const SMOKE = { tag: '@smoke' };
@@ -45,8 +46,9 @@ async function previewNear(page: Page, id: string, offsets: Pos[]): Promise<Pos>
     throw new Error(`No reachable tile near ${id}`);
 }
 
-/** Holds End turn, and ends the turn on the prompt if crew still have actions left. */
+/** Holds End turn, ends the turn on the prompt if crew still have actions left, and waits until the turn has gone up. */
 async function endTurn(page: Page): Promise<void> {
+    const turn = (await sim(page)).turn;
     const button = (await page.locator('.sh-endturn').boundingBox())!;
     await page.mouse.move(button.x + button.width / 2, button.y + button.height / 2);
     await page.mouse.down();
@@ -54,6 +56,7 @@ async function endTurn(page: Page): Promise<void> {
     await page.mouse.up();
     const prompt = page.locator('.sh-pend');
     if (await prompt.isVisible()) await prompt.click();
+    await expect.poll(async () => (await sim(page)).turn, { timeout: 15000 }).toBeGreaterThan(turn);
 }
 
 const AROUND: Pos[] = [{ x: 0, y: -3 }, { x: 2, y: -2 }, { x: -2, y: -2 }, { x: 3, y: 0 }, { x: -3, y: 0 }, { x: 0, y: 3 }, { x: 2, y: 2 }];
@@ -151,14 +154,17 @@ test('plays three turns of a heist through taps', SMOKE, async ({ page }) => {
 test('never overwrites a saved heist without asking', SMOKE, async ({ page }) => {
     const errors = await boot(page);
     await page.evaluate(() => { (window as any).sim.endTurn(); (window as any).sim.session.save(); });
-    expect(page.url()).toMatch(/\?seed=31-2&/);
-    // Another bank (through `?play`, the older link to the game): the dialog asks; keeping the saved heist goes back to
-    // it, in its own bank.
+    // The pinned bank, saved: the game's address stays bare.
+    expect(new URL(page.url()).search).toBe('');
+    const seedOf = () => page.evaluate(() => (window as any).generated.seed);
+    // Another bank (`?play&seed=`, the game's address in another bank): the dialog asks; keeping the saved heist goes
+    // back to it, in its own bank.
     await page.goto('/?play&seed=5-5');
     await page.locator('.play-dialog-keep').click();
     await page.waitForFunction(() => (window as any).sim, undefined, { timeout: 60000 });
     expect((await sim(page)).turn).toBe(2);
-    expect(page.url()).toMatch(/seed=31-2/);
+    expect(await seedOf()).toEqual({ layout: 31, population: 2 });
+    expect(new URL(page.url()).search).toBe('');
     // Without a seed, the saved heist resumes; with &new, starting afresh needs a yes.
     await page.goto('/?new');
     await page.locator('.play-dialog-new').click();
@@ -565,6 +571,8 @@ test('the alarm panel: work across actions shown as 2/4, and a dead panel kills 
 });
 
 test('a carrier counts down in the ledger with the check-ins, then the Alarm: "ALARM: police in N"', SMOKE, async ({ page }) => {
+    // Three world phases and a reload on the sandbox's software renderer.
+    test.setTimeout(60000);
     const errors = await boot(page);
     // A guard the crew sees, radioing in about Mara (3).
     const setup = await restartWith<{ guard: string; camera?: Pos }>(page, `(() => { ${PAGE_HELPERS} ${ALARM_HELPERS}
@@ -866,15 +874,12 @@ const M1_INSIDE = [
 
 interface MoveCheck { tile: { now: unknown; next: unknown; tint: { kind: string } }; now: unknown; cut: boolean; at: Pos }
 
-/** A tint's kind from an outcome, as the safe floor ranks them (src/sim/preview/floor.ts `kindOf`). */
-const kindOf = (e: any): string => (e.exposed.length || e.watching.length ? 'red' : e.cameras.length ? 'camera' : e.challenged !== null ? 'trespass' : Object.keys(e.pips).length ? 'amber' : 'safe');
-const RANK: Record<string, number> = { safe: 0, amber: 1, trespass: 2, camera: 3, red: 4 };
 
 test('the M1 heist: walk in, wait, slip through behind the cleaner, knock out the guard in the alarm closet, kill the panel', SMOKE, async ({ page }) => {
     // 72 turns with every world phase's playback skipped: about 30 s on the sandbox's software renderer.
     test.setTimeout(120000);
     const errors = await boot(page);
-    expect(new URL(page.url()).searchParams.get('seed')).toBe('31-2');
+    expect(await page.evaluate(() => (window as any).generated.seed)).toEqual({ layout: 31, population: 2 });
     // Playback instantly (the speed button: 1×, 2×, skip).
     for (let i = 0; i < 2; i++) await page.locator('.play-speed').click();
     await expect(page.locator('.play-speed')).toHaveText('⏭');
@@ -911,14 +916,17 @@ test('the M1 heist: walk in, wait, slip through behind the cleaner, knock out th
             expect(last.cut).toBe(false);
             expect(last.at).toEqual({ x: m.x, y: m.y });
             expect(last.now).toEqual(last.tile.now);
+            // The run keeps to tiles the floor shows as safe: green, or green as far as the crew knows.
+            expect(['safe', 'unknownRisk', 'grey']).toContain(last.tile.tint.kind);
         }
         const lastCrew = moves.at(-1)?.crew ?? null;
         const ended = await endTurn(lastCrew);
         expect(ended.quiet).toBe(true);
+        expect(ended.heard).toEqual([]);
         if (last && lastCrew) {
             // The turn's last move was followed only by End turn: the hatched part, and so the tint itself, came true.
             if (last.tile.next !== null) expect(ended.next).toEqual(last.tile.next);
-            const happened = [kindOf(last.now), ...(ended.next ? [kindOf(ended.next)] : [])].sort((a, b) => RANK[b]! - RANK[a]!)[0];
+            const happened = [effectKind(last.now as Effect), ...(ended.next ? [effectKind(ended.next as Effect)] : [])].sort((a, b) => TINT_RANK[b] - TINT_RANK[a])[0];
             const kind = last.tile.tint.kind === 'unknownRisk' || last.tile.tint.kind === 'grey' ? 'safe' : last.tile.tint.kind;
             expect(happened).toBe(kind);
         }
@@ -952,21 +960,36 @@ test('the M1 heist: walk in, wait, slip through behind the cleaner, knock out th
         return { turn: s.turn, guard: s.npcs.find((n: any) => n.id === 'lobbyGuard-8').pos, door: s.doors['door-3'].status };
     });
     expect(at70).toEqual({ turn: 70, guard: { x: 45, y: 10 }, door: 'open' });
+    // The one tile off the safe floor: red only for the coming world phase (the guard would turn and see him), which the
+    // knockout takes away; the move itself is unseen.
     const step = await move('jun', 45, 11);
+    expect(step.cut).toBe(false);
+    expect(step.at).toEqual({ x: 45, y: 11 });
     expect(step.now).toEqual(step.tile.now);
-    const ko = await page.evaluate(() => (window as any).sim.commit({ type: 'knockout', crew: 'jun', npc: 'lobbyGuard-8' }).events.map((e: any) => e.type));
-    expect(ko).toContain('knockedOut');
-    expect((await endTurn(null)).quiet).toBe(true);
+    expect(step.tile.tint).toMatchObject({ kind: 'red', hatched: true });
+    /** Commits `cmd` after previewing it: the preview must be the outcome (§2.2), events and undoability both. */
+    const previewed = (cmd: object) => page.evaluate(cmd => {
+        const sim = (window as any).sim, shown = sim.preview(cmd), done = sim.commit(cmd);
+        return { preview: { events: shown.events, undoable: shown.undoable }, result: { events: done.events, undoable: done.undoable } };
+    }, cmd);
+    const ko = await previewed({ type: 'knockout', crew: 'jun', npc: 'lobbyGuard-8' });
+    expect(ko.result).toEqual(ko.preview);
+    expect(ko.result.events.map((e: any) => e.type)).toContain('knockedOut');
+    const afterKo = await endTurn(null);
+    expect(afterKo.quiet).toBe(true);
+    expect(afterKo.heard).toEqual([]);
     // In, past the body, to the panel; then two actions of hacking with Steady Hands kill it.
     await playTurn('jun:45,6 jun:45,5');
-    const panel = await page.evaluate(() => {
-        const sim = (window as any).sim, id = sim.world.objects.find((o: any) => o.kind === 'alarmPanel').id;
-        for (let i = 0; i < 2; i++) sim.commit({ type: 'interact', crew: 'jun', object: id, verb: 'disable' });
-        return sim.state.objects[id];
-    });
-    expect(panel).toEqual({ progress: 4, disabled: true });
+    const panelId = await page.evaluate(() => (window as any).sim.world.objects.find((o: any) => o.kind === 'alarmPanel').id as string);
+    for (let i = 0; i < 2; i++) {
+        const hack = await previewed({ type: 'interact', crew: 'jun', object: panelId, verb: 'disable' });
+        expect(hack.result).toEqual(hack.preview);
+    }
+    expect(await page.evaluate(id => (window as any).sim.state.objects[id], panelId)).toEqual({ progress: 4, disabled: true });
     // The world phase after: still Quiet, and the HUD says so.
-    expect((await endTurn(null)).quiet).toBe(true);
+    const last = await endTurn(null);
+    expect(last.quiet).toBe(true);
+    expect(last.heard).toEqual([]);
     await idle(page);
     const end = await page.evaluate(() => {
         const s = (window as any).sim.state;

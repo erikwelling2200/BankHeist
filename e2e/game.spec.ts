@@ -24,7 +24,9 @@ test('boots into the game without errors', SMOKE, async ({ page }) => {
     await expect.poll(() => page.evaluate(() => (window as any).game.scene.getScene('bank').debugState.settled), { timeout: 20000 }).toBe(true);
     expect(await page.evaluate(() => (window as any).sim.state.crew.map((c: { id: string }) => c.id))).toEqual(['mara', 'jun']);
     await expect(page.locator('.sh-rail .sh-crew')).toHaveCount(2);
-    expect(new URL(page.url()).searchParams.get('seed')).toBe('31-2');
+    // The pinned bank: the address stays bare, so a reload resumes this heist.
+    expect(await page.evaluate(() => (window as any).generated.seed)).toEqual({ layout: 31, population: 2 });
+    expect(new URL(page.url()).search).toBe('');
     await page.screenshot({ path: 'screenshots/start.png' });
     expect(errors).toEqual([]);
     console.log(`fps: ${await page.evaluate(() => (window as any).game.loop.actualFps.toFixed(1))}`);
@@ -36,6 +38,18 @@ test('boots into the generated-bank viewer without errors', SMOKE, async ({ page
     expect(await page.evaluate(() => (window as any).sim)).toBeUndefined();
     expect(new URL(page.url()).search).toMatch(/^\?view&/);
     await page.locator('canvas').screenshot({ path: 'screenshots/viewer.png' });
+    expect(errors).toEqual([]);
+});
+
+test('opens an old link to a generated bank (a bare ?seed=) in the viewer, and saves no heist', SMOKE, async ({ page }) => {
+    const errors: string[] = [];
+    page.on('pageerror', e => errors.push(e.message));
+    await page.goto('/?seed=123456-7');
+    await page.waitForFunction(() => (window as any).game?.scene.getScene('bank')?.sys.isActive(), undefined, { timeout: 60000 });
+    await expect(page.locator('.generator-bar')).toBeVisible();
+    expect(await page.evaluate(() => (window as any).sim)).toBeUndefined();
+    expect(new URL(page.url()).search).toMatch(/^\?view&seed=123456-7/);
+    expect(await page.evaluate(() => Object.keys(localStorage).filter(k => k.startsWith('bankheist:')))).toEqual([]);
     expect(errors).toEqual([]);
 });
 

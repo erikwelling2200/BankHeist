@@ -23,7 +23,8 @@ for (const tier of TIERS) for (const archetype of archetypesFor(tier)) for (cons
 
 const ZONE: Record<GeneratedBank['rooms'][number]['zone'], Zone> = { public: 'public', staff: 'staff', secure: 'secure', neighbour: 'public', outdoors: 'public' };
 
-describe('worldFromBank', () => {
+// Every bank of every tier, archetype and plot: seconds of work, so a generous timeout keeps a loaded machine from failing it.
+describe('worldFromBank', { timeout: 30000 }, () => {
     it('builds a frozen world of the right size from every tier, archetype and plot', () => {
         expect(banks.length).toBe(TIERS.reduce((n, t) => n + archetypesFor(t).length, 0) * PLOTS.length * SEEDS.length);
         for (const { label, bank, world } of banks) {
@@ -39,18 +40,20 @@ describe('worldFromBank', () => {
         for (const { label, bank, world } of banks) {
             const byId = new Map(bank.rooms.map(r => [r.id, r]));
             let rooms = 0;
+            // Plain checks per tile, `expect` only on a mismatch: tens of thousands of tiles, and `expect` is slow.
             world.tiles.forEach((tile, i) => {
                 const x = i % world.width, y = Math.floor(i / world.width);
                 if (tile.room === null) {
-                    expect(tile.blocksMove && tile.tall, `${label} off-map (${x}, ${y})`).toBe(true);
+                    if (!(tile.blocksMove && tile.tall)) expect(tile.blocksMove && tile.tall, `${label} off-map (${x}, ${y})`).toBe(true);
                     return;
                 }
                 rooms++;
                 const room = byId.get(tile.room)!;
-                expect(room.parts.some(p => x >= p.x && y >= p.y && x < p.x + p.w && y < p.y + p.h), `${label} (${x}, ${y})`).toBe(true);
-                expect(tile.zone, `${label} (${x}, ${y}) in ${room.id}`).toBe(ZONE[room.zone]);
-                expect(tile.lit, `${label} (${x}, ${y})`).toBe(room.light !== 'none' || room.zone === 'outdoors');
-                if (tile.halfCover) expect(tile.blocksMove && !tile.tall).toBe(true);
+                if (!room.parts.some(p => x >= p.x && y >= p.y && x < p.x + p.w && y < p.y + p.h)) expect.fail(`${label} (${x}, ${y}) is outside its room ${room.id}`);
+                if (tile.zone !== ZONE[room.zone]) expect(tile.zone, `${label} (${x}, ${y}) in ${room.id}`).toBe(ZONE[room.zone]);
+                const lit = room.light !== 'none' || room.zone === 'outdoors';
+                if (tile.lit !== lit) expect(tile.lit, `${label} (${x}, ${y})`).toBe(lit);
+                if (tile.halfCover && !(tile.blocksMove && !tile.tall)) expect.fail(`${label} (${x}, ${y}): half cover that doesn't block movement or is tall`);
             });
             expect(rooms, label).toBeGreaterThan(0);
             // People and the alarm stations stand where they can.
@@ -113,7 +116,7 @@ describe('worldFromBank', () => {
 const SIDE: Record<string, Pos> = { n: { x: 0, y: -1 }, e: { x: 1, y: 0 }, s: { x: 0, y: 1 }, w: { x: -1, y: 0 } };
 const leadsTo = (t: DeepReadonly<Tile>, p: Pos, q: Pos) => !!t.climb && p.x + SIDE[t.climb.to]!.x === q.x && p.y + SIDE[t.climb.to]!.y === q.y;
 
-describe('raised floors', () => {
+describe('raised floors', { timeout: 30000 }, () => {
     it('are reached on foot from the street up the stairs: wherever a walk ignoring height gets (every door open)', () => {
         let raised = 0;
         for (const { label, bank, world } of banks) {
@@ -177,7 +180,7 @@ describe('wall materials', () => {
     });
 });
 
-describe('perception on a generated world (M1-05)', () => {
+describe('perception on a generated world (M1-05)', { timeout: 30000 }, () => {
     it('judges a crew member by the zone of the generated tile they stand on, through rails and fences', () => {
         let sightings = 0;
         const zones = new Set<Zone>();
@@ -189,7 +192,7 @@ describe('perception on a generated world (M1-05)', () => {
                 tried++;
                 const state = initialState(world, { seed: 1, crew: [{ id: 'jun', pos }] });
                 for (const s of assessWorldPhase(world, state, sightMap(world, state), 'jun', pos)) {
-                    expect(s.zone, label).toBe(tileAt(world, s.tile)!.zone);
+                    if (s.zone !== tileAt(world, s.tile)!.zone) expect(s.zone, label).toBe(tileAt(world, s.tile)!.zone);
                     zones.add(s.zone);
                     sightings++;
                 }
