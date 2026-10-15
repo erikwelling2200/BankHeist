@@ -126,10 +126,22 @@ interface Node { pos: Pos; cost: number; parent: number; canEnd: boolean }
  * The cheapest path from `from` toward `to` by the movement rules (A*: the octile distance in half-steps never
  * overestimates, and ties go to the lower cost to come, then the lower tile index, so the result is the same every
  * time). Stops when `to` is settled; if it can't be reached, settles everything that can. People as `occupancy`.
+ *
+ * When `to` can never be settled (someone stands on it, or it blocks movement: an NPC walking toward a crew member or
+ * to a noise at their feet) and `endable` is given, it stops as soon as the answer `planWalk` takes from the nodes is
+ * certain: a settled tile it may end on next to the target (the nearest any tile can be) at cost `b`, once every node
+ * left costs more than `b + 2` to reach and step beside it. The nodes it settles, their costs and parents are those of
+ * the full search up to there, so the walk is the same; only the rest of the map isn't explored (implementation plan
+ * §5: the safe floor and every dash preview replan such walks).
  */
-function search(world: ReadonlyWorld, state: State, from: Pos, to: Pos, options: MoveOptions): { nodes: Map<number, Node>; found: boolean } {
+function search(
+    world: ReadonlyWorld, state: State, from: Pos, to: Pos, options: MoveOptions, endable?: (i: number, node: Node) => boolean
+): { nodes: Map<number, Node>; found: boolean } {
     const people = occupancy(world, onFloor(state), options);
     const goal = indexOf(world, to);
+    // The best tile beside an unreachable target found so far (orthogonal neighbours: squared distance 1, h = 2).
+    const blockedGoal = !!endable && ((people.get(goal) ?? 'none') === 'blocking' || !!tileAt(world, to)?.blocksMove);
+    let beside = Infinity;
     const h = (p: Pos): number => {
         const ax = Math.abs(p.x - to.x), ay = Math.abs(p.y - to.y), lo = Math.min(ax, ay);
         return DIAGONAL_COST * lo + ORTHOGONAL_COST * (Math.max(ax, ay) - lo);
@@ -168,12 +180,14 @@ function search(world: ReadonlyWorld, state: State, from: Pos, to: Pos, options:
     nodes.set(start, { pos: { x: from.x, y: from.y }, cost: 0, parent: -1, canEnd: true });
     push([h(from), 0, start]);
     while (heap.length) {
+        if (blockedGoal && heap[0]![0] > beside + ORTHOGONAL_COST) break;
         const [, g, i] = pop();
         if (settled.has(i)) continue;
         const node = nodes.get(i)!;
         if (node.cost !== g) continue;
         settled.add(i);
         if (i === goal) return { nodes, found: true };
+        if (blockedGoal && g < beside && Math.abs(node.pos.x - to.x) + Math.abs(node.pos.y - to.y) === 1 && endable!(i, node)) beside = g;
         for (const f of FACINGS) {
             const step = FACING_STEP[f], next = { x: node.pos.x + step.x, y: node.pos.y + step.y };
             if (!inBounds(world, next)) continue;
@@ -196,8 +210,8 @@ function search(world: ReadonlyWorld, state: State, from: Pos, to: Pos, options:
 export function planWalk(world: ReadonlyWorld, state: State, npc: DeepReadonly<NpcState>, target: WalkTarget, taken: (index: number) => boolean): PlannedWalk {
     const here = { x: npc.pos.x, y: npc.pos.y };
     if (samePos(here, target.tile)) return { path: [], dest: here, arrives: true, exact: true };
-    const { nodes, found } = search(world, state, here, target.tile, npcMoveOptions(world, npc));
     const start = indexOf(world, here);
+    const { nodes, found } = search(world, state, here, target.tile, npcMoveOptions(world, npc), (i, node) => i === start || (node.canEnd && !taken(i)));
     const endable = (i: number): boolean => i === start || (nodes.get(i)!.canEnd && !taken(i));
     let best = start;
     if (found) {

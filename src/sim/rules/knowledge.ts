@@ -320,7 +320,9 @@ export function updateKnowledge(world: ReadonlyWorld, state: State, emit: (event
     }
     // Seen since the last world phase.
     if (options.worldPhase) {
-        k.phaseTick = k.tick;
+        // The phase ends at this tick; what the crew sees standing now is seen after it (the next tick), so an NPC in
+        // view now counts as where it is until the next world phase, even once the crew looks away.
+        k.phaseTick = k.tick++;
         const fresh = new Uint8Array(n);
         mark(fresh, fields, world.width);
         k.fresh = encodeBits(fresh);
@@ -341,7 +343,7 @@ export function updateKnowledge(world: ReadonlyWorld, state: State, emit: (event
     }
     const passed = new Map<string, Passed>(pending?.npcs ?? []);
     if (options.events) passedInEvents(state, options.events, fields, passed);
-    learnNpcs(world, state, fields, passed, emit);
+    learnNpcs(world, state, fields, passed, emit, options.worldPhase ?? false);
     const oldest = state.turn - world.rules.pingTurns;
     if (k.pings.some(p => p.turn < oldest)) k.pings = k.pings.filter(p => p.turn >= oldest);
 }
@@ -375,7 +377,9 @@ function learnRoomsAndCameras(world: ReadonlyWorld, k: Knowledge, bits: Uint8Arr
     }
 }
 
-function learnNpcs(world: ReadonlyWorld, state: State, fields: readonly SightField[], passed: ReadonlyMap<string, Passed>, emit: (event: SimEvent) => void): void {
+function learnNpcs(
+    world: ReadonlyWorld, state: State, fields: readonly SightField[], passed: ReadonlyMap<string, Passed>, emit: (event: SimEvent) => void, phaseEnd: boolean
+): void {
     const k = state.knowledge, rules = world.rules, turn = state.turn, stealth = inStealth(state);
     for (const npc of state.npcs) {
         const pos = bodyPos(state, npc), live = isPresent(npc) && seenBy(fields, pos);
@@ -397,7 +401,9 @@ function learnNpcs(world: ReadonlyWorld, state: State, fields: readonly SightFie
             rec.facing = where.facing;
             rec.turn = turn;
             rec.live = live;
-            rec.tick = k.tick;
+            // Seen where it stands at the end of a world phase, it stays there until the next one (`markerKind`); seen
+            // only on its walk during the phase, it may have walked on: that sighting is dated to the phase itself.
+            rec.tick = live || !phaseEnd ? k.tick : k.phaseTick;
             if (rec.watchedTurn !== turn) { rec.watched++; rec.watchedTurn = turn; }
         } else if (rec) {
             rec.live = false;

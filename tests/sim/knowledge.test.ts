@@ -115,12 +115,12 @@ describe('NPCs: live, known routines, predicted markers and ghosts', () => {
         const t2 = step(world, state, { type: 'endTurn' });
         expect(state.knowledge.npcs.clerk!.watched).toBe(1);
         expect(t2.state.knowledge.npcs.clerk).toMatchObject({ watched: 2, routine: false });
-        // Out of sight before 3 turns: a ghost, not a prediction.
-        expect(markerKind(world, step(world, away(t2.state), { type: 'wait', crew: 'jun' }).state, 'clerk')).toBe('ghost');
+        // Out of sight for a world phase before 3 turns: a ghost, not a prediction.
+        expect(markerKind(world, step(world, away(t2.state), { type: 'endTurn' }).state, 'clerk')).toBe('ghost');
         const t3 = step(world, t2.state, { type: 'endTurn' });
         expect(revealed(t3.events)).toContain('routine clerk');
         expect(t3.state.knowledge.npcs.clerk).toMatchObject({ watched: 3, routine: true });
-        const gone = step(world, away(t3.state), { type: 'wait', crew: 'jun' });
+        const gone = step(world, away(t3.state), { type: 'endTurn' });
         // The far end of the corridor is new; the clerk going out of view tells nothing.
         expect(revealed(gone.events)).toEqual(['tiles 11']);
         const view = knownView(world, gone.state);
@@ -142,7 +142,7 @@ describe('NPCs: live, known routines, predicted markers and ghosts', () => {
     it('turns a predicted NPC knocked off its routine into a ghost that fades after 2 turns', () => {
         const { world, state } = corridor();
         const tagged = step(world, step(world, state, { type: 'endTurn' }).state, { type: 'endTurn' }).state;
-        const out = step(world, away(tagged), { type: 'wait', crew: 'jun' }).state;
+        const out = step(world, away(tagged), { type: 'endTurn' }).state;
         expect(markerKind(world, out, 'clerk')).toBe('predicted');
         const knocked = step(world, knockOff(out), { type: 'wait', crew: 'jun' }).state;
         expect(knocked.knowledge.npcs.clerk).toMatchObject({ routine: false, watched: 0, live: false });
@@ -160,7 +160,16 @@ describe('NPCs: live, known routines, predicted markers and ghosts', () => {
 
     it('drops ghosts at once when the setting is off', () => {
         const { world, state } = corridor({ rules: { ghosts: false } });
-        expect(markerKind(world, step(world, away(state), { type: 'wait', crew: 'jun' }).state, 'clerk')).toBe(null);
+        expect(markerKind(world, step(world, away(state), { type: 'endTurn' }).state, 'clerk')).toBe(null);
+    });
+
+    it('keeps an NPC seen as the world phase ended live until the next one, wherever the crew looks (decision 24)', () => {
+        const { world, state } = corridor({ rules: { ghosts: false } });
+        // Seen at the start, it hasn't moved: looking away in the crew phase doesn't lose it.
+        const looked = step(world, away(state), { type: 'wait', crew: 'jun' }).state;
+        expect(looked.knowledge.npcs.clerk!.live).toBe(false);
+        expect(markerKind(world, looked, 'clerk')).toBe('live');
+        expect(knownBlockers(world, looked)).toEqual([P(5, 0)]);
     });
 
     it('stops a move where a stranger comes into view, and reveals one only passed on the way', () => {

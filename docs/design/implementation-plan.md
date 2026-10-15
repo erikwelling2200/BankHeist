@@ -360,7 +360,7 @@ Each package lists its goal, the design sections it covers, the files, what it d
       comes with combat. `tests/sim/carriers.test.ts` ('known gaps') fails once M3 makes it work, as a reminder.
     - **Not yet:** shooting cameras and the officers (M3), the escapee's and commanding's starts and counters (M2:
       `startEscapee` is the hook), cutting the phone line (M4), the vault sensors' starters and wiring box (M2-05).
-- [ ] **M1-09 Previews, safe floor and the property test.**
+- [x] **M1-09 Previews, safe floor and the property test.**
   - **Covers:** §8.8, §8.9 preview, §20.2.
   - **Work:**
     - `safeFloor(crew, path?)` with every tint: green, amber with a pip count, challenge, red, the hatched versions, camera, grey, hatched grey.
@@ -370,6 +370,56 @@ Each package lists its goal, the design sections it covers, the files, what it d
   - **Files:** `src/sim/preview/*`, `tests/sim/preview.property.test.ts`.
   - **Depends on:** M1-07, M1-08, M1-10.
   - **Accept:** 0 differences over 5,000 random commands across 20 seeds plus the fixtures. The test runs under 30 s in `npm test`, with a larger run behind an environment variable.
+  - **Notes (done):** `src/sim/preview/`, exported from `src/sim/index.ts`.
+    - **The picture** (`picture.ts`, `previewPicture(world, state)`): every preview judges on it, never on the truth. NPCs
+      the crew doesn't see or predict are `away` with no intent (absent from sight, sound, walks and doorways, as
+      `crewPicture` leaves them out, yet the whole engine can run on it); cameras it has never seen are off; until the
+      CCTV room is scouted every known camera counts as live.
+    - **Safe floor** (`floor.ts`, `safeFloor(world, state, crew, { bands?, look?, dash? })`): per tile `{ pos, band:
+      stay | move | dash, cost, path, knowledge, unknownPath, now, next, tint }`, `tint = { kind: safe | amber | red |
+      trespass | camera | grey | unknownRisk, hatched, pips: [{ npc, pips }], eye, camera }`. `now`/`next` are
+      `Effect`s (`effect.ts`: exposed, watching (seen by one who already knows them: red), pips by NPC, challenged,
+      cameras) read off the events of `applySightings` on a copy, so pips adding up to Exposed, a second challenge or a
+      camera reporting twice come from the one writer. Now: `assessStep` on the tiles passed and `assessEnd` at the
+      end, per door set (`sightsAlongWalk`), the reach being a tree so each tile is judged once; a dash someone in the
+      picture hears first has them react (`reactToNoise`). Next: `assessWorldPhase` on what the move leaves, each door
+      set's `worldPoses` worked out once and only changed walks walked again (`posesAfter`). Tint: the worse of now and
+      next (hatched when next is strictly worse); grey for unscouted, hatched grey (`unknownRisk`) where the known NPCs
+      leave it green but the tile, or a tile its path passes, is unknown risk. Cached per state object; `bands` lets the
+      scene draw the Move band at once and the Dash band a frame later. `overlayTiles(floor)` maps it to the world
+      overlay's `safeFloor` states.
+    - **Drawn paths** (`pathSafety(world, state, crew, path, { mode? })`): each step's `!`s (only `!` counts mid-move),
+      `firstUnsafe` (the eye: the first step with a `!`, else the end when its tint warns), the end judged as a floor
+      tile. **Who and why** (`explain.ts`, `explain(world, state, crew, tile, { path? })`): one line per observer and
+      phase that acted, `{ observer, by, phase: now | next, from, to, outcome, known, why, text }` ("Guard: sees
+      Armed", "Teller: +2 (Staff zone)", "Camera 2 would see you", "Teller: \"Hey, you can't be back here\""), or why
+      the crew can't tell. **Any command** (`action.ts`, `actionPreview(world, state, cmd)`): previewed on the truth and
+      projected: events, noises (ring tiles, an ear per known hearer with its badge and who is sent), witnesses,
+      carriers (starts, stops, world phase), undoable as far as the crew can tell, cost, odds, a move's `pathSafety`.
+    - **Fixes elsewhere.** `rules/knowledge.ts`: an NPC seen standing as a world phase ended became a ghost as soon as
+      the crew looked away in the crew phase, though it hadn't moved (its tick equalled `phaseTick`), so the picture
+      dropped an NPC on a fresh tile and the safe floor showed green where it watched; the end-of-phase look is now dated
+      after `phaseTick` (walk-only sightings stay at it). `rules/npc/walk.ts`: `search` toward a target someone stands
+      on explored the whole map (a dash's hearers walk to the noise at the crew member's feet: 20–200 ms per dash
+      preview on HQ banks); it now stops once its answer is certain, with the same walks (checked against the full
+      search over the whole test suite). `rules/evidence.ts` exports the hearing hook's body as `reactToNoise`.
+    - **Measured** (desktop Node, generated banks in play): Move band median 2 ms, p90 5 ms, max 10 ms (HQ) to 30 ms
+      (small); with the Dash band median 2–5 ms, p90 20–30 ms (in the property test, omniscient crews included, p90
+      35–70 ms): a dash heard by NPCs is judged with their reactions, tile by tile.
+    - **Property test** (`tests/sim/preview.property.test.ts`): random fixtures and generated banks (every tier ×
+      archetype), omniscient and real-knowledge crews, random legal commands (moves and dashes to floor tiles, drawn
+      paths, every `legalActions` action). Each move's tile is checked against the move and the end of the turn
+      committed on the picture (0 differences allowed) and against the truth as the crew perceives it (omniscient: 0
+      differences; otherwise only what the crew can't know, by class); each crew member's own tile before every end of
+      turn; the eye, "who and why", action previews (events, carriers, ears and badges) and the dash ring. Default 40
+      fixtures + 13 banks (~600 commands, 20 s); `PREVIEW_PROBE_SCALE=10`: 6,092 commands over 540 seeds, 4,952 tile
+      and 3,916 stay checks, 0 differences; the truth differed only by 249 moves cut by someone unseen. Green never got
+      the crew member spotted during the move (1,333 green moves); in the world phase 36 of 2,747 green tiles were
+      spotted by NPCs the crew didn't know (decision 24 promises only the known NPCs' walks), never by a known one.
+    - **For the UI** (src/scenes, src/game): fill the overlay's `safeFloor` with `overlayTiles(safeFloor(world, state,
+      crew))` for the selected crew member (or the Move band then the Dash band); while a path is drawn, `pathSafety`
+      for its tints and eye (`firstUnsafe`); long-press: `explain`; Confirm's preview: `actionPreview` (its `noises`
+      feed the ring and ears, `carriers` "this would start", `witnesses` the eyes over heads).
 - [ ] **M1-10 What the crew knows.**
   - **Covers:** §8.15, §17.8 (the casing layer inside a heist).
   - **Work:**

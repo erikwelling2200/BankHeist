@@ -475,7 +475,12 @@ export function noiseReactions(world: ReadonlyWorld, state: State, what: NoiseSo
     return hearing(world, state, ring, NOISES[what].kind, cause);
 }
 
-registerNoiseHook('hearing', (ctx, ring, kind, cause) => {
+/**
+ * What hearing a noise does (the `hearing` noise hook): each hearer reacts as `hearing` says, and in a crew phase the
+ * hearers' new intents are committed at once. Exported for previews that put a noise on a copy without the rest of
+ * `makeNoise` (the safe floor's dash band, M1-09).
+ */
+export function reactToNoise(ctx: Ctx, ring: Ring, kind: NoiseKind, cause: string): void {
     const heard = hearing(ctx.world, ctx.state, ring, kind, cause);
     if (!heard.length) return;
     for (const h of heard) {
@@ -486,7 +491,9 @@ registerNoiseHook('hearing', (ctx, ring, kind, cause) => {
     }
     // In a crew phase the hearers' new intents are telegraphed at once (§6.2).
     reconsider(ctx);
-});
+}
+
+registerNoiseHook('hearing', reactToNoise);
 
 /**
  * What the player may be shown of evidence sightings (a prediction or the overlay): only those of NPCs the crew sees

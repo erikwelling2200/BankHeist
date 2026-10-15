@@ -1,0 +1,137 @@
+import { IllegalCommand, preview, type PreviewResult } from '../core/engine';
+import type { PendingOdds } from '../core/rng';
+import type { Command, Pos, ReadonlyWorld, SimEvent, State } from '../core/types';
+import { eventClass } from '../core/undo';
+import type { NoiseKind } from '../data/noise';
+import { inRing, soundRing } from '../geo/sound';
+import { carrierPreview, projectCarriers, type CarrierPreview } from '../rules/carriers';
+import { hearing } from '../rules/evidence';
+import { projectPreviewEvents } from '../rules/knowledge';
+import { pathSafety, type PathSafety } from './floor';
+import { previewPicture } from './picture';
+
+/*
+ * The preview of any command (§8.8, §8.9, §20.2 step 3), as the player may see it. The command is previewed on the
+ * truth (`preview`: the same reducer on a copy) and everything shown is projected through what the crew knows
+ * (`projectPreviewEvents`, `projectCarriers`): events naming NPCs or cameras it doesn't know are dropped, a carrier's
+ * unknown holder is redacted, a move cut short by someone unseen shows along the drawn path.
+ *
+ * - **Noise** (§8.9): every noise's ring (exactly the tiles it reaches) and an ear per NPC the crew knows inside it,
+ *   labelled with what it will do (`hearing`, the function the noise hook applies, judged among the NPCs the crew
+ *   knows; `still` for one face down).
+ * - **Witnesses**: who would notice (Exposed, pips, a challenge, a camera report, or seeing it at all).
+ * - **Carriers** (§9.1): those the command starts or stops at once, and those the coming world phase would start
+ *   because of it (`carrierPreview`).
+ * - **Undoable** as far as the crew can tell: nothing it would be told blocks undo. The commit can still turn out final
+ *   (something new comes into view, or someone unseen noticed: `noticedUnseen`).
+ * - Moves and dashes also carry their `pathSafety`.
+ */
+
+export interface Ear {
+    npc: string;
+    /** The badge: what it moves to; `still` for someone face down (commanded, tied), who hears but doesn't react. */
+    status: 'curious' | 'investigating' | 'alerted' | 'still';
+    /** It is the one who goes to look (quiet) or reports it (loud). */
+    sent: boolean;
+}
+
+export interface NoisePreview {
+    kind: NoiseKind;
+    cause: string;
+    radius: number;
+    sources: Pos[];
+    /** Every tile the sound reaches (the ring as drawn). */
+    tiles: Pos[];
+    ears: Ear[];
+}
+
+export interface Witness {
+    observer: string;
+    by: 'npc' | 'camera';
+    crew: string;
+    what: 'exposed' | 'pips' | 'challenge' | 'camera' | 'seen';
+    pips?: number;
+}
+
+export type ActionPreview =
+    | { ok: false; reason: string }
+    | {
+        ok: true;
+        /** Projected events, in order. */
+        events: SimEvent[];
+        noises: NoisePreview[];
+        witnesses: Witness[];
+        carriers: { starts: CarrierPreview[]; stops: { carrier: string; kind: string; why: string }[]; worldPhase: CarrierPreview[] };
+        undoable: boolean;
+        /** Actions it spends. */
+        cost: number;
+        /** A roll it stops at (the odds shown, rolled on confirm). */
+        odds?: PendingOdds;
+        path?: PathSafety;
+    };
+
+function witnessesOf(events: readonly SimEvent[]): Witness[] {
+    const out: Witness[] = [];
+    const put = (w: Witness): void => {
+        const i = out.findIndex(o => o.observer === w.observer && o.crew === w.crew);
+        const rank = { seen: 0, pips: 1, challenge: 2, camera: 3, exposed: 4 } as const;
+        if (i < 0) out.push(w);
+        else if (rank[w.what] > rank[out[i]!.what]) out[i] = w;
+        else if (w.what === 'pips' && out[i]!.what === 'pips') out[i]!.pips = (out[i]!.pips ?? 0) + (w.pips ?? 0);
+    };
+    for (const e of events) {
+        if (e.type === 'exposed') put({ observer: e.npc, by: 'npc', crew: e.crew, what: 'exposed' });
+        else if (e.type === 'suspicionRaised') put({ observer: e.npc, by: 'npc', crew: e.crew, what: 'pips', pips: e.added });
+        else if (e.type === 'challenged') put({ observer: e.npc, by: 'npc', crew: e.crew, what: 'challenge' });
+        else if (e.type === 'cameraSaw') put({ observer: e.camera, by: 'camera', crew: e.crew, what: 'camera' });
+        else if (e.type === 'perceptionCheck') put({ observer: e.npc, by: 'npc', crew: e.crew, what: 'seen' });
+    }
+    return out;
+}
+
+function noisesOf(world: ReadonlyWorld, before: State, result: PreviewResult, shown: readonly SimEvent[]): NoisePreview[] {
+    const picture = previewPicture(world, before);
+    const out: NoisePreview[] = [];
+    for (const e of shown) {
+        if (e.type !== 'noise') continue;
+        // The truth's event for the same noise: who could hear it then (a knocked-out victim no longer can).
+        const truth = result.events.find(t => t.type === 'noise' && t.cause === e.cause) as Extract<SimEvent, { type: 'noise' }> | undefined;
+        const ring = soundRing(world, result.state, e.sources, e.radius);
+        const able = new Set(truth?.heard ?? e.heard);
+        const listeners: State = { ...picture, npcs: picture.npcs.filter(n => !inRing(ring, n.pos) || able.has(n.id)) };
+        const react = new Map(hearing(world, listeners, ring, e.kind, e.cause).map(h => [h.npc, h]));
+        const ears = e.heard.map((npc): Ear => {
+            const h = react.get(npc);
+            return h ? { npc, status: h.status, sent: h.sent } : { npc, status: 'still', sent: false };
+        });
+        out.push({ kind: e.kind, cause: e.cause, radius: e.radius, sources: e.sources.map(p => ({ ...p })), tiles: ring.tiles.map(t => ({ x: t.pos.x, y: t.pos.y })), ears });
+    }
+    return out;
+}
+
+/** What the player sees before confirming `cmd` (see the header). */
+export function actionPreview(world: ReadonlyWorld, state: State, cmd: Command): ActionPreview {
+    let result: PreviewResult;
+    try {
+        result = preview(world, state, cmd);
+    } catch (e) {
+        if (e instanceof IllegalCommand) return { ok: false, reason: e.message };
+        throw e;
+    }
+    const events = projectPreviewEvents(world, state, result);
+    const changes = carrierPreview(world, state, result);
+    const crew = 'crew' in cmd && typeof cmd.crew === 'string' ? cmd.crew : null;
+    const before = crew ? state.crew.find(c => c.id === crew) : undefined, after = crew ? result.state.crew.find(c => c.id === crew) : undefined;
+    const out: ActionPreview = {
+        ok: true,
+        events,
+        noises: noisesOf(world, state, result, events),
+        witnesses: witnessesOf(events),
+        carriers: { starts: projectCarriers(world, state, changes.starts), stops: changes.stops, worldPhase: projectCarriers(world, state, changes.worldPhase) },
+        undoable: !result.pending && !events.some(e => eventClass(e.type).undoBlocking),
+        cost: before && after ? before.actionsLeft - after.actionsLeft : 0
+    };
+    if (result.pending) out.odds = result.pending;
+    if ((cmd.type === 'move' || cmd.type === 'dash') && crew) out.path = pathSafety(world, state, crew, cmd.path, { mode: cmd.type });
+    return out;
+}

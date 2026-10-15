@@ -151,3 +151,11 @@ export {
     waitReached, type AutoOptions, type AutoStepResult, type AutoStop, type Interrupt, type InterruptKind, type InterruptOptions, type KnownEvent,
     type RouteLeg, type Routes, type StopKind, type WaitOption, type WaitTarget
 } from './rules/autoAdvance';
+export { previewPicture } from './preview/picture';
+export { effectOf, isQuiet, noEffect, type Effect } from './preview/effect';
+export {
+    judgePath, judgeStay, overlayTiles, pathSafety, safeFloor, tintOf, tintRank, type FloorBand, type FloorOptions, type FloorTile, type Judged,
+    type PathSafety, type PathStep, type SafeFloor, type Tint, type TintKind
+} from './preview/floor';
+export { explain, observerName, sightingText, type Explanation } from './preview/explain';
+export { actionPreview, type ActionPreview, type Ear, type NoisePreview, type Witness } from './preview/action';
