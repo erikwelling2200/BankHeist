@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { Rng } from '../../src/gen/rng';
-import { archetypesFor, generateBank } from '../../src/gen/generate';
+import { archetypesFor } from '../../src/gen/generate';
+import { cachedBank } from '../bankCache';
 import { PLOTS, TIERS } from '../../src/gen/model';
 import {
     carriersStarted, clonePlain, commit, crewBudget, crewMoveOptions, deserialiseState, driveByDue, hashOf, initialState, isKnownNow, legalActions,
@@ -70,7 +71,7 @@ describe('M1-08 fuzz on generated banks', () => {
         const plotsFor = (): readonly (typeof PLOTS)[number][] => (process.env.CARRIER_FUZZ_PLOTS === 'all' ? PLOTS : [PLOTS[combo++ % PLOTS.length]!]);
         for (const tier of TIERS) for (const archetype of archetypesFor(tier)) for (const plot of plotsFor()) for (let s = 0; s < SEEDS; s++) {
             const label = `${tier}/${archetype}/${plot}/${s}`;
-            const bank = generateBank({ layout: 3000 + s * 101, population: s + 5, tier, archetype, plot });
+            const bank = cachedBank({ layout: 3000 + s * 101, population: s + 5, tier, archetype, plot });
             const world = worldFromBank(bank);
             const rng = new Rng(9000 + s * 31 + tier.length * 7 + archetype.length);
             const free: Pos[] = [];

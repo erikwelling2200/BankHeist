@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { generateBank } from '../../src/gen/generate';
+import { cachedBank } from '../bankCache';
 import { Nav } from '../../src/gen/nav';
 import { Rng } from '../../src/gen/rng';
 import type { Site } from '../../src/gen/site';
@@ -198,7 +198,7 @@ describe('line of sight', () => {
             compare(world, map, 200);
         }
         // And on the walls of a generated bank.
-        const bank = generateBank({ layout: 4242, population: 7 }), tiles = bank.level.tiles;
+        const bank = cachedBank({ layout: 4242, population: 7 }), tiles = bank.level.tiles;
         const height = tiles.length, width = tiles[0]!.length;
         const seeThrough = new Set(['window', 'doorGlass', 'curtain', 'doorTower', 'rail', 'fence', 'tellerWindow']);
         const walls: FixtureWall[] = bank.level.walls.flatMap(w => {

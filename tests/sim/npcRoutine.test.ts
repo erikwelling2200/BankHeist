@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { generateBank } from '../../src/gen/generate';
+import { cachedBank } from '../bankCache';
 import type { Archetype, Tier } from '../../src/gen/model';
 import {
     commit, hashOf, initialState, npcCanPass, paceBudget, reachable, reachAt, worldFromBank, type CrewStart, type Intent, type Pos,
@@ -44,7 +44,7 @@ function runDay(spec: (typeof BANKS)[number]): Day {
 }
 
 function playDay(spec: (typeof BANKS)[number], crew: CrewStart[] = []): Day {
-    const bank = generateBank({ ...spec, plot: 'midBlock' });
+    const bank = cachedBank({ ...spec, plot: 'midBlock' });
     const world = worldFromBank(bank);
     let state = initialState(world, { seed: 7, crew });
     const states = [state], events: SimEvent[][] = [], problems: string[] = [];

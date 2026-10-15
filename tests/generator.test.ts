@@ -20,18 +20,18 @@ import { isOnTop, propBox } from '../src/level/catalog';
 import { isOffMap, parsePlan, toPlan } from '../src/level/plan';
 import { boxesOverlap, FACINGS, PERSON_SIZE, place, supportOf, WALL_HEIGHT, type Box, type Facing } from '../src/level/space';
 import { wallFootprint } from '../src/level/walls';
+import { cachedBank } from './bankCache';
 
 /*
  * The procedural bank (GAME_DESIGN §17): every tier, archetype and plot builds, passes the checks of §17.7, places its
  * furniture and people as the hand-made bank does, and is replayable from its seeds.
  */
 
-const cache = new Map<string, GeneratedBank>();
-const bank = (layout: number, population: number, pin: Partial<Pick<GeneratedBank, 'tier' | 'archetype' | 'plot'>> = {}) => {
-    const key = JSON.stringify([layout, population, pin]);
-    if (!cache.has(key)) cache.set(key, generateBank({ layout, population, ...pin }));
-    return cache.get(key)!;
-};
+/**
+ * A generated bank, shared with the other test files and kept between runs (tests/bankCache.ts). The checks of the
+ * generator itself (that every tier, archetype and plot builds and passes §17.7, and replays) run it afresh.
+ */
+const bank = (layout: number, population: number, pin: Partial<Pick<GeneratedBank, 'tier' | 'archetype' | 'plot'>> = {}) => cachedBank({ layout, population, ...pin });
 
 describe('the generator', () => {
     it('builds every tier, archetype and plot and passes the checks of §17.7', () => {
@@ -39,7 +39,7 @@ describe('the generator', () => {
         let n = 0;
         for (const tier of TIERS) for (const archetype of archetypesFor(tier)) {
             const plot = PLOTS[n++ % PLOTS.length]!;
-            const b = bank(1000 + n, n, { tier, archetype, plot });
+            const b = generateBank({ layout: 1000 + n, population: n, tier, archetype, plot });
             expect([b.tier, b.archetype, b.plot]).toEqual([tier, archetype, plot]);
             for (const r of b.validation.results) if (!r.ok && !b.validation.relaxed.includes(r.rule)) failures.push(`${tier} ${archetype} ${plot}: ${r.rule} (${r.detail})`);
         }

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { generateBank } from '../../src/gen/generate';
+import { cachedBank } from '../bankCache';
 import { newHeist } from '../../src/game/heist';
 import {
     autoAdvance, autoAdvanceBlocked, autoStep, clonePlain, commit, fixtureWorld, hashOf, initialState, interruptsOf, isKnownNow, knownSchedule,
@@ -324,7 +324,7 @@ describe('Wait for…', () => {
 });
 
 describe('auto-advance in a generated bank', () => {
-    const bank = generateBank({ tier: 'small', archetype: 'twoWing', layout: 2000, population: 1, plot: 'midBlock' });
+    const bank = cachedBank({ tier: 'small', archetype: 'twoWing', layout: 2000, population: 1, plot: 'midBlock' });
     const { world, state } = newHeist(bank);
 
     it('never stops on, or names, an NPC the crew doesn’t know of', () => {

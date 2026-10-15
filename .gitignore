@@ -11,3 +11,4 @@ docs/ui-mockups/canvas/project/img/.base-cache.png
 __pycache__/
 scripts/ui-mockups/level.json
 .claude/worktrees/
+.cache/

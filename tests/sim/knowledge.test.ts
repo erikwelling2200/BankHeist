@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { generateBank } from '../../src/gen/generate';
+import type { GenerateOptions } from '../../src/gen/generate';
+import { cachedBank } from '../bankCache';
 import {
     cameraObserver, clonePlain, commit, crewPicture, decodeBits, deserialise, encodeBits, fieldOn, fixtureWorld, floorKnowledge, freezeWorld,
     hashOf, initialState, isKnownNow, isUnknownRisk, noticedUnseen, pathTo, projectPreviewEvents, SaveFormatError, knownBlockers, knownView, makeNoise, markerKind, npcObserver, preview, projectEvents, reachable,
@@ -506,8 +507,8 @@ describe('sound pings and storage', () => {
 
 // ---------------------------------------------------------------------------------------------------------- Generated banks
 
-function generatedHeist(spec: { tier: 'small' | 'city' | 'hq'; archetype: Parameters<typeof generateBank>[0]['archetype']; layout: number; population: number }, crewCount: number): { world: ReadonlyWorld; state: State } {
-    const bank = generateBank({ ...spec, plot: 'midBlock' });
+function generatedHeist(spec: { tier: 'small' | 'city' | 'hq'; archetype: GenerateOptions['archetype']; layout: number; population: number }, crewCount: number): { world: ReadonlyWorld; state: State } {
+    const bank = cachedBank({ ...spec, plot: 'midBlock' });
     const world = worldFromBank(bank);
     const spot = bank.getaways.find(g => g.id === 'curb') ?? bank.getaways[0]!;
     const taken = new Set(world.people.map(p => `${p.pos.x},${p.pos.y}`));

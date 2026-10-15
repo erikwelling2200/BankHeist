@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { archetypesFor, generateBank } from '../../src/gen/generate';
+import { archetypesFor } from '../../src/gen/generate';
+import { cachedBank } from '../bankCache';
 import { PLOTS, TIERS } from '../../src/gen/model';
 import { Rng } from '../../src/gen/rng';
 import {
@@ -488,7 +489,7 @@ function play(run: Run, start: State, turns: number, timing: boolean): void {
 
 /** One generated bank played with a crew of three placed near its people. */
 function playBank(probe: Probe, tier: (typeof TIERS)[number], archetype: string, plot: (typeof PLOTS)[number], s: number, combo: number, turns: number, stealth = false): void {
-    const world = worldFromBank(generateBank({ layout: 4100 + s * 97, population: s + 11, tier, archetype: archetype as never, plot }));
+    const world = worldFromBank(cachedBank({ layout: 4100 + s * 97, population: s + 11, tier, archetype: archetype as never, plot }));
     const brng = new Rng(SEED + 7919 * (combo + 1) + s);
     const free: Pos[] = [];
     world.tiles.forEach((t, i) => { if (!t.blocksMove && t.room !== null) free.push({ x: i % world.width, y: Math.floor(i / world.width) }); });

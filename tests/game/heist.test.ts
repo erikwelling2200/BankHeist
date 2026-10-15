@@ -1,10 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import { BANK_KEY, bankAddress, crewOrigin, M1_CREW, newHeist, playPlan, savedHeist, startHeist } from '../../src/game/heist';
 import { MemoryStorage, Session } from '../../src/game';
-import { generateBank } from '../../src/gen/generate';
+import { cachedBank } from '../bankCache';
 import { reachable, tileAt } from '../../src/sim';
 
-const bank = generateBank({ layout: 31, population: 2, tier: 'small', archetype: 'twoWing' });
+const bank = cachedBank({ layout: 31, population: 2, tier: 'small', archetype: 'twoWing' });
 
 describe('a heist in a generated bank', () => {
     it('starts the crew of two beside the van, on free tiles they can walk between', () => {
@@ -35,7 +35,7 @@ describe('a heist in a generated bank', () => {
     it('finds room for the crew in every tier and archetype', () => {
         for (const tier of ['small', 'city', 'hq'] as const) for (const archetype of ['twoWing', 'atrium', 'threeKeys', 'fortress', 'mezzanineWatch'] as const) {
             let generated;
-            try { generated = generateBank({ layout: 7, population: 1, tier, archetype }); } catch { continue; }
+            try { generated = cachedBank({ layout: 7, population: 1, tier, archetype }); } catch { continue; }
             expect(newHeist(generated).state.crew).toHaveLength(2);
         }
     }, 120000);

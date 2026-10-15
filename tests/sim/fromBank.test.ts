@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { archetypesFor, generateBank } from '../../src/gen/generate';
+import { archetypesFor } from '../../src/gen/generate';
+import { cachedBank } from '../bankCache';
 import { PLOTS, TIERS, type GeneratedBank } from '../../src/gen/model';
 import { SEE_THROUGH } from '../../src/gen/nav';
 import { WALL_CHARS } from '../../src/level/plan';
@@ -17,7 +18,7 @@ import {
 const SEEDS = [0, 1];
 const banks: { label: string; bank: GeneratedBank; world: ReadonlyWorld }[] = [];
 for (const tier of TIERS) for (const archetype of archetypesFor(tier)) for (const plot of PLOTS) for (const s of SEEDS) {
-    const bank = generateBank({ layout: 2000 + s * 7919, population: s, tier, archetype, plot });
+    const bank = cachedBank({ layout: 2000 + s * 7919, population: s, tier, archetype, plot });
     banks.push({ label: `${tier} ${archetype} ${plot} ${s}`, bank, world: worldFromBank(bank) });
 }
 
