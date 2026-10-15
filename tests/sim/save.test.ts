@@ -78,7 +78,7 @@ describe('saving', () => {
  * NpcStatusMap, CarrierKindMap or adds a field must also fill it in below, or a change of shape goes unnoticed.
  */
 const SHAPE_HASHES: Record<number, string> = {
-    1: '044038147d42b33c'
+    1: 'f0ea93248db17199'
 };
 
 /** Paths whose objects are records by id, not structs. */
@@ -158,7 +158,7 @@ describe('the save format', () => {
         full.knowledge.npcs = { guard: { at: { x: 1, y: 1 }, facing: 'e', turn: 2, live: false, routine: true, rota: true, watched: 3, watchedTurn: 2, tick: 4 } };
         full.knowledge.doors = { staffDoor: 'open' };
         full.knowledge.pings = [{ at: { x: 2, y: 2 }, turn: 3, kind: 'loud', cause: 'pistol' }];
-        full.carriers.push({ id: 'carrier-9', kind: 'tellerButton', source: 'teller', pos: { x: 0, y: 0 }, countdown: 2, started: { turn: 1, phase: 'world' }, halted: null, about: 'jun', subject: 'guard' });
+        full.carriers.push({ id: 'carrier-9', kind: 'tellerButton', source: 'teller', pos: { x: 0, y: 0 }, countdown: 2, started: { turn: 1, phase: 'world' }, halted: null, about: 'jun', subject: 'guard', line: 'landline' });
         full.crew[0]!.traits = ['steadyHands'];
         full.jammers = [{ id: 'jammer-3', pos: { x: 1, y: 1 }, crew: 'jun', turn: 2 }];
         full.footage = [{ camera: 'cam', crew: 'jun', tile: { x: 1, y: 1 }, turn: 2 }];

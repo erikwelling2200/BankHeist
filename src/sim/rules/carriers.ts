@@ -13,7 +13,7 @@ import { neutralised } from './cctv';
  * - **Starting.** Every rule starts carriers through `raiseCarrier`: nothing starts once the Alarm is up; a wired
  *   carrier (`CARRIERS[kind].wired`: the teller buttons, the manager's button, the operator's panel, the vault sensors)
  *   doesn't start while the alarm panel is dead (§9.1: "kills every wired carrier"), which says so with `alarmDead`;
- *   and a source already carrying one of the same kind keeps that one. `startCarrier` is the bare engine call.
+ *   and a source already carrying one of the same kind (about the same subject) keeps that one. `startCarrier` is the bare engine call.
  * - **Ticking.** The devices step ticks every running carrier once per world phase, never in the world phase that
  *   started it, so one started in a world phase is seen at its full countdown for a whole crew phase. At 0 it raises
  *   the Alarm (§9.2): `bank.alarm`, "Police in N" (`rules.policeEta`, by tier: small 8, city 6, HQ 4) counting down in
@@ -28,7 +28,9 @@ import { neutralised } from './cctv';
  * - **Previews** (§8.8, "this would start: Teller button (2)"): `carrierPreview(world, before, result)` names the
  *   carriers a previewed command starts or stops at once, and those the coming world phase would start that it
  *   wouldn't have started without the command (`pendingCarriers`: the world phase's own reducers on a copy, so the
- *   hatched overlay and the outcome can't differ). Both are the truth: `projectCarriers` keeps what the crew may see.
+ *   hatched overlay and the outcome can't differ). Both are the truth: `projectCarriers` redacts the holders the crew
+ *   doesn't know, as `projectEvents` does `carrierStarted`; `knownCarriers` is the ledger's running carriers, the same
+ *   way; `walkingToAlarm` (alarms.ts) the NPCs on their way to start one.
  */
 
 /** A carrier kind as data (§9.1): what the HUD calls it, what kills it, and its counters as the design lists them. */
@@ -36,7 +38,7 @@ export interface CarrierDef {
     label: string;
     /** Wired to the alarm panel: a dead panel kills it, in progress too. */
     wired: boolean;
-    /** A radio or a phone: a jammer in range pauses it. */
+    /** A radio or a mobile phone: a jammer in range pauses it (not a call on a landline, `Carrier.line`). */
     radio: boolean;
     /** The design's counters (§9.1); `now` for those the rules have so far, else the milestone that brings them. */
     counters: readonly { name: string; now: true | string }[];
@@ -61,7 +63,7 @@ export const CARRIERS: Readonly<Record<CarrierKind, CarrierDef>> = {
     },
     phoneCall: {
         label: 'Phone call', wired: false, radio: true,
-        counters: [{ name: 'knock out', now: true }, { name: 'jammer', now: true }, { name: 'command', now: 'M2' }, { name: 'cut the phone line', now: 'M4' }]
+        counters: [{ name: 'knock out', now: true }, { name: 'jammer (mobiles)', now: true }, { name: 'command', now: 'M2' }, { name: 'cut the phone line (landlines)', now: 'M4' }]
     },
     escapee: {
         label: 'Escapee', wired: false, radio: false,
@@ -123,7 +125,7 @@ registerStateInit('response', (_world, state) => {
 });
 
 /** Starts a carrier, with no questions asked (see `raiseCarrier` for the rules' way). */
-export function startCarrier(ctx: Ctx, carrier: { kind: CarrierKind; source: string; pos: Pos; countdown: number; about?: string; subject?: string }): Carrier {
+export function startCarrier(ctx: Ctx, carrier: { kind: CarrierKind; source: string; pos: Pos; countdown: number; about?: string; subject?: string; line?: 'landline' }): Carrier {
     const min = ctx.world.rules.minCarrierCountdown;
     if (carrier.countdown < min) throw new InvariantError(`A carrier's countdown is at least ${min}, not ${carrier.countdown}`);
     const { state } = ctx;
@@ -138,6 +140,7 @@ export function startCarrier(ctx: Ctx, carrier: { kind: CarrierKind; source: str
     };
     if (carrier.about !== undefined) started.about = carrier.about;
     if (carrier.subject !== undefined) started.subject = carrier.subject;
+    if (carrier.line !== undefined) started.line = carrier.line;
     state.carriers.push(started);
     const event: EventOf<'carrierStarted'> = { type: 'carrierStarted', carrier: started.id, kind: started.kind, countdown: started.countdown, holder: started.source, pos: { ...started.pos } };
     if (started.about !== undefined) event.about = started.about;
@@ -152,7 +155,7 @@ export function panelDead(world: ReadonlyWorld, state: DeepReadonly<State>): boo
 }
 
 /** What a rule asks for: a carrier of a kind from a source, at least the minimum countdown unless it says more. */
-export interface CarrierRequest { kind: CarrierKind; source: string; pos: Pos; countdown?: number; about?: string; subject?: string }
+export interface CarrierRequest { kind: CarrierKind; source: string; pos: Pos; countdown?: number; about?: string; subject?: string; line?: 'landline' }
 
 /** Why a carrier can't start now, or undefined (see the header): the Alarm is up, or a wired one with a dead panel. */
 export function carrierBlocked(world: ReadonlyWorld, state: DeepReadonly<State>, kind: CarrierKind): 'alarm' | 'panel' | undefined {
@@ -173,12 +176,14 @@ export function raiseCarrier(ctx: Ctx, request: CarrierRequest): Carrier | null 
         ctx.emit({ type: 'alarmDead', source: request.source, kind: request.kind });
         return null;
     }
-    const running = state.carriers.find(c => c.source === request.source && c.kind === request.kind && c.halted !== 'countered');
+    // One per source and kind, and per subject: the operator calls in each missing guard on his own.
+    const running = state.carriers.find(c => c.source === request.source && c.kind === request.kind && c.subject === request.subject && c.halted !== 'countered');
     if (running) return running;
     const countdown = Math.max(world.rules.minCarrierCountdown, request.countdown ?? 0);
     const out: Parameters<typeof startCarrier>[1] = { kind: request.kind, source: request.source, pos: request.pos, countdown };
     if (request.about !== undefined) out.about = request.about;
     if (request.subject !== undefined) out.subject = request.subject;
+    if (request.line !== undefined) out.line = request.line;
     return startCarrier(ctx, out);
 }
 
@@ -276,37 +281,48 @@ registerWorldHook('devices', 'devices.police', (ctx, phase) => {
 
 // ---------------------------------------------------------------------------------------------------------- Previews
 
-/** A carrier as a preview names it: "Teller button (2)". */
-export interface CarrierPreview { kind: CarrierKind; label: string; source: string; pos: Pos; countdown: number; about?: string }
+/**
+ * A carrier as a preview or the ledger names it: "Teller button (2)". `source` and `pos` are null where the crew doesn't
+ * know the holder (`projectCarriers`, `knownCarriers`): the carrier shows, not who carries it.
+ */
+export interface CarrierPreview { kind: CarrierKind; label: string; source: string | null; pos: Pos | null; countdown: number; about?: string }
 
 /** The carriers a command's events started, as they started. */
 export function carriersStarted(events: readonly SimEvent[]): CarrierPreview[] {
     const out: CarrierPreview[] = [];
     for (const e of events) {
         if (e.type !== 'carrierStarted') continue;
-        const c: CarrierPreview = { kind: e.kind, label: CARRIERS[e.kind].label, source: e.holder, pos: { x: e.pos.x, y: e.pos.y }, countdown: e.countdown };
+        const c: CarrierPreview = {
+            kind: e.kind, label: CARRIERS[e.kind].label, source: e.holder, pos: e.pos ? { x: e.pos.x, y: e.pos.y } : null, countdown: e.countdown
+        };
         if (e.about !== undefined) c.about = e.about;
         out.push(c);
     }
     return out;
 }
 
+const PENDING = new WeakMap<State, { world: ReadonlyWorld; found: CarrierPreview[] }>();
+
 /**
  * The carriers the coming world phase starts, from the state as it is (the hatched overlay's carriers, §8.8): the world
- * phase played on a copy by its own reducers, so it is exactly what ending the turn would start. The truth.
+ * phase played on a copy by its own reducers, so it is exactly what ending the turn would start. The truth. Cached per
+ * state object (states are never changed once a command returns them).
  */
 export function pendingCarriers(world: ReadonlyWorld, state: State): CarrierPreview[] {
-    return carriersStarted(preview(world, state, { type: 'endTurn' }).events);
+    let cached = PENDING.get(state);
+    if (cached?.world !== world) PENDING.set(state, cached = { world, found: carriersStarted(preview(world, state, { type: 'endTurn' }).events) });
+    return cached.found.map(c => ({ ...c, ...(c.pos ? { pos: { ...c.pos } } : {}) }));
 }
 
-const key = (c: CarrierPreview): string => `${c.kind} ${c.source}`;
+/** What tells two previews of a carrier apart: a change of countdown or of the crew member counts. */
+const key = (c: CarrierPreview): string => `${c.kind} ${c.source} ${c.countdown} ${c.about ?? ''}`;
 
 export interface CarrierChanges {
     /** Started by the command itself. */
     starts: CarrierPreview[];
     /** Stopped by the command (countered), by carrier id with why. */
     stops: { carrier: string; kind: CarrierKind; why: string }[];
-    /** Started by the coming world phase because of the command (not without it). */
+    /** Started by the coming world phase because of the command (not without it, or not with that countdown or crew member). */
     worldPhase: CarrierPreview[];
 }
 
@@ -323,9 +339,35 @@ export function carrierPreview(world: ReadonlyWorld, before: State, result: Prev
     return { starts, stops, worldPhase };
 }
 
-/** What the player may be shown of carrier previews: those carried by an NPC the crew sees or predicts, or by no NPC. */
+/** Whether the crew may be told who holds a carrier: an NPC it sees or predicts, or no NPC at all (dispatch, the car). */
+export const holderKnown = (world: ReadonlyWorld, state: State, source: string | null): boolean =>
+    source === null || !world.people.some(p => p.id === source) || isKnownNow(world, state, source);
+
+/**
+ * What the player may be shown of carrier previews: every one, with its holder and place redacted (null) where the
+ * crew doesn't know the holder, the way `projectEvents` redacts `carrierStarted`.
+ */
 export function projectCarriers(world: ReadonlyWorld, state: State, carriers: readonly CarrierPreview[]): CarrierPreview[] {
-    return carriers.filter(c => !world.people.some(p => p.id === c.source) || isKnownNow(world, state, c.source));
+    return carriers.map(c => (holderKnown(world, state, c.source) ? { ...c } : { ...c, source: null, pos: null }));
+}
+
+/** A running carrier as the threat ledger shows it (§9.1, §20.3): projected like `projectCarriers`. */
+export interface KnownCarrier extends CarrierPreview { id: string; halted: Carrier['halted']; subject?: string }
+
+/** Every running carrier, most urgent first (running before paused, then by countdown, then id), holders projected. */
+export function knownCarriers(world: ReadonlyWorld, state: State): KnownCarrier[] {
+    const out = state.carriers.map((c): KnownCarrier => {
+        const shown = holderKnown(world, state, c.source);
+        const k: KnownCarrier = {
+            id: c.id, kind: c.kind, label: CARRIERS[c.kind].label, source: shown ? c.source : null, pos: shown ? { x: c.pos.x, y: c.pos.y } : null,
+            countdown: c.countdown, halted: c.halted
+        };
+        if (c.about !== undefined) k.about = c.about;
+        if (c.subject !== undefined && holderKnown(world, state, c.subject)) k.subject = c.subject;
+        return k;
+    });
+    const rank = (c: KnownCarrier): number => (c.halted ? 1 : 0);
+    return out.sort((a, b) => rank(a) - rank(b) || a.countdown - b.countdown || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
 }
 
 registerEvents({

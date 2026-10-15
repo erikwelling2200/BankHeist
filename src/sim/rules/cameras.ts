@@ -6,9 +6,9 @@ import { cameraObserver, fieldOn } from '../geo/cones';
 import { makeNoise } from '../geo/sound';
 import { inReach, lacksActions, registerAction } from './actions/act';
 import { registerInteraction } from './actions/interact';
-import { HACKING_KIT } from './alarms';
+import { carrierPos, HACKING_KIT } from './alarms';
 import { raiseCarrier } from './carriers';
-import { attentiveOperator, cctvControlled, feedsAt, liveFeeds } from './cctv';
+import { atDesk, attentiveOperator, cctvControlled, feedsAt, liveFeeds } from './cctv';
 import { sendToLook } from './evidence';
 import { registerLookout } from './knowledge';
 import { decidesFor } from './npc/behaviour';
@@ -30,7 +30,8 @@ import { isEyesDown } from './suspicion';
  *   gone: only the recorder keeps it.
  * - **Major evidence** on a monitor (`State.cameraEvidence`, rules/evidence.ts) makes the operator send the nearest
  *   guard who is free to look (`sendToLook`): the guard walks there and finds it himself. Evidence on a camera off the
- *   monitors waits until its feed comes up, while it is still there.
+ *   monitors waits until its feed comes up, while it is still there. An operator verifying stays at his desk
+ *   (`pinVerifiers`); his carrier is drawn at the desk.
  * - **Looping a feed** (§7.2): `loopFeed { crew, object, camera }` at the CCTV desk or a server rack, with a hacking
  *   kit, 1 action, the illegal act 'hack', quiet noise 1: the camera shows a loop for `rules.loopPhases` (4) world
  *   phases (`CameraState.loopedUntil`): it sees nothing (`cameraObserver` is null), reports nothing and records
@@ -126,7 +127,7 @@ export function operatorWatch(ctx: Ctx): void {
     for (const report of state.cameraReports) {
         if (!op || !feedsAt(world, report.turn).includes(report.camera)) continue;
         ctx.emit({ type: 'operatorVerifies', npc: op.id, camera: report.camera, crew: report.crew });
-        raiseCarrier(ctx, { kind: 'operatorCamera', source: op.id, pos: op.pos, about: report.crew });
+        raiseCarrier(ctx, { kind: 'operatorCamera', source: op.id, pos: carrierPos(world, 'operatorCamera', op), about: report.crew });
     }
     if (state.cameraReports.length) state.cameraReports = [];
     if (!op) return;
@@ -143,6 +144,22 @@ export function operatorWatch(ctx: Ctx): void {
 
 registerWorldHook('passiveNpcs', 'cameras.operator', ctx => operatorWatch(ctx), { order: -94 });
 
+/**
+ * An operator verifying stays at his desk until it is done (§8.12): whatever else he wants, his committed intent
+ * walks nowhere while his carrier runs. Applied as intents are committed and after every crew action.
+ */
+export function pinVerifiers(world: ReadonlyWorld, state: State): void {
+    for (const c of state.carriers) {
+        if (c.kind !== 'operatorCamera') continue;
+        const npc = state.npcs.find(n => n.id === c.source);
+        if (!npc || !decidesFor(npc) || !atDesk(world, state, npc) || !npc.intent.path.length) continue;
+        const facing = npc.intent.facing;
+        npc.intent = facing ? { path: [], facing } : { path: [] };
+    }
+}
+
+registerWorldHook('commitIntents', 'cameras.pin', ctx => pinVerifiers(ctx.world, ctx.state), { order: 10 });
+
 // ---------------------------------------------------------------------------------------------------------- Footage
 
 /** Whether the recorder still holds the footage (§8.12): there is one, and nobody took or smashed it. */
@@ -158,6 +175,7 @@ export function filmedCrew(world: ReadonlyWorld, state: DeepReadonly<State>): st
 
 registerCommandHook('cameras', (ctx, _cmd, events) => {
     const { world, state } = ctx;
+    if (state.phase === 'crew') pinVerifiers(world, state);
     if (!footageKept(world, state)) return;
     for (const e of events) {
         if (e.type !== 'cameraSaw' || !e.why.includes('illegal')) continue;

@@ -341,6 +341,23 @@ Each package lists its goal, the design sections it covers, the files, what it d
       `alarmDead`, `operatorVerifies`, `operatorSentGuard`, `checkInRinging`, `checkInMissed`, `checkInSearch`,
       `radioAnswered`, `dispatchLostContact`, `patrolPassed`, `feedLooped`/`feedRestored`, `cameraPanned`,
       `panelWorked`/`panelDisabled`, `footageRecorded`, `recorderTaken`/`recorderDestroyed`, `carrierPaused`/`Resumed`.
+    - **Review fixes.** With an operator, a missed check-in is always his to call in: once every operator is
+      neutralised, rings still pending die (no miss) and the silence takes dispatch's lost-contact path; missed
+      check-ins are one carrier per guard (`raiseCarrier` dedupes by source, kind and `subject`), and answering one
+      guard's radio counters only his. Projections redact instead of hiding: `carrierStarted` (`holder`, `pos`, now
+      `string | null` / `Pos | null`) and `projectCarriers` null the holder and place of an NPC the crew doesn't know,
+      keeping kind, countdown and `about`; `knownCarriers(world, state)` is the ledger's running carriers, the same way.
+      `walkingToAlarm(world, state)` lists NPCs on their way to start a carrier (§4): kind, `eta` (world phases until it
+      starts, exact for a committed action, else the committed walk plus the straight way left at its pace), `alarmIn`
+      (eta + 2), holder and destination redacted the same way; a dead panel's buttons and anything after the Alarm
+      aren't listed. A phone call made at the caller's own desk or window is a landline (`Carrier.line`) a jammer
+      doesn't stop (cutting the line will, M4); anyone else uses a mobile. The operator's carriers (verify, missed
+      check-in) are drawn at the CCTV desk, so a jammer must reach the desk, and a verifying operator's intent stays at
+      the desk (`pinVerifiers`). `pendingCarriers` is cached per state; `carrierPreview` also names a world-phase carrier
+      whose countdown or crew member the command changes. `tests/sim/carriers.fuzz.test.ts` fuzzes the promises on
+      generated banks (every tier × archetype; larger with `CARRIER_FUZZ_*`).
+    - **Known gap until M3:** the passing patrol car has one working counter (a jammer); taking both officers down
+      comes with combat. `tests/sim/carriers.test.ts` ('known gaps') fails once M3 makes it work, as a reminder.
     - **Not yet:** shooting cameras and the officers (M3), the escapee's and commanding's starts and counters (M2:
       `startEscapee` is the hook), cutting the phone line (M4), the vault sensors' starters and wiring box (M2-05).
 - [ ] **M1-09 Previews, safe floor and the property test.**

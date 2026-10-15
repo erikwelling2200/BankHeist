@@ -1,16 +1,20 @@
 import { registerWorldHook, type Ctx } from '../core/engine';
 import { samePos } from '../core/grid';
 import { crewMember, newId, registerCrewInit, registerRuleDefaults, registerStateInit } from '../core/state';
-import type { CrewState, DeepReadonly, NpcState, Pos, ReadonlyWorld, State } from '../core/types';
+import type { CarrierKind, CrewState, DeepReadonly, NpcState, Pos, ReadonlyWorld, State } from '../core/types';
 import { registerEvents } from '../core/undo';
 import { bandAt, fieldOn, npcObserver } from '../geo/cones';
 import { sightMap } from '../geo/los';
 import { makeNoise } from '../geo/sound';
 import { lacksActions, registerAction } from './actions/act';
 import { registerInteraction } from './actions/interact';
-import { CARRIERS, panelDead, raiseCarrier, registerCarrierCheck } from './carriers';
+import { CARRIERS, carrierBlocked, holderKnown, panelDead, raiseCarrier, registerCarrierCheck } from './carriers';
+import { HALF_STEPS_PER_TILE } from '../data/movement';
+import { decidesFor, evidenceReport, reactionOf, topWant } from './npc/behaviour';
+import { cctvDesk } from './cctv';
 import { clearEvidence } from './evidence';
-import { intentEnd, isPresent } from './npc/walk';
+import { activityAt } from './npc/schedule';
+import { intentEnd, isPresent, paceBudget } from './npc/walk';
 import { isEyesDown } from './suspicion';
 
 /*
@@ -34,8 +38,9 @@ import { isEyesDown } from './suspicion';
  *   'hack' (§8.4). Once dead, every wired carrier dies, those running too (`registerCarrierCheck('panel')`), and no
  *   button starts one. The panel has its own battery (§14.6): cutting the power doesn't touch it.
  * - **The jammer** (§12.2): `placeJammer` (1 action, the jammer item) leaves it running on the crew member's tile.
- *   Every radio or phone carrier (`CARRIERS[kind].radio`) within `rules.jammerRadius` (8, Euclidean) of where it is
- *   drawn is paused while it runs; dispatch notices the lost contact after 10 phases (checkins.ts).
+ *   Every radio or mobile phone carrier (`CARRIERS[kind].radio`, not a landline call: a phone call made by someone at
+ *   their desk or window, `Carrier.line`) within `rules.jammerRadius` (8, Euclidean) of where it is drawn (the
+ *   operator's at the CCTV desk) is paused while it runs; dispatch notices the lost contact after 10 phases (checkins.ts).
  * - **The escapee** (§9.1, §16.4) is M2's (panic): `startEscapee` is its starter, countdown max(2, ⌈path ÷ 8⌉).
  */
 
@@ -132,7 +137,10 @@ registerWorldHook('passiveNpcs', 'alarms.raise', (ctx, phase) => {
         const crew = action.kind === 'raiseAlarm' ? action.crew : null;
         ctx.emit({ type: 'alarmAttempt', npc: npc.id, carrier: action.carrier, crew, evidence: action.kind === 'reportEvidence' ? action.evidence : null });
         if (crew !== null && action.carrier === 'guardRadio' && guardSees(world, state, npc, crew)) confront(ctx, npc, crew);
-        raiseCarrier(ctx, { kind: action.carrier, source: npc.id, pos: npc.pos, ...(crew !== null ? { about: crew } : {}) });
+        raiseCarrier(ctx, {
+            kind: action.carrier, source: npc.id, pos: carrierPos(world, action.carrier, npc), ...(crew !== null ? { about: crew } : {}),
+            ...(action.carrier === 'phoneCall' && atStation(world, state, npc) ? { line: 'landline' as const } : {})
+        });
         if (crew !== null) {
             if (!npc.reported.includes(crew)) npc.reported.push(crew);
         } else if (action.kind === 'reportEvidence' && npc.evidence?.id === action.evidence) {
@@ -140,6 +148,18 @@ registerWorldHook('passiveNpcs', 'alarms.raise', (ctx, phase) => {
         }
     }
 }, { order: 5 });
+
+/** Whether an NPC stands on its schedule's spot now (at its desk, its window): a phone there is the desk's landline. */
+function atStation(world: ReadonlyWorld, state: State, npc: DeepReadonly<NpcState>): boolean {
+    const at = activityAt(world, npc.id, state.turn)?.block.at;
+    return !!at && samePos(at, npc.pos);
+}
+
+/** Where a carrier is drawn (and a jammer must reach): the operator's at the CCTV desk, anyone else's where they stand. */
+export function carrierPos(world: ReadonlyWorld, kind: CarrierKind, npc: DeepReadonly<NpcState>): Pos {
+    const desk = kind === 'operatorCamera' || kind === 'missedCheckIn' ? cctvDesk(world) : undefined;
+    return desk ? { x: desk.pos.x, y: desk.pos.y } : { x: npc.pos.x, y: npc.pos.y };
+}
 
 /** "Hands up!" (see the header). */
 function confront(ctx: Ctx, npc: NpcState, crew: string): void {
@@ -157,6 +177,50 @@ function confront(ctx: Ctx, npc: NpcState, crew: string): void {
  */
 export function startEscapee(ctx: Ctx, npc: DeepReadonly<NpcState>, pathLength: number): void {
     raiseCarrier(ctx, { kind: 'escapee', source: npc.id, pos: npc.pos, countdown: Math.ceil(pathLength / 8) });
+}
+
+/**
+ * An NPC on its way to raise the alarm (§4: the crew sees it coming): what it will start, in how many world phases it
+ * starts it (`eta`: 1 when its committed intent starts it in the coming world phase) and so when the Alarm would go off
+ * (`alarmIn`, with the carrier's countdown). For the threat ledger, projected: `npc` and `pos` (where it is headed) are
+ * null where the crew doesn't know the NPC. The ETA beyond the committed walk counts the straight (Chebyshev) way left
+ * at the NPC's pace: an estimate, the committed path is exact.
+ */
+export interface AlarmWalk { npc: string | null; kind: CarrierKind; label: string; eta: number; alarmIn: number; pos: Pos | null; about?: string }
+
+export function walkingToAlarm(world: ReadonlyWorld, state: State): AlarmWalk[] {
+    const out: AlarmWalk[] = [];
+    const min = world.rules.minCarrierCountdown;
+    for (const npc of state.npcs) {
+        if (!decidesFor(npc) || !isPresent(npc) || isEyesDown(npc)) continue;
+        let kind: CarrierKind | undefined, about: string | undefined, eta = 1, to: Pos = intentEnd(npc, npc.intent);
+        const action = npc.intent.action;
+        if (action?.kind === 'raiseAlarm' || action?.kind === 'reportEvidence') {
+            kind = action.carrier;
+            if (action.kind === 'raiseAlarm') about = action.crew;
+        } else {
+            const want = npc.goal.kind === 'react' ? topWant(npc) : undefined;
+            const plan = want ? reactionOf(world, state, npc, want) : npc.goal.kind === 'report' && npc.evidence ? evidenceReport(world, state, npc) : undefined;
+            const act = plan?.action;
+            if (!plan?.tile || !act || (act.kind !== 'raiseAlarm' && act.kind !== 'reportEvidence')) continue;
+            kind = act.carrier;
+            if (act.kind === 'raiseAlarm') about = act.crew;
+            const end = intentEnd(npc, npc.intent);
+            const left = Math.max(Math.abs(end.x - plan.tile.x), Math.abs(end.y - plan.tile.y));
+            const pace = Math.max(1, Math.floor(paceBudget(world, plan.pace) / HALF_STEPS_PER_TILE));
+            // This phase's walk, then the phases still to walk: it presses the button at the end of the walk that
+            // gets it there (the intent committed before that walk carries the action).
+            eta = 1 + Math.max(1, Math.ceil(left / pace));
+            to = { x: plan.tile.x, y: plan.tile.y };
+        }
+        // Nothing to fear from a button the panel no longer wires, nor once the Alarm is up.
+        if (!kind || carrierBlocked(world, state, kind)) continue;
+        const shown = holderKnown(world, state, npc.id);
+        const walk: AlarmWalk = { npc: shown ? npc.id : null, kind, label: CARRIERS[kind].label, eta, alarmIn: eta + min, pos: shown ? to : null };
+        if (about !== undefined) walk.about = about;
+        out.push(walk);
+    }
+    return out.sort((a, b) => a.alarmIn - b.alarmIn);
 }
 
 // ---------------------------------------------------------------------------------------------------------- The panel
@@ -216,7 +280,7 @@ export function jammed(world: ReadonlyWorld, state: DeepReadonly<State>, p: Deep
 }
 
 registerCarrierCheck('jammer', (world, state, carrier) =>
-    (CARRIERS[carrier.kind].radio && jammed(world, state, carrier.pos) ? { halt: 'paused', why: 'jammer' } : null));
+    (CARRIERS[carrier.kind].radio && carrier.line !== 'landline' && jammed(world, state, carrier.pos) ? { halt: 'paused', why: 'jammer' } : null));
 
 registerAction('placeJammer', {
     whyNot(_world, state, cmd) {

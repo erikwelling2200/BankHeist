@@ -324,6 +324,8 @@ export interface Carrier {
     about?: string;
     /** The NPC it is about, besides its source (the guard whose check-in was missed), when there is one. */
     subject?: string;
+    /** A phone call on a desk's landline: no jammer stops it (cutting the line will, M4). Absent: a mobile or a radio. */
+    line?: 'landline';
 }
 
 /** Loud and Alarm are separate (§4): an alarm is silent (§9.2), and a gunshot is loud without calling anyone. */
@@ -403,10 +405,10 @@ export interface EventMap {
     /** An NPC checked whether it saw or heard a crew member (§8.5). */
     perceptionCheck: { npc: string; crew: string };
     /**
-     * A carrier started: its holder (`Carrier.source`) is named `holder`, not `source`, so the crew's projection never
-     * drops it (every carrier is shown, §9.1).
+     * A carrier started: its holder (`Carrier.source`) and where it is drawn. The crew's projection never drops it
+     * (every carrier is shown, §9.1); for a holder the crew doesn't know it redacts `holder` and `pos` to null.
      */
-    carrierStarted: { carrier: string; kind: CarrierKind; countdown: number; holder: string; pos: Pos; about?: string };
+    carrierStarted: { carrier: string; kind: CarrierKind; countdown: number; holder: string | null; pos: Pos | null; about?: string };
     carrierTicked: { carrier: string; countdown: number };
     alarmRaised: { carrier: string };
     wentLoud: { cause: string };

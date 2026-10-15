@@ -60,15 +60,15 @@ export {
     stableJson
 } from './core/json';
 export {
-    CARRIERS, carrierBlocked, carrierPreview, carriersStarted, carrierVerdict, panelDead, pendingCarriers, projectCarriers, raiseCarrier,
+    CARRIERS, carrierBlocked, carrierPreview, carriersStarted, carrierVerdict, holderKnown, knownCarriers, panelDead, pendingCarriers, projectCarriers, raiseCarrier,
     registerCarrierCheck, settleCarriers, startCarrier, stopCarrier, type AlarmResponse, type CarrierChanges, type CarrierCheck, type CarrierDef,
-    type CarrierPreview, type CarrierRequest, type CarrierVerdict
+    type CarrierPreview, type CarrierRequest, type CarrierVerdict, type KnownCarrier
 } from './rules/carriers';
 export {
-    HACKING_KIT, hasTrait, JAMMER, jammed, panelWorkLeft, startEscapee, TRAITS, workActions, type Jammer, type Trait
+    carrierPos, HACKING_KIT, hasTrait, JAMMER, jammed, panelWorkLeft, startEscapee, TRAITS, walkingToAlarm, workActions, type AlarmWalk, type Jammer, type Trait
 } from './rules/alarms';
 export {
-    filmedCrew, footageKept, LOOP_FROM, nearestFreeGuard, operatorWatch, type Footage
+    filmedCrew, footageKept, LOOP_FROM, nearestFreeGuard, operatorWatch, pinVerifiers, type Footage
 } from './rules/cameras';
 export {
     atDesk, attentiveOperator, cctvControlled, cctvDesk, feedsAt, guardIds, isGuard, liveFeeds, NEUTRALISED, neutralised, operatorGone, operatorIds

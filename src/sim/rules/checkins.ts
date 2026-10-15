@@ -11,7 +11,7 @@ import { inReach, lacksActions, registerAction } from './actions/act';
 import { hasTrait, jammed } from './alarms';
 import { nearestFreeGuard } from './cameras';
 import { raiseCarrier, stopCarrier } from './carriers';
-import { guardIds, neutralised, operatorGone, operatorIds } from './cctv';
+import { cctvDesk, guardIds, neutralised, operatorGone, operatorIds } from './cctv';
 import { evidenceOnMap, isMajor, sendToLook } from './evidence';
 import { activityAt } from './npc/schedule';
 import { isPresent } from './npc/walk';
@@ -34,7 +34,10 @@ import { crewLook } from './profile';
  *   +1 per Smooth Talker in the crew). A guard back on his feet by then answers it himself.
  * - **Unanswered** at the next world phase: missed. The first miss sends the nearest free guard to the missing guard's
  *   post (`sendToLook`, an investigation); the second makes the operator (or dispatch) call it in: the missed check-in
- *   carrier (2), whose counters are neutralising the operator, answering the radio now (the same action) and a jammer.
+ *   carrier (2), one per guard, whose counters are neutralising the operator, answering that guard's radio now (the
+ *   same action) and a jammer in range of the CCTV desk, where it is drawn. A bank with an operator never has dispatch
+ *   raise it: once every operator is neutralised, rings still pending die with him (no miss) and the silence goes the
+ *   lost-contact way below.
  * - **Dispatch** notices silence (§8.11, §9.1 "Dispatch: lost contact"): an operator neutralised, or a jammer running,
  *   for `rules.dispatchSilence` (10) world phases in a row. It sends a patrol car past `rules.driveByLead` (2) phases
  *   later, announced (the crew's police scanner, §8.15).
@@ -161,9 +164,16 @@ function missed(ctx: Ctx, guard: string, call: CheckIn, turn: number): void {
         sendToLook(ctx, sent, `checkin:${guard}:${turn}`, post);
         return;
     }
-    const op = operatorIds(world).map(id => state.npcs.find(n => n.id === id)!).find(n => !neutralised(state, n));
+    // The operator calls it in; only a bank without one has dispatch notice it directly (never both).
+    const ops = operatorIds(world);
     const body = bodyPos(state, state.npcs.find(n => n.id === guard)!);
-    raiseCarrier(ctx, { kind: 'missedCheckIn', source: op ? op.id : 'dispatch', pos: op ? op.pos : body, subject: guard });
+    if (!ops.length) {
+        raiseCarrier(ctx, { kind: 'missedCheckIn', source: 'dispatch', pos: body, subject: guard });
+        return;
+    }
+    const op = ops.map(id => state.npcs.find(n => n.id === id)!).find(n => !neutralised(state, n));
+    if (!op) return;
+    raiseCarrier(ctx, { kind: 'missedCheckIn', source: op.id, pos: cctvDesk(world)?.pos ?? op.pos, subject: guard });
 }
 
 registerWorldHook('devices', 'radio.checkIns', (ctx, phase) => {
@@ -175,6 +185,8 @@ registerWorldHook('devices', 'radio.checkIns', (ctx, phase) => {
     const caller = !ops.length ? 'dispatch' : ops.find(n => !neutralised(state, n) && isPresent(n))?.id ?? null;
     for (const guard of sortedIds(radio.calls)) {
         const call = radio.calls[guard]!;
+        // Nobody left at the console to miss it: the call dies with the operator, and the silence is dispatch's.
+        if (gone && call.ringing !== null) call.ringing = null;
         if (call.ringing !== null && call.ringing < turn) {
             call.ringing = null;
             if (answers(state, guard)) ctx.emit({ type: 'checkIn', guard, by: guard });

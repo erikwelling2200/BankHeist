@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
-    CARRIERS, carrierPreview, clonePlain, commit, filmedCrew, fixtureWorld, freezeWorld, hashOf, initialState, knownView, legalActions, panelWorkLeft,
-    pendingCarriers, preview, raiseCarrier, type CarrierKind, type Command, type CrewStart, type Facing, type FixtureOptions, type ObserverClass,
+    CARRIERS, carrierPreview, clonePlain, commit, filmedCrew, fixtureWorld, freezeWorld, hashOf, initialState, knownCarriers, knownView, legalActions, panelWorkLeft,
+    pendingCarriers, preview, projectCarriers, projectEvents, raiseCarrier, walkingToAlarm, type CarrierKind, type Command, type CrewStart, type Facing, type FixtureOptions, type ObserverClass,
     type PersonDef, type Pos, type ReadonlyWorld, type SimEvent, type State, type World, type WorldObject
 } from '../../src/sim';
 import { registerTestCommand, scouted, step, testCommand } from './helpers';
@@ -235,6 +235,144 @@ describe('radio check-ins', () => {
         const tenth = endTurn(world, nine.state);
         expect(tenth.events).toContainEqual({ type: 'dispatchLostContact', driveBy: 12 });
     });
+});
+
+describe('review fixes', () => {
+    const twoGuards = () => setup(
+        ['..........', '..........', '..........'],
+        [person('ga', 'guard', 'enforcer', P(1, 0), 's'), person('gb', 'guard', 'enforcer', P(1, 2), 'n'), person('op', 'operator', 'staff', P(8, 1), 'e')],
+        [{ id: 'jun', pos: P(2, 1) }, { id: 'mara', pos: P(8, 2) }],
+        { walls: wallAfter(4, 3), objects: [obj('desk', 'cctvDesk', P(9, 1), { monitors: 4 })] }
+    );
+    const down = (s: State, id: string, status: 'tied' | 'unconscious' = 'tied') => {
+        const n = s.npcs.find(x => x.id === id)!;
+        n.status = status;
+        n.intent = { path: [] };
+        if (status === 'unconscious') n.outCold = 99;
+    };
+
+    it('the operator neutralised while a second call rings: no missed check-in, dispatch\'s silence instead', () => {
+        const { world, state } = twoGuards();
+        const s = clonePlain(state);
+        down(s, 'ga');
+        down(s, 'gb');
+        s.radio.calls.ga = { next: 1, missed: 1, ringing: null };
+        s.radio.calls.gb = { next: 99, missed: 0, ringing: null };
+        const ring = endTurn(world, s);
+        expect(ring.state.radio.calls.ga!.ringing).toBe(1);
+        const after = clonePlain(ring.state);
+        down(after, 'op', 'unconscious');
+        const quiet = endTurn(world, after);
+        expect(types(quiet.events)).not.toContain('checkInMissed');
+        expect(quiet.state.carriers).toEqual([]);
+        expect(quiet.state.radio.calls.ga!.ringing).toBe(null);
+        const later = turns(world, quiet.state, 9);
+        expect(types(later.events)).toContain('dispatchLostContact');
+        expect(later.state.bank.alarm).toBe(false);
+    });
+
+    it('missed check-ins are one carrier per guard, at the CCTV desk; answering one leaves the other', () => {
+        const { world, state } = twoGuards();
+        const s = clonePlain(state);
+        for (const g of ['ga', 'gb']) { down(s, g); s.radio.calls[g] = { next: 1, missed: 1, ringing: null }; }
+        const missed = turns(world, s, 2).state;
+        expect(missed.carriers.map(c => [c.kind, c.source, c.subject, c.pos])).toEqual([['missedCheckIn', 'op', 'ga', P(9, 1)], ['missedCheckIn', 'op', 'gb', P(9, 1)]]);
+        const answered = act(world, missed, { type: 'answerRadio', crew: 'jun', npc: 'ga' });
+        expect(answered.state.carriers.map(c => c.subject)).toEqual(['gb']);
+    });
+
+    it('a carrier of a holder the crew doesn\'t know is shown without holder or place', () => {
+        const { world } = tellerBank(false);
+        const blind = initialState(world, { seed: 3, crew: [{ id: 'jun', pos: P(0, 1) }, { id: 'mara', pos: P(5, 1), masked: true }] });
+        // Mara is seen by a teller the crew has never laid eyes on (she stands in the dark of a wall here).
+        const s = clonePlain(blind);
+        s.knowledge.npcs = {};
+        const seen = step(world, s, { type: 'wait', crew: 'mara' }).state;
+        seen.knowledge.npcs = {};
+        const w = endTurn(world, seen);
+        const truth = w.events.find(e => e.type === 'carrierStarted');
+        expect(truth).toMatchObject({ holder: 'teller', pos: P(7, 1) });
+        const hidden = clonePlain(w.state);
+        hidden.knowledge.npcs = {};
+        const shown = projectEvents(world, hidden, w.events).find(e => e.type === 'carrierStarted');
+        expect(shown).toMatchObject({ kind: 'tellerButton', countdown: 2, holder: null, pos: null, about: 'mara' });
+        expect(knownCarriers(world, hidden)).toEqual([{ id: 'carrier-1', kind: 'tellerButton', label: 'Teller button', source: null, pos: null, countdown: 2, halted: null, about: 'mara' }]);
+        expect(projectCarriers(world, hidden, pendingCarriers(world, seen))).toEqual([{ kind: 'tellerButton', label: 'Teller button', source: null, pos: null, countdown: 2, about: 'mara' }]);
+        expect(knownCarriers(world, scouted(world, w.state))[0]).toMatchObject({ source: 'teller', pos: P(7, 1) });
+    });
+
+    it('a teller walking to her button shows in the ledger with an ETA, which the walk keeps', () => {
+        const teller: PersonDef = { ...person('teller', 'teller', 'staff', P(9, 1), 'w'), schedule: [{ from: 1, activity: 'window', label: 'window', room: '', at: P(9, 1), facing: 'w' }] };
+        const { world, state } = setup(['..............', '..............', '..............'], [teller], [{ id: 'mara', pos: P(7, 1), masked: true }]);
+        // Away from her window when Mara shows up.
+        const s = clonePlain(state);
+        s.npcs[0]!.pos = P(2, 0);
+        s.npcs[0]!.facing = 'e';
+        s.npcs[0]!.intent = { path: [] };
+        const seen = step(world, scouted(world, s), { type: 'wait', crew: 'mara' }).state;
+        const walks = walkingToAlarm(world, seen);
+        expect(walks).toHaveLength(1);
+        expect(walks[0]).toMatchObject({ npc: 'teller', kind: 'tellerButton', pos: P(9, 1), about: 'mara' });
+        const eta = walks[0]!.eta;
+        expect(eta).toBeGreaterThan(1);
+        expect(walks[0]!.alarmIn).toBe(eta + 2);
+        let t = seen, phases = 0;
+        while (phases < 6) {
+            const r = endTurn(world, t);
+            phases++;
+            t = r.state;
+            if (types(r.events).includes('carrierStarted')) break;
+        }
+        expect(phases).toBe(eta);
+        const hidden = clonePlain(seen);
+        hidden.knowledge.npcs = {};
+        expect(walkingToAlarm(world, hidden)[0]).toMatchObject({ npc: null, pos: null, eta });
+    });
+
+    it('a landline call isn\'t jammed; a mobile is', () => {
+        const tech: PersonDef = { ...person('tech', 'technician', 'staff', P(4, 1), 'w'), schedule: [{ from: 1, activity: 'post', label: 'desk', room: '', at: P(4, 1), facing: 'w' }] };
+        const { world, state } = setup(['........', '........', '........'], [tech], [{ id: 'mara', pos: P(2, 1), masked: true, items: ['jammer'] }]);
+        const atDesk = endTurn(world, step(world, state, { type: 'wait', crew: 'mara' }).state).state;
+        expect(atDesk.carriers.map(c => [c.kind, c.line])).toEqual([['phoneCall', 'landline']]);
+        // Mara has no actions left this turn's world phase is over: a new turn, she places the jammer.
+        const jammed = act(world, atDesk, { type: 'placeJammer', crew: 'mara' });
+        expect(jammed.state.carriers[0]!.halted).toBe(null);
+        const away = clonePlain(state);
+        away.npcs[0]!.pos = P(5, 2);
+        away.npcs[0]!.intent = { path: [] };
+        const mobile = endTurn(world, step(world, away, { type: 'wait', crew: 'mara' }).state).state;
+        expect(mobile.carriers.map(c => [c.kind, c.line])).toEqual([['phoneCall', undefined]]);
+        expect(act(world, mobile, { type: 'placeJammer', crew: 'mara' }).state.carriers[0]!.halted).toBe('paused');
+    });
+
+    it('an operator verifying stays at his desk', () => {
+        const op: PersonDef = {
+            ...person('op', 'operator', 'staff', P(8, 1), 'e'),
+            schedule: [{ from: 1, activity: 'post', label: 'desk', room: '', at: P(8, 1), facing: 'e' }, { from: 2, activity: 'post', label: 'break', room: '', at: P(8, 2), facing: 's' }]
+        };
+        const { world, state } = setup(['..........', '..........', '..........'], [op], [{ id: 'jun', pos: P(4, 2), masked: true }], {
+            walls: wallAfter(6, 3), cameras: [{ id: 'cam', pos: P(0, 0), facings: ['se'], room: null }], objects: [obj('desk', 'cctvDesk', P(9, 1), { monitors: 1 })]
+        });
+        const w = endTurn(world, step(world, state, { type: 'move', crew: 'jun', path: [P(3, 2)] }).state);
+        expect(w.state.carriers.map(c => [c.kind, c.pos])).toEqual([['operatorCamera', P(9, 1)]]);
+        expect(w.state.npcs[0]!.intent.path).toEqual([]);
+    });
+
+    it('carrierPreview names a carrier whose countdown or crew member a command changes', () => {
+        const { world, state } = tellerBank(false);
+        const r = preview(world, state, { type: 'wait', crew: 'mara' });
+        expect(carrierPreview(world, r.state, r).worldPhase).toEqual([]);
+    });
+});
+
+describe('known gaps', () => {
+    // The passing patrol car has one counter until combat (M3) lets the crew take both officers down (§9.1). When M3
+    // makes it work, this fails: update the plan's note and the carriers table, then delete this test.
+    it('the patrol car: only the jammer until M3', () => {
+        expect(CARRIERS.patrolCar.counters.filter(c => c.now === true).map(c => c.name)).toEqual(['jammer']);
+        expect(CARRIERS.patrolCar.counters.find(c => c.name === 'take both officers down')!.now).toBe('M3');
+    });
+    it.todo('M3: taking both patrol officers down counters the patrol car mid-countdown');
 });
 
 describe('the patrol drive-by', () => {

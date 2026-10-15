@@ -729,6 +729,11 @@ export function projectEvents(world: ReadonlyWorld, state: State, events: readon
     const hiddenCuts = preview ? events.filter((e): e is Extract<SimEvent, { type: 'moveCut' }> => e.type === 'moveCut' && !known(e.npc)) : [];
     for (const e of events) {
         if (preview && e.type === 'revealed') continue;
+        // Every carrier is shown (§9.1), but not who holds it or where when the crew doesn't know them.
+        if (e.type === 'carrierStarted') {
+            out.push(e.holder !== null && npcIds.has(e.holder) && !known(e.holder) ? { ...e, holder: null, pos: null } : e);
+            continue;
+        }
         const fields = e as unknown as Record<string, unknown>;
         if (PERSON_FIELDS.some(f => typeof fields[f] === 'string' && npcIds.has(fields[f] as string) && !known(fields[f] as string))) continue;
         if (typeof fields.camera === 'string' && !cameras.has(fields.camera)) continue;
