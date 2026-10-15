@@ -1,5 +1,5 @@
 import {
-    crewBudget, crewMoveOptions, crewPicture, isKnownNow, pathTo, whyNot, reachable, type Command, type CommitResult, type Pos, type PreviewResult, type ReadonlyWorld, type State
+    safeFloor, type ActionPreview, type Explanation, type FloorBand, type PathSafety, type SafeFloor, crewBudget, crewMoveOptions, crewPicture, isKnownNow, pathTo, whyNot, reachable, type Command, type CommitResult, type Pos, type PreviewResult, type ReadonlyWorld, type State
 } from '../sim';
 import { Session, UI_KEY, type PlayerPreview } from './session';
 
@@ -18,6 +18,17 @@ export interface SimHandle {
     preview(cmd: Command): PreviewResult;
     /** What the player is shown. */
     playerPreview(cmd: Command): PlayerPreview;
+    /** What the player is shown before confirming `cmd` (the sim's `actionPreview`, as the overlay and Confirm use it). */
+    actionPreview(cmd: Command): ActionPreview;
+    /**
+     * The safe floor (§8.8) the overlay draws for `crew` now, or on `state` (a scripted setup being tried); `at` doesn't
+     * survive `page.evaluate`: use `tiles`.
+     */
+    safeFloor(crew: string, bands?: readonly FloorBand[], state?: State): SafeFloor;
+    /** A drawn path's safety, as the overlay tints it. */
+    pathSafety(crew: string, path: readonly Pos[], mode?: 'move' | 'dash'): PathSafety;
+    /** Who would notice `crew` on `tile` and why (the long-press tag). */
+    explain(crew: string, tile: Pos, path?: readonly Pos[]): Explanation[];
     commit(cmd: Command): CommitResult;
     endTurn(): CommitResult;
     undo(): boolean;
@@ -59,6 +70,10 @@ export function installDebugHandle(session: Session, target: { sim?: SimHandle }
         get session() { return session; },
         preview: cmd => session.preview(cmd),
         playerPreview: cmd => session.playerPreview(cmd),
+        actionPreview: cmd => session.actionPreview(cmd),
+        safeFloor: (crew, bands, state) => (state ? safeFloor(session.world, state, crew, bands ? { bands } : {}) : session.safeFloor(crew, bands)),
+        pathSafety: (crew, path, mode) => session.pathSafety(crew, path, mode),
+        explain: (crew, tile, path) => session.explain(crew, tile, path),
         commit: cmd => session.commit(cmd),
         endTurn: () => session.endTurn(),
         undo: () => session.undo(),

@@ -1,17 +1,21 @@
 import Phaser from 'phaser';
-import { cameraViews, npcBadges, npcCone, noiseHearers, type CameraVM, type HearerVM } from '../../game/worldUi';
 import {
-    actionMenu, AutoRun, autoBarView, bankView, barkText, cameraName, doorMiddle, nextCamera, moveAlong, moveRange, moveTo, routeViews, stopNeedsAttention, targetsOf, waitMenu, type ActionId, type MoveRange,
+    cameraViews, explainView, floorTiles, npcBadges, npcCone, pathView, previewHearers, previewNoise, previewWitnesses, type CameraVM, type ExplainVM, type FloorTileVM,
+    type PathVM
+} from '../../game/worldUi';
+import {
+    actionMenu, AutoRun, autoBarView, bankView, barkText, cameraName, doorMiddle, nextCamera, moveAlong, moveRange, moveTo, routeViews, stopNeedsAttention, targetsOf, waitMenu, type ActionId, type FloorJob, type MoveRange,
     type PlaybackItem, type PlaybackSpeed, type Session, type SessionChange
 } from '../../game';
 import type { GeneratedBank } from '../../gen/model';
 import { TILE } from '../../level/level';
 import type { PersonFacing, PersonPose } from '../../level/plan';
 import {
-    COMBAT_STATUSES, crewPicture, dashRefusal, IllegalCommand, knownView, doorStatus, planRoute, routeBreak, soundRing,
+    COMBAT_STATUSES, crewPicture, dashRefusal, IllegalCommand, knownView, doorStatus, planRoute, routeBreak, soundRing, type ActionPreview,
     type AutoStop, type Command, type CrewState, type KnownView, type MarkerKind, type State, type Facing, type Pos, type SimEvent
 } from '../../sim';
 import { mountAutoBar, type AutoBarHandle } from '../../ui/hud/autoBar';
+import { iconUrl, portraitUrl } from '../../ui/hud/icons';
 import { mountHud } from '../../ui/hud/mountHud';
 import { CREW_COLOURS, type HudHandle, type OverlayId } from '../../ui/hud/viewModels';
 import type { BankCamera } from './camera';
@@ -39,6 +43,8 @@ const NPC_WALK_BUDGET_MS = 1200;
 /** How long the Alarm's banner and rings stay (§9.2), and a shout's ring, in ms. */
 const ALARM_MS = 2600;
 const FLASH_MS = 1500;
+/** How long a frame may spend judging the safe floor's Dash band (ms). */
+const FLOOR_SLICE_MS = 6;
 /** A tap snaps to a valid tile no further than this (tiles) from where it landed. */
 const SNAP_TILES = 1.5;
 /** How many tiles north of the crew the first view of a heist is centred. */
@@ -136,6 +142,21 @@ export class PlayMode {
     private target: string | null = null;
     /** The selected member's range, worked out once per state and member. */
     private rangeFor?: { state: State; id: string; range: MoveRange };
+    /**
+     * The selected member's safe floor (§8.8), once per state and member: the Move band at once, the Dash band a frame
+     * later (judging a dash NPCs hear works out their reactions), with how long each took (ms).
+     */
+    private floorFor?: {
+        state: State; id: string; job: FloorJob; shown: number; tiles: FloorTileVM[]; dash: boolean;
+        /** The Move band's time, the Dash band's over all its slices, the dearest slice and how many there were. */
+        ms: { move: number; dash: number; slice: number; slices: number };
+    };
+    private floorFrame = 0;
+    /** A drawn path's safety, once per state and path. */
+    private pathFor?: { state: State; key: string; view: PathVM | undefined };
+    /** A long-pressed tile's "who and why" (until the next tap), and its tag. */
+    private explained: ExplainVM | null = null;
+    private explainTag?: HTMLElement;
     /** Go and Wait for… (§6.5): the run in progress, and why the last one stopped. */
     private readonly autoBar: AutoBarHandle;
     private auto: AutoRun | null = null;
@@ -237,6 +258,11 @@ export class PlayMode {
             /** The grid's entries as shown: id, enabled and reason. */
             actions: this.session.hud({ target: this.target }).actions.map(a => ({ id: a.id, enabled: a.enabled, reason: a.reason, selected: !!a.selected })),
             intents: this.overlay.state.intents,
+            /** The safe floor drawn (§8.8), whether its Dash band is in yet, and how long each band took to judge (ms). */
+            safeFloor: this.overlay.state.safeFloor, floorDash: !!this.floorFor?.dash, floorMs: this.floorFor ? { ...this.floorFor.ms } : null,
+            floorDim: this.overlay.state.floorDim,
+            /** The path's tints and its eye (`pathSafety`), and a long-pressed tile's "who and why". */
+            pathSafety: this.overlay.state.pathSafety, explain: this.explained,
             /** The NPC markers the crew knows of (§8.15), in the order of `state.npcs`; null for one it doesn't. */
             npcs: this.session.state.npcs.map(n => {
                 const m = this.known().npcs.find(k => k.id === n.id);
@@ -253,6 +279,7 @@ export class PlayMode {
 
     /** Per frame: plays back what the Session queued, a walk or a camera visit at a time. */
     update(deltaMs: number): void {
+        this.placeExplainTag();
         if (this.walk) {
             this.advanceWalk(deltaMs);
             return;
@@ -689,8 +716,9 @@ export class PlayMode {
     private tap(x: number, y: number): void {
         if (this.busy) return this.skip();
         if (this.recap) return;
-        if (this.coneOf) {
+        if (this.coneOf || this.explained) {
             this.coneOf = null;
+            this.setExplained(null);
             this.refresh();
         }
         // Where on the ground the tap is: a raised floor is drawn up the screen (walls.liftAt).
@@ -995,6 +1023,7 @@ export class PlayMode {
     // ------------------------------------------------------------------------------------------------- Showing
 
     private onChange(change: SessionChange): void {
+        if (this.explained && change.kind !== 'ui') this.setExplained(null);
         if (change.kind === 'undo') {
             this.trail.clear();
             this.syncAll();
@@ -1013,6 +1042,7 @@ export class PlayMode {
         session.state.crew.forEach(c => this.people.highlight(this.sprite.get(c.id)!, c.id === session.selected));
         const speed = this.chrome[0];
         if (speed) speed.textContent = SPEED_LABEL[session.playback.speed];
+        document.body.classList.toggle('play-cb', this.colourBlind);
         this.overlay.set(this.overlayContent());
     }
 
@@ -1027,7 +1057,11 @@ export class PlayMode {
         // A long-pressed NPC's cones are the question being asked: the range steps aside for them.
         const range = member.actionsLeft > 0 && !this.coneOf ? this.range(member) : undefined;
         const bodies = this.session.state.crew.filter(c => c.dragging !== null).map(c => this.trailOf(c));
-        const base = { colour, intents, ...layer, ...(range ? { reach: { move: range.walk, dash: range.run, at: member.pos, unfilled: bodies } } : {}) };
+        const floor = range ? this.floor(member) : undefined;
+        const base = {
+            colour, intents, ...layer, ...(range ? { reach: { move: range.walk, dash: range.run, at: member.pos, unfilled: bodies } } : {}),
+            ...(floor ? { safeFloor: floor } : {}), ...(this.explained ? { explain: this.explained } : {})
+        };
         if (this.dragPath) {
             const along = moveAlong(this.session.world, this.picture(), member, range ?? { move: null, dash: null }, this.dragPath);
             if (!along.command && this.dragPath.length) {
@@ -1042,14 +1076,19 @@ export class PlayMode {
                     from: member.pos, path: this.dragPath, badFrom: cut < 0 ? undefined : cut, routeDrag: true
                 };
             }
-            return { ...base, from: member.pos, path: this.dragPath, dash: along.command?.type === 'dash', badFrom: along.badFrom };
+            const cmd = along.command, safety = cmd && (cmd.type === 'move' || cmd.type === 'dash') ? this.dragSafety(member.id, cmd.path, cmd.type) : undefined;
+            return {
+                ...base, from: member.pos, path: this.dragPath, dash: cmd?.type === 'dash', badFrom: along.badFrom, floorDim: true,
+                ...(safety ? { pathSafety: safety } : {})
+            };
         }
         const pending = this.session.pendingCommand;
+        const shown = pending ? this.actionPreview(pending) : undefined;
         if (pending && 'path' in pending) {
-            const dash = pending.type === 'dash';
+            const dash = pending.type === 'dash', safety = shown?.ok && shown.path ? pathView(shown.path) : undefined;
             return {
-                ...base, from: member.pos, path: pending.path as Pos[], dash, ...(dash ? { noise: this.noiseOf(pending), hearers: this.hearersOf(pending) } : {}),
-                witnesses: this.witnessesOf(pending)
+                ...base, from: member.pos, path: pending.path as Pos[], dash, floorDim: true, ...(safety ? { pathSafety: safety } : {}),
+                ...(shown ? this.previewMarks(shown) : {})
             };
         }
         // An action on a thing: its target marked, the noise it makes (a knockout's), and who would see it (§8.4).
@@ -1057,60 +1096,79 @@ export class PlayMode {
         const targetTile = this.target && !targetDoor ? this.targetTile(this.target) : undefined;
         const marks = { ...(targetDoor ? { targetDoor } : {}), ...(targetTile ? { targetTile } : {}) };
         // An action on a thing: its noise ring and who'd hear or see it, without the movement range under them.
-        const { reach: _range, ...rest } = base;
-        if (pending) return { ...rest, ...marks, noise: this.noiseOf(pending), hearers: this.hearersOf(pending), witnesses: this.witnessesOf(pending) };
+        const { reach: _range, safeFloor: _floor, ...rest } = base;
+        if (pending) return { ...rest, ...marks, ...(shown ? this.previewMarks(shown) : {}) };
         return { ...base, ...marks };
     }
 
-    /** Who hears the pending command's noise and what they'll do: the player's preview, through the crew's knowledge. */
-    private hearersOf(cmd: Command): HearerVM[] {
-        try {
-            return noiseHearers(this.session.world, this.session.state, this.known(), this.session.playerPreview(cmd));
-        } catch {
-            return [];
+    /**
+     * The selected member's safe floor (§8.8) for this state: the Move band now, so selecting feels instant, then the
+     * Dash band filled in over the following frames, `FLOOR_SLICE_MS` of judging each (src/game/floorJob.ts).
+     */
+    private floor(member: CrewState): FloorTileVM[] {
+        const state = this.session.state;
+        let f = this.floorFor;
+        if (!f || f.state !== state || f.id !== member.id) {
+            const t0 = performance.now(), job = this.session.floorJob(member.id);
+            while (!job.done && !job.has(['stay', 'move'])) job.step();
+            f = this.floorFor = {
+                state, id: member.id, job, shown: job.tiles.length, tiles: floorTiles(job), dash: job.done,
+                ms: { move: performance.now() - t0, dash: 0, slice: 0, slices: 0 }
+            };
+            cancelAnimationFrame(this.floorFrame);
+            if (!job.done) this.floorFrame = requestAnimationFrame(() => this.stepFloor(state, member.id));
         }
+        return f.tiles;
+    }
+
+    /** One frame's slice of the Dash band; the overlay shows what is tinted so far. */
+    private stepFloor(state: State, id: string): void {
+        const f = this.floorFor;
+        if (!f || f.state !== state || f.id !== id || f.dash || this.session.state !== state) return;
+        const t0 = performance.now();
+        f.dash = f.job.step(t0 + FLOOR_SLICE_MS, () => performance.now());
+        const ms = performance.now() - t0;
+        f.ms.dash += ms;
+        f.ms.slice = Math.max(f.ms.slice, ms);
+        f.ms.slices++;
+        if (f.job.tiles.length !== f.shown) {
+            f.shown = f.job.tiles.length;
+            f.tiles = floorTiles(f.job);
+            this.refresh();
+        }
+        if (!f.dash) this.floorFrame = requestAnimationFrame(() => this.stepFloor(state, id));
+    }
+
+    /** A dragged path's safety (§8.8 "along the whole drawn path"), once per state and path. */
+    private dragSafety(crew: string, path: readonly Pos[], mode: 'move' | 'dash'): PathVM | undefined {
+        const state = this.session.state, key = `${crew}:${mode}:${JSON.stringify(path)}`;
+        if (this.pathFor?.state !== state || this.pathFor.key !== key) {
+            this.pathFor = { state, key, view: pathView(this.session.pathSafety(crew, path, mode)) };
+        }
+        return this.pathFor.view;
+    }
+
+    /** The player's preview of `cmd` (`actionPreview`, through the Session's cache), or undefined when it throws. */
+    private actionPreview(cmd: Command): ActionPreview | undefined {
+        try {
+            return this.session.actionPreview(cmd);
+        } catch {
+            return undefined;
+        }
+    }
+
+    /**
+     * What the preview shows over the map (§8.8, §8.9, §20.2 step 3), all from the one `actionPreview`: the noise rings
+     * with an ear badge per known hearer naming what they'll do (`still` for one face down), and the witnesses' plates.
+     */
+    private previewMarks(shown: ActionPreview): Pick<OverlayContent, 'noise' | 'hearers' | 'witnesses'> {
+        const known = this.known(), noise = previewNoise(shown);
+        return { ...(noise ? { noise } : {}), hearers: previewHearers(known, shown), witnesses: previewWitnesses(this.session.world, known, shown) };
     }
 
     /** Where a target NPC (as the crew knows it) or object stands. */
     private targetTile(id: string): Pos | undefined {
         return this.known().npcs.find(m => m.id === id)?.pos ?? this.session.world.objects.find(o => o.id === id)?.pos;
-    }
-
-    /**
-     * Who would see the pending command and react (§8.4, §8.5): the NPCs whose perception check the player's preview
-     * shows, where the crew knows them to stand, and the cameras that would register it.
-     */
-    private witnessesOf(cmd: Command): Pos[] {
-        try {
-            const events = this.session.playerPreview(cmd).events, markers = this.known().npcs, out: Pos[] = [];
-            for (const e of events) {
-                if (e.type === 'perceptionCheck') {
-                    const at = markers.find(m => m.id === e.npc)?.pos;
-                    if (at && !out.some(p => same(p, at))) out.push(at);
-                } else if (e.type === 'cameraSaw') {
-                    const cam = this.session.world.cameras.find(c => c.id === e.camera);
-                    if (cam && !out.some(p => same(p, cam.pos))) out.push(cam.pos);
-                }
-            }
-            return out;
-        } catch {
-            return [];
-        }
-    }
-
-    /**
-     * The tiles a previewed command's noise reaches (a Dash's, §6.3): the ring of the noise the player's preview emits,
-     * on the state after it (the doors it opened), so the ring shown is the one the commit makes.
-     */
-    private noiseOf(cmd: Command): Pos[] | undefined {
-        try {
-            const result = this.session.playerPreview(cmd);
-            const noise = result.events.find(e => e.type === 'noise');
-            if (!noise || noise.type !== 'noise') return undefined;
-            return soundRing(this.session.world, result.state, noise.sources, noise.radius).tiles.map(t => t.pos);
-        } catch {
-            return undefined;
-        }
     }
 
     /**
@@ -1181,15 +1239,96 @@ export class PlayMode {
 
     /**
      * Long-press (UI.md "why"): on an NPC the crew knows of, its cones until the next tap; on a known camera, its cone;
-     * elsewhere, nothing yet.
+     * on any other tile, with a crew member selected, who would notice them there and why (§8.8): a tag with a line per
+     * observer (their portrait, the reason) and their sightlines on the map, along the previewed path when it passes
+     * the tile.
      */
     private longPress(x: number, y: number): void {
         if (this.busy || this.recap) return;
         const gy = this.groundY(x, y), tile = { x: Math.floor(x / TILE), y: Math.floor(gy / TILE) };
         const hit = this.known().npcs.find(m => m.kind !== 'ghost' && (same(m.pos, tile) || this.people.hit(this.sprite.get(m.id) ?? -1, x, y)))?.id
             ?? this.known().cameras.find(c => same(c.pos, tile))?.id;
-        this.coneOf = hit && this.coneOf !== hit ? hit : null;
+        const member = this.selectedMember();
+        if (hit || !member) {
+            this.setExplained(null);
+            this.coneOf = hit && this.coneOf !== hit ? hit : null;
+        } else {
+            this.coneOf = null;
+            this.setExplained(this.explainTile(member, tile));
+        }
         this.refresh();
+    }
+
+    /** "Who and why" of `tile` for `member`: along the previewed path up to it when it passes it, else the floor's path. */
+    private explainTile(member: CrewState, tile: Pos): ExplainVM | null {
+        if (this.session.state.phase !== 'crew') return null;
+        const pending = this.session.pendingCommand;
+        const along = pending && (pending.type === 'move' || pending.type === 'dash') ? pending.path.findIndex(p => same(p, tile)) : -1;
+        const path = along >= 0 && pending && 'path' in pending ? (pending.path as Pos[]).slice(0, along + 1) : undefined;
+        try {
+            const inFloor = !!path || same(member.pos, tile) || !!this.session.safeFloor(member.id).at(tile);
+            return explainView(this.session.world, tile, this.session.explain(member.id, tile, path), inFloor) ?? null;
+        } catch (e) {
+            console.warn('No explanation', e);
+            return null;
+        }
+    }
+
+    /** Shows (or, with null, takes away) the "who and why" tag over its tile. */
+    private setExplained(vm: ExplainVM | null): void {
+        this.explained = vm;
+        this.explainTag?.remove();
+        this.explainTag = undefined;
+        if (!vm) return;
+        const el = document.createElement('div');
+        el.className = 'play-explain';
+        el.setAttribute('role', 'status');
+        for (const line of vm.lines) {
+            const row = document.createElement('div');
+            row.className = `play-explain-row ${line.outcome === '!' ? 'red' : line.outcome === '-' ? 'quiet' : 'amber'}${line.phase === 'next' ? ' next' : ''}`;
+            const url = line.portrait ? portraitUrl(line.portrait) : line.icon === 'camera' ? iconUrl('eye') : undefined;
+            if (url) {
+                const img = document.createElement('img');
+                img.src = url;
+                img.alt = '';
+                img.className = 'play-explain-face';
+                row.append(img);
+            } else {
+                const face = document.createElement('span');
+                face.className = 'play-explain-face initial';
+                face.textContent = line.observer ? (this.session.world.people.find(p => p.id === line.observer)?.role ?? '?').slice(0, 1).toUpperCase() : '?';
+                row.append(face);
+            }
+            const text = document.createElement('span');
+            text.textContent = line.text;
+            row.append(text);
+            el.append(row);
+        }
+        document.body.append(el);
+        this.explainTag = el;
+        this.chrome.push(el);
+        this.placeExplainTag();
+    }
+
+    /**
+     * Keeps the tag beside its tile as the camera moves: on the side away from the observers (so their sightlines and
+     * the people themselves stay in view), level with the tile, kept on screen.
+     */
+    private placeExplainTag(): void {
+        const el = this.explainTag, vm = this.explained;
+        if (!el || !vm) return;
+        const cam = this.scene.cameras.main, box = this.scene.game.canvas.getBoundingClientRect();
+        const sx = box.width / this.scene.scale.width, sy = box.height / this.scene.scale.height;
+        const x = box.left + (vm.tile.x * TILE - cam.worldView.x) * sx, y = box.top + ((vm.tile.y + 0.5) * TILE - cam.worldView.y) * sy;
+        const froms = vm.lines.flatMap(l => (l.from ? [l.from.x] : []));
+        const right = !froms.length || froms.reduce((a, b) => a + b, 0) / froms.length <= vm.tile.x;
+        const w = el.offsetWidth, h = el.offsetHeight, gap = 6;
+        let left = right ? x + TILE * sx + gap : x - gap - w;
+        // No room on that side: the other.
+        if (left + w > box.right - 8 || left < box.left + 8) left = right ? x - gap - w : x + TILE * sx + gap;
+        left = Math.min(Math.max(left, box.left + 8), box.right - w - 8);
+        el.style.left = `${Math.round(left)}px`;
+        el.style.top = `${Math.round(Math.min(Math.max(y - h / 2, box.top + 44), box.bottom - h - 8))}px`;
     }
 
     /** A short message over the map that fades by itself ("Blocked"). */
@@ -1222,6 +1361,7 @@ export class PlayMode {
         document.removeEventListener('keydown', this.onAnyKey, true);
         for (const el of this.chrome) el.remove();
         this.scene.input.keyboard?.off('keydown', this.onKey, this);
-        document.body.classList.remove('play');
+        document.body.classList.remove('play', 'play-cb');
+        cancelAnimationFrame(this.floorFrame);
     }
 }

@@ -1,8 +1,10 @@
 import {
-    assertPlainJson, autoStep, carrierPreview, clonePlain, projectCarriers, type CarrierChanges, commit, deepFreeze, hashOf, noticedUnseen, popUndo, preview, projectEvents, projectPreviewEvents, RECENT_EVENTS, recordUndo, SaveFormatError, stableJson,
+    actionPreview, assertPlainJson, autoStep, clonePlain, explain, pathSafety, safeFloor, type ActionPreview, type CarrierChanges, type Explanation, type FloorBand,
+    type PathSafety, type SafeFloor, commit, deepFreeze, hashOf, noticedUnseen, popUndo, preview, projectEvents, projectPreviewEvents, RECENT_EVENTS, recordUndo, SaveFormatError, stableJson,
     type AutoOptions, type AutoStepResult, type AutoStop, type Command, type CommitResult, type Pos, type PreviewResult, type ReadonlyWorld, type Routes, type SimEvent, type State,
     type UndoStack
 } from '../sim';
+import { floorJob, type FloorJob } from './floorJob';
 import { deserialiseHeist, deserialiseUi, heistWorldId, serialiseHeist, serialiseUi, serialiseWorld } from './persist';
 import { PlaybackQueue, type PlaybackItem } from './playback';
 import type { SaveStorage } from './storage';
@@ -187,8 +189,8 @@ export class Session {
     readonly storage: SaveStorage;
     private readonly listeners = new Set<SessionListener>();
     private cache = new Map<string, Cached>();
-    /** `carrierChanges` per command, until the state changes (each plays the world phase twice on a copy). */
-    private carrierCache = new Map<string, CarrierChanges | null>();
+    /** `actionPreview` per command, until the state changes (each plays the world phase twice on a copy for its carriers). */
+    private actionCache = new Map<string, ActionPreview>();
     private emitting = false;
     private readonly emitQueue: SessionChange[] = [];
 
@@ -309,8 +311,11 @@ export class Session {
         let previewEvents: HudExtras['previewEvents'], carriers: CarrierChanges | undefined;
         if (this._ui.pendingCommand) {
             try {
-                previewEvents = this.playerPreview(this._ui.pendingCommand).events;
-                carriers = this.carrierChanges(this._ui.pendingCommand);
+                const shown = this.actionPreview(this._ui.pendingCommand);
+                if (shown.ok) {
+                    previewEvents = shown.events;
+                    carriers = this.carrierChanges(this._ui.pendingCommand);
+                }
             } catch { /* a stale command: Confirm shows it, and committing it says why it can't */ }
         }
         return hudView(this.world, this._state, this._ui, {
@@ -319,23 +324,56 @@ export class Session {
     }
 
     /**
+     * Everything the player is shown before confirming `cmd` (§8.8, §8.9, §20.2 step 3): the sim's `actionPreview`, the
+     * one projection of a preview through what the crew knows (its events, the noise rings with an ear per known hearer,
+     * the witnesses, the carriers it would start or stop, a move's path safety). Cached until the state changes; the
+     * result is shared, never change it.
+     */
+    actionPreview(cmd: Command): ActionPreview {
+        const key = stableJson(cmd);
+        let found = this.actionCache.get(key);
+        if (found) this.actionCache.delete(key);
+        else {
+            found = actionPreview(this.world, this._state, cmd);
+            if (this.actionCache.size >= PREVIEW_CACHE) this.actionCache.delete(this.actionCache.keys().next().value!);
+        }
+        this.actionCache.set(key, found);
+        return found;
+    }
+
+    /**
      * What `cmd` does to the alarm carriers (§8.8, Confirm's "this would start: Teller button (2)"): those it starts or
-     * stops at once and those the coming world phase would start because of it (`carrierPreview`, the truth), cut to
-     * what the crew may be shown (`projectCarriers`). Undefined when the rules refuse it. Cached until the state changes.
+     * stops at once and those the coming world phase would start because of it, as `actionPreview` shows them (the
+     * crew's view). Undefined when the rules refuse it.
      */
     carrierChanges(cmd: Command): CarrierChanges | undefined {
-        const key = stableJson(cmd);
-        if (!this.carrierCache.has(key)) {
-            let changes: CarrierChanges | null = null;
-            try {
-                const all = carrierPreview(this.world, this._state, this.preview(cmd));
-                const shown = (list: CarrierChanges['starts']) => projectCarriers(this.world, this._state, list);
-                changes = deepFreeze({ starts: shown(all.starts), stops: all.stops, worldPhase: shown(all.worldPhase) });
-            } catch { /* refused: nothing to show */ }
-            if (this.carrierCache.size >= PREVIEW_CACHE) this.carrierCache.delete(this.carrierCache.keys().next().value!);
-            this.carrierCache.set(key, changes);
-        }
-        return this.carrierCache.get(key) ?? undefined;
+        const shown = this.actionPreview(cmd);
+        // `actionPreview` types a stopped carrier's kind as a plain string; it is the carrier's own kind.
+        return shown.ok ? { ...shown.carriers, stops: shown.carriers.stops as CarrierChanges['stops'] } : undefined;
+    }
+
+    /**
+     * The selected crew member's safe floor (§8.8) on the current state, judged on the crew's picture (the sim caches it
+     * per state, so asking again is cheap): `bands` limits it, so the Move band can be drawn first and the Dash band a
+     * frame later.
+     */
+    safeFloor(crew: string, bands?: readonly FloorBand[]): SafeFloor {
+        return safeFloor(this.world, this._state, crew, bands ? { bands } : {});
+    }
+
+    /** The safe floor a slice at a time (src/game/floorJob.ts): the Move band first, the Dash band over later frames. */
+    floorJob(crew: string): FloorJob {
+        return floorJob(this.world, this._state, crew);
+    }
+
+    /** A drawn path's safety (§8.8): each step's `!`s, the first unsafe step (the eye), its end as the floor tints it. */
+    pathSafety(crew: string, path: readonly Pos[], mode?: 'move' | 'dash'): PathSafety {
+        return pathSafety(this.world, this._state, crew, path, mode ? { mode } : {});
+    }
+
+    /** Who would notice `crew` on `tile` and why (§8.8 long-press), along `path` when one is drawn. */
+    explain(crew: string, tile: Pos, path?: readonly Pos[]): Explanation[] {
+        return explain(this.world, this._state, crew, tile, path ? { path } : {});
     }
 
     /** The actions `cmd` spends, from its preview (the engine's: what the commit spends), or undefined when refused. */
@@ -579,7 +617,7 @@ export class Session {
     private setState(state: State): void {
         this._state = deepFreeze(state);
         this.cache = new Map();
-        this.carrierCache = new Map();
+        this.actionCache = new Map();
         // A selected crew member who is no longer there (arrested, escaped) is deselected; a pending command is stale.
         const selected = this._ui.selected !== null && state.crew.some(c => c.id === this._ui.selected) ? this._ui.selected : null;
         if (selected !== this._ui.selected || this._ui.pendingCommand) this._ui = deepFreeze({ ...this._ui, selected, pendingCommand: null });

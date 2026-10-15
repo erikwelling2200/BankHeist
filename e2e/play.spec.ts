@@ -732,3 +732,118 @@ test.describe('on a phone', () => {
         expect(errors).toEqual([]);
     });
 });
+
+/**
+ * A scene for the safe floor (§8.8): Mara two tiles from an NPC the crew sees, with the bank scouted round her, armed or
+ * not, wherever her Move band shows the most kinds of tile (green, amber, red, hatched, a challenge).
+ */
+const SAFE_FLOOR_SETUP = `(() => { ${PAGE_HELPERS}
+    const cheb = (p, q) => Math.max(Math.abs(p.x - q.x), Math.abs(p.y - q.y));
+    const ABC = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
+    const scout = (st, at, r) => {
+        let s = '';
+        for (let i = 0; i < w.width * w.height; i += 6) {
+            let v = 0;
+            for (let j = 0; j < 6 && i + j < w.width * w.height; j++) if (cheb({ x: (i + j) % w.width, y: Math.floor((i + j) / w.width) }, at) <= r) v |= 1 << j;
+            s += ABC[v];
+        }
+        st.knowledge.seen = st.knowledge.fresh = s;
+    };
+    const present = sim.state.npcs.filter(n => n.status !== 'away');
+    const OUT = [{ x: 0, y: 2 }, { x: 2, y: 0 }, { x: -2, y: 0 }, { x: 0, y: -2 }, { x: 2, y: 2 }, { x: -2, y: 2 }];
+    let best = null;
+    for (const n of present) for (const item of [null, 'pistol', 'assaultRifle']) for (const d of OUT) {
+        const p = { x: n.pos.x + d.x, y: n.pos.y + d.y }, st = clone(sim.state);
+        if (!free(st, p)) continue;
+        st.crew[0].pos = p;
+        st.crew[1].pos = { ...sim.state.crew[1].pos };
+        if (item) st.crew[0].loadout.items.push(item);
+        for (const o of present) if (cheb(o.pos, p) <= 7) know(st, o);
+        scout(st, p, 7);
+        const floor = sim.safeFloor('mara', ['stay', 'move'], st), kinds = new Set();
+        for (const t of floor.tiles) if (t.band === 'move') kinds.add(t.tint.kind + (t.tint.hatched ? ' hatched' : ''));
+        const WEIGHT = { safe: 1, red: 1, amber: 4, trespass: 2, camera: 2 };
+        // Room to show it: a few points for a wide Move band.
+        const score = [...kinds].reduce((n, k) => n + (k.endsWith('hatched') ? 3 : WEIGHT[k] ?? 0), 0) + Math.min(floor.tiles.length, 40) / 10;
+        if (!kinds.has('safe') || !(kinds.has('red') || kinds.has('camera'))) continue;
+        if (!best || score > best.score) best = { score, st, info: { npc: n.id, npcAt: n.pos, at: p, kinds: [...kinds] } };
+    }
+    return best && { state: best.st, info: best.info };
+})()`;
+
+test('the safe floor: tints as the sim judges them, a drawn path\'s eye, who and why on a long-press', SMOKE, async ({ page }) => {
+    test.setTimeout(60000);
+    const errors = await boot(page);
+    const setup = await restartWith<{ npc: string; npcAt: Pos; at: Pos; kinds: string[] }>(page, SAFE_FLOOR_SETUP);
+    expect(setup).not.toBeNull();
+    await page.locator('.sh-rail .sh-crew').nth(0).click();
+    // The Move band at once, the Dash band a frame later.
+    await expect.poll(async () => (await play(page)).floorDash).toBe(true);
+    await expect.poll(async () => { const a = await scene(page); await page.waitForTimeout(150); const b = await scene(page); return a.midX === b.midX && a.midY === b.midY && a.zoom === b.zoom; }).toBe(true);
+    const shown = await play(page);
+    const truth = await page.evaluate(() => (window as any).sim.safeFloor('mara').tiles.filter((t: any) => t.band !== 'stay')
+        .map((t: any) => ({ pos: t.pos, band: t.band, kind: t.tint.kind, hatched: t.tint.hatched, path: t.path })));
+    // Every tile drawn is the sim's, with its tint: green, amber, red, hatched as the sim says.
+    const key = (p: Pos) => `${p.x},${p.y}`;
+    const drawn = new Map<string, any>(shown.safeFloor.map((t: any) => [key(t.pos), t]));
+    expect(drawn.size).toBe(truth.length);
+    for (const t of truth) expect(drawn.get(key(t.pos)), key(t.pos)).toMatchObject({ band: t.band, kind: t.kind, hatched: t.hatched });
+    const of = (test: (t: any) => boolean) => truth.find((t: any) => t.band === 'move' && test(t));
+    const green = of(t => t.kind === 'safe'), red = of(t => t.kind === 'red' || t.kind === 'camera');
+    expect(green).toBeDefined();
+    expect(red).toBeDefined();
+    for (const k of ['amber', 'hatched']) {
+        const t = of(x => (k === 'hatched' ? x.hatched : x.kind === 'amber' && !x.hatched));
+        if (t) expect(drawn.get(key(t.pos))).toMatchObject({ kind: t.kind, hatched: t.hatched });
+    }
+    await page.screenshot({ path: 'screenshots/play-safefloor.png' });
+    // The colour-blind preset (B): the same floor in its own palette and patterns.
+    await page.keyboard.press('b');
+    await page.waitForTimeout(100);
+    await page.screenshot({ path: 'screenshots/play-safefloor-cb.png' });
+    await page.keyboard.press('b');
+
+    // Draw a path to a red tile: its steps tinted, the eye on the first unsafe step.
+    const target = truth.filter((t: any) => t.band === 'move' && (t.kind === 'red' || t.kind === 'camera'))
+        .sort((a: any, b: any) => b.path.length - a.path.length)[0];
+    const from = await onPage(page, setup!.at);
+    await page.mouse.move(from.x, from.y);
+    await page.mouse.down();
+    for (const step of target.path as Pos[]) {
+        const p = await onPage(page, step);
+        await page.mouse.move(p.x, p.y);
+    }
+    const dragging = await play(page);
+    const safety = await page.evaluate(([path]) => (window as any).sim.pathSafety('mara', path), [target.path]);
+    expect(safety.ok).toBe(true);
+    expect(dragging.pathSafety.eyeAt).toBe(safety.firstUnsafe);
+    expect(dragging.pathSafety.end).toMatchObject({ kind: safety.end.tint.kind, hatched: safety.end.tint.hatched });
+    expect(dragging.floorDim).toBe(true);
+    await page.mouse.up();
+    const previewed = await play(page);
+    expect(previewed.pending).toMatchObject({ type: 'move', path: target.path });
+    expect(previewed.pathSafety.eyeAt).toBe(safety.firstUnsafe);
+    expect(previewed.pathSafety.steps[safety.firstUnsafe].kind).toMatch(/red|camera|amber|trespass/);
+    await page.screenshot({ path: 'screenshots/play-path-eye.png' });
+
+    // Long-press the eye's tile: who would notice Mara there, and why; the same lines the sim gives.
+    await page.keyboard.press('Escape');
+    const eyeTile = target.path[safety.firstUnsafe] as Pos;
+    const at = await onPage(page, eyeTile);
+    await page.mouse.move(at.x, at.y + 5);
+    await page.waitForTimeout(100);
+    await page.mouse.down();
+    await page.waitForTimeout(700);
+    await page.mouse.up();
+    const why = (await play(page)).explain;
+    const lines = await page.evaluate(([tile]) => (window as any).sim.explain('mara', tile), [eyeTile]);
+    expect(lines.length).toBeGreaterThan(0);
+    expect(why.lines.map((l: any) => l.text)).toEqual(lines.map((l: any) => (l.phase === 'next' ? `Next phase: ${l.text}` : l.text)));
+    await expect(page.locator('.play-explain')).toBeVisible();
+    await expect(page.locator('.play-explain-row').first()).toContainText(lines[0].text);
+    await page.screenshot({ path: 'screenshots/play-explain.png' });
+    // A tap puts it away.
+    await tapTile(page, green.pos);
+    await expect(page.locator('.play-explain')).toHaveCount(0);
+    expect(errors).toEqual([]);
+});

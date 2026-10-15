@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { noiseHearers, npcBadges, npcCone } from '../../src/game/worldUi';
-import { clonePlain, fixtureWorld, initialState, knownView, preview, type Facing, type ObserverClass, type PersonDef, type Pos, type State } from '../../src/sim';
+import { floorJob } from '../../src/game/floorJob';
+import { explainView, floorTiles, npcBadges, npcCone, pathView, previewHearers, previewNoise, previewWitnesses } from '../../src/game/worldUi';
+import { actionPreview, clonePlain, explain, fixtureWorld, initialState, knownView, pathSafety, safeFloor, type Facing, type ObserverClass, type PersonDef, type Pos, type State } from '../../src/sim';
 import { scouted } from '../sim/helpers';
 
 const P = (x: number, y: number): Pos => ({ x, y });
@@ -43,7 +44,9 @@ describe('the world UI over heads', () => {
         const { world, state } = scene();
         const view = knownView(world, state);
         const cmd = { type: 'knockout' as const, crew: 'jun', npc: 'ann' };
-        const hearers = noiseHearers(world, state, view, preview(world, state, cmd));
+        const shown = actionPreview(world, state, cmd);
+        const hearers = previewHearers(view, shown);
+        expect(previewNoise(shown)!.length).toBeGreaterThan(0);
         // Bob, the only other one in earshot, goes to look.
         expect(hearers.find(h => h.id === 'bob')).toMatchObject({ sym: '?', signal: 'amber' });
         expect(hearers.map(h => h.id)).toEqual(expect.arrayContaining(['bob']));
@@ -53,5 +56,33 @@ describe('the world UI over heads', () => {
         expect(calm.alerted).toBe(false);
         expect(alerted.alerted).toBe(true);
         expect(alerted.core.length + alerted.peripheral.length).toBeGreaterThan(calm.core.length + calm.peripheral.length);
+    });
+
+    it('draws the safe floor, a path\'s tints and its eye, and "who and why" from the preview engine', () => {
+        // Jun carries a rifle: Ann, facing him, would see it.
+        const { world, state } = scene(s => { s.crew[0]!.loadout.items.push('assaultRifle'); });
+        const floor = safeFloor(world, state, 'jun'), tiles = floorTiles(floor);
+        // A slice at a time: the Move band first, then the rest, ending with the same tiles.
+        const job = floorJob(world, clonePlain(state), 'jun');
+        job.step();
+        expect(job.has(['stay', 'move'])).toBe(true);
+        while (!job.step(0, () => 1));
+        expect(floorTiles(job)).toEqual(tiles);
+        // Every tile but the crew member's own, each with the engine's tint.
+        expect(tiles.length).toBe(floor.tiles.filter(t => t.band !== 'stay').length);
+        for (const t of tiles) expect(t.kind).toBe(floor.at(t.pos)!.tint.kind);
+        const warned = floor.tiles.find(t => t.band !== 'stay' && t.tint.kind !== 'safe' && t.tint.kind !== 'grey' && t.tint.kind !== 'unknownRisk');
+        expect(warned).toBeDefined();
+        const view = pathView(pathSafety(world, state, 'jun', warned!.path))!;
+        expect(view.end.kind).toBe(warned!.tint.kind);
+        expect(view.eyeAt).not.toBeNull();
+        expect(view.steps).toHaveLength(warned!.path.length);
+        const why = explainView(world, warned!.pos, explain(world, state, 'jun', warned!.pos), true)!;
+        expect(why.lines.length).toBeGreaterThan(0);
+        expect(why.lines.every(l => l.observer !== 'cy')).toBe(true);
+        expect(why.lines[0]!.text).toMatch(/\w/);
+        // Witnesses of a knockout are only NPCs the crew knows of, where it knows them.
+        const witnesses = previewWitnesses(world, knownView(world, state), actionPreview(world, state, { type: 'knockout', crew: 'jun', npc: 'ann' }));
+        expect(witnesses.every(w => w.id !== 'cy')).toBe(true);
     });
 });
