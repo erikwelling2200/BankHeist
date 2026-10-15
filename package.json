@@ -14,6 +14,8 @@
     "test:e2e:dev": "playwright test --grep-invert @visual",
     "test:smoke:dev": "playwright test --grep @smoke",
     "e2e:one": "playwright test --grep",
+    "test:changed": "vitest run --changed",
+    "test:changed:main": "vitest run --changed main",
     "shot": "node scripts/shot.ts",
     "test:visual": "playwright test --grep @visual --fully-parallel",
     "test:visual:update": "playwright test --grep @visual --fully-parallel --update-snapshots",

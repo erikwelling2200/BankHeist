@@ -40,23 +40,45 @@ Top-down 2D pixel-art stealth game. Phaser 4 + TypeScript + Vite, shipped as an 
 ## Commands
 - `npm run dev` – Vite dev server with hot reload.
 - `npm run typecheck` / `npm test` – TypeScript and Vitest unit tests (pure logic in `src/logic`, `src/level`, `src/gen`).
-  `tests/generator.test.ts` builds every tier and archetype and checks §17.7 on each.
+  `tests/generator.test.ts` builds every tier and archetype and checks §17.7 on each. Tests get generated banks through
+  `cachedBank` (`tests/bankCache.ts`): once per run in memory, and on disk in `.cache/banks/` keyed by a hash of the
+  generator's sources, so a warm `npm test` skips the generator (any change to a file it imports rebuilds;
+  `BANK_CACHE=0` turns the disk off). Tests of the generator itself call `generateBank`.
+- `npm run test:changed` – only the unit tests that import a file changed since the last commit
+  (`test:changed:main`: since `main`).
 - `npm run sweep` – generates every tier × archetype × plot from several seeds (`SWEEP_SEEDS`, default 4; pin one with
   `SWEEP_TIER`, `SWEEP_ARCHETYPE`, `SWEEP_PLOT`) and prints validity, attempts, time per bank and per room type its
   size against the program's target and max, how many are shaped and how full they are. Run it after generator changes.
 - `npm run test:e2e` – builds, serves the production build and drives it in Chromium with Playwright (all but the visual
   regression tests). Writes `screenshots/*.png`. `E2E_PORT` serves it on another port than 4173, so two checkouts can
-  test at once without one reusing the other's server.
+  test at once without one reusing the other's server. Tests run at 656x368 (project `small`, the least height that
+  opens at zoom 2: half the frame time of 960x540), except those tagged `@layout` or `@visual` (project `full`,
+  960x540) and those that set their own viewport; tag a test `@layout` when it depends on the screen size. Play tests
+  open `?still` with playback at the skip speed unless they watch the animation (`boot(page, q, { instant: false })`).
+- `npm run test:e2e:dev`, `test:smoke:dev`, `e2e:one -- '<grep>'` – the same against the Vite dev server (no build;
+  `E2E_DEV=1` does it for any run), reusing one already up on the port (5173, or `E2E_PORT`). The service worker test
+  skips itself there.
 - `npm run test:smoke` – only the e2e tests tagged `@smoke` (boot, a generated bank, regenerating in the page, the room
   gallery, the prop sheet): a minute or so here, build included. Tag a test with `SMOKE` to add it.
 - `npm run test:visual` – visual regression: the canvas of fixed views (the example bank and three generated banks at
   their start view and on the tactical map, the room gallery, the prop sheet) against the baselines in
   `e2e/visual.spec.ts-snapshots/`. Pages open with `?still`, so no cloud drifts, nobody patrols and no dust flies, and
   the HTML over the canvas is hidden. `npm run test:visual:update` rewrites the baselines.
-- `npm run screenshot` – only the boot test; the fastest way to look at the current visuals.
+- `npm run screenshot` – only the boot test, against the build.
+- `npm run shot -- '<url or path>' [--out f.png] [--size 844x390] [--wait settled|<selector>|<ms>]` – a screenshot
+  without the test runner, from the dev server (reused, or started and left running), in the e2e tests' Chromium; waits
+  for the walls to settle. `--setup <name>` (repeatable; `--list` names them) jumps the game to a situation first
+  through `window.sim`: presets in `e2e/setups.ts` (`beside-guard`, `alarm-countdown`, `panel-half-done`,
+  `dragging-body`). `--many '<url>' '<url>' …` shoots several pages in one browser. Prints each stage's time.
+
+## Fast loop
+- Looking: `npm run shot -- '/?view&seed=31-2'` (or `--setup …`), then read the PNG: ~5 s with a warm dev server.
+- Iterating: `npm run test:changed` for the unit tests your change touches, `npm run e2e:one -- '<test name>'` or
+  `test:smoke:dev` for the e2e tests, all without a build.
+- The gate before a push is still the full sequence: typecheck, `npm test`, `npm run test:e2e` (production build).
 
 ## Verifying changes
-- Run typecheck, unit tests and e2e before pushing (`test:smoke` for a quick check while working). For any visual
+- Run typecheck, unit tests and e2e before pushing (`test:smoke:dev` or `e2e:one` for a quick check while working). For any visual
   change, read `screenshots/start.png` (and add a screenshot to the relevant e2e test when a new feature isn't visible at
   boot) – don't call visual work done unseen.
 - Changing the art, the lighting or the generator changes the visual baselines on purpose: run `npm run test:visual`,
