@@ -24,6 +24,14 @@ describe('a heist in a generated bank', () => {
         expect(state.npcs).toHaveLength(bank.people.length);
     });
 
+    it('starts with what the crew sees fresh (decision 24), and resumes with the same fresh tiles', () => {
+        const storage = new MemoryStorage();
+        const session = startHeist(bank, storage), k = session.state.knowledge;
+        expect(k.fresh).toBe(k.seen);
+        expect(k.fresh).toMatch(/[^A]/);
+        expect(Session.resume(storage)!.state.knowledge.fresh).toBe(k.fresh);
+    });
+
     it('finds room for the crew in every tier and archetype', () => {
         for (const tier of ['small', 'city', 'hq'] as const) for (const archetype of ['twoWing', 'atrium', 'threeKeys', 'fortress', 'mezzanineWatch'] as const) {
             let generated;
