@@ -416,10 +416,30 @@ Each package lists its goal, the design sections it covers, the files, what it d
       and 3,916 stay checks, 0 differences; the truth differed only by 249 moves cut by someone unseen. Green never got
       the crew member spotted during the move (1,333 green moves); in the world phase 36 of 2,747 green tiles were
       spotted by NPCs the crew didn't know (decision 24 promises only the known NPCs' walks), never by a known one.
-    - **For the UI** (src/scenes, src/game): fill the overlay's `safeFloor` with `overlayTiles(safeFloor(world, state,
-      crew))` for the selected crew member (or the Move band then the Dash band); while a path is drawn, `pathSafety`
-      for its tints and eye (`firstUnsafe`); long-press: `explain`; Confirm's preview: `actionPreview` (its `noises`
-      feed the ring and ears, `carriers` "this would start", `witnesses` the eyes over heads).
+    - **For the UI** (src/scenes, src/game): fill the overlay's `safeFloor` with `overlayTiles(job.floor())` for the
+      selected crew member, where `job = safeFloorJob(world, state, crew)` is stepped each frame with `job.step(now +
+      6, now)` (the rules read no clock: the scene lends `performance.now`) until `job.done`; `safeFloor` is the same
+      job run to the end. While a path is drawn, `pathSafety` for its tints and eye (`firstUnsafe`; each step's `stop`
+      is what stopping there does); long-press: `explain`; Confirm's preview: `actionPreview` (its `noises` feed the
+      ring and ears, `carriers` "this would start", `witnesses` the eyes over heads).
+    - **Review fixes.** The incremental job above. The tint's pips are every pip added this turn, per NPC (the move and
+      the world phase together), and `overlayTiles` draws the most any one NPC adds (2 or more: two) with the list;
+      a hatched tint keeps the move's camera flag. A drag that ends on a teammate is judged up to its last tile it can
+      stop on. "Who and why" adds its knowledge line to grey and unknown-risk tiles whatever else it says. Faster: the
+      copy a tile is judged on deep-copies only the NPCs that see or hear (the rest shallowly, with their routes), a
+      dash's ring holds only the tiles NPCs stand on (all hearing reads), a world phase in which standing NPCs only
+      turned keeps every walk, unknown risk is remembered per state object (`rules/knowledge.ts`). Not done: memoising
+      the hearers' reactions by the hearing alone, which isn't exact (the one sent to look walks round the crew member's
+      own tile, which differs per tile). Measured before → after, p50 / p99 ms (desktop, generated banks, 15-turn
+      games): Move band small 2.7/26.5 → 1.9/20.3, city 2.0/10.7 → 1.5/8.6, HQ 2.1/11.0 → 1.7/9.0; whole floor small
+      7.9/130 → 6.4/90, city 2.3/65 → 2.0/58, HQ 2.9/83 → 2.7/43. The property test's truth check now accepts a
+      difference only when NPCs the crew doesn't know acted on the crew member, told a known NPC, or left a known NPC
+      walking or standing otherwise than on the picture (both runs compared), and plays long quiet games
+      (`PREVIEW_LONG_GAMES`, `PREVIEW_LONG_TURNS`, default 2 × 25 turns); it also checks every drag prefix against the
+      floor, each step's stop, "who and why" naming exactly the observers behind the effects, and the stepped job
+      against `safeFloor` (and that neither changes the state). `PREVIEW_PROBE_SCALE=10 PREVIEW_LONG_GAMES=26`: 7,667
+      commands, 6,313 tile and 5,194 stay checks, 4,940 drag prefixes, 0 differences; the truth differed by 320 moves cut
+      by someone unseen, one tile someone unseen also acted on and one told by someone unseen.
 - [ ] **M1-10 What the crew knows.**
   - **Covers:** §8.15, §17.8 (the casing layer inside a heist).
   - **Work:**

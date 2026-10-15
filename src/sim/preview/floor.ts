@@ -1,12 +1,12 @@
 import { clonePlain, samePlain } from '../core/json';
 import { crewMember } from '../core/state';
-import type { CrewState, DeepReadonly, NpcState, Pos, ReadonlyWorld, State } from '../core/types';
+import type { CrewState, DeepReadonly, Intent, NpcState, Pos, ReadonlyWorld, State } from '../core/types';
 import { crewBudget, crewMoveOptions, dashRefusal, planningState, type MoveMode } from '../crew/movement';
 import { MOVE_ACTIONS } from '../data/movement';
 import { NOISES } from '../data/noise';
 import { sightInputs, sightMap, type SightMap } from '../geo/los';
-import { doorBetween, reachable, validatePath, type ReachTile } from '../geo/move';
-import { DEAF_STATUSES, noiseRadius, npcsInside, soundRing, type Ring } from '../geo/sound';
+import { doorBetween, occupancy, reachable, validatePath, type PathCheck, type ReachTile } from '../geo/move';
+import { DEAF_STATUSES, noiseRadius, npcsInside, soundRing, type Ring, type SoundTile } from '../geo/sound';
 import { reactToNoise } from '../rules/evidence';
 import { worldWalks } from '../rules/npc/walk';
 import { isEyesDown } from '../rules/suspicion';
@@ -44,9 +44,10 @@ import { previewPicture } from './picture';
  * verify) > trespass (a challenge) > amber (pips, by NPC) > green.
  *
  * Per-state data (the picture, the sight maps per door set, the NPCs' walks, each tile's sightings and knowledge) is
- * worked out once and cached per state object, for the other bands, `pathSafety` and `explain`. Measured on generated
- * banks in play (desktop Node, M1-09): the Move band 2 ms median, 5 ms p90 on every tier; a Dash band that NPCs hear
- * costs a reaction per tile (median 0–1.5 ms, p90 15–25 ms, up to ~100 ms beside a crowd), hence `bands`.
+ * worked out once and cached per state object, for the other bands, `pathSafety` and `explain`. `safeFloorJob` works
+ * the floor out a slice at a time, so a scene can keep to its frame budget. Measured on generated banks in play
+ * (desktop Node, M1-09 review): the Move band p50 1.5–1.9 ms, p99 9–20 ms; with the Dash band p50 2–6 ms, p99 43–90
+ * ms, the tail being dashes that NPCs hear (their reactions are worked out tile by tile).
  */
 
 export type TintKind = 'safe' | 'amber' | 'red' | 'trespass' | 'camera' | 'grey' | 'unknownRisk';
@@ -56,7 +57,7 @@ export interface Tint {
     kind: TintKind;
     /** It happens in the coming world phase as the NPCs walk their committed paths, not during the move. */
     hatched: boolean;
-    /** Pips added, per NPC (amber, and on the way to red). */
+    /** Pips added this turn (the move and the world phase together), per NPC. */
     pips: { npc: string; pips: number }[];
     /** The eye: someone Exposes the crew member, or one who knows them sees them. */
     eye: boolean;
@@ -112,16 +113,22 @@ function kindOf(e: DeepReadonly<Effect>): Exclude<TintKind, 'grey' | 'unknownRis
     return Object.keys(e.pips).length ? 'amber' : 'safe';
 }
 
-/** The tint of a tile from what happens now and next, and what the crew knows of it and its path. */
+/**
+ * The tint of a tile from what happens now and next, and what the crew knows of it and its path. The kind is the worse
+ * of the two (hatched when next is strictly worse); the pips are every pip added this turn, per NPC, now and next
+ * together; the camera flag is set when a camera reports in either phase that counts toward the kind (now's always).
+ */
 export function tintOf(now: DeepReadonly<Effect>, next: DeepReadonly<Effect> | null, knowledge: FloorKnowledge, unknownPath: boolean): Tint {
     const a = kindOf(now), b = next ? kindOf(next) : 'safe';
-    const hatched = RANK[b] > RANK[a], e = hatched ? next! : now, kind = hatched ? b : a;
-    const pips = Object.keys(e.pips).sort().map(npc => ({ npc, pips: e.pips[npc]! }));
+    const hatched = RANK[b] > RANK[a], kind = hatched ? b : a;
+    const added: Record<string, number> = {};
+    for (const e of next ? [now, next] : [now]) for (const id of Object.keys(e.pips)) added[id] = (added[id] ?? 0) + e.pips[id]!;
+    const pips = Object.keys(added).sort().map(npc => ({ npc, pips: added[npc]! }));
     if (kind === 'safe') {
         const k: TintKind = knowledge === 'unscouted' ? 'grey' : knowledge === 'unknownRisk' || unknownPath ? 'unknownRisk' : 'safe';
         return { kind: k, hatched: false, pips: [], eye: false, camera: false };
     }
-    return { kind, hatched, pips, eye: kind === 'red', camera: e.cameras.length > 0 };
+    return { kind, hatched, pips, eye: kind === 'red', camera: now.cameras.length > 0 || (hatched && next!.cameras.length > 0) };
 }
 
 // ---------------------------------------------------------------------------------------------------------- Judging
@@ -217,9 +224,16 @@ export function posesAfter(judge: Judge, v: Variant, scratch: State, tile: Pos):
     };
     // Nobody changed and the crew member's two tiles are on nobody's path: the walks are the variant's (`posesWith`).
     const at = (p: DeepReadonly<Pos>): number => p.y * world.width + p.x;
-    if (!base.paths.has(at(tile)) && !base.paths.has(at(judge.member.pos))
-        && scratch.npcs.every(n => looksSame(n) && samePlain(n.intent, before.get(n.id)!.intent))) return base;
-    const { walked } = worldWalks(world, scratch, null, null);
+    const changed = scratch.npcs.filter(n => !samePlain(n.intent, before.get(n.id)!.intent));
+    const offPaths = !base.paths.has(at(tile)) && !base.paths.has(at(judge.member.pos));
+    if (offPaths && !changed.length && scratch.npcs.every(looksSame)) return base;
+    let walked: Record<string, DeepReadonly<Intent>>;
+    if (offPaths && changed.every(n => !n.intent.path.length && !before.get(n.id)!.intent.path.length && n.status === before.get(n.id)!.status)) {
+        // Only standing NPCs turned (a look, a face): they walk nowhere and end where they stand, as before, so nobody
+        // else's walk changes (`resolveWalks`), and a standing NPC walks its intent as it is.
+        walked = { ...base.walked };
+        for (const n of changed) walked[n.id] = n.intent;
+    } else walked = worldWalks(world, scratch, null, null).walked;
     const byNpc = new Map<string, readonly PoseAt[]>(), paths = new Set<number>();
     for (const npc of scratch.npcs) {
         for (const p of npc.intent.path) paths.add(at(p));
@@ -289,30 +303,31 @@ function tileHearers(judge: Judge, v: Variant, p: DeepReadonly<Pos>): readonly s
 }
 
 /**
- * The ring of a dash along `path` and who of the picture hears it, or null when nobody does. Sound floods from every
- * tile of the path at once and reaches each tile at the cost from its nearest source, so the ring of the path is the
- * union of the rings of its tiles (`soundRing` of each, cached per wall state), each tile with the most reach left:
- * who hears it is asked of each tile's ring first, and the union is built only when someone does. The property test
- * checks it against `soundRing` of the whole path (which costs several times as much on a 12-tile dash).
+ * The ring of a dash along `path` as hearing reads it, and who of the picture hears it, or null when nobody does.
+ * Sound floods from every tile of the path at once and reaches each tile at the cost from its nearest source, so the
+ * ring of the path is the union of the rings of its tiles (`soundRing` of each, cached per wall state). Hearing reads a
+ * ring only through its sources and whether an NPC's tile is in it (`npcsInside`), so the ring built here holds just
+ * the tiles NPCs of the picture stand on: what `soundRing` of the whole path has there, at a fraction of its cost. The
+ * property test checks it against `soundRing` of the whole path on those tiles, and the hearers it gives.
  */
 export function dashRing(judge: Judge, v: Variant, path: readonly DeepReadonly<Pos>[]): { ring: Ring; hearers: string[] } | null {
     const { world } = judge;
     const hearing = new Set<string>();
     for (const p of path) for (const id of tileHearers(judge, v, p)) hearing.add(id);
     if (!hearing.size) return null;
-    const remaining = new Map<number, number>();
+    const stand = new Set(v.state.npcs.map(n => n.pos.y * world.width + n.pos.x));
+    const byIndex = new Map<number, SoundTile>();
     for (const p of path) {
+        if (!nearHearing(judge)[p.y * world.width + p.x]) continue;
         for (const t of tileRing(world, v.state, v.walls, p).tiles) {
             const i = t.pos.y * world.width + t.pos.x;
-            if ((remaining.get(i) ?? -1) < t.remaining) remaining.set(i, t.remaining);
+            if (!stand.has(i)) continue;
+            const had = byIndex.get(i);
+            if (!had || had.remaining < t.remaining) byIndex.set(i, t);
         }
     }
-    const tiles = [...remaining.keys()].sort((a, b) => a - b)
-        .map(i => ({ pos: { x: i % world.width, y: (i - (i % world.width)) / world.width }, remaining: remaining.get(i)! }));
-    const ring: Ring = {
-        sources: path.map(p => ({ x: p.x, y: p.y })), radius: noiseRadius('dash'), tiles,
-        byIndex: new Map(tiles.map(t => [t.pos.y * world.width + t.pos.x, t])), width: world.width
-    };
+    const tiles = [...byIndex.keys()].sort((a, b) => a - b).map(i => byIndex.get(i)!);
+    const ring: Ring = { sources: path.map(p => ({ x: p.x, y: p.y })), radius: noiseRadius('dash'), tiles, byIndex: new Map(tiles.map(t => [t.pos.y * world.width + t.pos.x, t])), width: world.width };
     return { ring, hearers: v.state.npcs.filter(n => hearing.has(n.id)).map(n => n.id) };
 }
 
@@ -341,10 +356,16 @@ export function judgeEnd(judge: Judge, v: Variant, tile: Pos, path: readonly Pos
         return { now: noEffect(), next, nowSightings, nextSightings, heard: [] };
     }
     // The move's own effects on a copy, in the order the move has them: the dash's noise, then the sightings. Hearing
-    // and perception change only the NPCs, the camera reports and the barks (and nothing else of the state is read
-    // back), so only those are copied.
+    // and perception write into the NPCs that hear or see (copied whole), the camera reports and the barks; the intents
+    // they rewrite (`reconsider`) replace an NPC's intent, goal and status and touch its route's `stalled`, so every
+    // other NPC is copied shallowly with its route.
     const placed = placeCrew(v.state, crew, tile);
-    const scratch: State = { ...placed, npcs: placed.npcs.map(n => clonePlain(n)), cameraReports: [...placed.cameraReports], barked: [...placed.barked] };
+    const touched = new Set<string>([...nowSightings.map(s => s.observer), ...(noise?.hearers ?? [])]);
+    const scratch: State = {
+        ...placed,
+        npcs: placed.npcs.map(n => (touched.has(n.id) ? clonePlain(n) : { ...n, route: n.route ? { ...n.route } : n.route })),
+        cameraReports: [...placed.cameraReports], barked: [...placed.barked]
+    };
     const { ctx, events } = scratchCtx({ world }, scratch);
     if (noise) reactToNoise(ctx, noise.ring, NOISES.dash.kind, `dash ${crew}`);
     applySightings(ctx, nowSightings);
@@ -358,34 +379,66 @@ export function judgeEnd(judge: Judge, v: Variant, tile: Pos, path: readonly Pos
 
 // ---------------------------------------------------------------------------------------------------------- The floor
 
-/** The reach of a crew member with each tile's path judged so far, and the tiles tinted so far (per band). */
-interface FloorWork {
-    judge: Judge;
-    from: Pos;
-    reach: { tile: ReachTile; band: FloorBand; node: FloorNode }[];
-    tinted: Map<number, FloorTile>;
-}
-
 interface FloorNode { v: Variant; steps: Sighting[]; unknown: boolean; path: Pos[] }
 
-const FLOORS = new WeakMap<State, Map<string, { world: ReadonlyWorld; work: FloorWork }>>();
+/**
+ * A safe floor worked out a slice at a time (the scene's frame budget): `step(deadline, now)` tints tiles in reach
+ * order (the crew member's own tile, the Move band, then the Dash band: the dearest, a dash heard by NPCs is judged
+ * with their reactions) until `now()` reaches `deadline` (the rules read no clock: the caller lends one), and returns
+ * whether it is done; `step()` finishes it. `tiles` are those tinted so far, `floor()` them as a `SafeFloor`. One job
+ * per state object and crew member (`safeFloorJob` returns the same job again), shared with `safeFloor`.
+ */
+export interface FloorJob {
+    readonly crew: string;
+    readonly from: Pos;
+    readonly done: boolean;
+    /** The tiles tinted so far, in reach order. */
+    readonly tiles: readonly FloorTile[];
+    /** Whether every tile of these bands is tinted. */
+    has(bands: readonly FloorBand[]): boolean;
+    step(deadline?: number, now?: () => number): boolean;
+    floor(bands?: readonly FloorBand[]): SafeFloor;
+}
+
+/** The job with what `safeFloor` needs to step it only as far as some bands. */
+interface Job extends FloorJob {
+    /** Tints every tile up to reach index `i`. */
+    upTo(i: number): void;
+    /** The reach index of each band's last tile (-1: none). */
+    last: Record<FloorBand, number>;
+}
+
+const FLOORS = new WeakMap<State, Map<string, { world: ReadonlyWorld; job: Job }>>();
 
 const ALL_BANDS: readonly FloorBand[] = ['stay', 'move', 'dash'];
 
-function floorWork(world: ReadonlyWorld, state: State, crewId: string, options: FloorOptions): FloorWork {
+/** The incremental safe floor of a crew member (see `FloorJob`); cached per state object when judging their own look. */
+export function safeFloorJob(world: ReadonlyWorld, state: State, crewId: string, options: FloorOptions = {}): FloorJob {
+    return jobFor(world, state, crewId, options);
+}
+
+function jobFor(world: ReadonlyWorld, state: State, crewId: string, options: FloorOptions): Job {
     const plain = options.look === undefined && options.dash === undefined;
     const hit = plain ? FLOORS.get(state)?.get(crewId) : undefined;
-    if (hit?.world === world) return hit.work;
+    if (hit?.world === world) return hit.job;
     const judge = judgeFor(world, state, crewId, options.look);
     const member = crewMember(state, crewId);
     const moveBudget = member.actionsLeft >= MOVE_ACTIONS ? crewBudget(world, member, 'move') : 0;
     const dash = (options.dash ?? true) && !dashRefusal(world, state, crewId);
     const budget = dash ? Math.max(moveBudget, crewBudget(world, member, 'dash')) : moveBudget;
-    const reach = reachable(world, onFloor(planningState(world, state)), member.pos, budget, crewMoveOptions(member));
-    const index = (p: Pos): number => p.y * world.width + p.x;
-    const nodes = new Map<number, FloorNode>();
-    const work: FloorWork = { judge, from: { x: member.pos.x, y: member.pos.y }, reach: [], tinted: new Map() };
-    for (const t of reach.tiles) {
+    const reach = reachable(world, onFloor(planningState(world, state)), member.pos, budget, crewMoveOptions(member)).tiles;
+    const width = world.width, index = (p: Pos): number => p.y * width + p.x;
+    const nodes = new Map<number, FloorNode>(), tiles: FloorTile[] = [];
+    const bandOf = (t: ReachTile): FloorBand => (t.parent ? (t.cost <= moveBudget ? 'move' : 'dash') : 'stay');
+    // Reach order is by cost, so every band's tiles come before the next band's.
+    const lastOf = (band: FloorBand): number => {
+        for (let i = reach.length - 1; i >= 0; i--) if (bandOf(reach[i]!) === band) return i;
+        return -1;
+    };
+    const last: Record<FloorBand, number> = { stay: lastOf('stay'), move: lastOf('move'), dash: lastOf('dash') };
+    let cursor = 0;
+    const one = (): void => {
+        const t = reach[cursor++]!;
         let node: FloorNode;
         if (!t.parent) node = { v: judge.base, steps: [], unknown: false, path: [] };
         else {
@@ -399,35 +452,45 @@ function floorWork(world: ReadonlyWorld, state: State, crewId: string, options: 
             };
         }
         nodes.set(index(t.pos), node);
-        if (t.canEnd) work.reach.push({ tile: t, band: t.parent ? (t.cost <= moveBudget ? 'move' : 'dash') : 'stay', node });
-    }
+        if (t.canEnd) tiles.push(floorTile(judge, t, node, bandOf(t)));
+    };
+    const job: Job = {
+        last,
+        upTo(i) { while (cursor <= i && cursor < reach.length) one(); },
+        crew: crewId, from: { x: member.pos.x, y: member.pos.y }, tiles,
+        get done() { return cursor >= reach.length; },
+        has: bands => bands.every(b => cursor > last[b]),
+        step(deadline, now) {
+            while (cursor < reach.length) {
+                one();
+                if (now && deadline !== undefined && now() >= deadline) break;
+            }
+            return cursor >= reach.length;
+        },
+        floor(bands = ALL_BANDS) {
+            const shown = tiles.filter(t => bands.includes(t.band));
+            const byIndex = new Map(shown.map(t => [index(t.pos), t]));
+            return { crew: crewId, from: { x: member.pos.x, y: member.pos.y }, tiles: shown, at: p => (p.x < 0 || p.x >= width ? undefined : byIndex.get(index(p))) };
+        }
+    };
     if (plain) {
         let byCrew = FLOORS.get(state);
         if (!byCrew) FLOORS.set(state, byCrew = new Map());
-        byCrew.set(crewId, { world, work });
+        byCrew.set(crewId, { world, job });
     }
-    return work;
+    return job;
 }
 
 /**
  * The safe floor of a crew member (see the header): every tile they can end a Move (or a Dash, when allowed) on, and
- * their own tile, tinted. `bands` limits it to some of them (default all): the work is cached per state object, so a
- * scene can draw the Move band at once and the Dash band a frame later (a dash heard by NPCs is the dearest tile to
- * judge: their reactions are worked out for it) at the cost of one call.
+ * their own tile, tinted. `bands` limits it to some of them (default all), stepping the shared job (`safeFloorJob`)
+ * only as far as they need: the Move band comes before the Dash band, so it costs nothing extra to ask for it first.
  */
 export function safeFloor(world: ReadonlyWorld, state: State, crewId: string, options: FloorOptions & { bands?: readonly FloorBand[] } = {}): SafeFloor {
-    const work = floorWork(world, state, crewId, options);
-    const bands = options.bands ?? ALL_BANDS, width = world.width, index = (p: Pos): number => p.y * width + p.x;
-    const tiles: FloorTile[] = [];
-    for (const { tile, band, node } of work.reach) {
-        if (!bands.includes(band)) continue;
-        const i = index(tile.pos);
-        let tinted = work.tinted.get(i);
-        if (!tinted) work.tinted.set(i, tinted = floorTile(work.judge, tile, node, band));
-        tiles.push(tinted);
-    }
-    const byIndex = new Map(tiles.map(t => [index(t.pos), t]));
-    return { crew: crewId, from: { ...work.from }, tiles, at: p => (p.x < 0 || p.x >= width ? undefined : byIndex.get(index(p))) };
+    const job = jobFor(world, state, crewId, options);
+    const bands = options.bands ?? ALL_BANDS;
+    job.upTo(Math.max(-1, ...bands.map(b => job.last[b])));
+    return job.floor(bands);
 }
 
 function floorTile(judge: Judge, t: ReachTile, node: FloorNode, band: FloorBand): FloorTile {
@@ -449,6 +512,11 @@ export interface PathStep {
     /** The `!`s of passing it mid-move (on the last step: every sighting of ending there). */
     sightings: Sighting[];
     knowledge: FloorKnowledge;
+    /**
+     * Stopping here instead (the path cut after this step), judged as a floor tile: so a path stopped one short of the
+     * eye shows its own colour. Null where the move can't end (someone stands there), or with `stops: false`.
+     */
+    stop: FloorTile | null;
 }
 
 export type PathSafety =
@@ -456,10 +524,11 @@ export type PathSafety =
     | {
         ok: true;
         mode: MoveMode;
+        /** The steps judged: the drawn path, without any tiles at its end it can't stop on (someone stands there). */
         steps: PathStep[];
         /** The first unsafe step (the eye icon, §8.8), so the player can stop one short; null when the whole path is safe. */
         firstUnsafe: number | null;
-        /** The end of the path, judged as the safe floor judges a tile. */
+        /** The end of the path judged, as the safe floor judges a tile. */
         end: FloorTile;
         /** NPCs the crew knows that hear a dash. */
         heard: string[];
@@ -469,25 +538,45 @@ export type PathSafety =
  * A path the player draws (§8.8 "along the whole drawn path"): the `!`s of each tile passed (only `!` counts mid-move),
  * every sighting at its end, then the coming world phase after it, on the crew's picture. A path within the Move
  * budget is a Move unless `mode` says Dash. The first unsafe step is the first with a `!`, or the end when the end's
- * tint isn't safe.
+ * tint isn't safe. A path dragged onto tiles someone stands on (a mid-drag over a teammate) is judged up to its last
+ * tile it can end on; one that can't be walked at all is refused. Each step also says what stopping there would do
+ * (`stop`), unless `stops: false`.
  */
-export function pathSafety(world: ReadonlyWorld, state: State, crewId: string, path: readonly Pos[], options: FloorOptions & { mode?: MoveMode } = {}): PathSafety {
+export function pathSafety(world: ReadonlyWorld, state: State, crewId: string, path: readonly Pos[], options: PathOptions = {}): PathSafety {
     const along = judgePath(world, state, crewId, path, options);
     if (!along.ok) return along;
     const { mode, steps, firstUnsafe, end, judged } = along;
     return { ok: true, mode, steps, firstUnsafe, end, heard: judged.heard };
 }
 
+export interface PathOptions extends FloorOptions {
+    mode?: MoveMode;
+    /** Judge stopping at every step too (default true). */
+    stops?: boolean;
+}
+
 /** `pathSafety` with the sightings behind its end (for "who and why"). */
 export function judgePath(
-    world: ReadonlyWorld, state: State, crewId: string, path: readonly Pos[], options: FloorOptions & { mode?: MoveMode } = {}
+    world: ReadonlyWorld, state: State, crewId: string, drawn: readonly Pos[], options: PathOptions = {}
 ): { ok: false; reason: string; at: number } | { ok: true; mode: MoveMode; steps: PathStep[]; firstUnsafe: number | null; end: FloorTile; judged: Judged } {
     const judge = judgeFor(world, state, crewId, options.look);
     const member = crewMember(state, crewId);
     const plan = onFloor(planningState(world, state)), moves = crewMoveOptions(member);
-    const asMove = validatePath(world, plan, member.pos, path, crewBudget(world, member, 'move'), moves);
+    const moveBudget = crewBudget(world, member, 'move'), dashBudget = crewBudget(world, member, 'dash');
+    const people = occupancy(world, plan, moves);
+    const free = (p: Pos): boolean => (people.get(p.y * world.width + p.x) ?? 'none') === 'none';
+    // A drag that ends on someone (a teammate it may pass) is judged up to the last tile it can end on.
+    let path = drawn;
+    const first = validatePath(world, plan, member.pos, path, options.mode === 'move' ? moveBudget : dashBudget, moves);
+    if (!first.ok && first.at === path.length - 1 && !free(path[path.length - 1]!)) {
+        let k = path.length;
+        while (k > 1 && !free(path[k - 1]!)) k--;
+        path = path.slice(0, k);
+    }
+    const fits = (p: readonly Pos[], budget: number): PathCheck => validatePath(world, plan, member.pos, p, budget, moves);
+    const asMove = fits(path, moveBudget);
     const mode: MoveMode = options.mode ?? (asMove.ok ? 'move' : 'dash');
-    const check = mode === 'move' ? asMove : validatePath(world, plan, member.pos, path, crewBudget(world, member, 'dash'), moves);
+    const check = mode === 'move' ? asMove : fits(path, dashBudget);
     if (!check.ok) return check;
     const refused = mode === 'dash' ? dashRefusal(world, state, crewId) : member.actionsLeft < MOVE_ACTIONS ? `${member.name} has no actions left` : null;
     if (refused) return { ok: false, reason: refused, at: 0 };
@@ -498,12 +587,24 @@ export function judgePath(
         v = stepVariant(judge, v, prev, p);
         const last = i === path.length - 1, knowledge = knowledgeAt(judge, p);
         const sightings = last ? endAt(judge, v, p) : stepAt(judge, v, p);
+        let stop: FloorTile | null = null;
+        if (!last && options.stops !== false && free(p)) {
+            const prefix = path.slice(0, i + 1);
+            const as: MoveMode | null = options.mode === 'dash' ? 'dash' : fits(prefix, moveBudget).ok ? 'move' : 'dash';
+            const judged = judgeEnd(judge, v, { x: p.x, y: p.y }, prefix, as, passed, endAt(judge, v, p));
+            stop = {
+                pos: { x: p.x, y: p.y }, band: as, cost: 0, path: prefix.map(q => ({ x: q.x, y: q.y })), knowledge, unknownPath: unknown,
+                now: judged.now, next: judged.next, tint: tintOf(judged.now, judged.next, knowledge, unknown)
+            };
+            const cost = fits(prefix, dashBudget);
+            if (cost.ok) stop.cost = cost.cost;
+        }
         if (!last) {
             passed.push(...sightings);
             if (sightings.length && firstUnsafe === null) firstUnsafe = i;
             if (knowledge !== 'scouted') unknown = true;
         }
-        steps.push({ pos: { x: p.x, y: p.y }, sightings, knowledge });
+        steps.push({ pos: { x: p.x, y: p.y }, sightings, knowledge, stop });
         prev = p;
     });
     const tile = path[path.length - 1]!;
@@ -513,6 +614,7 @@ export function judgePath(
         pos: { x: tile.x, y: tile.y }, band: mode, cost: check.cost, path: path.map(p => ({ x: p.x, y: p.y })), knowledge, unknownPath: unknown,
         now: judged.now, next: judged.next, tint: tintOf(judged.now, judged.next, knowledge, unknown)
     };
+    steps[steps.length - 1]!.stop = end;
     if (firstUnsafe === null && tintRank(end.tint) > 0) firstUnsafe = path.length - 1;
     return { ok: true, mode, steps, firstUnsafe, end, judged };
 }
@@ -528,15 +630,21 @@ export const tintRank = (t: Tint): number => (t.kind === 'safe' || t.kind === 'g
 
 /**
  * The safe floor as the world UI overlay draws it (src/scenes/bank/overlay.ts `safeFloor`): sage, one or two pips,
- * the hand of a challenge, the eye (an NPC Exposing them, or a camera's `!`), grey for unscouted and unknown; `next`
- * for the hatched world-phase states.
+ * the hand of a challenge, the eye (an NPC Exposing them, or a camera's `!`, with `camera`), grey for unscouted and
+ * unknown; `next` for the hatched world-phase states. The pip state is the most pips any one NPC adds this turn (the
+ * move and the world phase together; 2 or more draws two), and `pips` lists them per NPC.
  */
-export function overlayTiles(floor: SafeFloor): { pos: Pos; state: 'safe' | 'pip1' | 'pip2' | 'challenge' | 'exposed' | 'unscouted' | 'unknown'; next?: boolean; camera?: boolean }[] {
+export function overlayTiles(floor: Pick<SafeFloor, 'tiles'>): {
+    pos: Pos; state: 'safe' | 'pip1' | 'pip2' | 'challenge' | 'exposed' | 'unscouted' | 'unknown'; next?: boolean; camera?: boolean; pips?: { npc: string; pips: number }[];
+}[] {
     return floor.tiles.map(t => {
         const k = t.tint;
         const state = k.kind === 'safe' ? 'safe' : k.kind === 'grey' ? 'unscouted' : k.kind === 'unknownRisk' ? 'unknown'
             : k.kind === 'red' || k.kind === 'camera' ? 'exposed' : k.kind === 'trespass' ? 'challenge'
                 : Math.max(...k.pips.map(p => p.pips)) >= 2 ? 'pip2' : 'pip1';
-        return { pos: { x: t.pos.x, y: t.pos.y }, state, ...(k.hatched ? { next: true } : {}), ...(k.camera ? { camera: true } : {}) };
+        return {
+            pos: { x: t.pos.x, y: t.pos.y }, state, ...(k.hatched ? { next: true } : {}), ...(k.camera ? { camera: true } : {}),
+            ...(k.pips.length ? { pips: k.pips.map(p => ({ ...p })) } : {})
+        };
     });
 }

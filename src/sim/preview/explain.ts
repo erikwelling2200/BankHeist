@@ -12,7 +12,7 @@ import { previewPicture } from './picture';
  * "Who and why" (§8.8): long-press a tile of the safe floor (or the end of a drawn path) to see who would notice the
  * crew member there and why: the NPC's or camera's portrait, the sightline, and a line like "Guard: sees Armed". Built
  * from the very sightings the tint was judged from, on the crew's picture, so it never names someone the crew doesn't
- * know. Grey and hatched-grey tiles say why the crew can't tell.
+ * know. Tiles the crew can't vouch for (grey, unknown risk, or reached through such) also say why, after any lines.
  */
 
 export interface Explanation {
@@ -126,14 +126,15 @@ export function explain(
     } else {
         const path = options.path ?? safeFloor(world, state, crewId, options).at(tile)?.path;
         if (!path?.length) return [];
-        const along = judgePath(world, state, crewId, path, options);
+        const along = judgePath(world, state, crewId, path, { ...options, stops: false });
         if (!along.ok) return [];
         judged = along.judged;
         knowledge = along.end.knowledge;
         unknownPath = along.end.unknownPath;
     }
     const out = entries(world, picture, crewId, judged);
-    if (!out.length && (knowledge !== 'scouted' || unknownPath)) {
+    // Whatever the known NPCs do there, the crew can't vouch for the rest: say so on grey and unknown-risk tiles alike.
+    if (knowledge !== 'scouted' || unknownPath) {
         out.push({
             observer: null, by: 'unknown', phase: 'now', from: null, to: { x: tile.x, y: tile.y }, outcome: '-', known: false, why: [],
             text: KNOWLEDGE[knowledge === 'scouted' ? 'unknownRisk' : knowledge]

@@ -3,13 +3,12 @@ import { archetypesFor, generateBank } from '../../src/gen/generate';
 import { PLOTS, TIERS } from '../../src/gen/model';
 import { Rng } from '../../src/gen/rng';
 import {
-    actionPreview, carriersStarted, clonePlain, commit, crewBudget, crewMoveOptions, effectOf, encodeBits, explain, FACINGS, hearing, isKnownNow, fixtureWorld, initialState,
-    legalActions, noiseRadius, npcsInside, onFloor, pathSafety, pendingCarriers, planningState, previewPicture, projectCarriers, projectPreviewEvents, safeFloor, soundRing,
+    actionPreview, carriersStarted, DEAF_STATUSES, clonePlain, commit, crewBudget, crewMoveOptions, effectOf, encodeBits, explain, FACINGS, hearing, isKnownNow, fixtureWorld, initialState,
+    hashOf, legalActions, noiseRadius, npcsInside, onFloor, pathSafety, pendingCarriers, planningState, previewPicture, projectCarriers, projectPreviewEvents, safeFloor, safeFloorJob, soundRing,
     validatePath, worldFromBank, type CameraDef, type Command, type CrewStart, type Effect, type FixtureWall, type FloorTile, type ObserverClass,
     type PersonDef, type Pos, type ReadonlyWorld, type ScheduleBlock, type SimEvent, type State, type WorldObject
 } from '../../src/sim';
 import { dashRing, judgeFor } from '../../src/sim/preview/floor';
-import { decodeBits } from '../../src/sim/rules/knowledgeBits';
 
 /*
  * THE promise of §8.8 (implementation plan §2.2, M1-09): what the safe floor, a drawn path and an action's preview
@@ -113,9 +112,11 @@ function fixture(rng: Rng): { world: ReadonlyWorld; free: Pos[] } {
     return { world: fixtureWorld(map.map(r => r.join('')), { zones: zoneRows, walls, people, cameras, objects, rules }), free };
 }
 
-function crewFor(rng: Rng, n: number, pick: () => Pos): CrewStart[] {
+const QUIET: readonly Partial<CrewStart>[] = [{}, {}, { uniform: 'staff' }];
+
+function crewFor(rng: Rng, n: number, pick: () => Pos, stealth = false): CrewStart[] {
     return Array.from({ length: n }, (_, i) => {
-        const loadout = rng.pick(LOADOUTS), gadget = rng.chance(0.5) ? ['hackingKit'] : rng.chance(0.15) ? ['jammer'] : [];
+        const loadout = rng.pick(stealth ? QUIET : LOADOUTS), gadget = rng.chance(0.5) ? ['hackingKit'] : rng.chance(0.15) ? ['jammer'] : [];
         return { id: `c${i}`, pos: pick(), ...loadout, items: [...(loadout.items ?? []), ...gadget], ...(rng.chance(0.2) ? { traits: [rng.pick(['steadyHands', 'smoothTalker'])] } : {}) };
     });
 }
@@ -167,7 +168,7 @@ class Probe {
     fail(msg: string): void { if (this.failures.length < 50) this.failures.push(msg); }
 }
 
-interface Run { world: ReadonlyWorld; rng: Rng; omniscient: boolean; label: string; tier: string; probe: Probe }
+interface Run { world: ReadonlyWorld; rng: Rng; omniscient: boolean; label: string; tier: string; probe: Probe; stealth?: boolean }
 
 /** Checks a tile's prediction (`now`, and `next` when the turn ends right after) against the picture's oracle and the truth. */
 function checkMove(run: Run, state: State, crew: string, cmd: Extract<Command, { type: 'move' | 'dash' }>, tile: FloorTile, endTurn: boolean): State {
@@ -179,10 +180,9 @@ function checkMove(run: Run, state: State, crew: string, cmd: Extract<Command, {
     const o1 = commit(world, picture, cmd);
     const oNow = effectOf(o1.events, crew, picture);
     if (show(oNow) !== show(tile.now)) probe.fail(`${at}: now ${show(tile.now)}, the rules on the picture ${show(oNow)}`);
-    let oNext: Effect | null = null;
+    const o2 = tile.next || endTurn ? commit(world, o1.state, { type: 'endTurn' }) : null;
     if (tile.next) {
-        const o2 = commit(world, o1.state, { type: 'endTurn' });
-        oNext = effectOf(o2.events, crew, o1.state);
+        const oNext = effectOf(o2!.events, crew, o1.state);
         if (show(oNext) !== show(tile.next)) probe.fail(`${at}: next ${show(tile.next)}, the rules on the picture ${show(oNext)}`);
     }
     probe.bump('oracle checks');
@@ -192,7 +192,8 @@ function checkMove(run: Run, state: State, crew: string, cmd: Extract<Command, {
     const cut = r.events.some(e => e.type === 'moveCut');
     if (cut) probe.bump('truth: move cut by someone unseen');
     else if (show(tNow) !== show(tile.now)) {
-        const why = classify(run, state, tile.now, tNow, tNowAll, npcs, cameras);
+        const runs: Runs = { truth: { before: state, after: r.state, events: r.events }, picture: { before: picture, after: o1.state, events: o1.events } };
+        const why = classify(run, state, crew, tile.now, tNow, tNowAll, npcs, cameras, runs);
         if (why) probe.bump(`truth now differs: ${why}`);
         else probe.fail(`${at}: now ${show(tile.now)}, the truth ${show(tNow)} (all ${show(tNowAll)})`);
     } else probe.bump('truth now equal');
@@ -201,28 +202,26 @@ function checkMove(run: Run, state: State, crew: string, cmd: Extract<Command, {
         probe.bump('green moves');
         if (!quiet(tNowAll)) {
             probe.bump('green but spotted now');
-            const who = [...tNowAll.exposed, ...tNowAll.watching, ...Object.keys(tNowAll.pips)].map(id => {
-                const n = state.npcs.find(x => x.id === id)!, k = state.knowledge.npcs[id];
-                return `${id} at ${JSON.stringify(n.pos)} ${n.status} known ${JSON.stringify(k)} fresh ${decodeBits(state.knowledge.fresh, world.width * world.height)[n.pos.y * world.width + n.pos.x]} phaseTick ${state.knowledge.phaseTick} tick ${state.knowledge.tick} turn ${state.turn}`;
-            });
-            probe.fail(`${at}: green, but the move got them spotted: ${show(tNowAll)} path ${JSON.stringify(tile.path)} from ${JSON.stringify(state.crew.find(c => c.id === crew)!.pos)} ${who.join('; ')} events ${JSON.stringify(r.events.filter(e => 'npc' in e || e.type === 'moved'))}`);
+            probe.fail(`${at}: green, but the move got them spotted: ${show(tNowAll)} path ${JSON.stringify(tile.path)}`);
         }
     }
     if (!endTurn || cut) return r.state;
     const e = commit(world, r.state, { type: 'endTurn' });
-    checkWorldPhase(run, state, crew, tile, r.state, e.events, npcs, cameras, at);
+    checkWorldPhase(run, state, crew, tile, r.state, e, npcs, cameras, at, { before: o1.state, after: o2!.state, events: o2!.events });
     return e.state;
 }
 
-/** The world phase that followed a prediction, on the truth. */
+/** The world phase that followed a prediction, on the truth (and the same world phase on the picture). */
 function checkWorldPhase(
-    run: Run, judged: State, crew: string, tile: FloorTile, before: State, events: readonly SimEvent[], npcs: ReadonlySet<string>, cameras: ReadonlySet<string>, at: string
+    run: Run, judged: State, crew: string, tile: FloorTile, before: State, truth: { state: State; events: readonly SimEvent[] }, npcs: ReadonlySet<string>,
+    cameras: ReadonlySet<string>, at: string, picture: Runs['picture']
 ): void {
     const { probe } = run;
-    const all = effectOf(events, crew, before), seen = known(all, npcs, cameras);
+    const all = effectOf(truth.events, crew, before), seen = known(all, npcs, cameras);
     if (tile.next) {
         if (show(seen) !== show(tile.next)) {
-            const why = classify(run, judged, tile.next, seen, all, npcs, cameras);
+            const runs: Runs = { truth: { before, after: truth.state, events: truth.events }, picture };
+            const why = classify(run, judged, crew, tile.next, seen, all, npcs, cameras, runs);
             if (why) probe.bump(`truth next differs: ${why}`);
             else probe.fail(`${at}: next ${show(tile.next)}, the truth ${show(seen)} (all ${show(all)})`);
         } else probe.bump('truth next equal');
@@ -232,19 +231,39 @@ function checkWorldPhase(
         if (!quiet(all)) {
             const byUnknown = hidden(all, npcs, cameras);
             probe.bump(byUnknown ? 'green but spotted next: by someone the crew does not know' : 'green but spotted next: by a known NPC');
-            if (!byUnknown) probe.fail(`${at}: green, but the world phase got them spotted by someone known: ${show(all)}`);
+            if (!byUnknown && show(seen) !== show(tile.next)) {
+                const runs: Runs = { truth: { before, after: truth.state, events: truth.events }, picture };
+                if (!classify(run, judged, crew, tile.next, seen, all, npcs, cameras, runs)) probe.fail(`${at}: green, but the world phase got them spotted by someone known: ${show(all)}`);
+            }
         }
     }
 }
 
-/** Why the truth may differ from the picture's prediction: only what the crew can't know. Null: it may not. */
-function classify(run: Run, state: State, predicted: Effect, seen: Effect, all: Effect, npcs: ReadonlySet<string>, cameras: ReadonlySet<string>): string | null {
+/** The known NPCs as they stand: where, how, and what they mean to do. */
+const snap = (s: State, ids: ReadonlySet<string>): string =>
+    JSON.stringify(s.npcs.filter(n => ids.has(n.id)).map(n => [n.id, n.pos, n.status, n.alerted, n.facing, n.intent, n.wants, n.exposedTo, n.suspicion]));
+
+/** The walks the known NPCs took in a world phase. */
+const walksOf = (events: readonly SimEvent[], ids: ReadonlySet<string>): string =>
+    JSON.stringify(events.flatMap(e => (e.type === 'npcWalked' && ids.has(e.npc) ? [[e.npc, e.path]] : [])));
+
+/** The truth and the picture's run of the same commands, to tell what the unknown NPCs changed. */
+interface Runs { truth: { before: State; after: State; events: readonly SimEvent[] }; picture: { before: State; after: State; events: readonly SimEvent[] } }
+
+/**
+ * Why the truth may differ from the picture's prediction: only what the crew can't know. Null: it may not. A difference
+ * is put down to NPCs the crew doesn't know only when they acted on the crew member themselves, told a known NPC, or
+ * left a known NPC walking or standing otherwise than on the picture.
+ */
+function classify(run: Run, state: State, crew: string, predicted: Effect, seen: Effect, all: Effect, npcs: ReadonlySet<string>, cameras: ReadonlySet<string>, runs: Runs): string | null {
     if (run.omniscient) return null;
     const camerasOnly = show({ ...predicted, cameras: [] }) === show({ ...seen, cameras: [] });
     if (camerasOnly && predicted.cameras.every(id => seen.cameras.includes(id) || !state.knowledge.cctv)) return 'a camera of unknown feed status is off';
+    if (runs.truth.events.some(e => e.type === 'told' && e.crew === crew && !npcs.has(e.npc))) return 'someone unseen told a known NPC';
     if (hidden(all, npcs, cameras)) return 'someone unseen acted on them too';
-    const unknownNpcs = state.npcs.some(n => !npcs.has(n.id) && n.status !== 'away');
-    return unknownNpcs ? 'unseen NPCs changed the known ones\' walks' : null;
+    const changed = snap(runs.truth.before, npcs) !== snap(runs.picture.before, npcs) || snap(runs.truth.after, npcs) !== snap(runs.picture.after, npcs)
+        || walksOf(runs.truth.events, npcs) !== walksOf(runs.picture.events, npcs);
+    return changed ? 'unseen NPCs changed how known ones walked or stood' : null;
 }
 
 /** One crew command chosen at random (a move or dash to a safe-floor tile, a drawn path, or an action), checked. */
@@ -263,10 +282,12 @@ function playOne(run: Run, state: State, timing: boolean): State {
         if (!moves.length) return state;
         // Interesting tiles first now and then: every tint gets played.
         const warm = moves.filter(t => t.tint.kind !== 'safe' && t.tint.kind !== 'unknownRisk' && t.tint.kind !== 'grey');
-        const tile = warm.length && rng.chance(0.5) ? rng.pick(warm) : rng.pick(moves);
+        const calm = moves.filter(t => !warm.includes(t));
+        const tile = warm.length && rng.chance(run.stealth ? 0.08 : 0.5) ? rng.pick(warm) : run.stealth && calm.length ? rng.pick(calm) : rng.pick(moves);
         probe.bump(`tint ${tile.tint.kind}${tile.tint.hatched ? ' hatched' : ''}`);
         probe.bump(`band ${tile.band}`);
         checkExplain(run, state, member.id, tile);
+        checkDrag(run, state, member.id, tile);
         const cmd = { type: tile.band === 'dash' ? 'dash' as const : 'move' as const, crew: member.id, path: tile.path };
         if (tile.band === 'dash') checkRing(run, state, member.id, tile.path);
         probe.bump('commands');
@@ -301,7 +322,7 @@ function playOne(run: Run, state: State, timing: boolean): State {
         probe.bump(`command ${ps.mode}`);
         return checkMove(run, state, member.id, { type: ps.mode, crew: member.id, path }, ps.end, rng.chance(0.35));
     }
-    const options = legalActions(world, state, member.id).filter(c => c.type !== 'wait' || rng.chance(0.3));
+    const options = legalActions(world, state, member.id).filter(c => (c.type !== 'wait' || rng.chance(0.3)) && !(run.stealth && c.type === 'knockout'));
     if (!options.length) return state;
     const kinds = [...new Set(options.map(c => c.type))];
     const kind = rng.pick(kinds);
@@ -358,7 +379,8 @@ function endTurn(run: Run, state: State): State {
     const r = commit(world, state, { type: 'endTurn' });
     const started = projectCarriers(world, state, carriersStarted(r.events));
     if (JSON.stringify(pending) !== JSON.stringify(started)) probe.fail(`${run.label} t${state.turn}: hatched carriers ${JSON.stringify(pending)}, started ${JSON.stringify(started)}`);
-    for (const { crew, tile } of stays) checkWorldPhase(run, state, crew, tile, state, r.events, npcs, cameras, `${run.label} t${state.turn} stay ${crew}`);
+    const pic = { before: picture, after: oracle.state, events: oracle.events };
+    for (const { crew, tile } of stays) checkWorldPhase(run, state, crew, tile, state, r, npcs, cameras, `${run.label} t${state.turn} stay ${crew}`, pic);
     return r.state;
 }
 
@@ -372,28 +394,72 @@ function checkEye(run: Run, ps: Extract<ReturnType<typeof pathSafety>, { ok: tru
     if (ps.firstUnsafe !== null) run.probe.bump('eyes');
 }
 
-/** "Who and why" names only observers the crew knows, and something for every warning tint. */
+const observers = (e: Effect | null): string[] =>
+    (e ? [...e.exposed, ...e.watching, ...Object.keys(e.pips), ...(e.challenged ? [e.challenged] : []), ...e.cameras] : []);
+
+/** "Who and why" names exactly the observers behind the tile's effects (all known to the crew), in the right phase. */
 function checkExplain(run: Run, state: State, crew: string, tile: FloorTile): void {
-    if (!run.rng.chance(0.15)) return;
+    if (!run.rng.chance(0.25)) return;
     const { world, probe } = run;
     const lines = explain(world, state, crew, tile.pos);
-    const warns = !['safe', 'grey', 'unknownRisk'].includes(tile.tint.kind);
-    if (warns && !lines.some(l => l.observer !== null)) probe.fail(`${run.label}: ${tile.tint.kind} at ${JSON.stringify(tile.pos)} with nobody to explain it`);
+    const named = [...new Set(lines.flatMap(l => (l.observer ? [l.observer] : [])))].sort();
+    const want = [...new Set([...observers(tile.now), ...observers(tile.next)])].sort();
+    if (JSON.stringify(named) !== JSON.stringify(want)) probe.fail(`${run.label}: explain names ${JSON.stringify(named)}, the effects ${JSON.stringify(want)} at ${JSON.stringify(tile.pos)}`);
     for (const l of lines) {
-        if (l.by === 'npc' && !isKnownNow(world, state, l.observer!)) probe.fail(`${run.label}: explain names ${l.observer}, unknown to the crew`);
-        if (l.by === 'camera' && !state.knowledge.cameras.includes(l.observer!)) probe.fail(`${run.label}: explain names camera ${l.observer}, unknown to the crew`);
+        if (l.observer === null) continue;
+        if (!observers(l.phase === 'now' ? tile.now : tile.next).includes(l.observer)) probe.fail(`${run.label}: explain puts ${l.observer} in the wrong phase (${l.phase})`);
+        if (l.by === 'npc' && !isKnownNow(world, state, l.observer)) probe.fail(`${run.label}: explain names ${l.observer}, unknown to the crew`);
+        if (l.by === 'camera' && !state.knowledge.cameras.includes(l.observer)) probe.fail(`${run.label}: explain names camera ${l.observer}, unknown to the crew`);
     }
-    if (tile.tint.kind === 'safe' && lines.length) probe.fail(`${run.label}: a green tile explains ${JSON.stringify(lines)}`);
+    const vouched = tile.knowledge === 'scouted' && !tile.unknownPath;
+    if (vouched !== !lines.some(l => l.observer === null)) probe.fail(`${run.label}: explain's knowledge line at ${JSON.stringify(tile.pos)} (${tile.knowledge})`);
     if (lines.length) probe.bump('explanations');
 }
 
-/** The dash's ring as the safe floor builds it (the union of its tiles' rings) is `soundRing` of the whole path, and so are its hearers. */
+/**
+ * Dragging the floor tile's path a step at a time: each prefix judged by `pathSafety` reads as the floor's tile there
+ * when the floor reaches it by the same path, and so does the stop a full path shows at each step. The incremental
+ * job, stepped a few tiles at a time, tints exactly what `safeFloor` does; neither changes the state it is given.
+ */
+function checkDrag(run: Run, state: State, crew: string, tile: FloorTile): void {
+    if (!run.rng.chance(0.2)) return;
+    const { world, probe } = run;
+    const floor = safeFloor(world, state, crew);
+    const mode = tile.band === 'dash' ? { mode: 'dash' as const } : {};
+    const full = pathSafety(world, state, crew, tile.path, mode);
+    if (!full.ok) { probe.fail(`${run.label}: the floor's own path to ${JSON.stringify(tile.pos)} is refused: ${full.reason}`); return; }
+    for (let k = 1; k <= tile.path.length; k++) {
+        const prefix = tile.path.slice(0, k), at = floor.at(prefix[k - 1]!), stop = full.steps[k - 1]!.stop;
+        if (!at || JSON.stringify(at.path) !== JSON.stringify(prefix)) continue;
+        const ps = pathSafety(world, state, crew, prefix, at.band === 'dash' ? { mode: 'dash' } : {});
+        const read = (t: FloorTile | null | undefined): string => (t ? show(t.now) + show(t.next) + JSON.stringify(t.tint) : 'none');
+        if (ps.ok && ps.mode === at.band && read(ps.end) !== read(at)) probe.fail(`${run.label}: drag prefix to ${JSON.stringify(at.pos)} reads ${read(ps.end)}, the floor ${read(at)}`);
+        if (stop && stop.band === at.band && read(stop) !== read(at)) probe.fail(`${run.label}: the stop at ${JSON.stringify(at.pos)} reads ${read(stop)}, the floor ${read(at)}`);
+        probe.bump('drag prefixes checked');
+    }
+    const copy = clonePlain(state), before = hashOf(copy);
+    const job = safeFloorJob(world, copy, crew);
+    let ticks = 0, slices = 0;
+    while (!job.step(3, () => ticks++)) slices++;
+    if (JSON.stringify(job.tiles) !== JSON.stringify(floor.tiles)) probe.fail(`${run.label}: the stepped job tints differently from safeFloor`);
+    if (hashOf(copy) !== before) probe.fail(`${run.label}: the safe floor changed the state it was given`);
+    probe.bump('jobs stepped', slices + 1);
+}
+
+/** The dash's ring as the safe floor builds it (the union of its tiles' rings, on NPCs' tiles) is `soundRing` of the whole path there, and so are its hearers. */
 function checkRing(run: Run, state: State, crew: string, path: readonly Pos[]): void {
     if (!run.rng.chance(0.3)) return;
     const judge = judgeFor(run.world, state, crew);
     const mine = dashRing(judge, judge.base, path);
     const real = soundRing(run.world, judge.base.state, path, noiseRadius('dash')), whole = npcsInside(judge.base.state, real);
-    if (mine && JSON.stringify(real) !== JSON.stringify(mine.ring)) run.probe.fail(`${run.label}: the dash ring of ${JSON.stringify(path)} differs from soundRing`);
+    // The safe floor's ring holds only the tiles NPCs stand on: those must read as in `soundRing` of the whole path.
+    if (mine) {
+        for (const n of judge.base.state.npcs.filter(x => !DEAF_STATUSES.has(x.status))) {
+            const a = real.byIndex.get(n.pos.y * run.world.width + n.pos.x), b = mine.ring.byIndex.get(n.pos.y * run.world.width + n.pos.x);
+            if (JSON.stringify(a) !== JSON.stringify(b)) run.probe.fail(`${run.label}: the dash ring of ${JSON.stringify(path)} differs from soundRing at ${n.id}`);
+        }
+        if (JSON.stringify(real.sources) !== JSON.stringify(mine.ring.sources)) run.probe.fail(`${run.label}: the dash ring's sources differ`);
+    }
     if (JSON.stringify(mine?.hearers ?? []) !== JSON.stringify(whole)) run.probe.fail(`${run.label}: the dash along ${JSON.stringify(path)} is heard by ${JSON.stringify(whole)}, not ${JSON.stringify(mine?.hearers)}`);
     run.probe.bump('rings checked');
 }
@@ -410,7 +476,28 @@ function play(run: Run, start: State, turns: number, timing: boolean): void {
             }
         }
         state = endTurn(run, state);
+        run.probe.bump('turns played');
     }
+    if (state.bank.alarm) run.probe.bump('games ended by the alarm');
+}
+
+/** One generated bank played with a crew of three placed near its people. */
+function playBank(probe: Probe, tier: (typeof TIERS)[number], archetype: string, plot: (typeof PLOTS)[number], s: number, combo: number, turns: number, stealth = false): void {
+    const world = worldFromBank(generateBank({ layout: 4100 + s * 97, population: s + 11, tier, archetype: archetype as never, plot }));
+    const brng = new Rng(SEED + 7919 * (combo + 1) + s);
+    const free: Pos[] = [];
+    world.tiles.forEach((t, i) => { if (!t.blocksMove && t.room !== null) free.push({ x: i % world.width, y: Math.floor(i / world.width) }); });
+    const taken = new Set(world.people.map(p => `${p.pos.x},${p.pos.y}`));
+    const pick = (): Pos => {
+        const near = brng.pick(world.people).pos;
+        const cands = free.filter(p => !taken.has(`${p.x},${p.y}`) && Math.max(Math.abs(p.x - near.x), Math.abs(p.y - near.y)) <= 4);
+        const p = brng.pick(cands.length ? cands : free.filter(q => !taken.has(`${q.x},${q.y}`)));
+        taken.add(`${p.x},${p.y}`);
+        return p;
+    };
+    const state = initialState(world, { seed: s, crew: crewFor(brng, 3, pick, stealth) });
+    const run: Run = { world, rng: brng, omniscient: stealth ? combo % 4 === 0 : (combo + s) % 2 === 0, label: `${tier}/${archetype}/${plot}/${s}`, tier, probe, stealth };
+    play(run, state, turns, true);
 }
 
 describe('previews (property, §8.8)', () => {
@@ -432,22 +519,7 @@ describe('previews (property, §8.8)', () => {
         let combo = 0;
         for (let s = 0; s < BANK_SEEDS; s++) for (const tier of TIERS) for (const archetype of archetypesFor(tier)) {
             seeds++;
-            const plot = PLOTS[combo++ % PLOTS.length]!;
-            const world = worldFromBank(generateBank({ layout: 4100 + s * 97, population: s + 11, tier, archetype, plot }));
-            const brng = new Rng(SEED + 7919 * combo);
-            const free: Pos[] = [];
-            world.tiles.forEach((t, i) => { if (!t.blocksMove && t.room !== null) free.push({ x: i % world.width, y: Math.floor(i / world.width) }); });
-            const taken = new Set(world.people.map(p => `${p.pos.x},${p.pos.y}`));
-            const pick = (): Pos => {
-                const near = brng.pick(world.people).pos;
-                const cands = free.filter(p => !taken.has(`${p.x},${p.y}`) && Math.max(Math.abs(p.x - near.x), Math.abs(p.y - near.y)) <= 4);
-                const p = brng.pick(cands.length ? cands : free.filter(q => !taken.has(`${q.x},${q.y}`)));
-                taken.add(`${p.x},${p.y}`);
-                return p;
-            };
-            const state = initialState(world, { seed: s, crew: crewFor(brng, 3, pick) });
-            const run: Run = { world, rng: brng, omniscient: (combo + s) % 2 === 0, label: `${tier}/${archetype}/${plot}/${s}`, tier, probe };
-            play(run, state, BANK_TURNS, true);
+            playBank(probe, tier, archetype, PLOTS[combo % PLOTS.length]!, s, combo++, BANK_TURNS);
         }
         const st = probe.stats;
         if (VERBOSE) {
@@ -465,5 +537,23 @@ describe('previews (property, §8.8)', () => {
         expect((st['tint amber hatched'] ?? 0) + (st['tint red hatched'] ?? 0) + (st['tint trespass hatched'] ?? 0), 'hatched').toBeGreaterThan(0);
         expect((st['tint trespass'] ?? 0) + (st['tint trespass hatched'] ?? 0), 'trespass').toBeGreaterThan(0);
         for (const type of ['door', 'knockout', 'drag', 'interact']) expect(st[`command ${type}`] ?? 0, type).toBeGreaterThan(0);
+    }, 600_000);
+    // Long games (the reviewer's harness): a quiet crew (no weapons, no knockouts, mostly calm tiles) plays on while
+    // routines get known, ghosts come and go and NPCs drift off what the crew saw.
+    // PREVIEW_LONG_GAMES banks (default 2) of PREVIEW_LONG_TURNS turns (default 25), every tier × archetype in turn.
+    it('show what happens in long games', () => {
+        const probe = new Probe();
+        const combos = TIERS.flatMap(tier => archetypesFor(tier).map(archetype => ({ tier, archetype })));
+        const games = Number(process.env.PREVIEW_LONG_GAMES ?? 2), turns = Number(process.env.PREVIEW_LONG_TURNS ?? 25);
+        for (let g = 0; g < games; g++) {
+            const { tier, archetype } = combos[(g * 5) % combos.length]!;
+            playBank(probe, tier, archetype, PLOTS[g % PLOTS.length]!, 100 + g, g + 1, turns, true);
+        }
+        if (VERBOSE) {
+            console.log(JSON.stringify(Object.fromEntries(Object.entries(probe.stats).sort()), null, 1));
+            for (const f of probe.failures) console.log('FAIL', f);
+        }
+        expect(probe.failures).toEqual([]);
+        expect(probe.stats.commands ?? 0).toBeGreaterThan(games * turns * 2);
     }, 600_000);
 });

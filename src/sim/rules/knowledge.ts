@@ -516,22 +516,32 @@ export function unknownReach(world: ReadonlyWorld): number {
     return Math.max(r.peripheralRange + r.alertedRangeBonus, r.coreRange + r.alertedRangeBonus, r.cameraRange);
 }
 
-/** Whether tiles are unknown risk, by tile: -1 not worked out yet, 0 no, 1 yes. */
-interface RiskCache { key: string; memo: Int8Array }
+/**
+ * Whether tiles are unknown risk, by tile: -1 not worked out yet, 0 no, 1 yes; with the decoded tile sets and the sight
+ * map it is worked out on. Shared by every state with the same walls and sets (keyed), and remembered per state
+ * object too, so asking about many tiles of one state doesn't rebuild the key each time.
+ */
+interface RiskCache { key: string; memo: Int8Array; seen: Uint8Array; fresh: Uint8Array; sight: SightMap }
 
 const RISK = new WeakMap<ReadonlyWorld, RiskCache[]>();
+const RISK_BY_STATE = new WeakMap<State, { world: ReadonlyWorld; cache: RiskCache }>();
 const RISK_KEEP = 4;
 
-function riskMemo(world: ReadonlyWorld, state: State): Int8Array {
+function riskCache(world: ReadonlyWorld, state: State): RiskCache {
+    const hit = RISK_BY_STATE.get(state);
+    if (hit?.world === world) return hit.cache;
     const key = `${sightInputs(world, state)}#${state.knowledge.seen}#${state.knowledge.fresh}`;
     let list = RISK.get(world);
     if (!list) RISK.set(world, list = []);
-    const i = list.findIndex(c => c.key === key);
-    if (i >= 0) return list[i]!.memo;
-    const memo = new Int8Array(tilesOf(world)).fill(-1);
-    list.unshift({ key, memo });
-    if (list.length > RISK_KEEP) list.length = RISK_KEEP;
-    return memo;
+    let cache = list.find(c => c.key === key);
+    if (!cache) {
+        const n = tilesOf(world);
+        cache = { key, memo: new Int8Array(n).fill(-1), seen: decodeBits(state.knowledge.seen, n), fresh: decodeBits(state.knowledge.fresh, n), sight: sightMap(world, state) };
+        list.unshift(cache);
+        if (list.length > RISK_KEEP) list.length = RISK_KEEP;
+    }
+    RISK_BY_STATE.set(state, { world, cache });
+    return cache;
 }
 
 /**
@@ -541,14 +551,13 @@ function riskMemo(world: ReadonlyWorld, state: State): Int8Array {
  */
 export function isUnknownRisk(world: ReadonlyWorld, state: State, p: Pos): boolean {
     if (!inBounds(world, p)) return false;
-    const w = world.width, i = p.y * w + p.x, memo = riskMemo(world, state);
+    const w = world.width, i = p.y * w + p.x, { memo, seen, fresh, sight } = riskCache(world, state);
     if (memo[i] !== -1) return memo[i] === 1;
-    const n = tilesOf(world), seen = decodeBits(state.knowledge.seen, n), fresh = decodeBits(state.knowledge.fresh, n);
     let risk = false;
     if (seen[i]) {
         if (!fresh[i]) risk = true;
         else {
-            const sight = sightMap(world, state), r = rangeOn(unknownReach(world), world.tiles[i]!.lit);
+            const r = rangeOn(unknownReach(world), world.tiles[i]!.lit);
             for (let y = Math.max(0, p.y - r); y <= Math.min(world.height - 1, p.y + r) && !risk; y++) {
                 for (let x = Math.max(0, p.x - r); x <= Math.min(w - 1, p.x + r); x++) {
                     const dx = x - p.x, dy = y - p.y;
@@ -570,7 +579,7 @@ export function isUnknownRisk(world: ReadonlyWorld, state: State, p: Pos): boole
 export type FloorKnowledge = 'unscouted' | 'unknownRisk' | 'scouted';
 
 export function floorKnowledge(world: ReadonlyWorld, state: State, p: Pos): FloorKnowledge {
-    if (!inBounds(world, p) || !decodeBits(state.knowledge.seen, tilesOf(world))[p.y * world.width + p.x]) return 'unscouted';
+    if (!inBounds(world, p) || !riskCache(world, state).seen[p.y * world.width + p.x]) return 'unscouted';
     return isUnknownRisk(world, state, p) ? 'unknownRisk' : 'scouted';
 }
 

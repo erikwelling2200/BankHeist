@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { actionPreview, clonePlain, explain, initialState, overlayTiles, pathSafety, safeFloor, type State } from '../../src/sim';
+import { actionPreview, clonePlain, explain, initialState, overlayTiles, pathSafety, safeFloor, safeFloorJob, type State } from '../../src/sim';
 import { scouted, smallBank } from './helpers';
 
 /*
@@ -58,6 +58,40 @@ describe('safe floor', () => {
         if (!ps.ok) return;
         expect(ps.firstUnsafe).not.toBeNull();
         expect(ps.steps[ps.firstUnsafe!]!.sightings.length || ps.end.tint.kind).toBeTruthy();
+    });
+});
+
+describe('the incremental safe floor', () => {
+    it('steps a slice at a time on a lent clock and ends with what safeFloor gives', () => {
+        const { world, state } = smallBank();
+        const s = scouted(world, armed(state, 'jun'));
+        let clock = 0;
+        const job = safeFloorJob(world, s, 'jun');
+        expect(job.step(2, () => ++clock)).toBe(false);
+        expect(job.tiles.length).toBe(2);
+        expect(job.tiles[0]!.band).toBe('stay');
+        while (!job.step(clock + 2, () => ++clock));
+        expect(job.done).toBe(true);
+        expect(job.has(['stay', 'move', 'dash'])).toBe(true);
+        expect(job.floor().tiles).toEqual(safeFloor(world, clonePlain(s), 'jun').tiles);
+        // The same job for the same state: safeFloor reuses what it tinted.
+        expect(safeFloorJob(world, s, 'jun')).toBe(job);
+        expect(safeFloor(world, s, 'jun', { bands: ['move'] }).tiles.every(t => t.band === 'move')).toBe(true);
+    });
+});
+
+describe('drawn paths', () => {
+    it('judges a drag over a teammate up to the last tile it can stop on, and what stopping at each step does', () => {
+        const { world, state } = smallBank();
+        const s = scouted(world, state);
+        // Mara stands at (0, 2): a drag from Jun at (0, 0) ending on her is judged up to (0, 1).
+        const ps = pathSafety(world, s, 'jun', [{ x: 0, y: 1 }, { x: 0, y: 2 }]);
+        expect(ps.ok).toBe(true);
+        if (!ps.ok) return;
+        expect(ps.steps.map(t => t.pos)).toEqual([{ x: 0, y: 1 }]);
+        const long = pathSafety(world, s, 'jun', [{ x: 1, y: 0 }, { x: 2, y: 0 }, { x: 3, y: 0 }]);
+        expect(long.ok && long.steps.every(t => t.stop !== null)).toBe(true);
+        if (long.ok) expect(long.steps[2]!.stop).toEqual(long.end);
     });
 });
 

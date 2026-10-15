@@ -132,7 +132,9 @@ interface Node { pos: Pos; cost: number; parent: number; canEnd: boolean }
  * certain: a settled tile it may end on next to the target (the nearest any tile can be) at cost `b`, once every node
  * left costs more than `b + 2` to reach and step beside it. The nodes it settles, their costs and parents are those of
  * the full search up to there, so the walk is the same; only the rest of the map isn't explored (implementation plan
- * §5: the safe floor and every dash preview replan such walks).
+ * §5: the safe floor and every dash preview replan such walks). That needs the octile heuristic to be consistent, so
+ * that nodes settle in order of cost plus heuristic: true while every step costs exactly `ORTHOGONAL_COST` (2) or
+ * `DIAGONAL_COST` (3), which the search checks; a step cost of any other size (terrain, say) must revisit this.
  */
 function search(
     world: ReadonlyWorld, state: State, from: Pos, to: Pos, options: MoveOptions, endable?: (i: number, node: Node) => boolean
@@ -197,6 +199,7 @@ function search(
             if (occupant === 'blocking') continue;
             const c = stepCost(world, state, node.pos, next, options);
             if (c === undefined) continue;
+            if (blockedGoal && c !== ORTHOGONAL_COST && c !== DIAGONAL_COST) throw new Error(`A step costs ${c}: the early stop of search assumes 2 or 3`);
             const known = nodes.get(j);
             if (known && known.cost <= g + c) continue;
             nodes.set(j, { pos: next, cost: g + c, parent: i, canEnd: occupant === 'none' });
