@@ -66,7 +66,7 @@ test.describe('the stealth HUD on a phone', () => {
     const size = { width: 844, height: 390 };
     test.use({ viewport: size, hasTouch: true, isMobile: true });
 
-    test('lays out every state at 844x390 without overlaps, with 44px targets', { tag: '@smoke' }, async ({ page }) => {
+    test('lays out every state at 844x390 without overlaps, with 44px targets', { tag: ['@smoke', '@layout'] }, async ({ page }) => {
         for (const state of await states(page)) {
             const errors = await open(page, state);
             await checkLayout(page, state, size);
@@ -77,7 +77,7 @@ test.describe('the stealth HUD on a phone', () => {
         await page.screenshot({ path: 'screenshots/hud-844.png' });
     });
 
-    test('keeps its layout with the text scaled up (§20.8)', async ({ page }) => {
+    test('keeps its layout with the text scaled up (§20.8)', { tag: '@layout' }, async ({ page }) => {
         for (const state of ['select', 'carriers', 'alarm']) {
             await open(page, state, '&text=1.3');
             await checkLayout(page, `${state} ×1.3`, size);
@@ -149,7 +149,7 @@ test.describe('the stealth HUD on a desktop', () => {
     const size = { width: 1280, height: 720 };
     test.use({ viewport: size });
 
-    test('lays out every state at 1280x720 without overlaps, with 44px targets and key caps', async ({ page }) => {
+    test('lays out every state at 1280x720 without overlaps, with 44px targets and key caps', { tag: '@layout' }, async ({ page }) => {
         for (const state of await states(page)) {
             const errors = await open(page, state);
             await checkLayout(page, state, size);

@@ -2,13 +2,15 @@ import { expect, test, type Page } from '@playwright/test';
 
 /**
  * Opens a page and waits for its bank to run: a generated bank in the viewer (`bank`, `?view` from a fixed seed unless
- * `query` says otherwise), the hand-made example bank (`example`) or the game (`play`, the default page).
+ * `query` says otherwise), the hand-made example bank (`example`) or the game (`play`, the default page, whose address
+ * the tests check). The banks open `still` (no clouds, dust or patrols moving by themselves) unless a test watches them.
  */
-async function boot(page: Page, scene: 'bank' | 'example' | 'play' = 'bank', query = 'seed=2024-1'): Promise<string[]> {
+async function boot(page: Page, scene: 'bank' | 'example' | 'play' = 'bank', query = 'seed=2024-1', still = true): Promise<string[]> {
     const errors: string[] = [];
     page.on('pageerror', e => errors.push(e.message));
     page.on('console', m => { if (m.type() === 'error') errors.push(m.text()); });
-    await page.goto(scene === 'bank' ? `/?view&${query}` : scene === 'example' ? '/?bank=example' : '/');
+    const tail = still ? '&still' : '';
+    await page.goto(scene === 'bank' ? `/?view&${query}${tail}` : scene === 'example' ? `/?bank=example${tail}` : '/');
     await page.waitForFunction(() => (window as any).game?.scene.getScene('bank')?.sys.isActive(), undefined, { timeout: 60000 });
     if (scene === 'play') await page.waitForFunction(() => (window as any).sim, undefined, { timeout: 60000 });
     await page.waitForTimeout(800);
@@ -17,6 +19,11 @@ async function boot(page: Page, scene: 'bank' | 'example' | 'play' = 'bank', que
 
 /** `npm run test:smoke` runs only the tests tagged `@smoke`: a quick check that every page still boots. */
 const SMOKE = { tag: '@smoke' };
+/**
+ * Tests of the layout at a given screen size run at it (the `full` project, or their own); everything else runs at the
+ * small size of the `small` project (playwright.config.ts).
+ */
+const LAYOUT = { tag: '@layout' };
 
 test('boots into the game without errors', SMOKE, async ({ page }) => {
     // The default page is the heist in the pinned bank, the crew at their van.
@@ -61,7 +68,7 @@ test('registers a service worker for offline play', async ({ page }) => {
     expect(registered).toBe(true);
 });
 
-test.describe('on a phone', () => {
+test.describe('on a phone', LAYOUT, () => {
     test.use({ viewport: { width: 844, height: 390 }, hasTouch: true, isMobile: true });
 
     test('fills a wide landscape screen and offers fullscreen', async ({ page }) => {
@@ -89,7 +96,7 @@ test.describe('on a phone', () => {
     });
 });
 
-test.describe('on a high-density phone', () => {
+test.describe('on a high-density phone', LAYOUT, () => {
     test.use({ viewport: { width: 844, height: 390 }, deviceScaleFactor: 3, hasTouch: true, isMobile: true });
 
     test('fits the whole plot on the tactical map, below the generator bar', async ({ page }) => {
@@ -248,7 +255,7 @@ test.describe('the hand-made example bank', () => {
     });
 
     test('relights people as they move, and walks the guards and a passer-by on their patrols', async ({ page }) => {
-        const errors = await boot(page, 'example');
+        const errors = await boot(page, 'example', undefined, false);
         type Person = { look: string; x: number; y: number; facing: string; light: number };
         const people = (): Promise<Person[]> => page.evaluate(() => (window as any).game.scene.getScene('bank').debugState.people);
         const index = (await people()).findIndex(p => p.look === 'customerCasual');
@@ -270,7 +277,7 @@ test.describe('the hand-made example bank', () => {
         expect(errors).toEqual([]);
     });
 
-    test('pans and zooms in crisp steps, and shows the whole plot on the tactical map (§20.1)', async ({ page }) => {
+    test('pans and zooms in crisp steps, and shows the whole plot on the tactical map (§20.1)', LAYOUT, async ({ page }) => {
         const errors = await boot(page, 'example');
         let state = await scene(page);
         // A 540px-tall screen: 11 to 34 tiles high is zoom 3 (11.25 tiles), 2 (16.9) or 1 (33.75); it opens on 2.
@@ -332,7 +339,7 @@ test.describe('generated banks (§17)', () => {
         });
     }
 
-    test('fits the whole of a big plot on the tactical map, below the generator bar (§20.1)', async ({ page }) => {
+    test('fits the whole of a big plot on the tactical map, below the generator bar (§20.1)', LAYOUT, async ({ page }) => {
         const errors = await boot(page, 'bank', 'seed=15838-2&tier=hq&archetype=mezzanineWatch&plot=stripMallEnd');
         const bar = (await page.locator('.generator-bar').boundingBox())!;
         await page.getByRole('button', { name: 'Tactical map' }).click();
@@ -418,7 +425,7 @@ test.describe('generated banks (§17)', () => {
 test.describe('the generator bar', () => {
     test.use({ viewport: { width: 1280, height: 800 } });
 
-    test('hangs the briefing below the bar, however many rows it takes', async ({ page }) => {
+    test('hangs the briefing below the bar, however many rows it takes', LAYOUT, async ({ page }) => {
         await page.setViewportSize({ width: 960, height: 540 });
         const errors = await boot(page, 'bank', 'seed=15838-2&tier=hq&archetype=mezzanineWatch&plot=stripMallEnd');
         await page.getByRole('button', { name: 'Briefing' }).click();
@@ -476,11 +483,13 @@ test.describe('the generator bar', () => {
 });
 
 test('shows every room type furnished in the room gallery', SMOKE, async ({ page }) => {
+    // Two screenshots of a big canvas, the second of the whole gallery on the map: slow on the software renderer.
+    test.setTimeout(60000);
     await page.setViewportSize({ width: 1600, height: 1000 });
     const errors: string[] = [];
     page.on('pageerror', e => errors.push(e.message));
     page.on('console', m => { if (m.type() === 'error') errors.push(m.text()); });
-    await page.goto('/?scene=rooms');
+    await page.goto('/?scene=rooms&still');
     await page.waitForFunction(() => (window as any).game?.scene.getScene('bank')?.sys.isActive(), null, { timeout: 60000 });
     const cells = await page.evaluate(() => (window as any).gallery as { type: string; variant: string; x: number; y: number; w: number; h: number }[]);
     expect(new Set(cells.map(c => c.type)).size).toBeGreaterThanOrEqual(15);

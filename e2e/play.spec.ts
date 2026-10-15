@@ -21,14 +21,29 @@ const tapTile = async (page: Page, p: Pos) => {
     await page.mouse.click(at.x, at.y);
 };
 
+/**
+ * How a test wants the page: `still` (`?still`: no clouds, dust or patrols moving by themselves) and `instant` (playback
+ * at the skip speed). Both on by default, as most tests check the rules through the page and not the animation; a test
+ * that watches the animation, the address or the speed button turns them off.
+ */
+interface Pace { still?: boolean; instant?: boolean }
+const paces = new WeakMap<Page, Required<Pace>>();
+
+/** Sets the playback speed the test asked for: the session's own, so a reload (a new Session) needs it again. */
+async function pace(page: Page): Promise<void> {
+    if (paces.get(page)?.instant) await page.evaluate(() => { (window as any).sim.session.playback.speed = 'instant'; });
+}
+
 /** Opens the game (`/?new`: a new heist) and waits until the bank is built and the walls have settled. */
-async function boot(page: Page, query = 'new'): Promise<string[]> {
+async function boot(page: Page, query = 'new', { still = true, instant = true }: Pace = {}): Promise<string[]> {
     const errors: string[] = [];
     page.on('pageerror', e => errors.push(e.message));
     page.on('console', m => { if (m.type() === 'error') errors.push(m.text()); });
-    await page.goto(`/?${query}`);
+    paces.set(page, { still, instant });
+    await page.goto(`/?${query}${still ? '&still' : ''}`);
     await page.waitForFunction(() => (window as any).game?.scene.getScene('bank')?.sys.isActive() && (window as any).sim, undefined, { timeout: 60000 });
     await expect.poll(async () => (await scene(page)).settled, { timeout: 20000 }).toBe(true);
+    await pace(page);
     return errors;
 }
 
@@ -61,7 +76,8 @@ async function endTurn(page: Page): Promise<void> {
 
 const AROUND: Pos[] = [{ x: 0, y: -3 }, { x: 2, y: -2 }, { x: -2, y: -2 }, { x: 3, y: 0 }, { x: -3, y: 0 }, { x: 0, y: 3 }, { x: 2, y: 2 }];
 
-test('plays three turns of a heist through taps', SMOKE, async ({ page }) => {
+// At the full size: selecting zooms in to Act view, which needs a screen with a zoom step above the one it opens on.
+test('plays three turns of a heist through taps', { tag: ['@smoke', '@layout'] }, async ({ page }) => {
     // Three world phases at 1× and a reload: about 30 s on the sandbox's software renderer, on the edge of the default.
     test.setTimeout(60000);
     const errors = await boot(page);
@@ -138,7 +154,9 @@ test('plays three turns of a heist through taps', SMOKE, async ({ page }) => {
     expect(now.turn).toBe(4);
     expect(now.crew.find(c => c.id === 'jun')!.pos).toEqual(third);
 
-    // Reloading resumes the same heist (the recap card shows first), with the camera exactly where it was.
+    // Reloading resumes the same heist (the recap card shows first), with the camera exactly where it was (once it has
+    // stopped following the last move: at the instant speed it is still on its way when the playback is over).
+    await expect.poll(async () => { const a = await scene(page); await page.waitForTimeout(150); const b = await scene(page); return a.midX === b.midX && a.midY === b.midY; }).toBe(true);
     await page.keyboard.press('-');
     await page.waitForTimeout(300);
     const view = await scene(page);
@@ -152,7 +170,7 @@ test('plays three turns of a heist through taps', SMOKE, async ({ page }) => {
 });
 
 test('never overwrites a saved heist without asking', SMOKE, async ({ page }) => {
-    const errors = await boot(page);
+    const errors = await boot(page, 'new', { still: false, instant: false });
     await page.evaluate(() => { (window as any).sim.endTurn(); (window as any).sim.session.save(); });
     // The pinned bank, saved: the game's address stays bare.
     expect(new URL(page.url()).search).toBe('');
@@ -175,7 +193,7 @@ test('never overwrites a saved heist without asking', SMOKE, async ({ page }) =>
 });
 
 test('plays the NPCs\' world phase: people on screen stand where the state says', SMOKE, async ({ page }) => {
-    const errors = await boot(page);
+    const errors = await boot(page, 'new', { instant: false });
     const npcs = () => page.evaluate(() => (window as any).sim.state.npcs.map((n: any) => ({ id: n.id, pos: n.pos, status: n.status })));
     const before = await npcs();
     for (let turn = 0; turn < 3; turn++) {
@@ -313,6 +331,7 @@ async function restartWith<T>(page: Page, script: string): Promise<T | null> {
     await page.reload();
     await page.waitForFunction(() => (window as any).game?.scene.getScene('bank')?.debugState?.play && (window as any).sim, undefined, { timeout: 60000 });
     await expect.poll(async () => (await scene(page)).settled, { timeout: 20000 }).toBe(true);
+    await pace(page);
     return found.info;
 }
 
@@ -659,7 +678,7 @@ test('answers a downed guard\'s ringing radio', SMOKE, async ({ page }) => {
 });
 
 test('auto-advance walks a 3-turn route turn by turn and says why it stopped; a tap stops it', SMOKE, async ({ page }) => {
-    const errors = await boot(page);
+    const errors = await boot(page, 'new', { instant: false });
     const mara = await member(page, 'mara');
     await tapTile(page, mara.pos);
     await page.waitForTimeout(400);
@@ -718,7 +737,7 @@ test('auto-advance walks a 3-turn route turn by turn and says why it stopped; a 
 test.describe('on a phone', () => {
     test.use({ viewport: { width: 844, height: 390 }, hasTouch: true, isMobile: true });
 
-    test('keeps the HUD and the camera tools apart', SMOKE, async ({ page }) => {
+    test('keeps the HUD and the camera tools apart', { tag: ['@smoke', '@layout'] }, async ({ page }) => {
         const errors = await boot(page);
         await page.screenshot({ path: 'screenshots/play-phone.png' });
         const boxes = await page.evaluate(() => [
@@ -878,7 +897,7 @@ interface MoveCheck { tile: { now: unknown; next: unknown; tint: { kind: string 
 test('the M1 heist: walk in, wait, slip through behind the cleaner, knock out the guard in the alarm closet, kill the panel', SMOKE, async ({ page }) => {
     // 72 turns with every world phase's playback skipped: about 30 s on the sandbox's software renderer.
     test.setTimeout(120000);
-    const errors = await boot(page);
+    const errors = await boot(page, 'new', { instant: false });
     expect(await page.evaluate(() => (window as any).generated.seed)).toEqual({ layout: 31, population: 2 });
     // Playback instantly (the speed button: 1×, 2×, skip).
     for (let i = 0; i < 2; i++) await page.locator('.play-speed').click();
