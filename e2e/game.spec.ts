@@ -54,6 +54,8 @@ test('opens an old link to a generated bank (a bare ?seed=) in the viewer, and s
 });
 
 test('registers a service worker for offline play', async ({ page }) => {
+    // The dev server (`E2E_DEV=1`) serves no service worker: only the build has one.
+    test.skip(!!process.env.E2E_DEV, 'the service worker is part of the build');
     await boot(page, 'bank');
     const registered = await page.evaluate(async () => !!(await navigator.serviceWorker.ready));
     expect(registered).toBe(true);
