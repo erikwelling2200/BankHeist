@@ -7,7 +7,8 @@ import type { Pos } from '../../sim';
 
 /**
  * The world UI layer (UI.md "Two layers", "Visual language", M1-14): a canvas over the game's at twice the art's
- * resolution (one UI pixel is half an art pixel), redrawn after each frame from where the camera looked. Hairlines with
+ * resolution (one UI pixel is half an art pixel), redrawn after a frame in which it or the view changed (while the view
+ * moves, the last drawing is shifted along and drawn afresh once it holds still). Hairlines with
  * a 1px ink drop shadow, muted signal colours, faint scanline fills, dark plates with a thin border in the signal
  * colour; every state also has a shape or a pattern, and the colour-blind preset swaps the palette (UI.md "Signal
  * palette"). It takes no input: taps go through to the map. Drawn, bottom to top:
@@ -136,8 +137,11 @@ export class WorldOverlay {
     readonly canvas: HTMLCanvasElement;
     private readonly ctx: CanvasRenderingContext2D;
     private content: OverlayContent | null = null;
-    /** What the last drawing was made from: redraw only when the view or the content changes. */
+    /** What the last drawing was made from (all but where the camera looked): redraw only when it or the view changes. */
     private drawn = '';
+    /** Where the camera looked (`x,y`) at the last drawing, and at the last frame. */
+    private drawnView = '';
+    private lastView = '';
     private readonly onRender = () => this.draw();
 
     /** `lift` says how many art pixels up the screen tile (tx, ty) is drawn now (a raised floor; 0 on the ground). */
@@ -176,17 +180,33 @@ export class WorldOverlay {
 
     /** Draws over the frame just rendered: sized and placed over the game's canvas, shifted by the camera's view. */
     private draw(): void {
-        const game = this.scene.game, cam = this.scene.cameras.main, box = game.canvas.getBoundingClientRect();
-        const w = Math.round(this.scene.scale.width * UI_SCALE), h = Math.round(this.scene.scale.height * UI_SCALE);
+        const game = this.scene.game, cam = this.scene.cameras.main, canvasBox = game.canvas.getBoundingClientRect();
+        // Over the camera's part of the canvas (all of it, but in Act view, see BankCamera.applyZoom).
+        const { scale } = this.scene, sx = canvasBox.width / scale.width, sy = canvasBox.height / scale.height;
+        const box = { left: canvasBox.left, top: canvasBox.top, width: cam.width * sx, height: cam.height * sy };
+        const w = Math.round(cam.width * UI_SCALE), h = Math.round(cam.height * UI_SCALE);
         const vx = Math.round(cam.worldView.x), vy = Math.round(cam.worldView.y);
         // A raised floor rises and drops as it is cut: what is drawn on it follows (the lifts are part of the key).
         const c0 = this.content;
         let lifts = 0;
         for (const p of [...(c0?.reach?.move ?? []), ...(c0?.reach?.dash ?? []), ...(c0?.path ?? [])]) lifts += this.lift(p.x, p.y);
-        const key = `${w}x${h}@${vx},${vy}:${box.left},${box.top},${box.width},${box.height}:${lifts}`;
-        if (key === this.drawn) return;
-        this.drawn = key;
+        const key = `${w}x${h}:${box.left},${box.top},${box.width},${box.height}:${lifts}`, view = `${vx},${vy}`;
         const { canvas, ctx } = this;
+        if (key === this.drawn) {
+            if (view === this.drawnView) return;
+            if (view !== this.lastView) {
+                // The view is moving (a pan, a drag): shift what is drawn rather than draw it all again every frame (a
+                // drawing is a few thousand fills, which a software GPU takes a frame or more to raster); it is drawn
+                // afresh once the view holds still.
+                this.lastView = view;
+                const [dx, dy] = this.drawnView.split(',').map(Number) as [number, number], css = (box.width / w) * UI_SCALE;
+                canvas.style.transform = `translate(${(dx - vx) * css}px, ${(dy - vy) * (box.height / h) * UI_SCALE}px)`;
+                return;
+            }
+        }
+        this.drawn = key;
+        this.drawnView = this.lastView = view;
+        canvas.style.transform = '';
         if (canvas.width !== w || canvas.height !== h) {
             canvas.width = w;
             canvas.height = h;
@@ -264,15 +284,9 @@ export class WorldOverlay {
             // diagonal hatch in gold, Move's a flat steel blue.
             ctx.fillStyle = RUN;
             for (const p of filled(dash)) ctx.fillRect(left(p), top(p), S, S);
-            ctx.fillStyle = RUN_HATCH;
-            for (const p of filled(dash)) {
-                const x = left(p), y = top(p);
-                // Lines at 45°, every 8 UI pixels, continuing across neighbouring tiles.
-                for (let k = 0; k < S; k++) {
-                    const off = (((x + y + S - 1 - k) % 8) + 8) % 8;
-                    for (let t = (8 - off) % 8; t < S; t += 8) ctx.fillRect(x + t, y + S - 1 - k, 1, 1);
-                }
-            }
+            // Lines at 45°, every 8 UI pixels (where x + y is a multiple of 8), running on across neighbouring tiles.
+            ctx.fillStyle = this.pattern('run', RUN_HATCH);
+            for (const p of filled(dash)) ctx.fillRect(left(p), top(p), S, S);
             ctx.fillStyle = WALK;
             for (const p of filled(move)) ctx.fillRect(left(p), top(p), S, S);
             if (c.safeFloor?.length) {
@@ -696,11 +710,11 @@ export class WorldOverlay {
     /** The fill patterns of the safe floor, made once per style and colour. */
     private readonly patterns = new Map<string, CanvasPattern | string>();
 
-    private pattern(style: 'scan' | 'dots' | 'hatch', colour: string): CanvasPattern | string {
+    private pattern(style: 'scan' | 'dots' | 'hatch' | 'run', colour: string): CanvasPattern | string {
         const key = `${style} ${colour}`;
         let found = this.patterns.get(key);
         if (found) return found;
-        const size = style === 'scan' ? [1, 2] : style === 'dots' ? [4, 8] : [6, 6];
+        const size = style === 'scan' ? [1, 2] : style === 'dots' ? [4, 8] : style === 'run' ? [8, 8] : [6, 6];
         const tile = document.createElement('canvas');
         tile.width = size[0]!;
         tile.height = size[1]!;
@@ -710,6 +724,9 @@ export class WorldOverlay {
         else if (style === 'dots') {
             t.fillRect(0, 1, 2, 2);
             t.fillRect(2, 5, 2, 2);
+        } else if (style === 'run') {
+            // One pixel where x + y is a multiple of 8: Dash's hatch before the safe floor arrives.
+            for (let k = 0; k < 8; k++) t.fillRect((8 - k) % 8, k, 1, 1);
         } else {
             // Lines at 45°, two pixels wide, every 6.
             for (let k = 0; k < 6; k++) {

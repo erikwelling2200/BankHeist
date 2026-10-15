@@ -12,6 +12,10 @@ const MAP_MARGIN = 8;
 const START_TILES = 17;
 /** Act view (§20.1): selecting a crew member zooms in to about this many tiles high if the view is wider. */
 const ACT_TILES = 13;
+/** The vignette over the view (keep `strength` low: Phaser's goes near black at its radius). */
+const VIGNETTE = { x: 0.5, y: 0.5, radius: 1, strength: 0.16 };
+/** How many of the renderer's drawing contexts (the camera's filters draw through them) `prepareActView` makes. */
+const ACT_CONTEXTS = 3;
 
 /**
  * The bank's camera (§20.1). Zoom steps are whole screen pixels per art pixel: the canvas renders at the screen's size
@@ -25,6 +29,10 @@ export class BankCamera {
     private screen = { width: 0, height: 0 };
     /** Screen pixels per art pixel: the zoom (§20.1). The canvas renders at the screen's size over this. */
     private zoom = 1;
+    /** The camera's vignette: it is worked out over the whole canvas, so a camera in its corner moves and shrinks it. */
+    private vignette?: Phaser.Filters.Vignette;
+    /** The zoom the canvas was last sized for (0: not yet); a closer zoom keeps it (see `applyZoom`). */
+    private canvasZoom = 0;
     /** The whole-number zooms that fit this screen, widest first. */
     private zoomLevels: number[] = [];
     /** While the tactical map shows: the view to go back to. */
@@ -65,9 +73,9 @@ export class BankCamera {
         const { scene } = this, cam = scene.cameras.main;
         cam.setBackgroundColor(PAL.void).setRoundPixels(true);
         Phaser.Actions.AddEffectBloom(cam, { threshold: 0.62, blurRadius: 2, blurSteps: 4, blendAmount: 0.6 });
-        cam.filters.external.addVignette(0.5, 0.5, 1, 0.16);
+        this.vignette = cam.filters.external.addVignette(VIGNETTE.x, VIGNETTE.y, VIGNETTE.radius, VIGNETTE.strength);
         this.fitScreen();
-        this.applyZoom(nearestStep(this.zoomLevels, this.screen.height, TILE, START_TILES));
+        this.applyZoom(nearestStep(this.zoomLevels, this.screen.height, TILE, START_TILES), true);
         cam.centerOn(x, y);
 
         const onResize = () => this.fitScreen();
@@ -188,7 +196,7 @@ export class BankCamera {
     /** Goes back to a saved view: its zoom (the nearest step if this screen has no such step), its middle and the map. */
     restore(zoom: number, x: number, y: number, map = false): void {
         this.mapView = undefined;
-        this.applyZoom(this.zoomLevels.includes(zoom) ? zoom : nearestStep(this.zoomLevels, this.screen.height, TILE, this.screen.height / zoom / TILE));
+        this.applyZoom(this.zoomLevels.includes(zoom) ? zoom : nearestStep(this.zoomLevels, this.screen.height, TILE, this.screen.height / zoom / TILE), true);
         this.scene.cameras.main.centerOn(x, y);
         if (map) this.toggleMap();
         else this.onMapChange?.(false);
@@ -222,6 +230,49 @@ export class BankCamera {
         else cam.centerOn(x, y);
     }
 
+    /** Centres the vignette on the camera's part of the canvas, `fx` by `fy` of it from its top-left corner. */
+    private fitVignette(fx: number, fy: number): void {
+        const v = this.vignette;
+        if (!v) return;
+        v.x = VIGNETTE.x * fx;
+        v.y = VIGNETTE.y * fy;
+        v.radius = VIGNETTE.radius * fx;
+    }
+
+    /** After the canvas's CSS scale changed: where it is on the page, and canvas pixels per CSS pixel, for the input. */
+    private updateInput(): void {
+        const { scale } = this.scene;
+        scale.updateBounds();
+        scale.displayScale.set(scale.baseSize.width / scale.canvasBounds.width, scale.baseSize.height / scale.canvasBounds.height);
+    }
+
+    /**
+     * Readies Act view while the bank builds, so the first selection doesn't stall (see `applyZoom`): the drawing
+     * contexts the camera's filters (bloom, vignette) need at its size, which the renderer pools by size, and the shader
+     * that copies a camera smaller than the canvas onto it, compiled and drawn once. Each would wait for the GPU.
+     */
+    prepareActView(): void {
+        const renderer = this.scene.game.renderer;
+        if (!(renderer instanceof Phaser.Renderer.WebGL.WebGLRenderer)) return;
+        const act = nearestStep(this.zoomLevels, this.screen.height, TILE, ACT_TILES);
+        if (act <= this.zoom || !Number.isInteger(act) || !Number.isInteger(this.zoom)) return;
+        const pool = renderer.drawingContextPool, width = Math.round(this.screen.width / act), height = Math.round(this.screen.height / act);
+        const made = Array.from({ length: ACT_CONTEXTS }, () => pool.get(width, height));
+        const [target, source] = made as [Phaser.Renderer.WebGL.DrawingContext, Phaser.Renderer.WebGL.DrawingContext];
+        const copy = renderer.renderNodes.getNode('BatchHandlerQuadSingle') as Phaser.Renderer.WebGL.RenderNodes.BatchHandlerQuadSingle | null;
+        if (copy && source.texture) {
+            target.use();
+            const options = { alphaStrategy: target.alphaStrategy, smoothPixelArt: !!renderer.game.config.smoothPixelArt };
+            copy.batch(target, source.texture, 0, height, 0, 0, width, height, width, 0, 0, 1, 1, -1, 0, 0xffffffff, 0xffffffff, 0xffffffff, 0xffffffff,
+                options as Phaser.Types.Renderer.WebGL.RenderNodes.BatchHandlerQuadRenderOptions);
+            renderer.renderNodes.finishBatch();
+        }
+        for (const context of made) {
+            context.lastUsed = Date.now();
+            pool.add(context);
+        }
+    }
+
     /** The plot's rectangle on screen, in CSS pixels from the canvas's top-left corner. */
     private plotOnScreen(): { left: number; top: number; right: number; bottom: number } {
         // The scroll, not the world view, which only catches up when the camera next renders.
@@ -243,7 +294,7 @@ export class BankCamera {
         const zoom = this.zoomLevels.includes(this.zoom) ? this.zoom : nearestStep(this.zoomLevels, this.screen.height, TILE, this.screen.height / this.zoom / TILE);
         const mid = this.scene.cameras.main.midPoint;
         const [x, y] = [mid.x, mid.y];
-        this.applyZoom(zoom);
+        this.applyZoom(zoom, true);
         this.scene.cameras.main.centerOn(x, y);
     }
 
@@ -254,7 +305,7 @@ export class BankCamera {
     private showPlot(): void {
         const ratio = window.devicePixelRatio || 1, margin = MAP_MARGIN * ratio, top = this.coveredTop() + margin;
         const zoom = mapZoom(this.screen.width - 2 * margin, this.screen.height - top - margin, this.width, this.height);
-        this.applyZoom(zoom);
+        this.applyZoom(zoom, true);
         // The middle of the free area lies (top - margin) / 2 screen pixels below the middle of the screen.
         this.scene.cameras.main.centerOn(this.width / 2, this.height / 2 - (top - margin) / 2 / zoom);
     }
@@ -274,22 +325,40 @@ export class BankCamera {
      * base size on every refresh, so that is what changes; EXPAND still follows the screen's aspect ratio. Only the
      * tactical map goes below 1; there the browser scales the canvas down smoothly, since dropping whole rows and
      * columns of pixels would break up the thin walls and railings.
+     *
+     * Resizing a WebGL canvas waits for the GPU to finish every frame queued before it (60–120 ms in the sandbox's
+     * software renderer), so a whole-number zoom closer than the canvas is sized for keeps the canvas (unless `exact`):
+     * the camera draws into its top-left corner at the closer zoom's size, and a CSS scale from that corner makes each
+     * canvas pixel `zoom` screen pixels; the rest of the canvas lies off the screen. Selecting a crew member zooms in to
+     * Act view (§20.1) this way. Zooming out past the canvas, the tactical map, a new screen size, the opening view and
+     * a restored one size it afresh.
      */
-    private applyZoom(zoom: number): void {
-        const { game, scale } = this.scene;
+    private applyZoom(zoom: number, exact = false): void {
+        const { game, scale } = this.scene, canvas = game.canvas;
         this.zoom = zoom;
         const interpolation = Phaser.Display.Canvas.CanvasInterpolation;
-        if (zoom < 1) interpolation.setBicubic(game.canvas);
-        else interpolation.setCrisp(game.canvas);
+        if (zoom < 1) interpolation.setBicubic(canvas);
+        else interpolation.setCrisp(canvas);
         const config = game.config as unknown as { width: number; height: number };
         const width = Math.round(this.screen.width / zoom), height = Math.round(this.screen.height / zoom);
-        if (config.width !== width || config.height !== height) {
-            config.width = width;
-            config.height = height;
-            scale.refresh();
-        }
         const cam = this.scene.cameras.main;
-        cam.setSize(scale.width, scale.height);
+        if (!exact && zoom > this.canvasZoom && this.canvasZoom >= 1 && Number.isInteger(this.canvasZoom) && Number.isInteger(zoom)) {
+            Object.assign(canvas.style, { transformOrigin: '0 0', transform: `scale(${(zoom * scale.width) / this.screen.width}, ${(zoom * scale.height) / this.screen.height})` });
+            this.updateInput();
+            cam.setSize(width, height);
+            this.fitVignette(width / scale.width, height / scale.height);
+        } else {
+            const scaled = canvas.style.transform !== '';
+            canvas.style.transform = '';
+            this.canvasZoom = zoom;
+            if (config.width !== width || config.height !== height) {
+                config.width = width;
+                config.height = height;
+                scale.refresh();
+            } else if (scaled) this.updateInput();
+            cam.setSize(scale.width, scale.height);
+            this.fitVignette(1, 1);
+        }
         // The middle of the screen can reach every tile; past the map's edge is the void.
         cam.setBounds(-cam.width / 2, -cam.height / 2, this.width + cam.width, this.height + cam.height);
     }
