@@ -248,7 +248,7 @@ describe('the game session', () => {
             { id: 'jun', name: 'jun', colour: CREW_COLOURS[0], portrait: 'jun', status: 'done', actionsLeft: 0, exposed: false, hp: null },
             { id: 'mara', name: 'mara', colour: CREW_COLOURS[1], portrait: 'mara', status: 'ready', actionsLeft: 1, exposed: false, hp: null }
         ]);
-        expect(recap.threats.map(t => t.countdown)).toEqual([2]);
+        expect(recap.threats.map(t => t.countdown)).toEqual([2, 8]);
         session.endTurn();
         session.endTurn();
         expect(session.recap().bank.status).toBe('alarm');
@@ -367,7 +367,9 @@ describe('the HUD view models', () => {
         expect(hud.crew[1]!.selected).toBe(false);
         expect(hud.crew[1]!.colour).toBe(CREW_COLOURS[1]);
         expect(hud.undoEnabled).toBe(true);
-        expect(hud.ledger.map(t => [t.id, t.countdown])).toEqual([['carrier-2', 2], ['carrier-1', 4]]);
+        // The carriers by urgency, then the known guard's next check-in call (dispatch's, every 8 phases: §8.11).
+        expect(hud.ledger.map(t => [t.id, t.countdown])).toEqual([['carrier-2', 2], ['carrier-1', 4], ['checkIn:guard', 8]]);
+        expect(hud.ledger[2]).toMatchObject({ kind: 'checkIn', portrait: 'guard', halted: null });
         expect(hud.ledger[0]).toMatchObject({ kind: 'tellerButton', label: 'Teller button', countdown: 2, halted: null });
         expect(hud.ledger[0]!.label).not.toMatch(/\d/);
         const paused = { ...session.state, carriers: session.state.carriers.map(c => (c.countdown === 2 ? { ...c, halted: 'paused' as const } : c)) };

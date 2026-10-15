@@ -1,7 +1,7 @@
 import Phaser from 'phaser';
-import { npcBadges, npcCone, noiseHearers, type HearerVM } from '../../game/worldUi';
+import { cameraViews, npcBadges, npcCone, noiseHearers, type CameraVM, type HearerVM } from '../../game/worldUi';
 import {
-    actionMenu, AutoRun, autoBarView, barkText, doorMiddle, moveAlong, moveRange, moveTo, routeViews, stopNeedsAttention, targetsOf, waitMenu, type ActionId, type MoveRange,
+    actionMenu, AutoRun, autoBarView, bankView, barkText, cameraName, doorMiddle, nextCamera, moveAlong, moveRange, moveTo, routeViews, stopNeedsAttention, targetsOf, waitMenu, type ActionId, type MoveRange,
     type PlaybackItem, type PlaybackSpeed, type Session, type SessionChange
 } from '../../game';
 import type { GeneratedBank } from '../../gen/model';
@@ -36,6 +36,9 @@ const VISIT_HOLD_MS = 450;
 const QUIET_BUDGET_MS = 2000;
 /** Of which the passive NPCs' walk takes at most this much, at 1×. */
 const NPC_WALK_BUDGET_MS = 1200;
+/** How long the Alarm's banner and rings stay (§9.2), and a shout's ring, in ms. */
+const ALARM_MS = 2600;
+const FLASH_MS = 1500;
 /** A tap snaps to a valid tile no further than this (tiles) from where it landed. */
 const SNAP_TILES = 1.5;
 /** How many tiles north of the crew the first view of a heist is centred. */
@@ -100,7 +103,13 @@ export class PlayMode {
     private readonly unsubscribe: () => void;
     private readonly chrome: HTMLElement[] = [];
     private mapOn = false;
-    private overlays: Partial<Record<OverlayId, boolean>> = {};
+    /** The overlay drawer's toggles; the known cameras' cones are on to begin with (§8.12: where not to be seen). */
+    private overlays: Partial<Record<OverlayId, boolean>> = { cameras: true };
+    /** Where each carrier was last seen to be, by id: the Alarm's carrier is gone from the state when the camera visits it. */
+    private readonly carrierAt = new Map<string, Pos>();
+    /** Moments drawn for a second or two (a shout's ring, the Alarm's rings), until `until` (performance.now()). */
+    private flashes: { at: Pos; kind: 'shout' | 'alarm'; tiles?: Pos[]; until: number }[] = [];
+    private camerasFor?: { state: State; cones: string; views: CameraVM[] };
     private recap: boolean;
     /** The path being dragged, and whether it is legal so far. */
     private dragPath?: Pos[];
@@ -222,6 +231,8 @@ export class PlayMode {
             dashReach: this.overlay.state.dashReach, range: this.overlay.state.range, noise: this.overlay.state.noise,
             target: this.target, witnesses: this.overlay.state.witnesses, badges: this.overlay.state.badges, hearers: this.overlay.state.hearers,
             cones: this.overlay.state.cones, coneOf: this.coneOf, colourBlind: this.overlay.state.colourBlind,
+            /** The known cameras drawn, how many with their cones, and the flashes on the map now. */
+            cameras: this.overlay.state.cameras, cameraCones: this.overlay.state.cameraCones, flashes: this.overlay.state.flashes,
             /** The grid's entries as shown: id, enabled and reason. */
             actions: this.session.hud({ target: this.target }).actions.map(a => ({ id: a.id, enabled: a.enabled, reason: a.reason, selected: !!a.selected })),
             intents: this.overlay.state.intents,
@@ -400,6 +411,7 @@ export class PlayMode {
             if (npc) this.bark(npc.pos, barkText(this.session.world, this.session.state, e));
             return;
         }
+        if (this.applyAlarmEvent(e)) return;
         if (e.type === 'doorOpened') this.showDoor(e.door, true);
         else if (e.type === 'doorClosed') this.showDoor(e.door, false);
         else if (e.type === 'npcEntered' || e.type === 'npcLeft') {
@@ -408,6 +420,83 @@ export class PlayMode {
             this.people.move(index, ...centre(e.at));
             this.people.setAway(index, e.type === 'npcLeft');
         }
+    }
+
+    /**
+     * The alarm side of the world (§8.11, §8.12, §9.1, §9.2, §16.3) on screen: "Hands up!" and its ring, the radio's calls,
+     * the panel's work, a button that does nothing, the Alarm itself (its banner and rings), the patrol car driving
+     * past. True when `e` was one of these.
+     */
+    private applyAlarmEvent(e: SimEvent): boolean {
+        const { world, state } = this.session;
+        const at = (id: string): Pos | undefined => this.known().npcs.find(m => m.id === id)?.pos ?? state.crew.find(c => c.id === id)?.pos;
+        const say = (id: string, text: string) => {
+            const p = at(id);
+            if (p) this.bark(p, text);
+        };
+        switch (e.type) {
+            case 'carrierStarted': {
+                // Where it is, unless the projection redacted it (a holder the crew doesn't know).
+                const p = e.pos as Pos | null;
+                if (p) this.carrierAt.set(e.carrier, { x: p.x, y: p.y });
+                return true;
+            }
+            case 'confronted': say(e.npc, 'Hands up!'); return true;
+            case 'noise':
+                // The guard's shout (§16.2): loud, radius 6, the ring shown a moment.
+                if (e.cause.startsWith('hands up')) this.flash({ at: e.sources[0]!, kind: 'shout', tiles: soundRing(world, state, e.sources, e.radius).tiles.map(t => t.pos) }, FLASH_MS);
+                return true;
+            case 'checkInRinging': say(e.guard, '“Control to… come in?” (radio)'); return true;
+            case 'checkIn': return true;
+            case 'checkInMissed': say(e.guard, e.missed > 1 ? 'No answer. Calling it in.' : 'No answer…'); return true;
+            case 'radioAnswered': say(e.crew, '“All quiet here.”'); return true;
+            case 'dispatchLostContact': this.toast(`Dispatch lost contact: patrol car on turn ${e.driveBy}`); return true;
+            case 'patrolPassed': {
+                const lane = world.patrol?.lane ?? [], mid = lane[Math.floor(lane.length / 2)];
+                if (mid) this.bark(mid, e.saw === null ? 'Patrol car drives past' : 'Patrol car: they saw something!');
+                return true;
+            }
+            case 'alarmDead': say(e.source, '*click*… nothing'); return true;
+            case 'panelWorked': say(e.crew, `Panel ${e.progress}/${e.needed}`); return true;
+            case 'panelDisabled': say(e.crew, 'Alarm panel dead'); return true;
+            case 'carrierStopped': {
+                const p = this.carrierAt.get(e.carrier);
+                if (p && e.why === 'panel') this.bark(p, 'Button dead');
+                else if (p && e.why === 'answered') this.bark(p, 'Check-in covered');
+                return true;
+            }
+            case 'feedLooped': {
+                const cam = world.cameras.find(c => c.id === e.camera);
+                if (cam) this.bark(cam.pos, `${cameraName(world, e.camera)} looped`);
+                return true;
+            }
+            case 'jammerPlaced': this.bark(e.pos, 'Jammer on'); return true;
+            case 'alarmRaised': {
+                const p = this.carrierAt.get(e.carrier);
+                if (p) this.flash({ at: p, kind: 'alarm' }, ALARM_MS);
+                this.alarmBanner();
+                return true;
+            }
+            default: return false;
+        }
+    }
+
+    /** Draws a moment on the map for `ms`, then takes it off again. */
+    private flash(f: { at: Pos; kind: 'shout' | 'alarm'; tiles?: Pos[] }, ms: number): void {
+        this.flashes.push({ ...f, until: performance.now() + ms });
+        this.overlay.set(this.overlayContent());
+        window.setTimeout(() => this.refresh(), ms + 20);
+    }
+
+    /** The Alarm's banner (§9.2): "ALARM: police in N", across the top of the map for a moment. */
+    private alarmBanner(): void {
+        const el = document.createElement('div');
+        el.className = 'play-alarm';
+        el.setAttribute('role', 'alert');
+        el.textContent = bankView(this.session.state).label;
+        document.body.append(el);
+        this.chrome.push(el);
+        window.setTimeout(() => el.remove(), ALARM_MS);
     }
 
     /**
@@ -488,11 +577,19 @@ export class PlayMode {
         if (w.leg >= w.legs) this.walk = undefined;
     }
 
-    /** Where an event happened, for the camera: a carrier's holder. */
+    /**
+     * Where an event happened, for the camera: a carrier's holder as the crew may know it (and where it was, once the
+     * Alarm took it), a guard.
+     */
     private eventPos(e: SimEvent): Pos | undefined {
         const state = this.session.state;
-        if (e.type === 'carrierStarted' || e.type === 'carrierTicked' || e.type === 'alarmRaised') return state.carriers.find(c => c.id === e.carrier)?.pos;
-        const who = (e as { npc?: string; crew?: string }).npc ?? (e as { crew?: string }).crew;
+        if (e.type === 'carrierStarted' || e.type === 'carrierTicked' || e.type === 'alarmRaised') return this.carrierAt.get(e.carrier);
+        if (e.type === 'patrolPassed') {
+            const lane = this.session.world.patrol?.lane ?? [];
+            return lane[Math.floor(lane.length / 2)];
+        }
+        if (e.type === 'alarmDead') return this.known().npcs.find(m => m.id === e.source)?.pos;
+        const who = (e as { npc?: string; crew?: string }).npc ?? (e as { crew?: string }).crew ?? (e as { guard?: string }).guard;
         return who ? (state.npcs.find(n => n.id === who) ?? state.crew.find(c => c.id === who))?.pos : undefined;
     }
 
@@ -646,7 +743,8 @@ export class PlayMode {
             }) ??
             targets.npcs.find(id => same(markers.get(id)?.pos, tile)) ??
             targets.npcs.find(id => this.people.hit(this.sprite.get(id) ?? -1, x, y)) ??
-            targets.objects.find(id => same(world.objects.find(o => o.id === id)?.pos, tile));
+            targets.objects.find(id => same(world.objects.find(o => o.id === id)?.pos, tile)) ??
+            targets.cameras.find(id => same(world.cameras.find(c => c.id === id)?.pos, tile));
         if (!hit) return false;
         const pending = this.session.pendingCommand;
         const menu = actionMenu(world, state, member.id, hit).filter(e => e.target === hit);
@@ -781,6 +879,12 @@ export class PlayMode {
             this.refresh();
             return;
         }
+        // Loop feed again while it is previewed: the next camera the crew knows of (src/game/actions.ts).
+        const pending = this.session.pendingCommand;
+        if (id === 'loop' && pending?.type === 'loopFeed') {
+            const next = nextCamera(this.session.world, this.session.state, member.id, pending.camera);
+            if (next) this.target = next;
+        }
         const entry = actionMenu(this.session.world, this.session.state, member.id, this.target).find(e => e.id === id);
         if (!entry) return;
         if (entry.reason) return this.toast(entry.reason);
@@ -889,6 +993,8 @@ export class PlayMode {
     /** The HUD, the rings and the overlay, from the Session. */
     private refresh(): void {
         const { session } = this, vm = session.hud({ mapOn: this.mapOn, overlays: this.overlays, target: this.target });
+        // Where each carrier is, as the ledger may say (a holder the crew doesn't know has none): the camera's visits use it.
+        for (const t of vm.ledger) if (t.pos && session.state.carriers.some(c => c.id === t.id)) this.carrierAt.set(t.id, { x: t.pos.x, y: t.pos.y });
         this.hud.update(this.recap ? { ...vm, recap: session.recap() } : vm);
         this.autoBar.update(autoBarView(session, this.auto, this.lastStop));
         session.state.crew.forEach(c => this.people.highlight(this.sprite.get(c.id)!, c.id === session.selected));
@@ -1016,7 +1122,7 @@ export class PlayMode {
     }
 
     /** The overlay's knowledge layer: unscouted tiles, ghosts' "seen N turns ago", the sound pings. */
-    private knowledgeLayer(): Pick<OverlayContent, 'seen' | 'ghosts' | 'pings' | 'badges' | 'crewColours' | 'cones' | 'predicted' | 'colourBlind'> {
+    private knowledgeLayer(): Pick<OverlayContent, 'seen' | 'ghosts' | 'pings' | 'badges' | 'crewColours' | 'cones' | 'predicted' | 'colourBlind' | 'cameras' | 'flashes'> {
         const view = this.known(), { world, state } = this.session, busy = this.busy;
         const shown = (id: string) => this.people.shown(this.sprite.get(id) ?? -1);
         // Cones: the one long-pressed, or every NPC's the crew knows of from the overlay drawer (§20.4).
@@ -1026,6 +1132,8 @@ export class PlayMode {
             ghosts: view.npcs.filter(m => m.kind === 'ghost' && shown(m.id)).map(m => ({ pos: m.pos, seenAgo: m.seenAgo })),
             pings: view.pings.map(p => ({ at: p.at })),
             colourBlind: this.colourBlind,
+            cameras: this.cameras(),
+            flashes: this.liveFlashes(),
             crewColours: Object.fromEntries(state.crew.map((c, i) => [c.id, CREW_COLOURS[i % CREW_COLOURS.length]!])),
             // People walking during playback: their plates come back when it is over.
             ...(busy ? {} : {
@@ -1036,12 +1144,37 @@ export class PlayMode {
         };
     }
 
-    /** Long-press (UI.md "why"): on an NPC the crew knows of, its cones until the next tap; elsewhere, nothing yet. */
+    /**
+     * The known cameras (§8.12): a plate each, with their cones when the drawer's Cameras overlay is on, or the one
+     * long-pressed. Worked out once per state and choice.
+     */
+    private cameras(): CameraVM[] {
+        const state = this.session.state, all = !!this.overlays.cameras, cones = all ? '*' : this.coneOf ?? '';
+        if (this.camerasFor?.state !== state || this.camerasFor.cones !== cones) {
+            const view = this.known(), long = !all && view.cameras.some(c => c.id === this.coneOf);
+            let views = cameraViews(this.session.world, state, view, all || long);
+            if (long) views = views.map(v => (v.id === this.coneOf ? v : { ...v, core: [], peripheral: [], next: [] }));
+            this.camerasFor = { state, cones, views };
+        }
+        return this.camerasFor.views;
+    }
+
+    private liveFlashes(): OverlayContent['flashes'] {
+        const now = performance.now();
+        this.flashes = this.flashes.filter(f => f.until > now);
+        return this.flashes.map(({ until: _until, ...f }) => f);
+    }
+
+    /**
+     * Long-press (UI.md "why"): on an NPC the crew knows of, its cones until the next tap; on a known camera, its cone;
+     * elsewhere, nothing yet.
+     */
     private longPress(x: number, y: number): void {
         if (this.busy || this.recap) return;
         const gy = this.groundY(x, y), tile = { x: Math.floor(x / TILE), y: Math.floor(gy / TILE) };
-        const hit = this.known().npcs.find(m => m.kind !== 'ghost' && (same(m.pos, tile) || this.people.hit(this.sprite.get(m.id) ?? -1, x, y)));
-        this.coneOf = hit && this.coneOf !== hit.id ? hit.id : null;
+        const hit = this.known().npcs.find(m => m.kind !== 'ghost' && (same(m.pos, tile) || this.people.hit(this.sprite.get(m.id) ?? -1, x, y)))?.id
+            ?? this.known().cameras.find(c => same(c.pos, tile))?.id;
+        this.coneOf = hit && this.coneOf !== hit ? hit : null;
         this.refresh();
     }
 

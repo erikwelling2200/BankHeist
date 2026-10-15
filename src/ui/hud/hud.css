@@ -152,6 +152,14 @@
 .sh-act .sh-cost { position: absolute; left: 4px; bottom: 4px; }
 .sh-act .sh-cost i { display: block; width: 3px; height: 7px; background: var(--iv); }
 .sh-act.go .sh-cost i { background: var(--gold); }
+/* Work done on a job that spans actions (the alarm panel's "2/4"), in the button's top right. */
+.sh-prog { position: absolute; right: 3px; top: 2px; font-size: 10px; letter-spacing: 0; line-height: 1; color: var(--iv); background: var(--ink); padding: 1px 2px; }
+/* What Confirm would set off (§8.8, "this would start: Teller button (2)"): left of the action grid, red for a carrier. */
+.sh-cnote { position: absolute; right: calc(var(--pr) + 116px); bottom: calc(var(--pb) + 96px); max-width: 260px; display: flex; flex-direction: column; gap: 3px; align-items: flex-end; pointer-events: none; }
+.sh-cnote > span { display: flex; align-items: center; gap: 4px; padding: 3px 7px 3px 4px; border-radius: var(--r); background: rgba(11, 13, 23, 0.86); font: 600 calc(var(--sh-text) * 12px) var(--mono); letter-spacing: 0.02em; }
+.sh-cnote .sh-ic { width: 16px; height: 16px; }
+.sh-cstart { border: 2px solid var(--red); color: #ffd9d2; box-shadow: inset 3px 0 0 var(--red); }
+.sh-cstop { border: 1px dashed var(--safe); color: var(--safe); }
 .sh-undo { position: absolute; right: calc(var(--pr) + 172px); bottom: var(--pb); }
 .sh-undo .sh-kc { right: -4px; top: -8px; }
 .sh-confirm { position: absolute; right: var(--pr); bottom: var(--pb); width: 164px; height: 58px; box-sizing: border-box; border-radius: var(--r2); border: 0;
@@ -242,3 +250,6 @@ span.sh-p { font-size: 16px; }
 .play-stirred { border: 1px solid rgba(242, 230, 200, 0.45); font-style: italic; animation: play-fade 2.4s forwards; }
 .play-stirred:not([style]) { left: auto; right: 200px; bottom: 90px; transform: none; }
 @keyframes play-fade { 0%, 70% { opacity: 1; } 100% { opacity: 0; } }
+/* The Alarm (§9.2): a red banner across the top of the map for a moment, "ALARM: police in N". */
+.play-alarm { position: fixed; z-index: 7; left: 50%; top: 22%; transform: translateX(-50%); padding: 8px 18px; border: 2px solid #d44638; border-radius: 6px; background: rgba(40, 8, 8, 0.88); color: #ffd9d2; font: 700 18px ui-monospace, Menlo, Consolas, monospace; letter-spacing: 0.12em; text-shadow: 0 2px 0 #000; white-space: nowrap; pointer-events: none; box-shadow: 0 0 0 3px rgba(212, 70, 56, 0.35); animation: play-alarm 2.6s forwards; }
+@keyframes play-alarm { 0%, 12%, 24% { opacity: 1; } 6%, 18% { opacity: 0.35; } 80% { opacity: 1; } 100% { opacity: 0; } }

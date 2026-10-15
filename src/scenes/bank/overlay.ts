@@ -1,6 +1,6 @@
 import Phaser from 'phaser';
 import { drawNumber, drawRows, GLYPHS, glyphSize, numberWidth, type GlyphName } from '../../art/ui/glyphs';
-import type { BadgeVM, ConeVM, HearerVM, PlateVM, Signal } from '../../game/worldUi';
+import type { BadgeVM, CameraVM, ConeVM, HearerVM, PlateVM, Signal } from '../../game/worldUi';
 import { TILE } from '../../level/level';
 import type { Pos } from '../../sim';
 
@@ -14,13 +14,25 @@ import type { Pos } from '../../sim';
  * - **Floor:** unscouted tiles grey; the safe-floor tints (`safeFloor`, the hook M1-09 fills); sound pings; the
  *   selected crew member's movement range, XCOM style (Move's tiles steel blue with a solid edge, those only a Dash
  *   reaches hatched gold with a dashed edge); an NPC's cones on long-press (scanlines and a solid edge for the core, a
- *   dotted edge for the peripheral band, red when Alerted); a previewed noise's ring (dotted, faint fill).
+ *   dotted edge for the peripheral band, red when Alerted); the known cameras' cones (vertical scanlines and a dashed
+ *   edge: red on the operator's monitors, amber when live or unknown, grey and faint while looped; a panning camera's
+ *   next facing dotted); a previewed noise's ring (dotted, faint fill); a moment's flashes (a guard's shout ring, the
+ *   Alarm's rings).
  * - **Paths:** NPC intents (a dotted hairline, an open chevron and a pin where the walk ends; fainter when predicted);
  *   predicted markers (a dashed footprint); the previewed or dragged path, ending on a tile outline in the crew colour
  *   (doubled for a dash; steps past the first bad one red).
- * - **Over heads:** state plates and carrier countdowns, suspicion pips in each crew member's colour, the ear badges
- *   of a noise's hearers naming what they'll do, the witnesses of a preview, ghosts' "seen N turns ago".
+ * - **Over heads:** state plates and carrier countdowns, a downed guard's radio, suspicion pips in each crew member's
+ *   colour, the ear badges of a noise's hearers naming what they'll do, the witnesses of a preview, ghosts' "seen N
+ *   turns ago", each known camera's plate (`?` unknown feed, `!` on the monitors, a looped feed's phases left).
  */
+
+/** A known camera's plate: `?` while its feed status is unknown, `!` on the monitors, a looped feed's phases left. */
+function cameraPlate(cam: CameraVM): PlateVM {
+    if (cam.dead) return { glyph: 'camera', signal: 'cream', then: 'cross' };
+    if (cam.loopLeft !== undefined) return { glyph: 'camera', signal: 'cream', count: cam.loopLeft };
+    if (cam.status === 'unknown') return { glyph: 'camera', signal: 'amber', sym: '?' };
+    return cam.monitored ? { glyph: 'camera', signal: 'red', sym: '!' } : { glyph: 'camera', signal: 'amber' };
+}
 
 /** UI pixels per art pixel. */
 const UI_SCALE = 2;
@@ -67,6 +79,10 @@ export interface OverlayContent {
     hearers?: HearerVM[];
     /** NPC cones to show (one on long-press, or all from the overlay drawer). */
     cones?: ConeVM[];
+    /** The cameras the crew knows of: a plate each, and their cones when the drawer's Cameras overlay is on. */
+    cameras?: CameraVM[];
+    /** A moment on the map, drawn for a second or two: a guard's "Hands up!" ring (its tiles), the Alarm's rings. */
+    flashes?: { at: Pos; kind: 'shout' | 'alarm'; tiles?: Pos[] }[];
     /** Predicted NPC markers (§8.15): a dashed footprint where the routine puts them. */
     predicted?: Pos[];
     /**
@@ -132,10 +148,11 @@ export class WorldOverlay {
     }
 
     /** The path shown, for tests. */
-    get state(): { badges: number; hearers: number; cones: number; colourBlind: boolean; path: Pos[]; reach: number; dashReach: number; range: { walk: Pos[]; run: Pos[] }; dash: boolean; noise: number; witnesses: number; intents: number } {
+    get state(): { badges: number; hearers: number; cones: number; cameras: number; cameraCones: number; flashes: number; colourBlind: boolean; path: Pos[]; reach: number; dashReach: number; range: { walk: Pos[]; run: Pos[] }; dash: boolean; noise: number; witnesses: number; intents: number } {
         const c = this.content;
         return {
             badges: c?.badges?.length ?? 0, hearers: c?.hearers?.length ?? 0, cones: c?.cones?.length ?? 0, colourBlind: !!c?.colourBlind,
+            cameras: c?.cameras?.length ?? 0, cameraCones: c?.cameras?.filter(v => v.core.length + v.peripheral.length > 0).length ?? 0, flashes: c?.flashes?.length ?? 0,
             path: c?.path ?? [], reach: c?.reach?.move.length ?? 0, dashReach: c?.reach?.dash.length ?? 0,
             range: { walk: c?.reach?.move ?? [], run: c?.reach?.dash ?? [] }, dash: !!c?.dash, noise: c?.noise?.length ?? 0, witnesses: c?.witnesses?.length ?? 0,
             intents: c?.intents?.length ?? 0
@@ -265,6 +282,40 @@ export class WorldOverlay {
             stroke(cone.core, has([...cone.core, ...from]), colour, 2, []);
         }
 
+        // Cameras: vertical scanlines (NPC cones run across), a dashed edge; red when the operator watches its feed now,
+        // amber when live or its feed status is unknown (it counts as live, §8.8), grey while looped.
+        for (const cam of c.cameras ?? []) {
+            const all = [...cam.core, ...cam.peripheral];
+            if (!all.length) continue;
+            const looped = cam.loopLeft !== undefined, colour = looped ? '#807e88' : cam.monitored ? pal.red : pal.amber, from = [cam.pos];
+            ctx.fillStyle = alpha(colour, looped ? 0.1 : 0.2);
+            for (const p of cam.core) for (let k = 0; k < S; k += 3) ctx.fillRect(left(p) + k, top(p), 1, S);
+            ctx.fillStyle = alpha(colour, looped ? 0.06 : 0.1);
+            for (const p of cam.peripheral) for (let k = 0; k < S; k += 6) ctx.fillRect(left(p) + k, top(p), 1, S);
+            stroke(all, has([...all, ...from]), alpha(colour, looped ? 0.45 : 0.9), looped ? 1 : 2, [5, 3]);
+            if (cam.next?.length) stroke(cam.next, has([...cam.next, ...from]), alpha(colour, 0.55), 1, [1, 3]);
+        }
+
+        for (const f of c.flashes ?? []) {
+            if (f.tiles?.length) {
+                ctx.fillStyle = alpha(pal.red, 0.16);
+                for (const p of f.tiles) ctx.fillRect(left(p), top(p), S, S);
+                stroke(f.tiles, has(f.tiles), pal.red, 3, [2, 2]);
+            }
+            if (f.kind === 'alarm') {
+                const [x, y] = mid(f.at);
+                ctx.lineWidth = 3;
+                for (const r of [16, 34, 56]) {
+                    for (const [style, dy] of [[INK, 2], [pal.red, 0]] as const) {
+                        ctx.strokeStyle = style;
+                        ctx.beginPath();
+                        ctx.arc(x, y + dy, r, 0, Math.PI * 2);
+                        ctx.stroke();
+                    }
+                }
+            }
+        }
+
         if (c.noise?.length) {
             ctx.fillStyle = alpha(pal.amber, 0.2);
             for (const p of c.noise) ctx.fillRect(left(p), top(p), S, S);
@@ -348,6 +399,7 @@ export class WorldOverlay {
         // The one sent to look also wears the pin (Investigating).
         for (const e of c.hearers ?? []) row(e.pos, e.lying).plates.push({ glyph: 'speaker', signal: e.signal, ...(e.sym ? { sym: e.sym } : {}), ...(e.sent ? { then: 'pin' as const } : {}) });
         for (const w of c.witnesses ?? []) row(w, false).plates.push({ glyph: 'eye', signal: 'red', sym: '!' });
+        for (const cam of c.cameras ?? []) row(cam.pos, true).plates.push(cameraPlate(cam));
         for (const r of rows.values()) {
             const x = Math.round(mid(r.pos)[0]), y = Math.round(top(r.pos)) - (r.lying ? LYING : HEAD);
             ctx.globalAlpha = r.faded ? 0.55 : 1;

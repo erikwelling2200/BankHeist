@@ -1,9 +1,11 @@
-import { DASH_ACTIONS, MOVE_ACTIONS, type CarrierKind, type Command, type ReadonlyWorld, type SimEvent, type State } from '../sim';
+import {
+    CARRIERS, DASH_ACTIONS, knownCarriers, markerKind, walkingToAlarm, MOVE_ACTIONS, nextDriveBy, type CarrierChanges, type CarrierPreview, type Command, type ReadonlyWorld, type SimEvent, type State
+} from '../sim';
 import {
     CREW_COLOURS, OVERLAY_IDS, type ActionVM, type BankStatus, type CommitKind, type ConfirmVM, type HudIcon, type BankStatusVM, type CrewVM, type HudViewModel, MAX_ACTIONS, type OverlayId, type RecapEventVM,
     type RecapVM, type ThreatVM
 } from '../ui/hud/viewModels';
-import { actionMenu } from './actions';
+import { actionMenu, cameraName, VERBS } from './actions';
 import type { UiState } from './session';
 
 /*
@@ -12,31 +14,113 @@ import type { UiState } from './session';
  * (src/ui/hud/viewModels.ts); fields the later packages fill in (profile, HP, heat, actions) are placeholders for now.
  */
 
-const CARRIER_LABELS: Readonly<Record<CarrierKind, string>> = {
-    tellerButton: 'Teller button', managerButton: 'Manager button', guardRadio: 'Guard radio', operatorCamera: 'Camera operator',
-    phoneCall: 'Phone call', escapee: 'Escapee', missedCheckIn: 'Missed check-in', seismicSensor: 'Seismic sensor',
-    motionSensor: 'Motion sensor', patrolCar: 'Patrol car'
-};
-
-/** Live carriers, most urgent first: running before halted, then by countdown, then by id. */
-export function threatLedger(state: State): ThreatVM[] {
-    const live: ThreatVM[] = [];
-    for (const c of state.carriers) {
-        if (c.halted === 'countered') continue;
-        live.push({
-            id: c.id, kind: c.kind, source: c.source, label: CARRIER_LABELS[c.kind] ?? c.kind, countdown: c.countdown,
-            halted: c.halted === 'paused' ? 'paused' : null, pos: { x: c.pos.x, y: c.pos.y }, targetId: c.source
-        });
-    }
-    return live.sort((a, b) => Number(!!a.halted) - Number(!!b.halted) || a.countdown - b.countdown || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+/** The portrait an NPC's role wears in the ledger (src/ui/hud/img); roles without one show their initial. */
+export function rolePortrait(role: string): string | undefined {
+    const r = role.toLowerCase();
+    if (r.includes('guard') || r === 'chief') return 'guard';
+    if (r.includes('teller')) return 'teller';
+    if (r === 'manager' || r === 'operator' || r === 'cleaner') return r;
+    if (r.includes('customer') || r === 'passer-by') return 'customer';
+    return undefined;
 }
 
+const byId = (a: { id: string }, b: { id: string }): number => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
+
+/**
+ * Every live clock (§20.3 "Threat ledger"), most urgent first: running before halted, then by countdown, a carrier
+ * before anything else at the same count. Every carrier shows (§9.1: the crew is told each one, `carrierStarted` names
+ * its holder): its label, its holder's portrait, its countdown and whether it is halted. With the world: the check-in
+ * calls of the guards the crew knows of (§8.11: the next call, or a downed guard's radio ringing), the patrol car's next
+ * drive-by (§16.3, on the bank's timeline or announced by the police scanner), anyone walking to raise the alarm
+ * (`walkingToAlarm`) and, after the Alarm, the police.
+ */
+export function threatLedger(state: State, world?: ReadonlyWorld): ThreatVM[] {
+    const live: ThreatVM[] = [];
+    const person = (id: string) => world?.people.find(p => p.id === id);
+    // With the world, as the crew may know them (`knownCarriers`): who holds one, and where, only for a holder it sees or
+    // predicts (or one that is nobody: dispatch, the car); the carrier shows, not who carries it.
+    const carriers = world ? knownCarriers(world, state) : state.carriers.map(c => ({ ...c, label: CARRIERS[c.kind].label }));
+    for (const c of carriers) {
+        if (c.halted === 'countered') continue;
+        const holder = c.source !== null ? person(c.source) : undefined, portrait = holder && rolePortrait(holder.role);
+        const subject = c.subject ? person(c.subject)?.name ?? c.subject : undefined;
+        live.push({
+            id: c.id, kind: c.kind, source: c.source ?? '', label: subject ? `${c.label}: ${subject}` : c.label, countdown: c.countdown,
+            halted: c.halted === 'paused' ? 'paused' : null, pos: c.pos ? { x: c.pos.x, y: c.pos.y } : null, ...(c.source !== null ? { targetId: c.source } : {}),
+            ...(portrait ? { portrait } : {})
+        });
+    }
+    if (world) live.push(...clocks(world, state));
+    const carrier = (t: ThreatVM) => (t.kind === 'checkIn' || t.kind === 'driveBy' || t.kind === 'reinforcement' ? 1 : 0);
+    return live.sort((a, b) => Number(!!a.halted) - Number(!!b.halted) || a.countdown - b.countdown || carrier(a) - carrier(b) || byId(a, b));
+}
+
+/** World phases until something that happens in the world phase of turn `at`, counted as carriers count (§9.1). */
+const phasesUntil = (state: State, at: number): number => Math.max(1, at - state.turn + 1);
+
+/** The ledger's clocks that aren't carriers (see `threatLedger`). */
+function clocks(world: ReadonlyWorld, state: State): ThreatVM[] {
+    const out: ThreatVM[] = [];
+    const r = state.response;
+    if (r) {
+        out.push({ id: 'police', kind: 'reinforcement', source: 'police', label: r.policeIn > 0 ? 'Police arrive' : 'Police on site', countdown: r.policeIn, halted: null,
+            pos: policePos(world), portrait: 'police' });
+        // After the Alarm nobody calls a guard or drives past to check: the police are coming anyway.
+        return out;
+    }
+    // Someone on their way to raise the alarm (a teller walking to her button): the carrier it will start, and when the
+    // Alarm would go off (§9.1: the walk is the telegraph). Holder and place only where the crew knows them.
+    walkingToAlarm(world, state).forEach((w, i) => {
+        // One already holding a carrier of that kind keeps it (`raiseCarrier`): the carrier's row says it all.
+        if (w.npc !== null && state.carriers.some(c => c.source === w.npc && c.kind === w.kind)) return;
+        const holder = w.npc !== null ? world.people.find(p => p.id === w.npc) : undefined, portrait = holder && rolePortrait(holder.role);
+        out.push({
+            id: `walk:${w.npc ?? i}`, kind: w.kind, source: w.npc ?? '', label: `${w.label}: on the way (${w.eta})`, countdown: w.alarmIn, halted: null,
+            pos: w.pos ? { x: w.pos.x, y: w.pos.y } : null, ...(w.npc !== null ? { targetId: w.npc } : {}), ...(portrait ? { portrait } : {})
+        });
+    });
+    const radio = (state as Partial<State>).radio;
+    for (const guard of Object.keys(radio?.calls ?? {}).sort()) {
+        const call = radio!.calls[guard]!, npc = state.npcs.find(n => n.id === guard), def = world.people.find(p => p.id === guard);
+        if (!npc || !def || markerKind(world, state, guard) === null) continue;
+        const known = state.knowledge.npcs[guard]!, pos = { x: known.at.x, y: known.at.y };
+        if (call.ringing !== null) {
+            out.push({ id: `checkIn:${guard}`, kind: 'checkIn', source: guard, label: `Radio ringing: ${def.name}`, countdown: 1, halted: null, pos, targetId: guard, portrait: 'guard', urgent: true });
+            continue;
+        }
+        out.push({ id: `checkIn:${guard}`, kind: 'checkIn', source: guard, label: `Check-in: ${def.name}${call.missed ? ` (missed ${call.missed})` : ''}`,
+            countdown: phasesUntil(state, call.next), halted: null, pos, targetId: guard, portrait: 'guard' });
+    }
+    const driveBy = radio ? nextDriveBy(world, state) : null;
+    if (driveBy !== null) {
+        const sent = radio!.driveBy === driveBy;
+        out.push({ id: 'driveBy', kind: 'driveBy', source: 'patrol', label: sent ? 'Patrol car (dispatch)' : 'Patrol drive-by', countdown: phasesUntil(state, driveBy), halted: null,
+            pos: policePos(world), ...(sent ? { urgent: true } : {}) });
+    }
+    return out;
+}
+
+/** Where the police come from: the middle of the patrol car's lane, else the middle of the map. */
+function policePos(world: ReadonlyWorld): { x: number; y: number } {
+    const lane = world.patrol?.lane ?? [];
+    const p = lane[Math.floor(lane.length / 2)];
+    return p ? { x: p.x, y: p.y } : { x: Math.floor(world.width / 2), y: Math.floor(world.height / 2) };
+}
+
+/**
+ * The state pill (§20.3): "QUIET", "QUIET: alarm in 2" with a carrier running, "ALARM: police in 6" once the Alarm is
+ * up (§9.2), "LOUD". Heat is a placeholder until the police arrive (M3): Heat 1 from then.
+ */
 export function bankView(state: State): BankStatusVM {
     const running = threatLedger(state).filter(t => !t.halted);
-    const nextAlarmIn = running.length ? running[0]!.countdown : null;
+    const nextAlarmIn = state.bank.alarm ? null : running.length ? running[0]!.countdown : null;
     const status: BankStatus = state.bank.alarm ? 'alarm' : state.bank.loud ? 'loud' : 'quiet';
-    const label = status === 'alarm' ? 'ALARM' : status === 'loud' ? 'LOUD' : nextAlarmIn !== null ? `QUIET: alarm in ${nextAlarmIn}` : 'QUIET';
-    return { status, label, nextAlarmIn };
+    const r = (state as Partial<State>).response ?? null;
+    const label = status === 'alarm'
+        ? r ? (r.policeIn > 0 ? `ALARM: police in ${r.policeIn}` : 'ALARM: police on site') : 'ALARM'
+        : status === 'loud' ? 'LOUD' : nextAlarmIn !== null ? `QUIET: alarm in ${nextAlarmIn}` : 'QUIET';
+    const heat = r && r.policeIn <= 0 ? { level: r.heat.level, ticks: r.heat.tick, next: null } : null;
+    return { status, label, nextAlarmIn, ...(r ? { policeEta: r.policeIn, heat } : {}) };
 }
 
 /** Each crew member's colour, from their place in the crew's order. */
@@ -75,6 +159,8 @@ export interface HudExtras {
     target?: string | null;
     /** What a command would cost, from its preview (actions spent), or undefined when the sim refuses it. */
     costOf?: (cmd: Command) => number | undefined;
+    /** What the pending command does to the alarm carriers, as the crew may know it (`Session.carrierChanges`). */
+    carriers?: CarrierChanges;
 }
 
 /**
@@ -84,7 +170,7 @@ export interface HudExtras {
 export type ActionId = string;
 
 /** How a command is named on its button and on Confirm, and what it costs when no preview says (Wait: no pip of its own). */
-function describeCommand(cmd: Command): { label: string; icon: HudIcon; cost: number } {
+function describeCommand(cmd: Command, world?: ReadonlyWorld): { label: string; icon: HudIcon; cost: number } {
     switch (cmd.type) {
         case 'move': return { label: 'Move', icon: 'move', cost: MOVE_ACTIONS };
         case 'dash': return { label: 'Dash', icon: 'dash', cost: DASH_ACTIONS };
@@ -94,7 +180,14 @@ function describeCommand(cmd: Command): { label: string; icon: HudIcon; cost: nu
         case 'drag': return { label: 'Drag', icon: 'heavy', cost: 1 };
         case 'drop': return { label: 'Drop', icon: 'flip', cost: 1 };
         case 'stash': return { label: 'Stash', icon: 'concealed', cost: 1 };
-        case 'interact': return { label: cmd.verb, icon: 'interact', cost: 1 };
+        case 'interact': {
+            const kind = world?.objects.find(o => o.id === cmd.object)?.kind;
+            const named = kind && VERBS[`${kind}.${cmd.verb}`];
+            return named ? { label: named.label, icon: named.icon, cost: 1 } : { label: cmd.verb, icon: 'interact', cost: 1 };
+        }
+        case 'loopFeed': return { label: world ? `Loop ${cameraName(world, cmd.camera)}` : 'Loop feed', icon: 'hack', cost: 1 };
+        case 'answerRadio': return { label: 'Answer radio', icon: 'chat', cost: 1 };
+        case 'placeJammer': return { label: 'Jammer', icon: 'radio', cost: 1 };
         default: return { label: cmd.type, icon: 'interact', cost: 1 };
     }
 }
@@ -110,31 +203,42 @@ export function actionsView(world: ReadonlyWorld, state: State, ui: UiState, ext
     const member = state.crew.find(c => c.id === ui.selected);
     if (!member || state.phase !== 'crew') return [];
     const pending = ui.pendingCommand, moving = !pending || pending.type === 'move' || pending.type === 'dash';
-    const move = describeCommand(pending?.type === 'dash' ? pending : { type: 'move', crew: member.id, path: [] });
+    const move = describeCommand(pending?.type === 'dash' ? pending : { type: 'move', crew: member.id, path: [] }, world);
     const stuck = member.actionsLeft === 0 ? 'No actions left' : undefined;
     const out: ActionVM[] = [{ id: 'move', label: move.label, icon: move.icon, cost: move.cost, enabled: !stuck, ...(stuck ? { reason: stuck } : {}), selected: moving }];
     for (const e of actionMenu(world, state, member.id, extras.target)) {
-        const cost = e.command.type === 'wait' ? 0 : (!e.reason && extras.costOf?.(e.command)) || describeCommand(e.command).cost;
-        out.push({ id: e.id, label: e.label, icon: e.icon, cost, enabled: !e.reason, ...(e.reason ? { reason: e.reason } : {}), selected: sameCommand(pending, e.command) });
+        const cost = e.command.type === 'wait' ? 0 : (!e.reason && extras.costOf?.(e.command)) || describeCommand(e.command, world).cost;
+        out.push({
+            id: e.id, label: e.label, icon: e.icon, cost, enabled: !e.reason, ...(e.reason ? { reason: e.reason } : {}), selected: sameCommand(pending, e.command),
+            ...(e.progress ? { progress: e.progress } : {})
+        });
     }
     return out.slice(0, MAX_ACTIONS);
 }
 
 /** Events in a preview that give the crew away, or are an illegal act seen or not (§8.4): Confirm turns amber. */
-const COSTLY_EVENTS: ReadonlySet<string> = new Set(['heard', 'perceptionCheck', 'cameraSaw', 'knockedOut', 'bodyLifted', 'bodyStashed']);
+const COSTLY_EVENTS: ReadonlySet<string> = new Set(['heard', 'perceptionCheck', 'cameraSaw', 'knockedOut', 'bodyLifted', 'bodyStashed', 'carrierStarted', 'confronted']);
+
+/** A carrier as a preview names it (§8.8): "Teller button (2)". */
+const carrierText = (c: Pick<CarrierPreview, 'label' | 'countdown'>): string => `${c.label} (${c.countdown})`;
 
 /**
  * Confirm for the pending command: its name and cost (a Dash shows 2 pips), coloured by what it gives away (UI.md
  * "Confirm's colour"): amber when someone hears or sees it, or it is an illegal act; cream otherwise. Dimmed while
  * nothing is previewed.
  */
-export function confirmView(ui: UiState, previewEvents: readonly SimEvent[] = [], costOf?: (cmd: Command) => number | undefined): ConfirmVM {
+export function confirmView(
+    ui: UiState, previewEvents: readonly SimEvent[] = [], costOf?: (cmd: Command) => number | undefined, carriers?: CarrierChanges, world?: ReadonlyWorld
+): ConfirmVM {
     const cmd = ui.pendingCommand;
     if (!cmd || cmd.type === 'endTurn') return { kind: 'clean', label: '', cost: 0, enabled: false };
-    const action = describeCommand(cmd);
+    const action = describeCommand(cmd, world);
     const cost = cmd.type === 'wait' ? 0 : costOf?.(cmd) ?? action.cost;
-    const kind: CommitKind = previewEvents.some(e => COSTLY_EVENTS.has(e.type)) ? 'costly' : 'clean';
-    return { kind, label: action.label.toUpperCase(), icon: action.icon, cost, enabled: true };
+    // A carrier it would start, at once or in the coming world phase, is a cost the player must see (§8.8).
+    const starts = carriers ? [...carriers.starts, ...carriers.worldPhase].map(carrierText) : [];
+    const stops = carriers ? carriers.stops.map(c => CARRIERS[c.kind].label) : [];
+    const kind: CommitKind = starts.length || previewEvents.some(e => COSTLY_EVENTS.has(e.type)) ? 'costly' : 'clean';
+    return { kind, label: action.label.toUpperCase(), icon: action.icon, cost, enabled: true, ...(starts.length ? { starts } : {}), ...(stops.length ? { stops } : {}) };
 }
 
 export function hudView(world: ReadonlyWorld, state: State, ui: UiState, extras: HudExtras = {}): HudViewModel {
@@ -144,9 +248,9 @@ export function hudView(world: ReadonlyWorld, state: State, ui: UiState, extras:
         crew: crewCards(world, state, ui.selected),
         selected: ui.selected,
         actions: actionsView(world, state, ui, extras),
-        confirm: confirmView(ui, extras.previewEvents, extras.costOf),
+        confirm: confirmView(ui, extras.previewEvents, extras.costOf, extras.carriers, world),
         undoEnabled: extras.undoEnabled ?? false,
-        ledger: threatLedger(state),
+        ledger: threatLedger(state, world),
         overlays: Object.fromEntries(OVERLAY_IDS.map(id => [id, extras.overlays?.[id] ?? false])) as Record<OverlayId, boolean>,
         mapOn: extras.mapOn ?? false
     };
@@ -172,7 +276,7 @@ export function recapView(world: ReadonlyWorld, state: State, recent: readonly S
             exposed: exposedTo(state, c.id).length > 0,
             hp: null
         })),
-        threats: threatLedger(state)
+        threats: threatLedger(state, world)
     };
 }
 
@@ -186,9 +290,33 @@ export function describeEvent(world: ReadonlyWorld, state: State, event: SimEven
             ? `${name(event.crew)} ran into ${name(event.npc)} and stopped at (${event.at.x}, ${event.at.y})`
             : `${name(event.crew)} spotted ${name(event.npc)} and stopped at (${event.at.x}, ${event.at.y})`;
         case 'phaseStarted': return event.phase === 'crew' ? `Turn ${event.turn}` : `World phase of turn ${event.turn}`;
-        case 'carrierStarted': return `${CARRIER_LABELS[event.kind] ?? event.kind}: alarm in ${event.countdown}`;
+        case 'carrierStarted': return `${CARRIERS[event.kind].label}: alarm in ${event.countdown}`;
         case 'carrierTicked': return `Alarm in ${event.countdown}`;
-        case 'alarmRaised': return 'The alarm is raised';
+        case 'carrierStopped': return `${CARRIERS[event.kind].label} stopped${STOP_WHY[event.why] ? `: ${STOP_WHY[event.why]}` : ''}`;
+        case 'carrierPaused': return `A carrier is paused: ${event.why}`;
+        case 'carrierResumed': return 'A carrier runs again';
+        case 'alarmRaised': return state.response ? `The alarm is raised: police in ${state.response.policeIn}` : 'The alarm is raised';
+        case 'policeCountdown': return event.policeIn > 0 ? `Police in ${event.policeIn}` : 'The police are here';
+        case 'alarmAttempt': return `${name(event.npc)} raises the alarm`;
+        case 'alarmDead': return `${name(event.source)} pressed the button: nothing happened`;
+        case 'confronted': return `${name(event.npc)} to ${name(event.crew)}: “Hands up!”`;
+        case 'panelWorked': return `${name(event.crew)} worked on the alarm panel (${event.progress}/${event.needed})`;
+        case 'panelDisabled': return `${name(event.crew)} killed the alarm panel`;
+        case 'jammerPlaced': return `${name(event.crew)} set a jammer running`;
+        case 'checkIn': return `${name(event.guard)} checked in on the radio`;
+        case 'checkInRinging': return `${name(event.guard)}’s radio is ringing`;
+        case 'radioAnswered': return `${name(event.crew)} answered ${name(event.guard)}’s radio`;
+        case 'checkInMissed': return `${name(event.guard)} missed a check-in (${event.missed})`;
+        case 'checkInSearch': return `${name(event.sent)} was sent to look for ${name(event.guard)}`;
+        case 'dispatchLostContact': return `Dispatch lost contact: a patrol car comes past on turn ${event.driveBy}`;
+        case 'patrolPassed': return event.saw === null ? 'A patrol car drove past' : 'A patrol car drove past and saw something';
+        case 'feedLooped': return `${name(event.crew)} looped ${cameraName(world, event.camera)} until turn ${event.until}`;
+        case 'feedRestored': return `${capitalise(cameraName(world, event.camera))} shows the room again`;
+        case 'operatorVerifies': return `${name(event.npc)} saw something on ${cameraName(world, event.camera)}`;
+        case 'operatorSentGuard': return `${name(event.npc)} sent ${name(event.guard)} to look`;
+        case 'footageRecorded': return `${capitalise(cameraName(world, event.camera))} recorded ${name(event.crew)}`;
+        case 'recorderTaken': return `${name(event.crew)} took the recorder`;
+        case 'recorderDestroyed': return `${name(event.crew)} smashed the recorder`;
         case 'wentLoud': return `The bank went loud: ${event.cause}`;
         case 'doorOpened': return `${name(event.by)} opened ${doorName(world, event.door)}`;
         case 'doorClosed': return event.by ? `${name(event.by)} closed ${doorName(world, event.door)}` : `${capitalise(doorName(world, event.door))} swung shut`;
@@ -205,6 +333,9 @@ export function describeEvent(world: ReadonlyWorld, state: State, event: SimEven
         default: return event.type;
     }
 }
+
+/** Why a carrier stopped, as the log says it. */
+const STOP_WHY: Readonly<Record<string, string>> = { panel: 'the alarm panel is dead', 'source down': 'its holder is down', answered: 'the radio was answered', alarm: 'the alarm is up' };
 
 const capitalise = (text: string): string => text.charAt(0).toUpperCase() + text.slice(1);
 

@@ -7,7 +7,7 @@ import type { EventType, SimEvent, State } from '../sim';
  */
 
 /** Why the camera should visit an event (§20.5). */
-export type ImportantReason = 'suspicion' | 'carrier' | 'arrival' | 'shotAtCrew' | 'escape' | 'twitchy' | 'surprise';
+export type ImportantReason = 'suspicion' | 'carrier' | 'alarm' | 'radio' | 'patrol' | 'arrival' | 'shotAtCrew' | 'escape' | 'twitchy' | 'surprise';
 
 /** Decides whether one event of a type is important; null when it isn't. `state` is the state after the events. */
 export type ImportanceRule<E extends SimEvent = SimEvent> = (event: E, state: State) => ImportantReason | null;
@@ -31,7 +31,18 @@ export function importance(event: SimEvent, state: State): ImportantReason | nul
 // A carrier starting or advancing is always worth a look; the Alarm going off is that carrier's last advance.
 registerImportance('carrierStarted', 'carrier');
 registerImportance('carrierTicked', 'carrier');
-registerImportance('alarmRaised', 'carrier');
+// The Alarm itself is the big moment (§9.2): the camera goes there and stays a while.
+registerImportance('alarmRaised', 'alarm');
+// "Hands up!" (§16.2) and the operator verifying (§8.12) start carriers of their own; a button that does nothing is news.
+registerImportance('confronted', 'carrier');
+registerImportance('operatorVerifies', 'carrier');
+registerImportance('alarmDead', 'carrier');
+// Radio check-ins (§8.11): a downed guard's radio ringing, a call missed; dispatch noticing the silence.
+registerImportance('checkInRinging', 'radio');
+registerImportance('checkInMissed', 'radio');
+registerImportance('dispatchLostContact', 'radio');
+// The patrol car (§16.3): worth a look only when its officers saw or heard something.
+registerImportance('patrolPassed', e => (e.saw !== null ? 'patrol' : null));
 // A crew move cut short by someone it didn't know was there (§8.15): the camera looks at who stopped and why.
 registerImportance('moveCut', 'surprise');
 // Someone noticing evidence says so (§8.10), and a knocked-out NPC coming round is Alerted: both are worth a look.

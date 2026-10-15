@@ -29,7 +29,7 @@ const ids = (world: ReadonlyWorld, state: State, target?: string) => actionMenu(
 describe('the action grid', () => {
     it('offers what the sim allows where the crew member stands, for the tapped target', () => {
         const { world, state } = scene();
-        expect(targetsOf(world, state, 'jun')).toEqual({ doors: ['d'], npcs: ['clerk'], objects: ['dumpster-0'] });
+        expect(targetsOf(world, state, 'jun')).toEqual({ doors: ['d'], npcs: ['clerk'], objects: ['dumpster-0'], cameras: [] });
         expect(ids(world, state)).toEqual(['door:open', 'door:lock', 'knockout', 'wait']);
         expect(menuIsLegal(world, state, 'jun', actionMenu(world, state, 'jun'))).toBe(true);
         // Locked: Unlock shows, refused with the sim's own reason.

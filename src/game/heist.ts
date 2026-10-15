@@ -15,10 +15,13 @@ import type { SaveStorage } from './storage';
 /** The generator's version as saves name it; a save of another version is still read, the world being in the save. */
 export const GEN_VERSION = 'gen-1';
 
-/** The M1 crew: two, with placeholder loadouts until the item tables (M1-05) and the planning screen. */
+/**
+ * The M1 crew: two, with placeholder loadouts until the planning screen: Mara hacks (the alarm panel, a looped feed, §9.1)
+ * and Jun carries a jammer (§12.2).
+ */
 export const M1_CREW: readonly { id: string; name: string; look: string; items: string[] }[] = [
-    { id: 'mara', name: 'Mara', look: 'crewMara', items: ['pistol', 'zipTies'] },
-    { id: 'jun', name: 'Jun', look: 'crewJun', items: ['pistol', 'duffel'] }
+    { id: 'mara', name: 'Mara', look: 'crewMara', items: ['pistol', 'zipTies', 'hackingKit'] },
+    { id: 'jun', name: 'Jun', look: 'crewJun', items: ['pistol', 'duffel', 'jammer'] }
 ];
 
 /** The tile the crew starts beside: the crew van at the curb, or else the first getaway spot, or else the lobby's door. */

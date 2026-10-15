@@ -114,6 +114,8 @@ export interface ActionVM {
     selected?: boolean;
     /** GO: wider, with a gold border (UI.md "Actions"). */
     go?: boolean;
+    /** Work done so far on a job spread over several actions ("2/4" on the alarm panel), shown on the button. */
+    progress?: string;
 }
 
 /** How many actions the grid shows (four rows of two). */
@@ -132,6 +134,10 @@ export interface ConfirmVM {
     label: string;
     icon?: HudIcon;
     cost: number;
+    /** The alarm carriers it would start, now or in the coming world phase (§8.8): "Teller button (2)". */
+    starts?: string[];
+    /** The carriers it would stop (a dead panel, an answered radio). */
+    stops?: string[];
     /** False while nothing is previewed: Confirm is dimmed. */
     enabled: boolean;
 }
@@ -140,14 +146,15 @@ export interface ConfirmVM {
 
 /**
  * What a ledger row counts down to (§20.3 "Threat ledger"): an alarm carrier by its kind (§9.1, the rules'
- * `CarrierKind`), or police reinforcements, a drill jam, a command lapsing, a scheduled event. The HUD picks the icon.
+ * `CarrierKind`), or police reinforcements, a drill jam, a command lapsing, a scheduled event, a guard's radio check-in
+ * (§8.11) or the patrol car's drive-by (§16.3). The HUD picks the icon.
  */
-export type ThreatKind = CarrierKind | 'reinforcement' | 'drill' | 'lapse' | 'schedule';
+export type ThreatKind = CarrierKind | 'reinforcement' | 'drill' | 'lapse' | 'schedule' | 'checkIn' | 'driveBy';
 
 export interface ThreatVM {
     id: string;
     kind: ThreatKind;
-    /** Who or what carries it (an NPC or object id). */
+    /** Who or what carries it (an NPC or object id); empty where the crew doesn't know who. */
     source: string;
     /** A short name for the row, without the countdown ("Teller button"). */
     label: string;
@@ -155,8 +162,10 @@ export interface ThreatVM {
     countdown: number;
     /** A paused carrier doesn't tick (its holder is commanded, a jammer runs). */
     halted: 'paused' | null;
-    /** Where the camera goes when the row is tapped. */
-    pos: Pos;
+    /** Needs the crew now (a downed guard's radio ringing): drawn amber, whatever its kind. */
+    urgent?: boolean;
+    /** Where the camera goes when the row is tapped; null where the crew doesn't know (a holder it can't see). */
+    pos: Pos | null;
     /** The NPC or object to focus, if any. */
     targetId?: string;
     /** Who carries it, if a person. */

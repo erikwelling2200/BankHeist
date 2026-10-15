@@ -1,5 +1,5 @@
 import {
-    assertPlainJson, autoStep, clonePlain, commit, deepFreeze, hashOf, noticedUnseen, popUndo, preview, projectEvents, projectPreviewEvents, RECENT_EVENTS, recordUndo, SaveFormatError, stableJson,
+    assertPlainJson, autoStep, carrierPreview, clonePlain, projectCarriers, type CarrierChanges, commit, deepFreeze, hashOf, noticedUnseen, popUndo, preview, projectEvents, projectPreviewEvents, RECENT_EVENTS, recordUndo, SaveFormatError, stableJson,
     type AutoOptions, type AutoStepResult, type Command, type CommitResult, type Pos, type PreviewResult, type ReadonlyWorld, type Routes, type SimEvent, type State,
     type UndoStack
 } from '../sim';
@@ -171,6 +171,8 @@ export class Session {
     readonly storage: SaveStorage;
     private readonly listeners = new Set<SessionListener>();
     private cache = new Map<string, Cached>();
+    /** `carrierChanges` per command, until the state changes (each plays the world phase twice on a copy). */
+    private carrierCache = new Map<string, CarrierChanges | null>();
     private emitting = false;
     private readonly emitQueue: SessionChange[] = [];
 
@@ -288,13 +290,36 @@ export class Session {
      * coloured from the player's preview of the pending command.
      */
     hud(extras: Omit<HudExtras, 'undoEnabled' | 'previewEvents' | 'costOf'> = {}): HudViewModel {
-        let previewEvents: HudExtras['previewEvents'];
+        let previewEvents: HudExtras['previewEvents'], carriers: CarrierChanges | undefined;
         if (this._ui.pendingCommand) {
             try {
                 previewEvents = this.playerPreview(this._ui.pendingCommand).events;
+                carriers = this.carrierChanges(this._ui.pendingCommand);
             } catch { /* a stale command: Confirm shows it, and committing it says why it can't */ }
         }
-        return hudView(this.world, this._state, this._ui, { ...extras, undoEnabled: this.canUndo, previewEvents, costOf: cmd => this.costOf(cmd) });
+        return hudView(this.world, this._state, this._ui, {
+            ...extras, undoEnabled: this.canUndo, previewEvents, costOf: cmd => this.costOf(cmd), ...(carriers ? { carriers } : {})
+        });
+    }
+
+    /**
+     * What `cmd` does to the alarm carriers (§8.8, Confirm's "this would start: Teller button (2)"): those it starts or
+     * stops at once and those the coming world phase would start because of it (`carrierPreview`, the truth), cut to
+     * what the crew may be shown (`projectCarriers`). Undefined when the rules refuse it. Cached until the state changes.
+     */
+    carrierChanges(cmd: Command): CarrierChanges | undefined {
+        const key = stableJson(cmd);
+        if (!this.carrierCache.has(key)) {
+            let changes: CarrierChanges | null = null;
+            try {
+                const all = carrierPreview(this.world, this._state, this.preview(cmd));
+                const shown = (list: CarrierChanges['starts']) => projectCarriers(this.world, this._state, list);
+                changes = deepFreeze({ starts: shown(all.starts), stops: all.stops, worldPhase: shown(all.worldPhase) });
+            } catch { /* refused: nothing to show */ }
+            if (this.carrierCache.size >= PREVIEW_CACHE) this.carrierCache.delete(this.carrierCache.keys().next().value!);
+            this.carrierCache.set(key, changes);
+        }
+        return this.carrierCache.get(key) ?? undefined;
     }
 
     /** The actions `cmd` spends, from its preview (the engine's: what the commit spends), or undefined when refused. */
@@ -515,6 +540,7 @@ export class Session {
     private setState(state: State): void {
         this._state = deepFreeze(state);
         this.cache = new Map();
+        this.carrierCache = new Map();
         // A selected crew member who is no longer there (arrested, escaped) is deselected; a pending command is stale.
         const selected = this._ui.selected !== null && state.crew.some(c => c.id === this._ui.selected) ? this._ui.selected : null;
         if (selected !== this._ui.selected || this._ui.pendingCommand) this._ui = deepFreeze({ ...this._ui, selected, pendingCommand: null });

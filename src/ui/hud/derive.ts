@@ -5,7 +5,7 @@ import { MAX_ACTIONS } from './viewModels';
 const THREAT_ICONS: Partial<Record<ThreatKind, HudIcon>> = {
     tellerButton: 'bell', managerButton: 'bell', guardRadio: 'radio', operatorCamera: 'eye', phoneCall: 'phone', escapee: 'run',
     missedCheckIn: 'radio', seismicSensor: 'drill', motionSensor: 'eye', patrolCar: 'police',
-    reinforcement: 'police', drill: 'drill', lapse: 'command', schedule: 'fork'
+    reinforcement: 'police', drill: 'drill', lapse: 'command', schedule: 'fork', checkIn: 'radio', driveBy: 'car'
 };
 
 export function threatIcon(kind: ThreatKind): HudIcon {
@@ -13,7 +13,7 @@ export function threatIcon(kind: ThreatKind): HudIcon {
 }
 
 /** Kinds that are not alarm carriers: everything else in the ledger raises the Alarm when it runs out (§9.1). */
-const NOT_CARRIERS: ReadonlySet<ThreatKind> = new Set(['reinforcement', 'drill', 'lapse', 'schedule']);
+const NOT_CARRIERS: ReadonlySet<ThreatKind> = new Set(['reinforcement', 'drill', 'lapse', 'schedule', 'checkIn', 'driveBy']);
 
 /** Whether a threat raises the Alarm or brings the police: every carrier (a missed check-in too), and reinforcements. */
 export function isAlarming(t: Pick<ThreatVM, 'kind'>): boolean {
@@ -31,7 +31,7 @@ export function liveCarriers(ledger: readonly ThreatVM[]): number {
  * (dotted) for a halted carrier.
  */
 export function threatTone(t: ThreatVM): 'red' | 'amber' | 'neutral' | 'paused' {
-    return t.halted ? 'paused' : isAlarming(t) ? 'red' : t.kind === 'lapse' || t.kind === 'drill' ? 'amber' : 'neutral';
+    return t.halted ? 'paused' : isAlarming(t) ? 'red' : t.urgent || t.kind === 'lapse' || t.kind === 'drill' ? 'amber' : 'neutral';
 }
 
 export const TONE_WORDS = { red: 'raises the alarm', amber: 'warning', neutral: '', paused: 'paused' } as const;

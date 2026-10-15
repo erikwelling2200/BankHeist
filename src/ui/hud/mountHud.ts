@@ -97,6 +97,8 @@ export function mountHud(root: HTMLElement, callbacks: HudCallbacks, options: Hu
     undo.addEventListener('click', () => { if (vm?.undoEnabled) callbacks.undo(); });
     const confirm = h('button.sh-confirm', { 'data-region': 'confirm' });
     confirm.addEventListener('click', () => { if (vm?.confirm.enabled) callbacks.confirm(); });
+    // What Confirm would set off (§8.8): "this would start: Teller button (2)", and what it would stop.
+    const confirmNote = h('div.sh-cnote', { 'data-region': 'confirm-note', role: 'status', hidden: true });
 
     // ---------------------------------------------------------------------------------------------- sheets
     const ledger = h('div.sh-sheet.sh-ledger', { id: 'sh-ledger', role: 'region', 'aria-label': 'Threat ledger', 'data-region': 'ledger', hidden: true });
@@ -106,7 +108,7 @@ export function mountHud(root: HTMLElement, callbacks: HudCallbacks, options: Hu
     const recap = h('div.sh-recap-back', { hidden: true });
     const tag = h('div.sh-tag', { 'aria-hidden': 'true', hidden: true });
 
-    el.append(top, endTurn, rail, ltools, drawer, actions, undo, confirm, ledger, prompt, recap, tag);
+    el.append(top, endTurn, rail, ltools, drawer, actions, undo, confirm, confirmNote, ledger, prompt, recap, tag);
     root.append(el);
     if (options.textScale) el.style.setProperty('--sh-text', String(options.textScale));
     el.classList.toggle('cb', !!options.colourBlind);
@@ -390,13 +392,13 @@ export function mountHud(root: HTMLElement, callbacks: HudCallbacks, options: Hu
         }, (b, a) => {
             b.className = `sh-act${a.selected ? ' sel' : ''}${a.enabled ? '' : ' na'}${a.go ? ' go' : ''}`;
             b.setAttribute('data-region', `action-${a.id}`);
-            b.setAttribute('aria-label', a.enabled ? a.label : `${a.label}: ${a.reason ?? 'not now'}`);
+            b.setAttribute('aria-label', `${a.label}${a.progress ? ` (${a.progress})` : ''}${a.enabled ? '' : `: ${a.reason ?? 'not now'}`}`);
             b.setAttribute('aria-disabled', String(!a.enabled));
             b.setAttribute('aria-pressed', String(!!a.selected));
             b.dataset.tag = actionTag(a);
             const cost = h('span.sh-cost');
             for (let k = 0; k < a.cost; k++) cost.append(h('i'));
-            b.replaceChildren(img(iconUrl(a.icon)), cost);
+            b.replaceChildren(...[img(iconUrl(a.icon)), cost, a.progress ? h('span.sh-prog', {}, a.progress) : null].filter(x => x !== null));
         });
     }
 
@@ -412,6 +414,14 @@ export function mountHud(root: HTMLElement, callbacks: HudCallbacks, options: Hu
             confirm.replaceChildren(...[c.enabled ? img(iconUrl(cue.icon), 'sh-ic sh-kind') : null, img(iconUrl(c.icon ?? 'confirm')),
                 c.label ? h('span.sh-cname', {}, c.label) : null, c.cost ? cost : null].filter(x => x !== null));
         }
+        const starts = c.enabled ? c.starts ?? [] : [], stops = c.enabled ? c.stops ?? [] : [];
+        if (changed(confirmNote, JSON.stringify([starts, stops]))) {
+            confirmNote.hidden = !starts.length && !stops.length;
+            confirmNote.className = `sh-cnote${starts.length ? ' starts' : ' stops'}`;
+            put(confirmNote,
+                starts.length ? h('span.sh-cstart', {}, img(iconUrl('bell')), h('span', {}, `this would start: ${starts.join(', ')}`)) : null,
+                stops.length ? h('span.sh-cstop', {}, h('span', {}, `stops: ${stops.join(', ')}`)) : null);
+        }
         undo.setAttribute('aria-disabled', String(!v.undoEnabled));
         undo.classList.toggle('off', !v.undoEnabled);
     }
@@ -421,7 +431,7 @@ export function mountHud(root: HTMLElement, callbacks: HudCallbacks, options: Hu
         row.className = `sh-row ${tone}${first ? ' first' : ''}`;
         row.setAttribute('aria-label', `${t.label} in ${t.countdown}${TONE_WORDS[tone] ? `, ${TONE_WORDS[tone]}` : ''}`);
         row.replaceChildren(...[h('span.sh-n', {}, String(t.countdown)), t.portrait ? portrait(t.portrait, t.label, 'sh-p') : null, img(iconUrl(threatIcon(t.kind))),
-            h('span.sh-rlabel', {}, t.label), t.halted ? h('span.sh-paused', { title: 'Paused' }, 'II') : null, img(iconUrl('eye'), 'sh-ic sh-jump')].filter(x => x !== null));
+            h('span.sh-rlabel', {}, t.label), t.halted ? h('span.sh-paused', { title: 'Paused' }, 'II') : null, t.pos ? img(iconUrl('eye'), 'sh-ic sh-jump') : null].filter(x => x !== null));
     }
 
     function renderLedger(v: HudViewModel): void {
@@ -429,7 +439,7 @@ export function mountHud(root: HTMLElement, callbacks: HudCallbacks, options: Hu
             const row = h('button.sh-row', { 'data-threat': key });
             row.addEventListener('click', () => {
                 const t = vm?.ledger.find(x => x.id === key);
-                if (t) callbacks.ledgerJump({ x: t.pos.x, y: t.pos.y }, t.targetId);
+                if (t?.pos) callbacks.ledgerJump({ x: t.pos.x, y: t.pos.y }, t.targetId);
             });
             return row;
         }, (row, t, i) => threatRow(row, t, i === 0));

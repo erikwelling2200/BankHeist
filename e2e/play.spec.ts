@@ -59,6 +59,8 @@ async function endTurn(page: Page): Promise<void> {
 const AROUND: Pos[] = [{ x: 0, y: -3 }, { x: 2, y: -2 }, { x: -2, y: -2 }, { x: 3, y: 0 }, { x: -3, y: 0 }, { x: 0, y: 3 }, { x: 2, y: 2 }];
 
 test('plays three turns of a heist through taps', SMOKE, async ({ page }) => {
+    // Three world phases at 1× and a reload: about 30 s on the sandbox's software renderer, on the edge of the default.
+    test.setTimeout(60000);
     const errors = await boot(page);
     const start = await sim(page);
     expect(start.turn).toBe(1);
@@ -496,6 +498,154 @@ test('draws the world UI: badges and pips, cones on long-press, a noise ring wit
     expect((await play(page)).colourBlind).toBe(true);
     await page.screenshot({ path: 'screenshots/play-colour-blind.png' });
     await page.keyboard.press('b');
+    expect(errors).toEqual([]);
+});
+
+/** In the page: an NPC of a role (by a test on it), present, and a free tile in reach of `p` for Mara on `st`. */
+const ALARM_HELPERS = `
+    const npcOf = (st, test) => st.npcs.find(n => n.status !== 'away' && test(w.people.find(p => p.id === n.id).role));
+    const carrier = (st, kind, holder, countdown) => ({ id: 'carrier-e2e', kind, source: holder.id, pos: { ...holder.pos }, countdown, started: { turn: st.turn - 1, phase: 'world' }, halted: null });
+    const NEAR = [...AROUND, { x: 1, y: 1 }, { x: -1, y: 1 }, { x: 1, y: -1 }, { x: -1, y: -1 }];
+`;
+
+/** Opens the threat ledger (if it isn't) and returns its rows' text. */
+async function ledgerRows(page: Page): Promise<string[]> {
+    if (!(await page.locator('.sh-ledger').isVisible())) await page.locator('.sh-ledger-btn').click();
+    return page.locator('.sh-ledger .sh-row').allInnerTexts();
+}
+
+test('the alarm panel: work across actions shown as 2/4, and a dead panel kills the teller\'s button', SMOKE, async ({ page }) => {
+    const errors = await boot(page);
+    // Mara beside the alarm panel with 2 of its 4 actions of work done; a teller pressing her button (2) on the far side.
+    const setup = await restartWith<{ panel: string; teller: string }>(page, `(() => { ${PAGE_HELPERS} ${ALARM_HELPERS}
+        const panel = w.objects.find(o => o.kind === 'alarmPanel');
+        if (!panel) return null;
+        for (const d of [{ x: 0, y: 0 }, ...NEAR]) {
+            const p = { x: panel.pos.x + d.x, y: panel.pos.y + d.y }, st = clone(sim.state);
+            if (!free(st, p)) continue;
+            st.crew[0].pos = p;
+            if (!st.crew[0].loadout.items.includes('hackingKit')) st.crew[0].loadout.items.push('hackingKit');
+            st.objects[panel.id] = { progress: 2 };
+            if (sim.whyNot({ type: 'interact', crew: 'mara', object: panel.id, verb: 'disable' }, st)) continue;
+            const teller = npcOf(st, r => /teller/i.test(r));
+            if (!teller) return null;
+            teller.status = 'alerted'; teller.alerted = true;
+            know(st, teller);
+            st.carriers.push(carrier(st, 'tellerButton', teller, 2));
+            return { state: st, info: { panel: panel.id, teller: teller.id } };
+        }
+        return null;
+    })()`);
+    expect(setup).not.toBeNull();
+    await page.locator('.sh-rail .sh-crew').nth(0).click();
+    await page.waitForTimeout(600);
+    const disable = page.locator('.sh-actions button[data-action="interact:disable"]');
+    await expect(disable.locator('.sh-prog')).toHaveText('2/4');
+    expect((await ledgerRows(page))[0]).toMatch(/2\s*Teller button/);
+    // The third action of work: previewed, then done; the panel now shows 3/4.
+    await disable.click();
+    await expect(page.locator('.sh-confirm')).toContainText('DISABLE PANEL');
+    await page.locator('.sh-confirm').click();
+    await idle(page);
+    await expect(disable.locator('.sh-prog')).toHaveText('3/4');
+    // The last: Confirm says it stops the teller's button.
+    await disable.click();
+    await expect(page.locator('.sh-cnote')).toContainText('stops: Teller button');
+    await page.waitForTimeout(300);
+    await page.screenshot({ path: 'screenshots/play-panel.png' });
+    await page.locator('.sh-confirm').click();
+    await idle(page);
+    const after = await page.evaluate(({ panel }) => ({ panel: (window as any).sim.state.objects[panel], carriers: (window as any).sim.state.carriers.length }), setup!);
+    expect(after).toEqual({ panel: { progress: 4, disabled: true }, carriers: 0 });
+    expect((await ledgerRows(page)).some(r => /Teller button/.test(r))).toBe(false);
+    // Dead already: the grid says so.
+    expect((await play(page)).actions.find((a: any) => a.id === 'interact:disable')).toMatchObject({ enabled: false });
+    expect(errors).toEqual([]);
+});
+
+test('a carrier counts down in the ledger with the check-ins, then the Alarm: "ALARM: police in N"', SMOKE, async ({ page }) => {
+    const errors = await boot(page);
+    // A guard the crew sees, radioing in about Mara (3).
+    const setup = await restartWith<{ guard: string; camera?: Pos }>(page, `(() => { ${PAGE_HELPERS} ${ALARM_HELPERS}
+        const st = clone(sim.state), guard = npcOf(st, r => /guard|chief/i.test(r));
+        if (!guard) return null;
+        guard.status = 'alerted'; guard.alerted = true;
+        know(st, guard);
+        st.carriers.push(carrier(st, 'guardRadio', guard, 3));
+        // Every camera known (as if cased), the CCTV room not scouted: their feed status unknown, so each counts as live.
+        st.knowledge.cameras = w.cameras.map(c => c.id).sort();
+        return { state: st, info: { guard: guard.id, camera: w.cameras[0] && w.cameras[0].pos } };
+    })()`);
+    expect(setup).not.toBeNull();
+    // The known cameras: a plate each and their cones (the drawer's Cameras overlay is on to begin with).
+    const shown = await play(page);
+    if (setup!.camera) {
+        expect(shown.cameras).toBeGreaterThan(0);
+        expect(shown.cameraCones).toBeGreaterThan(0);
+        await page.evaluate(p => (window as any).game.scene.getScene('bank').lookAt((p.x + 0.5) * 16, (p.y + 2.5) * 16), setup!.camera);
+        await page.waitForTimeout(400);
+        await page.screenshot({ path: 'screenshots/play-cameras.png' });
+    }
+    let rows = await ledgerRows(page);
+    expect(rows[0]).toMatch(/3\s*Guard radio/);
+    await expect(page.locator('.sh-state')).toContainText('3');
+    await endTurn(page);
+    await idle(page);
+    rows = await ledgerRows(page);
+    expect(rows[0]).toMatch(/2\s*Guard radio/);
+    // The known guard's next check-in (§8.11) and the patrol car's drive-by sit below it.
+    expect(rows.some(r => /Check-in|Radio ringing/.test(r))).toBe(true);
+    await page.locator('.sh-ledger .sh-row').first().click();
+    await page.waitForTimeout(500);
+    await page.screenshot({ path: 'screenshots/play-ledger.png' });
+    // Two world phases on, it goes off: the banner, and the pill says when the police come.
+    await endTurn(page);
+    await idle(page);
+    await endTurn(page);
+    await expect(page.locator('.play-alarm')).toBeVisible({ timeout: 10000 });
+    await expect(page.locator('.sh-state')).toContainText(/ALARM: police in \d/);
+    await page.waitForTimeout(250);
+    await page.screenshot({ path: 'screenshots/play-alarm.png' });
+    await idle(page);
+    expect(await page.evaluate(() => (window as any).sim.state.bank.alarm)).toBe(true);
+    rows = await ledgerRows(page);
+    expect(rows[0]).toMatch(/Police/);
+    expect(errors).toEqual([]);
+});
+
+test('answers a downed guard\'s ringing radio', SMOKE, async ({ page }) => {
+    const errors = await boot(page);
+    // A guard tied up with his radio ringing (the call of the last world phase), Mara beside him.
+    const setup = await restartWith<{ guard: string }>(page, `(() => { ${PAGE_HELPERS} ${ALARM_HELPERS}
+        const base = clone(sim.state), first = npcOf(base, r => /guard|chief/i.test(r));
+        if (!first) return null;
+        for (const d of NEAR) {
+            const st = clone(base), guard = st.npcs.find(n => n.id === first.id), p = { x: guard.pos.x + d.x, y: guard.pos.y + d.y };
+            if (!free(st, p)) continue;
+            st.crew[0].pos = p;
+            guard.status = 'tied'; guard.intent = { path: [] };
+            know(st, guard);
+            st.radio.calls[guard.id].ringing = st.turn - 1;
+            if (sim.whyNot({ type: 'answerRadio', crew: 'mara', npc: guard.id }, st)) continue;
+            return { state: st, info: { guard: guard.id } };
+        }
+        return null;
+    })()`);
+    expect(setup).not.toBeNull();
+    expect((await ledgerRows(page))[0]).toMatch(/Radio ringing/);
+    await page.locator('.sh-ledger-btn').click();
+    await page.locator('.sh-rail .sh-crew').nth(0).click();
+    await page.waitForTimeout(600);
+    await page.locator('.sh-actions button[data-action="answer"]').click();
+    await expect(page.locator('.sh-confirm')).toContainText('ANSWER RADIO');
+    await page.screenshot({ path: 'screenshots/play-radio.png' });
+    await page.locator('.sh-confirm').click();
+    await idle(page);
+    const radio = await page.evaluate(id => ({ call: (window as any).sim.state.radio.calls[id], answers: (window as any).sim.state.radio.answers }), setup!.guard);
+    expect(radio.call.ringing).toBeNull();
+    expect(radio.answers).toBe(1);
+    expect((await ledgerRows(page)).some(r => /Radio ringing/.test(r))).toBe(false);
+    expect((await play(page)).actions.some((a: any) => a.id === 'answer')).toBe(false);
     expect(errors).toEqual([]);
 });
 

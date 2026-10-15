@@ -1,7 +1,7 @@
 import type { GlyphName } from '../art/ui/glyphs';
 import {
-    crewPicture, hearing, LYING_STATUSES, soundRing, npcObserver, seenTiles, bandAt, type CarrierKind, type KnownView, type NpcMarker, type Pos, type ReadonlyWorld, type SimEvent,
-    type State
+    crewPicture, hearing, LYING_STATUSES, neutralised, profilesOf, soundRing, npcObserver, seenTiles, bandAt, type CarrierKind, type KnownCamera, type KnownView, type NpcMarker,
+    type Pos, type ReadonlyWorld, type SimEvent, type State
 } from '../sim';
 
 /*
@@ -35,6 +35,18 @@ const CARRIER_GLYPHS: Readonly<Record<CarrierKind, GlyphName>> = {
     missedCheckIn: 'radio', seismicSensor: 'bell', motionSensor: 'bell', patrolCar: 'bell'
 };
 
+/**
+ * A guard's radio (§8.11), for a guard who is down: ringing (amber `!`: answer it this crew phase or it is missed), or
+ * the world phases to the next call. A guard on his feet answers his own calls: nothing to show.
+ */
+function radioPlate(state: State, id: string): PlateVM | undefined {
+    const call = (state as Partial<State>).radio?.calls[id], npc = state.npcs.find(n => n.id === id);
+    if (!call || !npc || !neutralised(state, npc)) return undefined;
+    if (call.ringing !== null) return { glyph: 'radio', signal: 'amber', sym: '!' };
+    if (state.bank.alarm) return undefined;
+    return { glyph: 'radio', signal: 'cream', count: Math.max(1, call.next - state.turn + 1) };
+}
+
 /** The status plate (§16.5): none for Calm; `?`, `?` with a pin, `!`, a down arrow, a knot, a crosshair. */
 function statusPlate(status: string | undefined): PlateVM | undefined {
     switch (status) {
@@ -58,8 +70,11 @@ export function npcBadges(_world: ReadonlyWorld, state: State, known: KnownView)
         const npc = state.npcs.find(n => n.id === m.id);
         const live = m.kind === 'live' && npc;
         const plates: PlateVM[] = [];
+        // The carrier its holder raises (`carrierStarted.holder`, the carrier's `source`).
         const carrier = carriers.find(c => c.source === m.id);
-        if (carrier) plates.push({ glyph: CARRIER_GLYPHS[carrier.kind] ?? 'bell', signal: 'red', count: carrier.countdown });
+        if (carrier) plates.push({ glyph: CARRIER_GLYPHS[carrier.kind] ?? 'bell', signal: carrier.halted ? 'cream' : 'red', count: carrier.countdown });
+        const radio = radioPlate(state, m.id);
+        if (radio) plates.push(radio);
         if (live && npc.challenges.length) {
             const soonest = Math.min(...npc.challenges.map(c => c.deadline));
             plates.push({ glyph: 'hand', signal: 'red', count: Math.max(0, soonest - state.turn) });
@@ -73,10 +88,11 @@ export function npcBadges(_world: ReadonlyWorld, state: State, known: KnownView)
         if (!plates.length && !pips.length) continue;
         out.push({ id: m.id, pos: m.pos, lying: lying(m), faded: m.kind === 'predicted', plates, pips });
     }
-    // Carriers on objects (a sensor, a panel): their plate where they are.
+    // Carriers held by no NPC (dispatch, the patrol car): their plate where they are. One held by an NPC the crew doesn't
+    // know is in the ledger, not on the map: the carrier shows, not who carries it.
     for (const c of carriers) {
-        if (known.npcs.some(m => m.id === c.source) || state.npcs.some(n => n.id === c.source)) continue;
-        out.push({ id: c.id, pos: c.pos, lying: true, faded: false, plates: [{ glyph: CARRIER_GLYPHS[c.kind] ?? 'bell', signal: 'red', count: c.countdown }], pips: [] });
+        if (state.npcs.some(n => n.id === c.source)) continue;
+        out.push({ id: c.id, pos: c.pos, lying: true, faded: false, plates: [{ glyph: CARRIER_GLYPHS[c.kind] ?? 'bell', signal: c.halted ? 'cream' : 'red', count: c.countdown }], pips: [] });
     }
     return out;
 }
@@ -127,4 +143,49 @@ export function npcCone(world: ReadonlyWorld, state: State, known: KnownView, id
         (bandAt(field, t) === 'core' ? core : peripheral).push({ x: t.x, y: t.y });
     }
     return { id, from: m.pos, core, peripheral, alerted: npc.alerted };
+}
+
+/**
+ * A camera the crew knows of (§8.12, §8.15), as the overlay draws it: where it is, what the crew knows of its feed and,
+ * when its cones are asked for, the tiles it watches now (and, for a panning one, those of its next facing: the
+ * telegraph). A camera whose feed status is unknown (the CCTV room not scouted) counts as live (§8.8); a looped feed is
+ * dimmed with the phases its loop has left; a dead one watches nothing.
+ */
+export interface CameraVM {
+    id: string;
+    pos: Pos;
+    status: KnownCamera['status'];
+    /** On the operator's monitors this turn (known once the CCTV room is scouted). */
+    monitored: boolean;
+    /** World phases its loop has left, if looped. */
+    loopLeft?: number;
+    /** Dead: off and not looped. */
+    dead: boolean;
+    core: Pos[];
+    peripheral: Pos[];
+    /** A panning camera's next facing's tiles (all bands). */
+    next?: Pos[];
+}
+
+/** The cameras the crew knows of (`known.cameras`); with `cones`, the tiles each watches, on the crew's picture. */
+export function cameraViews(world: ReadonlyWorld, state: State, known: KnownView, cones: boolean): CameraVM[] {
+    const picture = cones ? crewPicture(world, state) : undefined;
+    const profiles = profilesOf(world);
+    return known.cameras.map(cam => {
+        const def = world.cameras.find(c => c.id === cam.id)!, now = state.cameras[cam.id];
+        const loopLeft = cam.loopedUntil !== undefined ? Math.max(1, cam.loopedUntil - state.turn + 1) : undefined;
+        const dead = cam.status === 'off' && loopLeft === undefined;
+        const vm: CameraVM = { id: cam.id, pos: { x: cam.pos.x, y: cam.pos.y }, status: cam.status, monitored: !!cam.monitored, dead, core: [], peripheral: [], ...(loopLeft ? { loopLeft } : {}) };
+        if (!picture || dead || !now) return vm;
+        // Drawn from where it points, as if live: an unknown feed counts as live, and a looped one shows what it will watch again.
+        const profile = (def as { seesInDark?: boolean }).seesInDark ? profiles.darkCamera : profiles.camera;
+        const field = (k: number) => seenTiles(world, picture, { pos: def.pos, facing: def.facings[k % def.facings.length]!, profile });
+        const f = field(now.facing);
+        for (const t of f.tiles) {
+            if (t.x === def.pos.x && t.y === def.pos.y) continue;
+            (bandAt(f, t) === 'core' ? vm.core : vm.peripheral).push({ x: t.x, y: t.y });
+        }
+        if (def.facings.length > 1 && loopLeft === undefined) vm.next = field(now.facing + 1).tiles.filter(t => t.x !== def.pos.x || t.y !== def.pos.y).map(t => ({ x: t.x, y: t.y }));
+        return vm;
+    });
 }
