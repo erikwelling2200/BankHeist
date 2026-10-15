@@ -414,7 +414,7 @@ Each package lists its goal, the design sections it covers, the files, what it d
       seen / fresh / in-view tiles, doors as known, blueprint, cameras, pings, `unknownRisk(p)`); the safe floor
       (M1-09) reads `floorKnowledge` per tile: `unscouted` → grey, `unknownRisk` → hatched grey where the known NPCs
       leave it green.
-- [ ] **M1-11 Auto-advance and Wait for.**
+- [x] **M1-11 Auto-advance and Wait for.**
   - **Covers:** §6.5.
   - **Work:** multi-turn routes; the interrupt conditions; "until the manager leaves" and similar.
   - **Files:** `src/sim/rules/autoAdvance.ts`, Session hooks.
@@ -735,6 +735,16 @@ Later milestones: within each milestone, the `∥` notes in §3 apply. UI packag
     one starts.
 36. **Footage needs a recorder (M1-08).** Cameras record to the CCTV desk's recorder; a bank without one (the small
     branch's record-only cameras have no desk in the generator yet) keeps no footage for now.
+37. **Routes and auto-advance (M1-11).** A multi-turn route is the player's plan, not the bank's: the Session keeps it
+    with the UI state (saved and resumed with it), not in `State`, and `autoStep` takes and returns it. Each crew phase
+    a crew member walks it with one Move per action left (two a turn), each as far as Move's budget reaches on the
+    crew's picture; a Dash is never automatic (noise is a decision). Auto-advance stops on what the crew can know only:
+    projected events and NPCs it sees or predicts, so an unseen NPC's change stops nothing. Interrupts are the §6.5 list
+    plus any carrier, a cut move, evidence noticed, a challenge, an exposure and an NPC turning Alerted; a crew move's
+    interrupt stops before the next command, so the rest of the crew phase is the player's. Schedule events are those
+    of NPCs whose routine the crew knows. While waiting for something else, schedule events don't interrupt. "Until X
+    leaves" means leaving the room it was in (or the map), "until the guard passes" its walk crossing a chosen tile
+    (the menu offers the tile of its intent nearest the selected crew member). A run plays at most 20 turns.
 
 ### Critical files for implementation
 

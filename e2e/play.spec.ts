@@ -499,6 +499,63 @@ test('draws the world UI: badges and pips, cones on long-press, a noise ring wit
     expect(errors).toEqual([]);
 });
 
+test('auto-advance walks a 3-turn route turn by turn and says why it stopped; a tap stops it', SMOKE, async ({ page }) => {
+    const errors = await boot(page);
+    const mara = await member(page, 'mara');
+    await tapTile(page, mara.pos);
+    await page.waitForTimeout(400);
+    // A tile two whole turns and a bit away (a turn is two Moves of 5 tiles, 20 half-steps), as far north as there is.
+    const target: Pos = await page.evaluate(() => {
+        const tiles = (window as any).sim.routeReach('mara') as { pos: Pos; cost: number }[];
+        return tiles.filter(t => t.cost > 44 && t.cost <= 56).sort((a, b) => a.pos.y - b.pos.y || a.cost - b.cost)[0]!.pos;
+    });
+    await page.evaluate(t => (window as any).sim.session.setRoute('mara', (window as any).sim.routePath('mara', t)), target);
+    const planned = (await play(page)).auto;
+    expect(planned.routes.mara.at(-1)).toEqual(target);
+    expect(new Set(planned.legs[0].turns)).toEqual(new Set([1, 2, 3]));
+    await expect(page.locator('.sh-go')).toBeEnabled();
+    // Frame the whole route: two steps out, centred between Mara and the tile.
+    await page.evaluate(() => {
+        const bank = (window as any).game.scene.getScene('bank');
+        bank.zoomStep(-1);
+        bank.zoomStep(-1);
+    });
+    await page.waitForTimeout(400);
+    await page.evaluate(({ a, b }) => (window as any).game.scene.getScene('bank').lookAt((a.x + b.x + 1) * 8, (a.y + b.y + 1) * 8), { a: mara.pos, b: target });
+    await page.waitForTimeout(300);
+    await page.screenshot({ path: 'screenshots/play-route.png' });
+
+    await page.locator('.sh-go').click();
+    expect((await play(page)).auto.running).toBe(true);
+    await expect.poll(async () => (await play(page)).auto.running, { timeout: 60000 }).toBe(false);
+    const { stop } = (await play(page)).auto, now = await sim(page);
+    expect(stop).not.toBeNull();
+    if (stop.kind === 'arrived') {
+        // Walked: three turns, two Moves in each, ending on the tile.
+        expect((await member(page, 'mara')).pos).toEqual(target);
+        expect(now.turn).toBe(3);
+        await expect(page.locator('.sh-autostatus')).toHaveText('Route walked');
+    } else {
+        // Interrupted by something the crew saw: the line says what, and the rest of the route is kept.
+        expect(now.turn).toBeLessThanOrEqual(3);
+        await expect(page.locator('.sh-autostatus')).toContainText(/^(Stopped|Done): /);
+    }
+    await page.screenshot({ path: 'screenshots/play-route-stopped.png' });
+
+    // Any tap stops a run: a Wait for… started from the menu, then a tap on the map.
+    await idle(page);
+    const options = page.locator('.sh-waitfor');
+    if (await options.isEnabled()) {
+        await options.click();
+        await expect(page.locator('.sh-waitmenu')).toBeVisible();
+        await page.locator('.sh-waititem').first().click();
+        await page.mouse.click(400, 200);
+        await expect.poll(async () => (await play(page)).auto.running).toBe(false);
+        await expect(page.locator('.sh-autostatus')).toContainText(/^(Stopped|Done): /);
+    }
+    expect(errors).toEqual([]);
+});
+
 test.describe('on a phone', () => {
     test.use({ viewport: { width: 844, height: 390 }, hasTouch: true, isMobile: true });
 
@@ -506,7 +563,7 @@ test.describe('on a phone', () => {
         const errors = await boot(page);
         await page.screenshot({ path: 'screenshots/play-phone.png' });
         const boxes = await page.evaluate(() => [
-            '.sh-top', '.sh-endturn', '.sh-rail', '.sh-ltools', '.sh-actions', '.sh-confirm', '.sh-undo', '.fullscreen-button', '.play-speed'
+            '.sh-top', '.sh-endturn', '.sh-rail', '.sh-ltools', '.sh-actions', '.sh-confirm', '.sh-undo', '.fullscreen-button', '.play-speed', '.sh-auto'
         ].map(s => {
             const el = document.querySelector(s) as HTMLElement | null;
             const r = el && !el.hidden && getComputedStyle(el).display !== 'none' ? el.getBoundingClientRect() : null;

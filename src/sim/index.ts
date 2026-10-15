@@ -19,6 +19,7 @@ import './rules/actions/door';
 import './rules/actions/interact';
 import './rules/actions/knockout';
 import './rules/actions/wait';
+import './rules/autoAdvance';
 import './rules/alarms';
 import './rules/cameras';
 import './rules/carriers';
@@ -145,3 +146,8 @@ export {
     crewTiles, intentEnd, isPresent, npcCanPass, npcMoveOptions, othersTiles, paceBudget, personOf, planWalk, resolveWalks, walksIntent,
     type Pace, type PlannedWalk, type Walked, type WalkTarget
 } from './rules/npc/walk';
+export {
+    AUTO_TURN_CAP, autoAdvance, autoAdvanceBlocked, autoStep, interruptsOf, knownSchedule, npcLabel, planRoute, routeBreak, routeLeg, trimRoute, waitOptions,
+    waitReached, type AutoOptions, type AutoStepResult, type AutoStop, type Interrupt, type InterruptKind, type InterruptOptions, type KnownEvent,
+    type RouteLeg, type Routes, type StopKind, type WaitOption, type WaitTarget
+} from './rules/autoAdvance';

@@ -26,6 +26,13 @@ export interface SimHandle {
      * undefined when it is out of reach; for scripted runs: `commit({ type: 'move', crew, path: sim.path(crew, to)! })`.
      */
     path(crew: string, to: Pos, mode?: 'move' | 'dash'): Pos[] | undefined;
+    /**
+     * The cheapest path for a multi-turn route (§6.5) to `to`, however far (on the crew's picture), or undefined; for
+     * scripted runs: `session.setRoute(crew, sim.routePath(crew, to)!)`. `reach` lists the tiles it could go to with
+     * their cost in half-steps.
+     */
+    routePath(crew: string, to: Pos): Pos[] | undefined;
+    routeReach(crew: string): { pos: Pos; cost: number }[];
     /** Why the rules refuse `cmd` on `state` (the current one by default), or undefined. */
     whyNot(cmd: Command, state?: State): string | undefined;
     /** Whether the crew knows where NPC `id` is now (§8.15) in `state` (the current one by default). */
@@ -36,6 +43,9 @@ export interface SimHandle {
      */
     restart(state: State): void;
 }
+
+/** How far a scripted route may reach, in half-steps (60 tiles). */
+const ROUTE_BUDGET = 120;
 
 declare global {
     interface Window { sim?: SimHandle }
@@ -59,6 +69,17 @@ export function installDebugHandle(session: Session, target: { sim?: SimHandle }
             // The old heist's UI (camera, selection, preview) mustn't be resumed with the new one.
             session.storage.remove(UI_KEY);
             Session.start({ world: session.world, state, storage: session.storage, genVersion: session.genVersion });
+        },
+        routePath: (crew, to) => {
+            const member = session.state.crew.find(c => c.id === crew);
+            if (!member) return undefined;
+            return pathTo(reachable(session.world, crewPicture(session.world, session.state), member.pos, ROUTE_BUDGET, crewMoveOptions(member)), to);
+        },
+        routeReach: crew => {
+            const member = session.state.crew.find(c => c.id === crew);
+            if (!member) return [];
+            const reach = reachable(session.world, crewPicture(session.world, session.state), member.pos, ROUTE_BUDGET, crewMoveOptions(member));
+            return reach.tiles.filter(t => t.canEnd).map(t => ({ pos: { x: t.pos.x, y: t.pos.y }, cost: t.cost }));
         },
         path: (crew, to, mode = 'move') => {
             const member = session.state.crew.find(c => c.id === crew);

@@ -1,6 +1,7 @@
 import {
-    assertPlainJson, clonePlain, commit, deepFreeze, hashOf, noticedUnseen, popUndo, preview, projectEvents, projectPreviewEvents, RECENT_EVENTS, recordUndo, SaveFormatError, stableJson,
-    type Command, type CommitResult, type PreviewResult, type ReadonlyWorld, type SimEvent, type State, type UndoStack
+    assertPlainJson, autoStep, clonePlain, commit, deepFreeze, hashOf, noticedUnseen, popUndo, preview, projectEvents, projectPreviewEvents, RECENT_EVENTS, recordUndo, SaveFormatError, stableJson,
+    type AutoOptions, type AutoStepResult, type Command, type CommitResult, type Pos, type PreviewResult, type ReadonlyWorld, type Routes, type SimEvent, type State,
+    type UndoStack
 } from '../sim';
 import { deserialiseHeist, deserialiseUi, heistWorldId, serialiseHeist, serialiseUi, serialiseWorld } from './persist';
 import { PlaybackQueue, type PlaybackItem } from './playback';
@@ -34,6 +35,8 @@ export interface UiState {
     camera: CameraView | null;
     /** The command being previewed and not yet confirmed, so a resume shows the same preview (§20.6). */
     pendingCommand: Command | null;
+    /** Each crew member's multi-turn route still to walk (§6.5, src/sim/rules/autoAdvance.ts), by crew id; absent: none. */
+    routes?: Routes;
 }
 
 export type SessionChange =
@@ -114,7 +117,21 @@ function checkUi(ui: Partial<UiState> | null | undefined, state: State): UiState
         } catch { /* dropped */ }
     }
     // Older saves also kept a picked action ('dash'): movement now picks Move or Dash by distance, so it is dropped.
-    return { selected, camera, pendingCommand };
+    const routes = checkRoutes(ui?.routes, state);
+    return { selected, camera, pendingCommand, ...(Object.keys(routes).length ? { routes } : {}) };
+}
+
+const isTile = (p: unknown): p is Pos => !!p && typeof p === 'object' && Number.isInteger((p as Pos).x) && Number.isInteger((p as Pos).y);
+
+/** Saved routes, checked: only crew members of the state, only lists of whole tiles. */
+function checkRoutes(routes: unknown, state: State): Routes {
+    const out: Routes = {};
+    if (!routes || typeof routes !== 'object') return out;
+    for (const c of state.crew) {
+        const r = (routes as Record<string, unknown>)[c.id];
+        if (Array.isArray(r) && r.length && r.every(isTile)) out[c.id] = r.map(p => ({ x: p.x, y: p.y }));
+    }
+    return out;
 }
 
 export class Session {
@@ -141,6 +158,8 @@ export class Session {
     private readonly onListenerError: (error: unknown) => void;
     /** Replaced by another heist in the same save slot (the debug handle's `restart`): it saves nothing any more. */
     private retired = false;
+    /** Auto-advance is committing: its moves keep their crew member's route. */
+    private autoPlaying = false;
 
     /** Stops this Session saving: another one owns its save slot now. */
     retire(): void {
@@ -259,6 +278,11 @@ export class Session {
         return this._ui.pendingCommand;
     }
 
+    /** Each crew member's route still to walk (§6.5), by crew id. */
+    get routes(): Readonly<Routes> {
+        return this._ui.routes ?? {};
+    }
+
     /**
      * What the HUD shows now. `extras` adds what only the scene knows (the tactical map); Confirm is
      * coloured from the player's preview of the pending command.
@@ -327,6 +351,8 @@ export class Session {
      */
     commit(cmd: Command): CommitResult {
         const before = this._state, result = deepFreeze(commit(this.world, before, cmd));
+        // A crew member moved by hand gives up their route; one walking it for auto-advance keeps the rest.
+        if (!this.autoPlaying && (cmd.type === 'move' || cmd.type === 'dash') && Object.hasOwn(this.routes, cmd.crew)) this.dropRoute(cmd.crew);
         // The player is told only what the crew perceives (§8.15): playback, the event log and the recap get the projection.
         const shown = deepFreeze(projectEvents(this.world, result.state, result.events, before));
         const queued = this.playback.push(shown, result.state, before.turn);
@@ -344,6 +370,46 @@ export class Session {
     /** Ends the crew phase and plays the world phase. Never undoable (§6.6). */
     endTurn(): CommitResult {
         return this.commit({ type: 'endTurn' });
+    }
+
+    /**
+     * Plays one turn of auto-advance or "Wait for…" (§6.5, `autoStep` in src/sim/rules/autoAdvance.ts) from the current
+     * state with the routes kept here: every command goes through `commit` (autosaved, queued for playback, logged),
+     * and the routes left are kept. Returns the step, with why it stopped (null to carry on).
+     */
+    autoStep(options: Omit<AutoOptions, 'play'> = {}): AutoStepResult {
+        this.autoPlaying = true;
+        let step: AutoStepResult;
+        try {
+            step = autoStep(this.world, this._state, this.routes, {
+                ...options,
+                play: (cmd, state) => {
+                    if (state !== this._state) throw new Error('Auto-advance played from a state that isn\'t the session\'s');
+                    return this.commit(cmd);
+                }
+            });
+        } finally {
+            this.autoPlaying = false;
+        }
+        this.setUi({ routes: step.routes });
+        this.emit({ kind: 'ui' });
+        return step;
+    }
+
+    /** Sets a crew member's route (§6.5): the tiles to walk from where they stand, over as many turns as it takes; null or [] clears it. */
+    setRoute(crew: string, route: readonly Pos[] | null): void {
+        if (!this._state.crew.some(c => c.id === crew)) throw new Error(`No crew member '${crew}' to route`);
+        if (!route?.length) return this.dropRoute(crew);
+        if (!route.every(isTile)) throw new Error('A route is a list of tiles');
+        this.setUi({ routes: { ...this.routes, [crew]: route.map(p => ({ x: p.x, y: p.y })) } });
+        this.emit({ kind: 'ui' });
+    }
+
+    private dropRoute(crew: string): void {
+        if (!Object.hasOwn(this.routes, crew)) return;
+        const { [crew]: _gone, ...rest } = this.routes;
+        this.setUi({ routes: rest });
+        this.emit({ kind: 'ui' });
     }
 
     /** Takes back the last undoable action and its queued playback; false when there is none. */

@@ -44,6 +44,13 @@ export interface OverlayContent {
     targetTile?: Pos;
     /** The index of the first step that can't be taken; it and those after it are drawn red. */
     badFrom?: number;
+    /**
+     * Multi-turn routes (§6.5): each crew member's, from where they stand, in the Moves each turn walks it in; a dashed
+     * line in the crew colour with the turn number where each turn's walk ends. `rest` is what can't be planned now.
+     */
+    routes?: { crew: string; colour: string; from: Pos; legs: { turn: number; path: Pos[] }[]; rest: Pos[] }[];
+    /** The dragged path is a route being drawn: only steps past `badFrom` are red, not those past this turn's reach. */
+    routeDrag?: boolean;
     /** The NPCs' committed walks for the next world phase: a dotted line and a pin where each ends. */
     intents?: { from: Pos; path: Pos[]; predicted?: boolean }[];
     /** Which tiles the crew has seen (row-major, 1 = seen); the rest are unscouted, drawn grey (§8.15). */
@@ -349,7 +356,9 @@ export class WorldOverlay {
             ctx.globalAlpha = 1;
         }
 
-        if (c.from && c.path?.length) {
+        for (const r of c.routes ?? []) this.drawRoute(r, mid, pal);
+
+        if (c.from && c.path?.length && !(c.routeDrag && c.badFrom === undefined)) {
             const points = [c.from, ...c.path].map(mid), bad = c.badFrom ?? Infinity;
             const segment = (i: number, colour: string, dy: number) => {
                 ctx.strokeStyle = colour;
@@ -377,6 +386,51 @@ export class WorldOverlay {
             ctx.strokeRect(x + 3, y + 3, S - 6, S - 6);
             if (c.dash) ctx.strokeRect(x + 7, y + 7, S - 14, S - 14);
         }
+    }
+
+    /**
+     * A multi-turn route (§6.5): a dashed line in the crew colour over an ink shadow, a dot where each Move ends, and a
+     * plate with the turn number where each turn's walk ends; what can't be planned now is a faint dotted tail.
+     */
+    private drawRoute(r: NonNullable<OverlayContent['routes']>[number], mid: (p: Pos) => [number, number], pal: Record<Signal, string>): void {
+        const { ctx } = this;
+        const walked = r.legs.flatMap(l => l.path), points = [r.from, ...walked].map(mid);
+        const line = (pts: [number, number][], colour: string, dash: number[]) => {
+            if (pts.length < 2) return;
+            ctx.lineWidth = 2;
+            ctx.setLineDash(dash);
+            for (const [style, dy] of [[INK, 2], [colour, 0]] as const) {
+                ctx.strokeStyle = style;
+                ctx.beginPath();
+                pts.forEach(([x, y], i) => (i ? ctx.lineTo(x, y + dy) : ctx.moveTo(x, y + dy)));
+                ctx.stroke();
+            }
+            ctx.setLineDash([]);
+        };
+        line(points, r.colour, [6, 4]);
+        if (r.rest.length) line([points.at(-1)!, ...r.rest.map(mid)], alpha(pal.red, 0.7), [2, 4]);
+        for (const leg of r.legs) {
+            const [x, y] = mid(leg.path.at(-1)!);
+            ctx.fillStyle = INK;
+            ctx.fillRect(x - 3, y - 1, 6, 6);
+            ctx.fillStyle = r.colour;
+            ctx.fillRect(x - 3, y - 3, 6, 6);
+        }
+        ctx.font = '700 11px ui-monospace, Menlo, Consolas, monospace';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        r.legs.forEach((leg, i) => {
+            if (r.legs[i + 1]?.turn === leg.turn) return;
+            const [x, y] = mid(leg.path.at(-1)!), text = String(leg.turn), w = Math.max(16, ctx.measureText(text).width + 8), py = y - 16;
+            ctx.fillStyle = 'rgba(11, 13, 23, 0.9)';
+            ctx.fillRect(Math.round(x - w / 2), py - 7, w, 14);
+            ctx.strokeStyle = r.colour;
+            ctx.lineWidth = 1;
+            ctx.strokeRect(Math.round(x - w / 2) + 0.5, py - 6.5, w - 1, 13);
+            ctx.fillStyle = CREAM;
+            ctx.fillText(text, x, py + 1);
+        });
+        ctx.textBaseline = 'alphabetic';
     }
 
     /**

@@ -1,13 +1,17 @@
 import Phaser from 'phaser';
 import { npcBadges, npcCone, noiseHearers, type HearerVM } from '../../game/worldUi';
-import { actionMenu, barkText, doorMiddle, moveAlong, moveRange, moveTo, targetsOf, type ActionId, type MoveRange, type PlaybackItem, type PlaybackSpeed, type Session, type SessionChange } from '../../game';
+import {
+    actionMenu, AutoRun, autoBarView, barkText, doorMiddle, moveAlong, moveRange, moveTo, routeViews, stopNeedsAttention, targetsOf, waitMenu, type ActionId, type MoveRange,
+    type PlaybackItem, type PlaybackSpeed, type Session, type SessionChange
+} from '../../game';
 import type { GeneratedBank } from '../../gen/model';
 import { TILE } from '../../level/level';
 import type { PersonFacing, PersonPose } from '../../level/plan';
 import {
-    COMBAT_STATUSES, crewPicture, dashRefusal, IllegalCommand, knownView, doorStatus, soundRing,
-    type Command, type CrewState, type KnownView, type MarkerKind, type State, type Facing, type Pos, type SimEvent
+    COMBAT_STATUSES, crewPicture, dashRefusal, IllegalCommand, knownView, doorStatus, planRoute, routeBreak, soundRing,
+    type AutoStop, type Command, type CrewState, type KnownView, type MarkerKind, type State, type Facing, type Pos, type SimEvent
 } from '../../sim';
+import { mountAutoBar, type AutoBarHandle } from '../../ui/hud/autoBar';
 import { mountHud } from '../../ui/hud/mountHud';
 import { CREW_COLOURS, type HudHandle, type OverlayId } from '../../ui/hud/viewModels';
 import type { BankCamera } from './camera';
@@ -123,6 +127,18 @@ export class PlayMode {
     private target: string | null = null;
     /** The selected member's range, worked out once per state and member. */
     private rangeFor?: { state: State; id: string; range: MoveRange };
+    /** Go and Wait for… (§6.5): the run in progress, and why the last one stopped. */
+    private readonly autoBar: AutoBarHandle;
+    private auto: AutoRun | null = null;
+    private lastStop: AutoStop | null = null;
+    /** Any tap stops a run (§6.5), wherever it lands but on the auto-advance controls themselves. */
+    private readonly onAnyTap = (e: PointerEvent) => {
+        if (this.auto && !(e.target as Element | null)?.closest?.('.sh-autoroot')) this.stopAuto();
+    };
+    /** And so does any key (a hotkey acts on the bank as the player left it). */
+    private readonly onAnyKey = (e: KeyboardEvent) => {
+        if (this.auto && !['Shift', 'Control', 'Alt', 'Meta'].includes(e.key)) this.stopAuto();
+    };
 
     constructor(private readonly scene: Phaser.Scene, parts: PlayParts) {
         const { session, bank, people, walls, camera } = parts;
@@ -166,6 +182,16 @@ export class PlayMode {
                 this.refresh();
             }
         });
+        this.autoBar = mountAutoBar(document.body, {
+            go: () => this.startAuto(null, null),
+            stop: () => this.stopAuto(),
+            wait: id => {
+                const option = waitMenu(this.session).find(o => o.id === id);
+                if (option) this.startAuto(option.target, option.label);
+            }
+        });
+        document.addEventListener('pointerdown', this.onAnyTap, true);
+        document.addEventListener('keydown', this.onAnyKey, true);
         this.addChrome();
         this.unsubscribe = session.subscribe(change => this.onChange(change));
         scene.input.keyboard?.on('keydown', this.onKey, this);
@@ -204,7 +230,12 @@ export class PlayMode {
                 const m = this.known().npcs.find(k => k.id === n.id);
                 return m ? { id: m.id, kind: m.kind, pos: m.pos } : null;
             }),
-            doorsOpen: [...this.shownDoors].filter(([, open]) => open).map(([id]) => id)
+            doorsOpen: [...this.shownDoors].filter(([, open]) => open).map(([id]) => id),
+            /** Auto-advance (§6.5): running, the last stop, the routes and how they split into turns. */
+            auto: {
+                running: !!this.auto, stop: this.lastStop, routes: this.session.routes,
+                legs: routeViews(this.session).map(r => ({ crew: r.crew, turns: r.legs.map(l => l.turn) }))
+            }
         };
     }
 
@@ -234,6 +265,8 @@ export class PlayMode {
             this.syncAll();
             this.refresh();
         }
+        // Auto-advance plays its next turn once the last one has been shown.
+        if (this.auto && !this.busy) this.autoTurn();
         // Where the camera looks goes into the UI save (debounced), so a resume opens on the same view.
         const view = this.camera.view, cam = this.session.camera;
         const x = Math.round(view.x), y = Math.round(view.y);
@@ -714,6 +747,18 @@ export class PlayMode {
         const { world } = this.session, state = this.picture(), range = this.range(member);
         const along = moveAlong(world, state, member, range, path);
         if (along.command && this.preview(along.command)) return;
+        // Beyond this turn's reach: a route over as many turns as it takes (§6.5), up to the first step nobody could take.
+        if (!along.command) {
+            const cut = routeBreak(world, this.session.state, member.id, path), route = cut < 0 ? path : path.slice(0, cut);
+            const plan = route.length ? planRoute(world, this.session.state, member.id, route) : undefined;
+            if (plan && plan.legs.some(l => l.turn > this.session.state.turn)) {
+                this.session.setPendingCommand(null);
+                this.session.setRoute(member.id, route);
+                this.lastStop = null;
+                this.toast(`Route: ${plan.legs.at(-1)!.turn - this.session.state.turn + 1} turns. Go to walk it`);
+                return this.refresh();
+            }
+        }
         for (let n = along.badFrom ?? path.length - 1; n > 0; n--) {
             const part = moveAlong(world, state, member, range, path.slice(0, n)).command;
             if (part && this.preview(part)) return;
@@ -755,6 +800,45 @@ export class PlayMode {
             console.warn(`Can't do that: ${(e as Error).message}`);
             this.toast(e instanceof IllegalCommand ? 'Blocked' : "Can't do that");
             this.session.setPendingCommand(null);
+        }
+        this.refresh();
+    }
+
+    // ------------------------------------------------------------------------------------------------- Auto-advance
+
+    /** Starts a Go (no target: walk the routes) or a Wait for… (§6.5). */
+    private startAuto(target: AutoRun['target'], label: string | null): void {
+        if (this.recap) return;
+        if (this.busy) this.skip();
+        this.session.setPendingCommand(null);
+        this.target = null;
+        this.lastStop = null;
+        this.auto = new AutoRun(this.session, target, label);
+        this.refresh();
+    }
+
+    /** Stops the run in progress (a tap, or Stop). */
+    private stopAuto(): void {
+        if (!this.auto) return;
+        this.lastStop = this.auto.cancel();
+        this.auto = null;
+        this.refresh();
+    }
+
+    /** Plays the run's next turn; when it stops, says why and looks at it if it needs looking at. */
+    private autoTurn(): void {
+        const run = this.auto!;
+        let stop: AutoStop | null;
+        try {
+            stop = run.step();
+        } catch (e) {
+            console.warn('Auto-advance failed', e);
+            stop = { kind: 'blocked', text: (e as Error).message };
+        }
+        if (stop) {
+            this.auto = null;
+            this.lastStop = stop;
+            if (stop.at && stopNeedsAttention(stop)) this.camera.centreOn(...centre(stop.at), 300);
         }
         this.refresh();
     }
@@ -806,6 +890,7 @@ export class PlayMode {
     private refresh(): void {
         const { session } = this, vm = session.hud({ mapOn: this.mapOn, overlays: this.overlays, target: this.target });
         this.hud.update(this.recap ? { ...vm, recap: session.recap() } : vm);
+        this.autoBar.update(autoBarView(session, this.auto, this.lastStop));
         session.state.crew.forEach(c => this.people.highlight(this.sprite.get(c.id)!, c.id === session.selected));
         const speed = this.chrome[0];
         if (speed) speed.textContent = SPEED_LABEL[session.playback.speed];
@@ -814,7 +899,7 @@ export class PlayMode {
 
     private overlayContent(): Parameters<WorldOverlay['set']>[0] {
         if (this.recap) return null;
-        const layer = this.knowledgeLayer();
+        const layer = { ...this.knowledgeLayer(), routes: routeViews(this.session) };
         if (this.busy || this.session.state.phase !== 'crew') return { colour: '', ...layer };
         const intents = this.intents(), member = this.selectedMember();
         if (!member) return { colour: '', intents, ...layer };
@@ -826,6 +911,17 @@ export class PlayMode {
         const base = { colour, intents, ...layer, ...(range ? { reach: { move: range.walk, dash: range.run, at: member.pos, unfilled: bodies } } : {}) };
         if (this.dragPath) {
             const along = moveAlong(this.session.world, this.picture(), member, range ?? { move: null, dash: null }, this.dragPath);
+            if (!along.command && this.dragPath.length) {
+                // Beyond this turn's reach: drawn as the route it would become, its turns numbered.
+                const cut = routeBreak(this.session.world, this.session.state, member.id, this.dragPath);
+                const route = cut < 0 ? this.dragPath : this.dragPath.slice(0, cut);
+                const plan = planRoute(this.session.world, this.session.state, member.id, route);
+                const others = layer.routes.filter(r => r.crew !== member.id);
+                return {
+                    ...base, routes: [...others, { crew: member.id, colour, from: member.pos, legs: plan.legs, rest: route.slice(plan.walkable) }],
+                    from: member.pos, path: this.dragPath, badFrom: cut < 0 ? undefined : cut, routeDrag: true
+                };
+            }
             return { ...base, from: member.pos, path: this.dragPath, dash: along.command?.type === 'dash', badFrom: along.badFrom };
         }
         const pending = this.session.pendingCommand;
@@ -974,6 +1070,9 @@ export class PlayMode {
     private destroy(): void {
         this.unsubscribe();
         this.hud.destroy();
+        this.autoBar.destroy();
+        document.removeEventListener('pointerdown', this.onAnyTap, true);
+        document.removeEventListener('keydown', this.onAnyKey, true);
         for (const el of this.chrome) el.remove();
         this.scene.input.keyboard?.off('keydown', this.onKey, this);
         document.body.classList.remove('play');

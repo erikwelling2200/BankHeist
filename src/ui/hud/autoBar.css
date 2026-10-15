@@ -1,0 +1,17 @@
+/* Auto-advance and Wait for… (autoBar.ts): bottom centre, between the camera tools and Confirm, in the HUD's glass. */
+.sh-autoroot { z-index: 6; }
+.sh-auto { position: absolute; left: 50%; bottom: var(--pb); transform: translateX(-50%); display: flex; gap: 8px; }
+.sh-go, .sh-waitfor { height: 44px; padding: 0 12px !important; white-space: nowrap; font-size: calc(var(--sh-text) * 13px) !important; }
+.sh-go { min-width: 72px; }
+.sh-go.on { border-color: var(--amber); color: var(--amber); }
+.sh-auto button:disabled { opacity: 0.4; cursor: default; }
+.sh-autostatus { position: absolute; left: 50%; bottom: calc(var(--pb) + 52px); transform: translateX(-50%); max-width: min(420px, calc(100vw - 460px));
+  padding: 6px 10px; border: 1px solid var(--line); border-radius: var(--r); background: var(--panel); font: 500 calc(var(--sh-text) * 13px) var(--sans);
+  letter-spacing: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; pointer-events: none; }
+.sh-autostatus.alert { border-color: var(--amber); color: var(--amber); }
+.sh-waitmenu { position: absolute; left: 50%; bottom: calc(var(--pb) + 52px); transform: translateX(-50%); width: min(320px, calc(100vw - 32px));
+  max-height: calc(100vh - 140px); overflow-y: auto; padding: 6px; display: flex; flex-direction: column; gap: 4px; pointer-events: auto; z-index: 1; }
+.sh-waittitle { padding: 2px 4px 4px; color: var(--dim); font-size: calc(var(--sh-text) * 12px); }
+.sh-waititem { min-height: 44px; padding: 0 10px !important; text-align: left; border: 1px solid var(--line) !important; border-radius: var(--r);
+  background: rgba(242, 230, 200, 0.05); font: 500 calc(var(--sh-text) * 13px) var(--sans) !important; letter-spacing: 0 !important; }
+.sh-waititem:hover { background: rgba(242, 230, 200, 0.12); }
