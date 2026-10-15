@@ -16,12 +16,13 @@ import type { SaveStorage } from './storage';
 export const GEN_VERSION = 'gen-1';
 
 /**
- * The M1 crew: two, with placeholder loadouts until the planning screen: Mara hacks (the alarm panel, a looped feed, §9.1)
- * and Jun carries a jammer (§12.2).
+ * The M1 crew: two, with placeholder loadouts until the planning screen, as GAME_DESIGN §3 has them: Mara (Smooth
+ * Talker) has the zip-ties and the jammer (§12.2), no gun; Jun (Steady Hands) carries the hacking kit (the alarm
+ * panel, a looped feed, §9.1) and a pistol under his jacket.
  */
-export const M1_CREW: readonly { id: string; name: string; look: string; items: string[] }[] = [
-    { id: 'mara', name: 'Mara', look: 'crewMara', items: ['pistol', 'zipTies', 'hackingKit'] },
-    { id: 'jun', name: 'Jun', look: 'crewJun', items: ['pistol', 'duffel', 'jammer'] }
+export const M1_CREW: readonly { id: string; name: string; look: string; items: string[]; traits: string[] }[] = [
+    { id: 'mara', name: 'Mara', look: 'crewMara', items: ['zipTies', 'jammer'], traits: ['smoothTalker'] },
+    { id: 'jun', name: 'Jun', look: 'crewJun', items: ['pistol', 'duffel', 'hackingKit'], traits: ['steadyHands'] }
 ];
 
 /** The tile the crew starts beside: the crew van at the curb, or else the first getaway spot, or else the lobby's door. */
@@ -71,7 +72,7 @@ export function newHeist(bank: GeneratedBank): { world: ReadonlyWorld; state: St
     const world = worldFromBank(bank);
     const starts = crewStarts(world, crewOrigin(bank), M1_CREW.length);
     const facing: Facing = 'n';
-    const crew: CrewStart[] = M1_CREW.map((c, i) => ({ id: c.id, name: c.name, pos: starts[i]!, facing, items: [...c.items] }));
+    const crew: CrewStart[] = M1_CREW.map((c, i) => ({ id: c.id, name: c.name, pos: starts[i]!, facing, items: [...c.items], traits: [...c.traits] }));
     const state = initialState(world, { seed: (bank.seed.layout * 1000 + bank.seed.population) >>> 0, crew });
     return { world, state };
 }

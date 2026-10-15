@@ -20,8 +20,8 @@ const tapTile = async (page: Page, p: Pos) => {
     await page.mouse.click(at.x, at.y);
 };
 
-/** Opens `?play&new` and waits until the bank is built and the walls have settled. */
-async function boot(page: Page, query = 'play&new'): Promise<string[]> {
+/** Opens the game (`/?new`: a new heist) and waits until the bank is built and the walls have settled. */
+async function boot(page: Page, query = 'new'): Promise<string[]> {
     const errors: string[] = [];
     page.on('pageerror', e => errors.push(e.message));
     page.on('console', m => { if (m.type() === 'error') errors.push(m.text()); });
@@ -151,15 +151,16 @@ test('plays three turns of a heist through taps', SMOKE, async ({ page }) => {
 test('never overwrites a saved heist without asking', SMOKE, async ({ page }) => {
     const errors = await boot(page);
     await page.evaluate(() => { (window as any).sim.endTurn(); (window as any).sim.session.save(); });
-    expect(page.url()).toMatch(/\?play&seed=31-2&/);
-    // Another bank: the dialog asks; keeping the saved heist goes back to it, in its own bank.
+    expect(page.url()).toMatch(/\?seed=31-2&/);
+    // Another bank (through `?play`, the older link to the game): the dialog asks; keeping the saved heist goes back to
+    // it, in its own bank.
     await page.goto('/?play&seed=5-5');
     await page.locator('.play-dialog-keep').click();
     await page.waitForFunction(() => (window as any).sim, undefined, { timeout: 60000 });
     expect((await sim(page)).turn).toBe(2);
     expect(page.url()).toMatch(/seed=31-2/);
     // Without a seed, the saved heist resumes; with &new, starting afresh needs a yes.
-    await page.goto('/?play&new');
+    await page.goto('/?new');
     await page.locator('.play-dialog-new').click();
     await page.waitForFunction(() => (window as any).sim, undefined, { timeout: 60000 });
     expect((await sim(page)).turn).toBe(1);
@@ -845,5 +846,137 @@ test('the safe floor: tints as the sim judges them, a drawn path\'s eye, who and
     // A tap puts it away.
     await tapTile(page, green.pos);
     await expect(page.locator('.play-explain')).toHaveCount(0);
+    expect(errors).toEqual([]);
+});
+
+/**
+ * The M1 run (implementation plan M1-16) in the pinned bank, played through `window.sim`'s commands alone: one string
+ * per turn, each move `crew:x,y` (a Move to that tile, along the path the safe floor judged), then End turn. Found by a
+ * search over the real rules and recorded; the bank and the rules are deterministic, so it plays the same every time.
+ */
+const blank = (turns: number): string[] => Array.from({ length: turns }, () => '');
+const M1_OPENING = ['mara:36,30 jun:36,29 mara:33,27 jun:33,26', 'jun:32,25 jun:34,23 mara:33,23'];
+/** From turn 10: Jun slips through the staff door behind the cleaner (turn 11) and keeps out of sight near the alarm closet. */
+const M1_INSIDE = [
+    'jun:30,22', 'jun:26,23 jun:25,20', 'jun:23,17 jun:23,12', 'jun:28,12 jun:33,12', 'jun:38,12 jun:42,11', 'jun:43,11', ...blank(20),
+    'jun:40,13', 'jun:39,13', 'jun:40,11', 'jun:43,11', 'jun:40,13', 'jun:40,14', 'jun:40,12',
+    ...Array.from({ length: 4 }, () => ['jun:42,11 jun:43,11', '', 'jun:40,13 jun:40,14', '']).flat(),
+    'jun:42,11 jun:43,11', 'jun:39,13', ...blank(3), 'jun:43,11', 'jun:42,11 jun:41,11', 'jun:43,11', 'jun:41,12', 'jun:40,11', 'jun:43,11'
+];
+
+interface MoveCheck { tile: { now: unknown; next: unknown; tint: { kind: string } }; now: unknown; cut: boolean; at: Pos }
+
+/** A tint's kind from an outcome, as the safe floor ranks them (src/sim/preview/floor.ts `kindOf`). */
+const kindOf = (e: any): string => (e.exposed.length || e.watching.length ? 'red' : e.cameras.length ? 'camera' : e.challenged !== null ? 'trespass' : Object.keys(e.pips).length ? 'amber' : 'safe');
+const RANK: Record<string, number> = { safe: 0, amber: 1, trespass: 2, camera: 3, red: 4 };
+
+test('the M1 heist: walk in, wait, slip through behind the cleaner, knock out the guard in the alarm closet, kill the panel', SMOKE, async ({ page }) => {
+    // 72 turns with every world phase's playback skipped: about 30 s on the sandbox's software renderer.
+    test.setTimeout(120000);
+    const errors = await boot(page);
+    expect(new URL(page.url()).searchParams.get('seed')).toBe('31-2');
+    // Playback instantly (the speed button: 1×, 2×, skip).
+    for (let i = 0; i < 2; i++) await page.locator('.play-speed').click();
+    await expect(page.locator('.play-speed')).toHaveText('⏭');
+
+    /** Moves `crew` to (x, y) along the safe floor's own path, and says what the floor promised and what happened. */
+    const move = (crew: string, x: number, y: number): Promise<MoveCheck> => page.evaluate(([crew, x, y]) => {
+        const sim = (window as any).sim;
+        const tile = sim.safeFloor(crew, ['move']).tiles.find((t: any) => t.band === 'move' && t.pos.x === x && t.pos.y === y);
+        if (!tile) throw new Error(`${crew} can't move to ${x},${y} on turn ${sim.state.turn}`);
+        const before = sim.state;
+        const result = sim.commit({ type: 'move', crew, path: tile.path });
+        return {
+            tile: { now: tile.now, next: tile.next, tint: tile.tint }, now: sim.effect(result.events, crew, before),
+            cut: result.events.some((e: any) => e.type === 'moveCut'), at: sim.state.crew.find((c: any) => c.id === crew).pos
+        };
+    }, [crew, x, y] as const);
+    /** Ends the turn: what the world phase did to `crew` (the last mover), and whether anything raised the stakes. */
+    const endTurn = (crew: string | null) => page.evaluate(crew => {
+        const sim = (window as any).sim, before = sim.state, result = sim.endTurn(), s = sim.state;
+        return {
+            next: crew ? sim.effect(result.events, crew, before) : null, turn: s.turn,
+            quiet: !s.bank.alarm && !s.bank.loud && !s.carriers.length && s.npcs.every((n: any) => n.status !== 'alerted' && n.status !== 'hostile'),
+            heard: result.events.filter((e: any) => ['suspicionRaised', 'exposed', 'challenged', 'cameraSaw', 'alarmAttempt'].includes(e.type))
+        };
+    }, crew);
+
+    /** Plays one turn's moves and ends it, checking each move's tint against what it did. */
+    async function playTurn(spec: string): Promise<void> {
+        const moves = spec.split(' ').filter(Boolean).map(m => { const [crew, at] = m.split(':'); const [x, y] = at!.split(',').map(Number); return { crew: crew!, x: x!, y: y! }; });
+        let last: MoveCheck | null = null;
+        for (const m of moves) {
+            last = await move(m.crew, m.x, m.y);
+            // The whole path walked (nothing unseen cut it short), and the move itself did what the floor's solid part said.
+            expect(last.cut).toBe(false);
+            expect(last.at).toEqual({ x: m.x, y: m.y });
+            expect(last.now).toEqual(last.tile.now);
+        }
+        const lastCrew = moves.at(-1)?.crew ?? null;
+        const ended = await endTurn(lastCrew);
+        expect(ended.quiet).toBe(true);
+        if (last && lastCrew) {
+            // The turn's last move was followed only by End turn: the hatched part, and so the tint itself, came true.
+            if (last.tile.next !== null) expect(ended.next).toEqual(last.tile.next);
+            const happened = [kindOf(last.now), ...(ended.next ? [kindOf(ended.next)] : [])].sort((a, b) => RANK[b]! - RANK[a]!)[0];
+            const kind = last.tile.tint.kind === 'unknownRisk' || last.tile.tint.kind === 'grey' ? 'safe' : last.tile.tint.kind;
+            expect(happened).toBe(kind);
+        }
+    }
+
+    // Mara and Jun walk in from the van to the lobby.
+    for (const spec of M1_OPENING) await playTurn(spec);
+    // They watch the floor and wait for what they know of the bank's routine ("Wait for…"), up to turn 10.
+    const stops = await page.evaluate(() => {
+        const sim = (window as any).sim, stops: { kind: string; text: string }[] = [];
+        while (sim.state.turn < 10) {
+            const option = sim.waitOptions().filter((o: any) => o.target.kind === 'turn' && o.target.turn <= 10).at(-1);
+            if (!option) sim.endTurn();
+            else stops.push(sim.waitFor(option.target));
+        }
+        return stops;
+    });
+    expect(stops.some(s => s.kind === 'target')).toBe(true);
+    for (const s of stops) expect(['target', 'schedule', 'revealed']).toContain(s.kind);
+    expect(await page.evaluate(() => (window as any).sim.state.turn)).toBe(10);
+
+    for (const [i, spec] of M1_INSIDE.entries()) {
+        await playTurn(spec);
+        // Turn 11: the cleaner went through the staff door, and Jun stands in the doorway, holding it open.
+        if (i === 1) expect(await page.evaluate(() => (window as any).sim.state.doors['door-13'].status)).toBe('open');
+    }
+    // Turn 70: the guard's closing sweep has him just inside the alarm closet, its door open. Jun steps up behind him and
+    // knocks him out; standing in the doorway, he keeps it from swinging shut.
+    const at70 = await page.evaluate(() => {
+        const s = (window as any).sim.state;
+        return { turn: s.turn, guard: s.npcs.find((n: any) => n.id === 'lobbyGuard-8').pos, door: s.doors['door-3'].status };
+    });
+    expect(at70).toEqual({ turn: 70, guard: { x: 45, y: 10 }, door: 'open' });
+    const step = await move('jun', 45, 11);
+    expect(step.now).toEqual(step.tile.now);
+    const ko = await page.evaluate(() => (window as any).sim.commit({ type: 'knockout', crew: 'jun', npc: 'lobbyGuard-8' }).events.map((e: any) => e.type));
+    expect(ko).toContain('knockedOut');
+    expect((await endTurn(null)).quiet).toBe(true);
+    // In, past the body, to the panel; then two actions of hacking with Steady Hands kill it.
+    await playTurn('jun:45,6 jun:45,5');
+    const panel = await page.evaluate(() => {
+        const sim = (window as any).sim, id = sim.world.objects.find((o: any) => o.kind === 'alarmPanel').id;
+        for (let i = 0; i < 2; i++) sim.commit({ type: 'interact', crew: 'jun', object: id, verb: 'disable' });
+        return sim.state.objects[id];
+    });
+    expect(panel).toEqual({ progress: 4, disabled: true });
+    // The world phase after: still Quiet, and the HUD says so.
+    expect((await endTurn(null)).quiet).toBe(true);
+    await idle(page);
+    const end = await page.evaluate(() => {
+        const s = (window as any).sim.state;
+        return { turn: s.turn, alarm: s.bank.alarm, loud: s.bank.loud, carriers: s.carriers.length, guard: s.npcs.find((n: any) => n.id === 'lobbyGuard-8').status };
+    });
+    expect(end).toEqual({ turn: 73, alarm: false, loud: false, carriers: 0, guard: 'unconscious' });
+    await expect(page.locator('.sh-state')).toHaveClass(/quiet/);
+    // Jun at the dead panel, the guard out cold in the closet's doorway.
+    await page.evaluate(() => (window as any).game.scene.getScene('bank').lookAt(45 * 16 + 8, 8 * 16));
+    await page.waitForTimeout(600);
+    await page.screenshot({ path: 'screenshots/play-m1.png' });
     expect(errors).toEqual([]);
 });

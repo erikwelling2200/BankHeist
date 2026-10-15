@@ -1,6 +1,7 @@
 import {
-    safeFloor, type ActionPreview, type Explanation, type FloorBand, type PathSafety, type SafeFloor, crewBudget, crewMoveOptions, crewPicture, isKnownNow, pathTo, whyNot, reachable, type Command, type CommitResult, type Pos, type PreviewResult, type ReadonlyWorld, type State
+    effectOf, safeFloor, type ActionPreview, type AutoStop, type Effect, type SimEvent, type WaitOption, type WaitTarget, type Explanation, type FloorBand, type PathSafety, type SafeFloor, crewBudget, crewMoveOptions, crewPicture, isKnownNow, pathTo, whyNot, reachable, type Command, type CommitResult, type Pos, type PreviewResult, type ReadonlyWorld, type State
 } from '../sim';
+import { AutoRun, waitMenu } from './autoAdvance';
 import { Session, UI_KEY, type PlayerPreview } from './session';
 
 /*
@@ -44,6 +45,19 @@ export interface SimHandle {
      */
     routePath(crew: string, to: Pos): Pos[] | undefined;
     routeReach(crew: string): { pos: Pos; cost: number }[];
+    /** The "Wait for…" menu as the HUD offers it for the selected crew member (§6.5). */
+    waitOptions(): WaitOption[];
+    /**
+     * Plays "Wait for…" `target` as the HUD's menu does (an `AutoRun`, a turn at a time through the Session, at most
+     * `AUTO_TURN_CAP` turns) and returns why it stopped.
+     */
+    waitFor(target: WaitTarget): AutoStop;
+    /**
+     * What `events` did to crew member `crew` (pips, exposure, a challenge, a camera's report), `before` being the state
+     * they started from: the same reading of an outcome as the safe floor's `now` and `next`, for checking one against
+     * the other.
+     */
+    effect(events: readonly SimEvent[], crew: string, before: State): Effect;
     /** Why the rules refuse `cmd` on `state` (the current one by default), or undefined. */
     whyNot(cmd: Command, state?: State): string | undefined;
     /** Whether the crew knows where NPC `id` is now (§8.15) in `state` (the current one by default). */
@@ -79,6 +93,15 @@ export function installDebugHandle(session: Session, target: { sim?: SimHandle }
         undo: () => session.undo(),
         whyNot: (cmd, state = session.state) => whyNot(session.world, state, cmd),
         knows: (id, state = session.state) => isKnownNow(session.world, state, id),
+        waitOptions: () => waitMenu(session).map(({ target, label }) => ({ target, label })),
+        waitFor: target => {
+            const run = new AutoRun(session, target);
+            for (;;) {
+                const stop = run.step();
+                if (stop) return stop;
+            }
+        },
+        effect: (events, crew, before) => effectOf(events, crew, before),
         restart: state => {
             session.retire();
             // The old heist's UI (camera, selection, preview) mustn't be resumed with the new one.
