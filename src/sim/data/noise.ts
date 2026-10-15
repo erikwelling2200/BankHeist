@@ -42,6 +42,8 @@ export const NOISES = {
     suppressedSmg: fixed('quiet', 4),
     commandShout: { kind: 'loud', min: 0, max: 0, plusCommandRadius: 3 },
     scream: fixed('loud', 6),
+    /** A guard's "Hands up!" (§16.2): he draws and shouts. */
+    guardShout: fixed('loud', 6),
     pistol: fixed('loud', 8),
     machinePistol: range('loud', 9, 10),
     smg: range('loud', 9, 10),

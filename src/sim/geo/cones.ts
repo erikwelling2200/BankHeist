@@ -153,13 +153,13 @@ export function npcObserver(world: ReadonlyWorld, npc: DeepReadonly<NpcState>): 
 }
 
 /**
- * A camera as an observer, or null when it is dead or looped (not live). `next` gives the facing it pans to in the
+ * A camera as an observer, or null when it is dead (not live) or its feed is looped (§8.12: a loop shows nothing). `next` gives the facing it pans to in the
  * coming world phase, which is telegraphed (§8.3).
  */
 export function cameraObserver(world: ReadonlyWorld, state: State, id: string, next = false): Observer | null {
     const def: DeepReadonly<CameraDef> | undefined = world.cameras.find(c => c.id === id);
     const now = state.cameras[id];
-    if (!def || !now || !now.live) return null;
+    if (!def || !now || !now.live || now.loopedUntil !== null) return null;
     const facing = def.facings[(now.facing + (next ? 1 : 0)) % def.facings.length]!;
     const p = profilesOf(world);
     return { pos: def.pos, facing, profile: def.seesInDark ? p.darkCamera : p.camera };

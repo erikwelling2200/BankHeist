@@ -28,6 +28,8 @@ import { DOOR_KINDS, WALL_MATERIALS } from './materials';
  * - stash rooms: the cleaner's closet, where a body can be hidden (§8.10).
  * - people: their role, observer class and schedule (the typed `routine` with its tiles, run by rules/npc); cameras with
  *   their facings, two for a panning one.
+ * - the patrol car's lane along the main street and the timeline's drive-by turns (rules/checkins.ts), and the police
+ *   arrival time of the bank's tier (`rules.policeEta`, §9.2).
  */
 
 /** A person's facing as drawn (front is toward the camera, south) to the rules' eight. */
@@ -187,5 +189,14 @@ export function worldFromBank(bank: GeneratedBank): ReadonlyWorld {
     }));
 
     const stashRooms = bank.rooms.filter(r => STASH_ROOMS.includes(r.type)).map(r => r.id).sort();
-    return freezeWorld({ width, height, tiles, edges, doors, objects, people, cameras, rules: defaultRules(), stashRooms });
+    // The patrol car's lane (§16.3, §16.4): the main street from its west end to its east end, on the street's tiles.
+    const west = bank.exits.find(e => e.id === 'street-west'), east = bank.exits.find(e => e.id === 'street-east');
+    const lane: { x: number; y: number }[] = [];
+    if (west && east && west.ty === east.ty) {
+        for (let x = Math.min(west.tx, east.tx); x <= Math.max(west.tx, east.tx); x++) if (x >= 0 && x < width && tiles[west.ty * width + x]?.room) lane.push({ x, y: west.ty });
+    }
+    const patrol = { lane, turns: bank.timeline.filter(t => t.name === 'Patrol drive-by').map(t => t.turn).sort((a, b) => a - b) };
+    // Police in N (§9.2) by the bank's tier.
+    const rules = { ...defaultRules(), policeEta: bank.policeEta };
+    return freezeWorld({ width, height, tiles, edges, doors, objects, people, cameras, rules, stashRooms, ...(lane.length ? { patrol } : {}) });
 }

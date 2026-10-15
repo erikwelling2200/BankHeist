@@ -43,6 +43,8 @@ export interface FixtureOptions {
     cameras?: readonly CameraDef[];
     objects?: readonly WorldObject[];
     rules?: Partial<Rules>;
+    /** The patrol car's street lane and drive-by turns (rules/checkins.ts). */
+    patrol?: { lane: readonly Pos[]; turns: readonly number[] };
 }
 
 const ZONES: Readonly<Record<string, Zone>> = { '.': 'public', s: 'staff', x: 'secure' };
@@ -113,6 +115,7 @@ export function fixtureWorld(map: readonly string[], options: FixtureOptions = {
         objects: clonePlain([...(options.objects ?? [])]),
         people: clonePlain([...(options.people ?? [])]),
         cameras: clonePlain([...(options.cameras ?? [])]),
-        rules: { ...defaultRules(), ...options.rules }
+        rules: { ...defaultRules(), ...options.rules },
+        ...(options.patrol ? { patrol: { lane: clonePlain([...options.patrol.lane]), turns: [...options.patrol.turns] } } : {})
     });
 }

@@ -78,13 +78,13 @@ describe('saving', () => {
  * NpcStatusMap, CarrierKindMap or adds a field must also fill it in below, or a change of shape goes unnoticed.
  */
 const SHAPE_HASHES: Record<number, string> = {
-    1: 'd627132891a505ca'
+    1: '044038147d42b33c'
 };
 
 /** Paths whose objects are records by id, not structs. */
 const RECORDS = new Set([
     'world.edges', 'world.doors', 'state.doors', 'state.edges', 'state.objects', 'state.cameras', 'state.rng',
-    'state.npcs[].suspicion', 'state.npcs[].lastSeen', 'state.npcs[].frisked', 'state.knowledge.npcs', 'state.knowledge.doors'
+    'state.npcs[].suspicion', 'state.npcs[].lastSeen', 'state.npcs[].frisked', 'state.knowledge.npcs', 'state.knowledge.doors', 'state.radio.calls'
 ]);
 
 /** Two shapes as one: the union of their fields, and "a|b" where a field has two types. */
@@ -141,13 +141,14 @@ describe('the save format', () => {
         full.crew[1]!.dragging = 'guard';
         full.evidence = [{ id: 'blood-7', kind: 'blood', pos: { x: 1, y: 1 } }];
         full.barked = ['body'];
-        full.cameraEvidence = [{ camera: 'cam', evidence: 'body:guard', kind: 'body', tile: { x: 1, y: 1 }, turn: 2 }];
+        full.cameraEvidence = [{ camera: 'cam', evidence: 'body:guard', kind: 'body', tile: { x: 1, y: 1 }, turn: 2, handled: true }];
         full.cameraReports = [{ camera: 'cam', crew: 'jun', tile: { x: 0, y: 0 }, turn: 1, phase: 'crew' }];
         full.crew[0]!.notoriety = 2;
         full.edges['eastWest 0 1'] = { material: 'soft', blocksMove: false, blocksSight: false, blocksSound: false, midHeight: false };
         full.doors.staffDoor = { status: 'open', propped: true };
-        full.objects.panel = { disabled: true, open: false };
-        full.cameras.cam = { facing: 0, live: true };
+        full.objects.panel = { disabled: true, open: false, progress: 2 };
+        full.objects.recorder = { taken: 'jun', destroyed: false };
+        full.cameras.cam = { facing: 0, live: true, loopedUntil: 3 };
         full.crew[0]!.loadout = { items: ['pistol', 'duffel'], packed: ['assaultRifle'], uniform: 'staff', masked: false, carrying: 'lootBag' };
         full.dice.push({ turn: 1, kind: 'chance', stream: 'combat', reason: 'hit', value: 0.5, p: 0.7 });
         full.rng.combat = 5;
@@ -157,12 +158,18 @@ describe('the save format', () => {
         full.knowledge.npcs = { guard: { at: { x: 1, y: 1 }, facing: 'e', turn: 2, live: false, routine: true, rota: true, watched: 3, watchedTurn: 2, tick: 4 } };
         full.knowledge.doors = { staffDoor: 'open' };
         full.knowledge.pings = [{ at: { x: 2, y: 2 }, turn: 3, kind: 'loud', cause: 'pistol' }];
-        full.carriers.push({ id: 'carrier-9', kind: 'tellerButton', source: 'teller', pos: { x: 0, y: 0 }, countdown: 2, started: { turn: 1, phase: 'world' }, halted: null });
+        full.carriers.push({ id: 'carrier-9', kind: 'tellerButton', source: 'teller', pos: { x: 0, y: 0 }, countdown: 2, started: { turn: 1, phase: 'world' }, halted: null, about: 'jun', subject: 'guard' });
+        full.crew[0]!.traits = ['steadyHands'];
+        full.jammers = [{ id: 'jammer-3', pos: { x: 1, y: 1 }, crew: 'jun', turn: 2 }];
+        full.footage = [{ camera: 'cam', crew: 'jun', tile: { x: 1, y: 1 }, turn: 2 }];
+        full.response = { raised: 3, by: 'guardRadio', policeIn: 5, heat: { level: 1, tick: 0 } };
+        full.radio = { calls: { guard: { next: 6, missed: 1, ringing: 4 } }, answers: 1, silentSince: 2, driveBy: 12, heard: 5 };
         const save = JSON.parse(serialise({
             genVersion: 'fixture',
             world: {
                 ...world,
                 intel: { blueprints: true, guardRota: true },
+                patrol: { lane: [{ x: 0, y: 2 }, { x: 1, y: 2 }], turns: [5, 15] },
                 stashRooms: ['closet'],
                 objects: [
                     { id: 'panel', kind: 'alarmPanel', pos: { x: 0, y: 0 }, facing: 's' },

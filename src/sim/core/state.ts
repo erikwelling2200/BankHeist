@@ -98,7 +98,7 @@ export function initialState(world: ReadonlyWorld, options: { seed: number; crew
     const doors: Record<string, DoorState> = {};
     for (const id of sortedIds(world.doors)) doors[id] = { status: world.doors[id]!.start };
     const cameras: Record<string, CameraState> = {};
-    for (const c of world.cameras) cameras[c.id] = { facing: 0, live: true };
+    for (const c of world.cameras) cameras[c.id] = { facing: 0, live: true, loopedUntil: null };
     // Packages' own fields are filled in by their state inits, just below.
     const state: Pick<State, CoreStateKey> = {
         turn: 1,

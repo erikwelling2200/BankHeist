@@ -79,7 +79,7 @@ describe('seen tiles and the blueprint', () => {
         const through = step(world, inside.state, { type: 'move', crew: 'jun', path: [P(3, 1), P(4, 1), P(5, 1)] });
         expect(revealed(through.events)).toEqual(['tiles 9', 'room staff', 'camera cam', 'cctv desk']);
         expect(through.undoable).toBe(false);
-        expect(knownView(world, through.state).cameras).toEqual([{ id: 'cam', pos: P(7, 0), facings: ['s'], status: 'live' }]);
+        expect(knownView(world, through.state).cameras).toEqual([{ id: 'cam', pos: P(7, 0), facings: ['s'], status: 'live', monitored: false }]);
         // Before the CCTV room is scouted, a known camera's status is unknown (it counts as live, §8.8).
         const noDesk = freezeWorld({ ...(clonePlain(world) as World), objects: [] });
         const s2 = step(noDesk, initialState(noDesk, { seed: 1, crew: [{ id: 'jun', pos: P(4, 1) }] }), { type: 'move', crew: 'jun', path: [P(5, 1)] }).state;

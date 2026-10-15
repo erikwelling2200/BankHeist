@@ -13,6 +13,7 @@ import { bandAt, fieldOn, profilesOf, rangeOn, type SightField } from '../geo/co
 import { lineOfSight, sightInputs, sightMap, type SightMap } from '../geo/los';
 import { doorStatus, LYING_STATUSES } from '../geo/move';
 import { inRing, registerNoiseHook } from '../geo/sound';
+import { liveFeeds } from './cctv';
 import { sightsAlongWalk } from './perceive';
 import { isPresent } from './npc/walk';
 import { bodyPos, onFloor } from './place';
@@ -50,7 +51,9 @@ import { bitsCount, decodeBits, encodeBits } from './knowledgeBits';
  * - **Sound pings**: a loud noise whose ring reaches any crew member is kept with its source tile and turn, in or out of
  *   sight; quiet noises aren't.
  * - **Cameras**: a camera is known once its tile has been seen. Its feed status (live, looped, dead) is unknown until
- *   the CCTV room (the room of a `cctvDesk`) is scouted; a camera of unknown status counts as live (§8.8).
+ *   the CCTV room (the room of a `cctvDesk`) is scouted; a camera of unknown status counts as live (§8.8). Once it is,
+ *   the view also says which feeds are on the operator's monitors this turn (§8.12). With the CCTV room under control
+ *   the crew sees through every camera that isn't looped or dead (`registerLookout`, rules/cameras.ts, §8.15).
  *
  * **Moving in unknown space.** Moves are planned on `crewPicture` (`registerPlanView`): an unseen NPC's tile reads as
  * open, and the move bumps into it (crew/movement.ts). A move also stops at the step where an NPC the crew has never
@@ -238,9 +241,22 @@ const PENDING = new WeakMap<State, Pending>();
 const lookout = (world: ReadonlyWorld, sight: SightMap, member: DeepReadonly<CrewState> | { pos: Pos }): SightField =>
     fieldOn(sight, { pos: member.pos, facing: 'n', profile: profilesOf(world).crew });
 
-/** The fields of every crew member now. */
+/** More eyes the crew sees through besides their own (the cameras, from a controlled CCTV room: rules/cameras.ts). */
+export type Lookout = (world: ReadonlyWorld, state: State, sight: SightMap) => SightField[];
+
+const LOOKOUTS = new Map<string, Lookout>();
+
+/** Adds eyes the crew sees through (§8.15): their fields count as the crew's own. Lookouts run by name. */
+export function registerLookout(name: string, look: Lookout): void {
+    if (LOOKOUTS.has(name)) throw new Error(`Lookout '${name}' already exists`);
+    LOOKOUTS.set(name, look);
+}
+
+/** The fields of every crew member now, and of whatever else they see through. */
 function crewFields(world: ReadonlyWorld, state: State, sight: SightMap): SightField[] {
-    return state.crew.map(c => lookout(world, sight, c));
+    const out = state.crew.map(c => lookout(world, sight, c));
+    for (const name of [...LOOKOUTS.keys()].sort()) out.push(...LOOKOUTS.get(name)!(world, state, sight));
+    return out;
 }
 
 const seenBy = (fields: readonly SightField[], p: Pos): boolean => fields.some(f => bandAt(f, p) !== null);
@@ -573,8 +589,12 @@ export interface KnownCamera {
     id: string;
     pos: Pos;
     facings: DeepReadonly<CameraDef['facings']>;
-    /** Unknown until the CCTV room is scouted; an unknown one counts as live (§8.8). */
+    /** Unknown until the CCTV room is scouted; an unknown one counts as live (§8.8). A looped feed is off. */
     status: 'live' | 'off' | 'unknown';
+    /** Once the CCTV room is scouted (§8.12): whether its feed is on the operator's monitors this turn. */
+    monitored?: boolean;
+    /** Once the CCTV room is scouted: the turn whose world phase is the last of its loop, if looped. */
+    loopedUntil?: number;
 }
 
 /** A door as the crew knows it: its status when last seen, and whether a crew member sees it now. */
@@ -632,12 +652,18 @@ export function knownView(world: ReadonlyWorld, state: State): KnownView {
         if (kind !== 'ghost') { marker.status = npc.status; marker.intent = npc.intent; }
         npcs.push(marker);
     }
-    const cameras: KnownCamera[] = [];
+    const cameras: KnownCamera[] = [], feeds = liveFeeds(world, state);
     for (const id of k.cameras) {
         const def = world.cameras.find(c => c.id === id);
         if (!def) continue;
-        const status = !k.cctv ? 'unknown' : state.cameras[id]?.live ? 'live' : 'off';
-        cameras.push({ id, pos: { x: def.pos.x, y: def.pos.y }, facings: def.facings, status });
+        const now = state.cameras[id];
+        const status = !k.cctv ? 'unknown' : now?.live && now.loopedUntil === null ? 'live' : 'off';
+        const cam: KnownCamera = { id, pos: { x: def.pos.x, y: def.pos.y }, facings: def.facings, status };
+        if (k.cctv) {
+            cam.monitored = feeds.includes(id);
+            if (now && now.loopedUntil !== null) cam.loopedUntil = now.loopedUntil;
+        }
+        cameras.push(cam);
     }
     const doors: KnownDoor[] = [];
     for (const d of doorSides(world)) {

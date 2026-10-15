@@ -19,7 +19,11 @@ import './rules/actions/door';
 import './rules/actions/interact';
 import './rules/actions/knockout';
 import './rules/actions/wait';
+import './rules/alarms';
+import './rules/cameras';
 import './rules/carriers';
+import './rules/cctv';
+import './rules/checkins';
 import './rules/doors';
 import './rules/evidence';
 import './rules/knowledge';
@@ -54,7 +58,23 @@ export {
     assertPlainJson, clonePlain, deepFreeze, devChecksOn, hashOf, isPlainJson, isReservedKey, samePlain, setDevChecks, sortedIds,
     stableJson
 } from './core/json';
-export { startCarrier } from './rules/carriers';
+export {
+    CARRIERS, carrierBlocked, carrierPreview, carriersStarted, carrierVerdict, panelDead, pendingCarriers, projectCarriers, raiseCarrier,
+    registerCarrierCheck, settleCarriers, startCarrier, stopCarrier, type AlarmResponse, type CarrierChanges, type CarrierCheck, type CarrierDef,
+    type CarrierPreview, type CarrierRequest, type CarrierVerdict
+} from './rules/carriers';
+export {
+    HACKING_KIT, hasTrait, JAMMER, jammed, panelWorkLeft, startEscapee, TRAITS, workActions, type Jammer, type Trait
+} from './rules/alarms';
+export {
+    filmedCrew, footageKept, LOOP_FROM, nearestFreeGuard, operatorWatch, type Footage
+} from './rules/cameras';
+export {
+    atDesk, attentiveOperator, cctvControlled, cctvDesk, feedsAt, guardIds, isGuard, liveFeeds, NEUTRALISED, neutralised, operatorGone, operatorIds
+} from './rules/cctv';
+export {
+    answersLeft, checkInPeriod, driveByDue, nextDriveBy, patrolSightings, type CheckIn, type PatrolRoute, type Radio
+} from './rules/checkins';
 export { freezeWorld } from './world/freeze';
 export { fixtureWorld, type FixtureOptions, type FixtureWall } from './world/fixture';
 export {
@@ -86,7 +106,7 @@ export { knockoutBlocked, knockoutIneligible, registerKnockoutWindow, type Knock
 export { interactionVerbs, reachesObject, registerInteraction, type InteractionHandler, type InteractionVerb } from './rules/actions/interact';
 export {
     applyEvidence, bodyLying, clearEvidence, evidenceOnMap, evidenceWorldPhase, hearing, isMajor, MAJOR_EVIDENCE, noiseReactions, notices, placeEvidence,
-    projectEvidenceSightings, registerEvidenceSource,
+    projectEvidenceSightings, registerEvidenceSource, sendToLook,
     REPORT_CARRIERS, reportAssault, type CameraEvidence, type Evidence, type EvidenceKind, type EvidenceOptions, type EvidenceSighting, type EvidenceSource,
     type EvidenceWant, type Hearing, type MajorEvidence, type MinorEvidence, type PlacedEvidence
 } from './rules/evidence';
@@ -115,7 +135,7 @@ export {
 } from './rules/npc/behaviour';
 export { committedEnd, reconsider } from './rules/npc/intent';
 export {
-    blueprint, crewPicture, floorKnowledge, isKnownNow, isUnknownRisk, knownBlockers, knownNpcIds, knownView, markerKind, noticedUnseen, onRoutine,
+    blueprint, crewPicture, floorKnowledge, registerLookout, type Lookout, isKnownNow, isUnknownRisk, knownBlockers, knownNpcIds, knownView, markerKind, noticedUnseen, onRoutine,
     projectEvents, projectPreviewEvents, unknownReach, updateKnowledge, type Blueprint, type FloorKnowledge, type Intel, type Knowledge, type KnownCamera,
     type KnownDoor, type KnownView, type MarkerKind, type NpcKnowledge, type NpcMarker, type Ping, type ProjectOptions, type UpdateOptions
 } from './rules/knowledge';

@@ -291,7 +291,10 @@ export interface ObjectState {
 export interface CameraState {
     /** Which of its `facings` it looks along now. */
     facing: number;
+    /** Transmitting: false once it is shot or loses power (a dead camera is minor evidence, §8.10). */
     live: boolean;
+    /** A looped feed (§8.12): the turn whose world phase is the last it shows the loop, or null. Sees nothing meanwhile. */
+    loopedUntil: number | null;
 }
 
 /** The alarm carriers of §9.1. Augment to add one. */
@@ -317,6 +320,10 @@ export interface Carrier {
     started: { turn: number; phase: Phase };
     /** A paused carrier doesn't tick (its holder is commanded, a jammer runs); a countered one never goes off. */
     halted: 'paused' | 'countered' | null;
+    /** The crew member it is about (the one an NPC exposed), when there is one. */
+    about?: string;
+    /** The NPC it is about, besides its source (the guard whose check-in was missed), when there is one. */
+    subject?: string;
 }
 
 /** Loud and Alarm are separate (§4): an alarm is silent (§9.2), and a gunshot is loud without calling anyone. */
@@ -395,7 +402,11 @@ export interface EventMap {
     revealed: { what: string; id: string };
     /** An NPC checked whether it saw or heard a crew member (§8.5). */
     perceptionCheck: { npc: string; crew: string };
-    carrierStarted: { carrier: string; kind: CarrierKind; countdown: number };
+    /**
+     * A carrier started: its holder (`Carrier.source`) is named `holder`, not `source`, so the crew's projection never
+     * drops it (every carrier is shown, §9.1).
+     */
+    carrierStarted: { carrier: string; kind: CarrierKind; countdown: number; holder: string; pos: Pos; about?: string };
     carrierTicked: { carrier: string; countdown: number };
     alarmRaised: { carrier: string };
     wentLoud: { cause: string };

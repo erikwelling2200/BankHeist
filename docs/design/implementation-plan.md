@@ -301,12 +301,48 @@ Each package lists its goal, the design sections it covers, the files, what it d
     - The operator's monitors cycle through the live feeds; verify; looping a feed; the recorder.
     - Check-ins and answering them; the missed-call carrier.
     - The Alarm event and "Police in N".
-  - **Files:** `src/sim/rules/{carriers,cameras,checkins}.ts`.
+  - **Files:** `src/sim/rules/{carriers,cameras,checkins}.ts` (and `alarms.ts`, `cctv.ts`).
   - **Depends on:** M1-07. **∥** M1-10, M1-11.
   - **Accept:** a property test that every carrier is created with a countdown of at least 2 and every carrier type has a counter that works mid-countdown; scenario "the panel is dead, so the teller's button is dead".
   - **Note from M1-05:** camera `!` sightings wait in `State.cameraReports` (one per camera and crew member; a
     `cameraSaw` event each time). The hatched overlay judges each camera at the facing it pans to next
     (`cameraObserver(…, next = true)`), so a panning camera must advance exactly one step per world phase.
+  - **Notes (done):** `rules/carriers.ts` (the table, starting, counters, ticking, the Alarm, previews), `alarms.ts`
+    (carrying out the NPCs' alarm intents, "Hands up!", the alarm panel, the jammer, traits, the escapee's starter),
+    `cameras.ts` (panning, the operator, looping, footage and the recorder, the controlled CCTV room), `checkins.ts`
+    (check-ins, answering, dispatch, the patrol drive-by) and `cctv.ts` (who watches: the desk, the operator, the
+    monitors' feeds). Decisions 29–36.
+    - **Carriers** (`CARRIERS[kind]`: label, wired, radio, the design's counters with `now: true` or the milestone that
+      brings them). Every rule starts one through `raiseCarrier` (refused once the Alarm is up; a wired one with a
+      dead panel emits `alarmDead` instead; a source keeps one carrier per kind). `Carrier.about` is the crew member,
+      `subject` the NPC (the guard of a missed check-in). Counters that are conditions are `registerCarrierCheck`s,
+      applied after every command and before the tick (`settleCarriers`): the source NPC down (out cold, dead, tied,
+      stashed, dragged) counters, commanded pauses; the dead panel counters wired kinds (in progress too); a jammer in
+      range (8) pauses radio kinds. A countered carrier is removed (`carrierStopped { why }`); a paused one stays with
+      `halted: 'paused'`. `carrierStarted` carries `holder` and `pos` (not `source`, so the projection never drops a
+      carrier). At 0: `bank.alarm`, `State.response { raised, by, policeIn: rules.policeEta (tier: 8/6/4, set by
+      worldFromBank), heat: { level 1, tick 0 } }`, every other carrier stops (`why: 'alarm'`); `policeIn` counts
+      down one per world phase from the next (`policeCountdown`); arrival is M3's.
+    - **Previews** (for M1-09): `pendingCarriers(world, state)` is the coming world phase's new carriers, by the world
+      phase's own reducers on a copy (the hatched overlay's carriers; not per tile); `carrierPreview(world, before,
+      result)` gives what a previewed command starts and stops at once and what it makes the world phase start ("this
+      would start: Operator verifies (2)"); `projectCarriers` keeps those of NPCs the crew sees or predicts. The
+      property test checks every `carrierStarted` is ≥ 2 and `pendingCarriers` equals what `endTurn` starts
+      (3,000 worlds pass); `tests/sim/carriers.test.ts` plays a counter mid-countdown for every kind.
+    - **Commands for the UI:** `interact { object: <alarmPanel>, verb: 'disable' }` (hacking kit, 1 action each, quiet 1,
+      'hack'; `panelWorkLeft` for "2 more actions"), `interact { object: <recorder>, verb: 'take' | 'destroy' }`,
+      `loopFeed { crew, object: <cctvDesk|serverRack>, camera }`, `answerRadio { crew, npc: <guard> }` (also during a
+      missed check-in's countdown), `placeJammer { crew }`. All in `legalActions`. Crew traits: `CrewStart.traits`
+      (`steadyHands`, `smoothTalker`, …; `CrewState.traits`).
+    - **Data for the HUD:** `state.carriers` (+ `CARRIERS[kind].label`), `state.response`, `state.radio.calls[guard]`
+      (`next`, `missed`, `ringing`: the guard tag's next call), `answersLeft`, `nextDriveBy`, `state.jammers`,
+      `state.footage` / `filmedCrew` / `footageKept` (the debrief), `knownView(...).cameras[i].monitored` and
+      `loopedUntil` once the CCTV room is scouted, `cctvControlled`. Events: `confronted`, `alarmAttempt`,
+      `alarmDead`, `operatorVerifies`, `operatorSentGuard`, `checkInRinging`, `checkInMissed`, `checkInSearch`,
+      `radioAnswered`, `dispatchLostContact`, `patrolPassed`, `feedLooped`/`feedRestored`, `cameraPanned`,
+      `panelWorked`/`panelDisabled`, `footageRecorded`, `recorderTaken`/`recorderDestroyed`, `carrierPaused`/`Resumed`.
+    - **Not yet:** shooting cameras and the officers (M3), the escapee's and commanding's starts and counters (M2:
+      `startEscapee` is the hook), cutting the phone line (M4), the vault sensors' starters and wiring box (M2-05).
 - [ ] **M1-09 Previews, safe floor and the property test.**
   - **Covers:** §8.8, §8.9 preview, §20.2.
   - **Work:**
@@ -670,6 +706,35 @@ Later milestones: within each milestone, the `∥` notes in §3 apply. UI packag
 28. **Knockout targets (M1-07 review).** Tied and commanded NPCs can't be knocked out: they are face down and do as
     they are told, and there would be no status to give back when they wake. Nor can a crew member with a body in
     hand. A knockout is witnessed from the attacker's tile and the victim's.
+
+29. **Panel work across turns (M1-08).** Disabling the alarm panel is 4 actions of 1 each (`interact … disable`), so
+    with 2 actions a turn it spans turns; the work stays on the panel (`ObjectState.progress`, counted in plain
+    actions' worth) and anyone with a hacking kit can carry on. Steady Hands does two actions' worth per action (2
+    actions). Each action is a quiet noise of radius 1 and the illegal act 'hack'.
+30. **Alarms at a station start on arrival (M1-08).** A teller or the manager Alerted away from the button walks there
+    (the intent arrow, with its action, is the telegraph) and starts the carrier (2) once there, rather than a carrier
+    of path + 1 from the moment of the alarm: the crew sees the same walk, and the countdown is never below 2.
+31. **The operator acts in the world phase (M1-08).** A camera's `!` in a crew phase waits for the world phase (§6.2):
+    an operator dropped in the same crew phase never verifies. A report counts only if its camera was on a monitor that
+    turn (the feeds cycle round-robin over the cameras in id order, `monitors` at a time, the same in a turn's crew
+    and world phase); off the monitors it is gone (only the recorder keeps illegal acts). Major evidence waits on its
+    camera until the feed comes up, then the operator sends the nearest free guard to look (minor `sent`).
+32. **"Hands up!" (M1-08).** Only a guard who sees the crew member when he raises the alarm confronts (draws and
+    shouts: loud 6, the bank goes Loud) and the radio carrier (2) starts with it. He is not Hostile until combat (M3),
+    so knocking him out still counters it.
+33. **Check-in timing (M1-08).** A call is made in the world phase; a downed guard's radio buzzes (quiet 3) and rings
+    through the next crew phase (answer: 1 action in reach of the body); unanswered at the next world phase it is
+    missed. A guard inside a jammer's range is tried again the next phase. Answering also counters a missed
+    check-in carrier mid-countdown (it uses an answer). An operator away (smoke break) calls once back; a neutralised
+    one never: then dispatch counts the silence (also while a jammer runs).
+34. **The patrol drive-by (M1-08).** A scripted outside observer for M1: the car drives the main street lane
+    (`World.patrol`, from the plot's street exits) in the world phase of the timeline's drive-by turns and of
+    dispatch's; its officers look both ways from every other lane tile with the calm NPC profile and read the crew as
+    cameras do (only `!`), see major evidence, and hear loud noises that reach the lane that turn.
+35. **Carriers after the Alarm (M1-08).** The Alarm is one event: once it is raised the other carriers stop and no new
+    one starts.
+36. **Footage needs a recorder (M1-08).** Cameras record to the CCTV desk's recorder; a bank without one (the small
+    branch's record-only cameras have no desk in the generator yet) keeps no footage for now.
 
 ### Critical files for implementation
 

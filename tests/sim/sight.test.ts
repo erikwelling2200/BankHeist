@@ -332,9 +332,9 @@ describe('observers', () => {
         expect(sees(world, state, now, P(6, 0))).toBe('core');
         expect(sees(world, state, now, P(0, 6))).toBe(null);
         expect(sees(world, state, next, P(0, 6))).toBe('core');
-        const panned = { ...state, cameras: { cam: { facing: 1, live: true } } };
+        const panned = { ...state, cameras: { cam: { facing: 1, live: true, loopedUntil: null } } };
         expect([cameraObserver(world, panned, 'cam')!.facing, cameraObserver(world, panned, 'cam', true)!.facing]).toEqual(['s', 'e']);
-        expect(cameraObserver(world, { ...state, cameras: { cam: { facing: 0, live: false } } }, 'cam')).toBeNull();
+        expect(cameraObserver(world, { ...state, cameras: { cam: { facing: 0, live: false, loopedUntil: null } } }, 'cam')).toBeNull();
         expect(cameraObserver(world, state, 'nope')).toBeNull();
 
         const crew = crewObserver(world, state.crew[0]!);

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { Rng } from '../../src/gen/rng';
 import {
-    assessEnd, assessPath, assessWorldPhase, clonePlain, commit, crewBudget, crewMoveOptions, dashRefusal, dueChallenge, evidenceWorldPhase, EYES_DOWN, FACINGS,
+    assessEnd, assessPath, assessWorldPhase, carriersStarted, clonePlain, commit, pendingCarriers, type SimEvent, type WorldObject, crewBudget, crewMoveOptions, dashRefusal, dueChallenge, evidenceWorldPhase, EYES_DOWN, FACINGS,
     fixtureWorld, hashOf, initialState, legalActions, preview, sightMap, validatePath, witnessOn, type CameraDef, type Command, type CrewStart,
     type FixtureWall, type Intent, type ObserverClass, type PersonDef, type Pos, type ReadonlyWorld, type ScheduleBlock, type Sighting, type State
 } from '../../src/sim';
@@ -22,6 +22,10 @@ import { scouted } from './helpers';
  * `evidenceWorldPhase` must name exactly the evidence the NPCs and cameras then notice. Dashes are played too: their
  * noise makes hearers react at once, so a dash's overlay is judged on its preview, as M1-09's overlay must; moves while
  * dragging a body keep the body with the crew member in the overlay.
+ * M1-08's carriers: some worlds have an operator at a CCTV desk with a recorder, an alarm panel, crew with a hacking kit
+ * (Steady Hands now and then) or a jammer, so the panel, looping, the recorder, answering and the jammer are played.
+ * Every carrier starts at the minimum countdown (2) or more, and before each world phase `pendingCarriers` (the hatched
+ * overlay's carriers) must name exactly the carriers it then starts.
  *
  * PERCEPTION_PROBE_WORLDS=2000 npm test -- perception.property runs a larger sample (PERCEPTION_PROBE_SEED another one).
  */
@@ -74,11 +78,22 @@ function makeWorld(rng: Rng): Built {
     const people: PersonDef[] = [];
     for (let i = 0, n = rng.int(2, 6); i < n; i++) {
         const observer = rng.pick(['civilian', 'staff', 'enforcer'] as ObserverClass[]);
-        const role = observer === 'civilian' ? 'customer' : observer === 'staff' ? rng.pick(['teller', 'manager']) : rng.pick(['guard', 'chief']);
+        const role = observer === 'civilian' ? 'customer' : observer === 'staff' ? rng.pick(['teller', 'manager', 'operator']) : rng.pick(['guard', 'chief']);
         people.push({ id: `n${i}`, name: `n${i}`, role, observer, pos: take(), facing: rng.pick(FACINGS), schedule: randomSchedule(rng, free) });
     }
     const cameras: CameraDef[] = rng.chance(0.5) ? [{ id: 'cam', pos: take(), facings: [rng.pick(FACINGS), rng.pick(FACINGS)], room: null }] : [];
-    return { world: fixtureWorld(map.map(r => r.join('')), { zones: zoneRows, walls, people, cameras }), free };
+    // M1-08: the alarm panel, the CCTV desk with its recorder, a server rack.
+    const objects: WorldObject[] = [];
+    if (rng.chance(0.5)) objects.push({ id: 'panel', kind: 'alarmPanel', pos: take(), facing: 's' });
+    if (rng.chance(0.5)) {
+        const at = take();
+        objects.push({ id: 'desk', kind: 'cctvDesk', pos: at, facing: 's', monitors: 1 }, { id: 'rec', kind: 'recorder', pos: at, facing: 's' });
+    }
+    if (rng.chance(0.3)) objects.push({ id: 'rack', kind: 'serverRack', pos: take(), facing: 's' });
+    // Check-ins every 2 phases so a downed guard's radio rings within the run; now and then a patrol car on the bottom row.
+    const patrol = rng.chance(0.3) ? { patrol: { lane: Array.from({ length: W }, (_, x) => ({ x, y: H - 1 })), turns: [rng.int(1, 4)] } } : {};
+    const rules = { checkInPeriod: 2, dispatchCheckInPeriod: 2, dispatchSilence: 2 };
+    return { world: fixtureWorld(map.map(r => r.join('')), { zones: zoneRows, walls, people, cameras, objects, rules, ...patrol }), free };
 }
 
 /** A schedule of the kinds the generator writes (M1-06): standing somewhere, or a route there and back, changing now and then. */
@@ -146,6 +161,7 @@ function playAction(world: ReadonlyWorld, state: State, cmd: Command, failures: 
     if (JSON.stringify(seen.events) !== JSON.stringify(result.events) || hashOf(seen.state) !== hashOf(result.state)) {
         failures.push(`${at} ${JSON.stringify(cmd)}: the preview differs from the commit`);
     }
+    checkCountdowns(world, result.events, failures, `${at} ${cmd.type}`);
     if (cmd.type === 'knockout' || cmd.type === 'door') {
         const scratch = clonePlain(state);
         const member = scratch.crew.find(c => c.id === cmd.crew)!;
@@ -167,6 +183,17 @@ function playAction(world: ReadonlyWorld, state: State, cmd: Command, failures: 
     return result.state;
 }
 
+/** Every carrier an event list starts must start at the minimum countdown or more (§9.1). */
+function checkCountdowns(world: ReadonlyWorld, events: readonly SimEvent[], failures: string[], at: string): number {
+    let n = 0;
+    for (const e of events) {
+        if (e.type !== 'carrierStarted') continue;
+        n++;
+        if (e.countdown < world.rules.minCarrierCountdown) failures.push(`${at}: ${e.kind} started at ${e.countdown}`);
+    }
+    return n;
+}
+
 const occupiedBy = (state: State): Set<string> => new Set([...state.npcs, ...state.crew].map(p => `${p.pos.x},${p.pos.y}`));
 
 describe('perception previews (property)', () => {
@@ -176,10 +203,16 @@ describe('perception previews (property)', () => {
         let quietUndoable = 0;
         let moves = 0, acting = 0, deadlines = 0, worldActing = 0, walked = 0, frisks = 0, preCases = 0, noticedTotal = 0;
         const actions: Record<string, number> = {};
-        let heardDashes = 0, dragMoves = 0;
+        let heardDashes = 0, dragMoves = 0, carriersTotal = 0;
         for (let w = 0; w < WORLDS; w++) {
             const { world, free } = makeWorld(rng);
-            const crew = [0, 1].map(i => ({ id: `c${i}`, pos: free.splice(rng.int(0, free.length - 1), 1)[0]!, ...rng.pick(LOADOUTS) }));
+            const crew = [0, 1].map(i => {
+                const loadout = rng.pick(LOADOUTS), gadget = rng.chance(0.5) ? ['hackingKit'] : rng.chance(0.15) ? ['jammer'] : [];
+                return {
+                    id: `c${i}`, pos: free.splice(rng.int(0, free.length - 1), 1)[0]!, ...loadout, items: [...(loadout.items ?? []), ...gadget],
+                    ...(rng.chance(0.3) ? { traits: [rng.pick(['steadyHands', 'smoothTalker'])] } : {})
+                };
+            });
             let state = initialState(world, { seed: w, crew });
             for (const npc of state.npcs) {
                 npc.alerted = rng.chance(0.25);
@@ -196,10 +229,15 @@ describe('perception previews (property)', () => {
                 for (let k = 0; k < 3; k++) {
                     const member = rng.pick(state.crew);
                     if (member.actionsLeft < 1) continue;
-                    if (rng.chance(0.35)) {
+                    // Someone with a body in hand mostly walks with it (the overlay's drag case).
+                    if (rng.chance(member.dragging !== null ? 0.2 : 0.45)) {
                         const options = legalActions(world, state, member.id).filter(c => c.type !== 'wait' || rng.chance(0.2));
                         if (!options.length) continue;
-                        const cmd = rng.pick(options);
+                        // A kind of action first, then one of its commands: every kind gets played, however many
+                        // commands another offers.
+                        const kinds = [...new Set(options.map(c => c.type))];
+                        const kind = rng.pick(kinds);
+                        const cmd = rng.pick(options.filter(c => c.type === kind));
                         const outcome = playAction(world, state, cmd, failures, `world ${w} turn ${turn}`);
                         actions[cmd.type] = (actions[cmd.type] ?? 0) + 1;
                         // The overlay's world phase was judged before this action changed the floor.
@@ -219,6 +257,7 @@ describe('perception previews (property)', () => {
                         const pre = { crew: member.id, found: assessWorldPhase(world, after, sightMap(world, after), member.id, tile) };
                         const evidencePre = JSON.stringify(evidenceWorldPhase(world, state, sightMap(world, state), { move: cmd }));
                         const result = commit(world, state, cmd);
+                        checkCountdowns(world, result.events, failures, `world ${w} dash`);
                         if (JSON.stringify(evidenceWorldPhase(world, result.state, sightMap(world, result.state))) !== evidencePre) {
                             failures.push(`world ${w} dash ${JSON.stringify(run)}: the evidence overlay differs from the outcome's state`);
                         }
@@ -241,6 +280,7 @@ describe('perception previews (property)', () => {
                     const after = preview(world, state, moveCmd).state;
                     const pre = { crew: member.id, found: assessWorldPhase(world, after, sightMap(world, after), member.id, path[path.length - 1]!) };
                     const result = commit(world, state, moveCmd);
+                    checkCountdowns(world, result.events, failures, `world ${w} move`);
                     lastPre = pre;
                     moves++;
                     const quiet = !all.some(s => s.outcome !== '-');
@@ -276,7 +316,12 @@ describe('perception previews (property)', () => {
                 }
                 const committed: Record<string, Intent> = Object.fromEntries(state.npcs.map(n => [n.id, n.intent]));
                 const evidence = evidenceWorldPhase(world, state, sight).filter(e => e.by === 'npc').map(e => `${e.observer} ${e.evidence}`);
+                const carriers = JSON.stringify(pendingCarriers(world, state));
                 const result = commit(world, state, { type: 'endTurn' });
+                carriersTotal += checkCountdowns(world, result.events, failures, `world ${w} turn ${turn} endTurn`);
+                if (JSON.stringify(carriersStarted(result.events)) !== carriers) {
+                    failures.push(`world ${w} turn ${turn}: carriers predicted ${carriers}, started ${JSON.stringify(carriersStarted(result.events))}`);
+                }
                 const noticed = result.events.flatMap(e => (e.type === 'evidenceNoticed' ? [`${e.npc} ${e.evidence}`] : []));
                 noticedTotal += noticed.length;
                 if (JSON.stringify(noticed) !== JSON.stringify(evidence)) failures.push(`world ${w} turn ${turn}: evidence predicted ${JSON.stringify(evidence)}, noticed ${JSON.stringify(noticed)}`);
@@ -322,5 +367,9 @@ describe('perception previews (property)', () => {
         // Noises heard and reacted to, and bodies dragged under the overlay's eye.
         expect(heardDashes).toBeGreaterThan(WORLDS / 20);
         expect(dragMoves).toBeGreaterThan(WORLDS / 20);
+        // Carriers start, and the M1-08 actions are played.
+        expect(carriersTotal).toBeGreaterThan(WORLDS / 10);
+        for (const type of ['interact', 'placeJammer']) expect(actions[type] ?? 0, type).toBeGreaterThan(0);
+        expect((actions.loopFeed ?? 0) + (actions.answerRadio ?? 0)).toBeGreaterThan(0);
     }, Math.max(10_000, WORLDS * 20));
 });

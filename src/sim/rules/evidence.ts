@@ -58,8 +58,11 @@ import { alertNpc, EYES_DOWN } from './suspicion';
  *   `projectEvidenceSightings` (NPCs and cameras the crew knows).
  */
 
-/** Minor evidence (§8.10): makes the NPC Curious and sends one to look. */
-export type MinorEvidence = 'secureDoor' | 'emptyWindow' | 'missingColleague' | 'cameraDown' | 'lightsOut' | 'quietNoise';
+/**
+ * Minor evidence (§8.10): makes the NPC Curious and sends one to look. `sent` is a guard the operator (or dispatch)
+ * sends to look at a spot: a missed check-in's post, major evidence on a monitor (M1-08, `sendToLook`).
+ */
+export type MinorEvidence = 'secureDoor' | 'emptyWindow' | 'missingColleague' | 'cameraDown' | 'lightsOut' | 'quietNoise' | 'sent';
 /** Major evidence (§8.10): makes the NPC Alerted and has one report it. */
 export type MajorEvidence = 'body' | 'tied' | 'hole' | 'weapon' | 'blood' | 'lootBag' | 'drill' | 'assault' | 'loudNoise';
 export type EvidenceKind = MinorEvidence | MajorEvidence;
@@ -91,8 +94,11 @@ export interface EvidenceWant {
     decided: { turn: number; phase: Phase };
 }
 
-/** A camera's view of major evidence, waiting for the operator (M1-08). */
-export interface CameraEvidence { camera: string; evidence: string; kind: EvidenceKind; tile: Pos; turn: number }
+/**
+ * A camera's view of major evidence, waiting for the operator (M1-08): `handled` once the operator saw it on a monitor
+ * and sent a guard (rules/cameras.ts). It stays while the evidence does, so the camera doesn't report it again.
+ */
+export interface CameraEvidence { camera: string; evidence: string; kind: EvidenceKind; tile: Pos; turn: number; handled: boolean }
 
 declare module '../core/types' {
     interface NpcState {
@@ -318,7 +324,7 @@ export function applyEvidence(ctx: Ctx, sightings: readonly EvidenceSighting[]):
     for (const s of sightings) {
         if (s.by === 'camera') {
             if (state.cameraEvidence.some(r => r.camera === s.observer && r.evidence === s.evidence)) continue;
-            state.cameraEvidence.push({ camera: s.observer, evidence: s.evidence, kind: s.kind, tile: { ...s.tile }, turn: state.turn });
+            state.cameraEvidence.push({ camera: s.observer, evidence: s.evidence, kind: s.kind, tile: { ...s.tile }, turn: state.turn, handled: false });
             ctx.emit({ type: 'cameraSawEvidence', camera: s.observer, evidence: s.evidence, kind: s.kind, tile: { ...s.tile } });
             continue;
         }
@@ -339,6 +345,14 @@ function bark(ctx: Ctx, npc: NpcState, kind: EvidenceKind, evidence: string): vo
     const first = !state.barked.includes(kind);
     if (first && isKnownNow(ctx.world, state, npc.id)) state.barked.push(kind);
     ctx.emit({ type: 'bark', npc: npc.id, cause: kind, evidence, first });
+}
+
+/**
+ * Sends an NPC to look at a spot (`sent`, minor: it walks there and looks, §8.11 a missed check-in, §8.12 major evidence
+ * on a monitor). Its id names the errand ('checkin:guard:7'); major evidence it is dealing with comes first.
+ */
+export function sendToLook(ctx: Ctx, npc: NpcState, id: string, tile: Pos): void {
+    takeEvidence(ctx, npc, 'sent', id, tile);
 }
 
 /** An NPC that woke from a knockout reports its own assault (rules/actions/knockout.ts). */
