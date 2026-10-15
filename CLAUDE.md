@@ -4,22 +4,30 @@ Top-down 2D pixel-art stealth game. Phaser 4 + TypeScript + Vite, shipped as an 
 
 ## Game design
 - `docs/design/GAME_DESIGN.md` is the source of truth for how the game plays: rules, numbers, canonical tables and the
-  milestone order (§22). The current playable content is only a stack demo and doesn't reflect it.
+  milestone order (§22). What is playable is M1 (stealth core) in one pinned small branch.
 - `docs/design/UI.md` specifies the screens, visual language and touch grammar; the mockups' sources are in
   `docs/ui-mockups/`.
 - `docs/design/visual-preview.md` holds the visual style card, the lighting model and the example bank built to settle
-  them (`/?bank=example`). The default page (`/`) is a generated bank: the procedural generator of §17 lives in
-  `src/gen/` and `docs/design/generator.md` maps it to the design (seeds in the address, `?seed=layout-population`,
-  plus `tier`, `archetype` and `plot`). The old stack demo is at `/?scene=demo`, the prop sheet at `/?scene=props`, the
+  them (`/?bank=example`). The generated-bank viewer is at `/?view`: the procedural generator of §17 lives in
+  `src/gen/` and `docs/design/generator.md` maps it to the design (seeds in the address, `?view&seed=layout-population`,
+  plus `tier`, `archetype` and `plot`, and the generator bar). The prop sheet is at `/?scene=props`, the
   police officer's animation preview at `/?scene=officer`, and the room gallery at `/?scene=rooms`: every room type the
   generator furnishes, in four sizes and shapes, furnished and staffed by the real parcels (`src/gen/gallery.ts`;
   `?seed=` picks other parcels). Check furnishing changes there first. The stealth HUD (`src/ui/hud/`) is at `/?scene=hud` over a blank
   page with sample view models (`&state=` picks one, `&text=1.3` scales the text, `&cb` the colour-blind palette, `&bare` hides the picker).
-- `/?play` is the game: a pinned small branch (or `&seed=`) played through the Session (`src/game/`; `heist.ts` builds
-  the crew and resumes the autosave, `&new` starts afresh) in `BankScene` with `src/scenes/bank/sim.ts` (people and
-  doors from the state, playback), `input.ts` (taps and path drags), `overlay.ts` (the 2× world UI) and the HTML HUD.
-  `window.sim` is the debug handle (`sim.path(crew, to)` for scripted moves); `debugState.play` and `tileOnPage(x, y)`
-  help e2e tests.
+- The default page (`/`) is the game (`?play` is an older link to it): the pinned M1 bank (`PLAY_BANK` in `src/boot.ts`,
+  or `?seed=`) played through the Session, `&new` starting afresh. Three layers, each only calling the one below:
+  - `src/sim/` is the rules engine (implementation plan §2): pure and deterministic, no Phaser, clock or
+    `Math.random`. A read-only `World` built once from the bank (`worldFromBank`) and a plain-JSON `State`; every
+    change is a `Command` through `commit(world, state, cmd)` (or `preview`, which may not roll dice), giving the new
+    state and its `SimEvent`s, and the world phase runs registered hooks. Previews and the safe floor run the same
+    rules on copies, which is how they promise the real outcome.
+  - `src/game/` is the `Session`: it owns world and state, commits, undoes, autosaves to `localStorage` and resumes
+    (`heist.ts` builds the crew at the van), queues events for playback and makes the HUD's view models.
+  - `BankScene` draws it: `src/scenes/bank/sim.ts` (people and doors from the state, playback), `input.ts` (taps and
+    path drags), `overlay.ts` (the 2× world UI) and the HTML HUD (`src/ui/hud/`).
+  `window.sim` is the debug handle (`sim.path(crew, to)`, `sim.safeFloor`, `sim.waitFor`, `sim.effect` for scripted
+  runs; the M1 run in `e2e/play.spec.ts` plays through it alone); `debugState.play` and `tileOnPage(x, y)` help e2e tests.
 - `docs/design/research.md` holds the key research findings behind each design decision, with the full notes per area in
   `docs/design/research/`.
 - `docs/design/implementation-plan.md` is the build plan for the game rules (architecture of `src/sim`, work packages per milestone with checkboxes); tick packages off as they land.
@@ -55,7 +63,7 @@ Top-down 2D pixel-art stealth game. Phaser 4 + TypeScript + Vite, shipped as an 
   run `npm run test:visual:update` and commit the new baselines. A change that must not alter the look (a refactor, a
   speed-up) has to pass `VISUAL_EXACT=1 npm run test:visual`, which allows no pixel of difference. CI doesn't run the
   visual tests: the baselines come from this sandbox's software renderer.
-- `window.game` and `window.Phaser` are exposed; `game.scene.getScene('vault').debugState` gives test-friendly state,
+- `window.game` and `window.Phaser` are exposed; `game.scene.getScene('bank').debugState` gives test-friendly state,
   and `window.generated` the generated bank (its rooms, people, keys, ways in and validation report). The bank scene's
   `debugState.timings` gives the milliseconds each stage of building the bank took (also in the browser's performance
   timeline as `bank: <stage>`, with `bank: generate` for the generator), and `settled` whether the walls have reached
@@ -75,7 +83,7 @@ Top-down 2D pixel-art stealth game. Phaser 4 + TypeScript + Vite, shipped as an 
 - Lighting: Phaser's Light2D (objects opt in with `setLighting(true)`; normal maps are the texture's data source;
   `render.maxLights` is 32 and lights beyond that are silently dropped) shines through walls, so the bank doesn't use
   it. Its lamps are baked with Light2D's formula in `src/art/bank/lamps.ts`, traced against the walls; light anything
-  new in the bank through `Baker.bake`, and move people with `BankScene.movePerson`, which relights only them. The demo and the prop sheet still use Light2D.
+  new in the bank through `Baker.bake`, and move people with `BankScene.movePerson`, which relights only them. The prop sheet and the officer preview still use Light2D.
 - `BankScene` only puts the bank together from its parts in `src/scenes/bank/`: `bake.ts` (the `Baker`: lighting,
   exposure, texture upload, light maps), `floor.ts`, `walls.ts` (and their cut-away heights), `props.ts`, `people.ts`
   (patrols, relighting), `knowledge.ts` (the blueprint layer), `atmosphere.ts` (clouds, dust) and `camera.ts` (zoom,
@@ -108,9 +116,9 @@ Top-down 2D pixel-art stealth game. Phaser 4 + TypeScript + Vite, shipped as an 
   shoe and gun pieces), so volumes stay identical between frames. Choreography is data: cels with durations, a whole-pixel
   `step` or `glide` for the footing and cues (`src/logic/timeline.ts`); a side-on walk steps exactly as far as the
   planted foot slides back in the drawing. Hold every telegraph (an aim, a glance) at least 300ms.
-- Camera post-processing (bloom, vignette) lives in `VaultScene.create`. Phaser's vignette goes near black at its
+- Camera post-processing (bloom, vignette) lives in `BankCamera.setup` (`src/scenes/bank/camera.ts`). Phaser's vignette goes near black at its
   radius, so keep `strength` low.
-- The HUD is an HTML overlay (`src/ui/Hud.ts`) so text stays crisp, not canvas text.
+- The HUD is an HTML overlay (`src/ui/hud/`) so text stays crisp, not canvas text.
 - Scale mode is `EXPAND`: height stays 180px and width follows the screen's aspect ratio, so never assume a 320px-wide
   view – position screen-space UI from `this.scale.width`/`height`.
 - Fullscreen (`src/ui/Fullscreen.ts`) puts the whole document fullscreen (so the HUD stays visible) on first touch in

@@ -1,8 +1,8 @@
 # Visual preview: the example bank
 
 A hand-made example level whose only job is to settle how the game looks. It has no rules yet. It is at
-`/?bank=example`; the default page is now a generated bank built in the same style ([generator.md](generator.md)), and
-the old stack demo lives on at `/?scene=demo`. Built: **the whole plot** (§17): a city
+`/?bank=example`; generated banks are built in the same style ([generator.md](generator.md), the viewer at `/?view`).
+Built: **the whole plot** (§17): a city
 branch mid-block with every room of a small bank, a café sharing its west wall, a vacant shop to the east, the alley
 behind, the street in front and, across it, an office tower between two plazas with the crew's **sniper nest** on its
 upper floor (§14.5). About 60x44 tiles, furnished and peopled, with guards and passers-by on patrol.

@@ -7,7 +7,7 @@
 | System | State | Where |
 | --- | --- | --- |
 | Turn loop, actions, undo | **None.** The bank scene has no rules. People walk their patrols in real time on screen. | `src/scenes/bank/people.ts:32` (patrol), `src/scenes/BankScene.ts:149` (`movePerson`) |
-| Old demo | A real-time stack demo: a joystick, a guard with a float cone, a demo HUD. Delete it in M1-16. | `src/scenes/VaultScene.ts`, `src/entities/Guard.ts`, `src/input/MoveInput.ts`, `src/level/level.ts`, `src/logic/vision.ts` (`isInCone` at line 4, `hasLineOfSight` at line 27, float pixel maths) |
+| Old demo | A real-time stack demo: a joystick, a guard with a float cone, a demo HUD. Deleted in M1-16. | `src/scenes/VaultScene.ts`, `src/entities/Guard.ts`, `src/input/MoveInput.ts`, `src/level/level.ts`, `src/logic/vision.ts` (`isInCone` at line 4, `hasLineOfSight` at line 27, float pixel maths) |
 | Grid and walls | Walls stand on tile edges, with a material per segment (`WallKind`). Height comes from the floor tile. | `src/level/walls.ts:19-23`, `src/level/plan.ts:38` (`Level`), `:79` (`floorHeight`), `src/gen/site.ts:9-15` (`edgeKey`, `edgeBetween`) |
 | Zones | Each room has a zone: `public` / `staff` / `secure` / `neighbour` / `outdoors`. | `src/level/plan.ts:93-104`, `src/gen/rooms.ts:27-88` (`ROOM_RULES`) |
 | Movement and sight (generator only) | `Nav` covers walkability, door crossing, the step-height limit, breadth-first distances and paths, and tile line of sight (`sees`). It treats glass as see-through, and full-height furniture blocks sight. | `src/gen/nav.ts:16` (`SEE_THROUGH`), `:62` (`Nav`), `:85` (`step`), `:163` (`sees`) |
@@ -19,7 +19,7 @@
 | Key graph | Every hard lock has social, technical and violent keys, but as text. Holders are listed by id. | `src/gen/keys.ts:20-70` |
 | Random numbers | A mulberry32-style generator with named sub-streams (`fork`). Its state is a private single number. | `src/gen/rng.ts:5-59` |
 | Knowledge layer | Blueprint outlines and hiding the people inside them; rendering only. | `src/scenes/bank/knowledge.ts:14-52` |
-| HUD and input | A demo HUD (gold counter, flash message). Camera pan and zoom are HTML. The Briefing panel and generator bar exist. | `src/ui/Hud.ts`, `src/ui/CameraControls.ts`, `src/ui/Briefing.ts`, `src/ui/GeneratorBar.ts` |
+| HUD and input | A demo HUD (gold counter, flash message; deleted in M1-16). Camera pan and zoom are HTML. The Briefing panel and generator bar exist. | `src/ui/Hud.ts` (gone), `src/ui/CameraControls.ts`, `src/ui/Briefing.ts`, `src/ui/GeneratorBar.ts` |
 | Reference reaction matrix | The Python behind the UI mockups computes the §8.4 matrix. Use it as an oracle for test cases. | `scripts/ui-mockups/rules.py:31` |
 | Door art | Walls draw door segments, but there is no open or closed state. | `src/scenes/bank/walls.ts` |
 
@@ -88,7 +88,7 @@ src/ui/hud/   the HTML HUD from UI.md
   - long-press asks why
 - **HUD** reads view models from the Session; it never reads the state directly.
 - **Debugging and e2e:** `window.sim` exposes `{ state, world, preview(cmd), commit(cmd), endTurn() }`.
-- **Routes:** game mode is `?play` until M1-16 makes it the default. The visual tests keep their current routes.
+- **Routes:** the game is the default page (`/`, `?play` kept as an alias); the generated-bank viewer moved to `?view` (M1-16). The visual tests open `?view…` where they used the default page, so they show what they did.
 
 ### 2.6 Tests
 
@@ -103,13 +103,15 @@ Each package lists its goal, the design sections it covers, the files, what it d
 
 ### M1: Stealth core
 
-- [ ] **M1-01 Sim contracts and engine.**
+**Done** (M1-16): every package below has landed; the scripted run proves the bank is readable clockwork.
+
+- [x] **M1-01 Sim contracts and engine.**
   - **Covers:** §6.1–6.2, §6.6, §20.6.
   - **Files:** `src/sim/core/*`, a minimal `src/sim/world/fixture.ts`, `tests/sim/engine.test.ts`.
   - **Work:** the types for World, State, Command and SimEvent. Random streams kept in the state, with preview mode refusing to roll. `commit` and `endTurn` with an empty world phase. Undo snapshots. Save and load with a format version. A purity test that no `src/sim` file imports Phaser, `window`, `Math.random` or `Date`.
   - **Depends on:** nothing.
   - **Accept:** a determinism hash test; a save round trip; preview mode throws on a roll.
-- [ ] **M1-02 World from a bank, and the generator export gaps.**
+- [x] **M1-02 World from a bank, and the generator export gaps.**
   - **Covers:** §8.1, §14.1, §17.
   - **Work:**
     - Add `alarms`, `loot`, `stations`, `grates`, `vents`, `hatches` and `monitors` to `GeneratedBank`.
@@ -126,13 +128,13 @@ Each package lists its goal, the design sections it covers, the files, what it d
     - each tile's zone matches its room;
     - `npm run sweep` is unchanged;
     - `VISUAL_EXACT=1 npm run test:visual` passes.
-- [ ] **M1-03 Movement and sound.**
+- [x] **M1-03 Movement and sound.**
   - **Covers:** §6.3 (move 5, diagonal 1.5, no cutting corners where a wall ends, dash 12, heavy armour 4), §8.9, §14.7 step limits.
   - **Work:** reachable tiles within a cost budget; path validation; door passage by lock and key; the noise flood (−3 per closed door or Soft wall, Reinforced and Vault stop it, open doors, gaps and holes cost nothing).
   - **Files:** `src/sim/geo/move.ts`, `sound.ts`.
   - **Depends on:** M1-01. **∥** M1-02, M1-04.
   - **Accept:** table tests on fixtures (corner cutting, diagonals, the ring through a closed door is 3 shorter, Vault stops it).
-- [ ] **M1-04 Sight.**
+- [x] **M1-04 Sight.**
   - **Covers:** §8.3, §8.15.
   - **Work:**
     - Tile line of sight: walls, closed doors and tall furniture block; glass doesn't; an observer on a raised tile sees over low objects.
@@ -152,7 +154,7 @@ Each package lists its goal, the design sections it covers, the files, what it d
     Darkness is judged by the seen tile (§6 decision 10). Only cameras with `seesInDark` (Regional HQ and up) see an
     unlit tile. Perception and the overlay take `sightMap(world, state)` once per evaluation and ask `seesOn`/`fieldOn`
     on it; any state that changes sight must join `sightInputs` (los.ts).
-- [ ] **M1-05 Perception rules.**
+- [x] **M1-05 Perception rules.**
   - **Covers:** §7.4, §8.2, §8.4–8.7, §8.14 (uniform flags only).
   - **Work:**
     - The profile from the loadout; the item and weapon data tables.
@@ -185,7 +187,7 @@ Each package lists its goal, the design sections it covers, the files, what it d
     due (`deadlineOutcome`, the same function the deadline hook uses). Each NPC's walk opens only its own doors.
     Deferred: §8.7 "once loud, an unexposed Clean crew member counts as a civilian" (→ M3); the security chief
     remembering faces (§16.2).
-- [ ] **M1-06 NPC schedules and intents.**
+- [x] **M1-06 NPC schedules and intents.**
   - **Covers:** §6.1, §6.4, §16.1, §16.3, §8.5 (Curious turns, Investigating walks), "one investigates, the others watch".
   - **Work:**
     - Change the generator to emit typed `ScheduleBlock.activity` values plus target tiles.
@@ -226,7 +228,7 @@ Each package lists its goal, the design sections it covers, the files, what it d
     `npcs.passive` (0), then add the crew id to `NpcState.reported` so the reaction only watches; the guard's
     "Hands up!" can replace the guard reaction with `registerReaction(role, …, { replace: true })`. Panicking
     civilians commit `panic` (M2-02).
-- [ ] **M1-07 Turn loop and crew actions.**
+- [x] **M1-07 Turn loop and crew actions.**
   - **Covers:** §6.1–6.3, §6.6, §8.10, §11.10 (knockout).
   - **Work:**
     - The crew phase: 2 actions each, interleaved between crew members.
@@ -293,7 +295,7 @@ Each package lists its goal, the design sections it covers, the files, what it d
     - **The hatched overlay of a planned move is judged on its preview** (`assessWorldPhase(world, preview.state,
       …)`, `evidenceWorldPhase(…, { move })`): the bare-tile form misses a `!` mid-path, the doors the path opens and
       a dash's noise. The property test does so for moves and dashes.
-- [ ] **M1-08 Alarm carriers, check-ins and cameras.**
+- [x] **M1-08 Alarm carriers, check-ins and cameras.**
   - **Covers:** §8.11, §8.12, §9.1 (the stealth carriers), §9.2, the patrol drive-by and dispatch in §16.4.
   - **Work:**
     - Each carrier has a countdown of at least 2 and its counters.
@@ -455,7 +457,7 @@ Each package lists its goal, the design sections it covers, the files, what it d
       and the hatch is a pattern. Measured over 5 selections each (city and HQ banks, Chromium/SwiftShader): the longest
       main-thread task 117/132 ms → none over 50 ms; the worst of the first five frames 146/156 → 56/55 ms (the idle
       frame is ~38 ms there).
-- [ ] **M1-10 What the crew knows.**
+- [x] **M1-10 What the crew knows.**
   - **Covers:** §8.15, §17.8 (the casing layer inside a heist).
   - **Work:**
     - Tiles seen; NPCs shown live; ghosts, behind the flag for decision Q16.
@@ -522,7 +524,7 @@ Each package lists its goal, the design sections it covers, the files, what it d
   - **Files:** `src/sim/rules/autoAdvance.ts`, Session hooks.
   - **Depends on:** M1-07, M1-10.
   - **Accept:** every interrupt condition stops the advance; replaying the same route reaches the same state.
-- [ ] **M1-12 Game Session.**
+- [x] **M1-12 Game Session.**
   - **Covers:** §6.6, §20.6.
   - **Work:** owns world and state; preview, commit and undo; autosave to `localStorage` and resume; the event queue; view models; `window.sim`.
   - **Files:** `src/game/*`.
@@ -540,7 +542,7 @@ Each package lists its goal, the design sections it covers, the files, what it d
   - **Files:** `src/scenes/bank/{sim,input}.ts`, `BankScene.ts`, `src/main.ts`.
   - **Depends on:** M1-12, M1-02.
   - **Accept:** an e2e test plays 3 turns through taps; screenshot `screenshots/play-start.png`.
-- [ ] **M1-14 World UI overlays.**
+- [x] **M1-14 World UI overlays.**
   - **Covers:** UI.md visual language, §20.4.
   - **Work:**
     - A 2× UI layer.
@@ -550,7 +552,7 @@ Each package lists its goal, the design sections it covers, the files, what it d
   - **Files:** `src/scenes/bank/overlay.ts`, `src/art/ui/*`.
   - **Depends on:** M1-13, M1-09 (an API stub is enough to start).
   - **Accept:** e2e screenshots of the §3 "hatched amber" moment and of a noise ring; a visual baseline for one `?play&still` view.
-- [ ] **M1-15 HTML HUD (stealth).**
+- [x] **M1-15 HTML HUD (stealth).**
   - **Covers:** §20.3, UI.md screen layout.
   - **Work:**
     - The top strip: state pill, schedule timeline, turn number.
@@ -561,7 +563,7 @@ Each package lists its goal, the design sections it covers, the files, what it d
   - **Files:** `src/ui/hud/*`, `src/style.css`.
   - **Depends on:** M1-01 (view model types). **∥** wave 1, then wired up in M1-13.
   - **Accept:** e2e layout checks at 844×390 (nothing overlaps, targets are at least 44px); screenshot.
-- [ ] **M1-16 The M1 bank, end to end, and cleanup.**
+- [x] **M1-16 The M1 bank, end to end, and cleanup.**
   - **Covers:** §22 M1 "Proves".
   - **Work:**
     - A pinned small-branch seed (decision Q1).
@@ -572,6 +574,35 @@ Each package lists its goal, the design sections it covers, the files, what it d
     - Update CLAUDE.md.
   - **Depends on:** all of M1.
   - **Accept:** typecheck, unit tests, smoke e2e and visual tests pass; the scripted run ends Quiet with the panel dead.
+  - **Done.**
+    - **The pinned bank (decision Q1): `31-2`, small, Two Wing** (Granite Savings, Quay Street; `PLAY_BANK` in
+      `src/boot.ts`). Kept from M1-13 because the M1 plan works there: the cleaner's sweep takes him through the
+      keycard staff door from the lobby on turn 11, so a crew member standing in the doorway behind him keeps it from
+      swinging shut (a door stays open while someone stands beside it); the staff corridors have corners near the
+      alarm closet where nobody looks for 50 turns; and after closing (turn 44) the lone guard's closing sweep takes him
+      just inside the alarm closet on turn 70, with his back to the door.
+    - **The crew** (GAME_DESIGN §3): Mara (Smooth Talker) has the zip-ties and the jammer, no gun; Jun (Steady
+      Hands) carries the hacking kit, a duffel and a concealed pistol.
+    - **The scripted run** (`e2e/play.spec.ts`, "the M1 heist", @smoke, ~30 s), through `window.sim`'s commands
+      only (`safeFloor` + `commit`, `waitOptions` + `waitFor`, `endTurn`): Mara and Jun walk in from the van to the
+      lobby; "Wait for…" the known schedule events until turn 10; Jun slips through the staff door behind the cleaner
+      (turn 11) and keeps out of sight near the alarm closet; on turn 70 he steps up behind the guard, knocks him out
+      in the closet's doorway (which keeps the door open), walks in past the body and kills the panel (2 actions with
+      Steady Hands); turn 73 is still Quiet. Every move is played along the path its safe-floor tile judged and its
+      solid part must equal what the move did; when End turn follows it, its hatched part must equal what the world
+      phase did and the tint must name the worst of the two. The route was found by a beam search over the real rules
+      (green or unknown-risk tiles only, nothing noticed) and recorded; the rules are deterministic.
+    - **Not in the run: stashing the body.** In a small branch nothing makes it possible yet:
+      - every small bank's alarm panel is in the alarm closet behind a keycard door, and the crew has no keys
+        (`crewHasKey` is false until M2-05), so the only way in is a door an NPC opened, held by standing in it;
+      - the only NPC who ever opens the alarm closet is the one guard, on his closing sweep, and the closet is a dead
+        end, so whoever holds its door blocks his way out: the crew gets in only by knocking him out in the doorway;
+      - he is out cold for 4 world phases (`knockoutPhases`), and wakes even in a stash; tying him up is M2-03;
+      - the stashes are the cleaner's closet (a mechanical lock, opened only by the same guard's sweep, here on turn
+        73, after the alarm closet) and dumpsters outdoors (behind keycard doors from the staff side, 60+ tiles away
+        at half speed while dragging).
+      The body therefore lies just inside the closet with the door shut. Once keys (M2-05) or zip-ties (M2-03) exist,
+      the run can take the guard's keycard or tie him and stash him.
 
 ### M2: Takeover and control
 

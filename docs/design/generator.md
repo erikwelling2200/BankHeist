@@ -3,7 +3,7 @@
 How `src/gen/` builds a bank from GAME_DESIGN §17. The design document stays the source of truth for what a bank must
 be; this page says where each part of it lives in the code and where the implementation simplifies.
 
-The default page (`/`) shows a generated bank. Its seed is in the address: `?seed=layout-population`, plus `tier`,
+The generated-bank viewer (`/?view`) shows a generated bank. Its seed is in the address: `?view&seed=layout-population`, plus `tier`,
 `archetype` and `plot` to pin those (`small` · `city` · `hq`; `twoWing` · `atrium` · `threeKeys` · `fortress` ·
 `mezzanineWatch`; `midBlock` · `cornerLot` · `plazaFront` · `stripMallEnd`). The hand-made example bank is at
 `?bank=example`. The **Briefing** panel names the bank and its headline features and lists the vault and its keys, the
