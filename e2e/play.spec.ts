@@ -701,7 +701,7 @@ test('auto-advance walks a 3-turn route turn by turn and says why it stopped; a 
         await page.locator('.sh-waititem').first().click();
         await page.mouse.click(400, 200);
         await expect.poll(async () => (await play(page)).auto.running).toBe(false);
-        await expect(page.locator('.sh-autostatus')).toContainText(/^(Stopped|Done): /);
+        await expect(page.locator('.sh-autostatus')).toContainText(/^(Stopped|Done)/);
     }
     expect(errors).toEqual([]);
 });

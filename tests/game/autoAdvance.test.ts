@@ -95,6 +95,29 @@ describe('auto-advance in the session', () => {
         const run = new AutoRun(session);
         expect(autoBarView(session, run, null)).toMatchObject({ running: true, status: 'Auto-advance: turn 1' });
         const stop = run.cancel();
-        expect(autoBarView(session, null, stop)).toMatchObject({ running: false, status: 'Stopped: you stopped it', alert: true });
+        expect(autoBarView(session, null, stop)).toMatchObject({ running: false, status: 'Stopped', alert: false });
+        // A wait leaves the routes alone, and the menu says so.
+        expect(autoBarView(session, null, null).wait.note).toMatch(/stays put/);
+    });
+
+    it('saves the routes left with each auto commit, and resumes the last stop', () => {
+        const { session, storage } = begin();
+        session.setRoute('jun', row(0, 1, 18));
+        const step = session.autoStep({ cap: 1 });
+        // Auto-advance's own commits saved the routes as they were after each one.
+        expect(Session.resume(storage)!.routes.jun).toEqual(row(0, 11, 18));
+        session.setAutoStop(step.stop);
+        session.save();
+        expect(Session.resume(storage)!.ui.autoStop).toEqual(step.stop);
+
+    });
+
+    it('restores the routes on undo', () => {
+        const { session } = begin();
+        session.setRoute('jun', row(0, 1, 18));
+        session.commit({ type: 'move', crew: 'jun', path: [P(1, 0)] });
+        expect(session.routes.jun).toBeUndefined();
+        expect(session.undo()).toBe(true);
+        expect(session.routes.jun).toEqual(row(0, 1, 18));
     });
 });

@@ -91,6 +91,85 @@ describe('auto-advance: routes', () => {
     });
 });
 
+describe('auto-advance: review fixes', () => {
+    const open = (people: PersonDef[], zones?: string[]) => fixtureWorld(['..............', '..............', '..............'], { people, ...(zones ? { zones } : {}) });
+
+    it('never auto-commits a step the preview warns of: it stops short, on the tile it would have stepped on', () => {
+        const zones = ['........ssssss', '........ssssss', '........ssssss'];
+        const world = open([person('clerk', 'clerk', P(12, 1), [post(P(12, 1))])], zones);
+        const state = scouted(world, start(world));
+        const run = autoAdvance(world, state, { jun: row(0, 1, 13) });
+        expect(run.stop?.kind).toBe('unsafe');
+        const at = run.stop!.at!;
+        expect(world.tiles[at.y * world.width + at.x]!.zone).toBe('staff');
+        expect(run.state.crew[0]!.pos.x).toBe(at.x - 1);
+        // Nothing the player would have been warned of happened.
+        const events = run.played.flatMap(p => p.result.events.map(e => e.type));
+        for (const bad of ['suspicionRaised', 'exposed', 'challenged', 'carrierStarted', 'cameraSaw']) expect(events).not.toContain(bad);
+        // The drawn route marks the same tiles.
+        expect(planRoute(world, state, 'jun', row(0, 1, 13), { safety: true }).unsafe[0]).toEqual(at);
+    });
+
+    it('walks a route that loops back over itself as drawn', () => {
+        const world = open([]);
+        const state = scouted(world, start(world));
+        const route = [...row(0, 1, 4), ...row(0, 1, 3).reverse(), ...row(0, 2, 6)];
+        const run = autoAdvance(world, state, { jun: route });
+        expect(run.stop?.kind).toBe('arrived');
+        const walked = run.played.flatMap(p => p.result.events.flatMap(e => (e.type === 'moved' ? e.path : [])));
+        expect(walked).toEqual(route);
+    });
+
+    it('waits a turn for a known NPC in the way before it calls the route blocked', () => {
+        const day: ScheduleBlock[] = [post(P(3, 0)), { from: 2, setOff: 1, activity: 'post', label: 'at post', room: '', at: P(3, 2), facing: 'n' }];
+        const world = open([person('clerk', 'clerk', P(3, 0), day)]);
+        const run = autoAdvance(world, scouted(world, start(world)), { jun: row(0, 1, 8) });
+        expect(run.stop?.kind).toBe('arrived');
+        expect(run.state.crew[0]!.pos).toEqual(P(8, 0));
+    });
+
+    it('takes a stop’s tile from what the crew knows, not from where the NPC really is', () => {
+        const world = street([person('clerk', 'clerk', P(10, 2), [post(P(10, 2))])]);
+        const known = scouted(world, start(world));
+        const after = clonePlain(known);
+        after.npcs[0]!.pos = P(20, 2);
+        after.knowledge.npcs.clerk!.at = P(11, 2);
+        const stop = interruptsOf(world, known, { state: after, events: [testEvent({ type: 'suspicionRaised', npc: 'clerk', crew: 'jun', added: 1, total: 1, why: [] })] })[0]!;
+        expect(stop.at).toEqual(P(11, 2));
+    });
+
+    it('stops when an NPC it lost track of turns up aiming at the crew', () => {
+        const world = street([person('clerk', 'clerk', P(10, 2), [post(P(10, 2))])]);
+        const before = forget(scouted(world, start(world)), 'clerk');
+        const after = scouted(world, start(world));
+        after.npcs[0]!.goal = { kind: 'face', crew: 'jun', tile: P(0, 0) };
+        before.npcs[0]!.goal = { kind: 'face', crew: 'jun', tile: P(0, 0) };
+        expect(interruptsOf(world, before, { state: after, events: [] }).map(i => i.kind)).toEqual(['intent']);
+    });
+
+    it('during a Go counts only schedule events near the crew and its routes; during a wait, not a customer coming in', () => {
+        const far = street([person('clerk', 'clerk', P(22, 2), [post(P(22, 2)), { from: 2, activity: 'break', label: 'break', room: '', at: P(21, 2), facing: 'n' }])]);
+        const state = scouted(far, start(far));
+        const result = commit(far, state, { type: 'endTurn' });
+        expect(interruptsOf(far, state, result).map(i => i.kind)).toEqual(['schedule']);
+        expect(interruptsOf(far, state, result, { near: [P(0, 0), P(4, 0)] })).toEqual([]);
+        expect(interruptsOf(far, state, result, { near: [P(0, 0), P(20, 0)] }).map(i => i.kind)).toEqual(['schedule']);
+
+        const world = street([person('customer', 'customer', P(5, 0), [post(P(5, 0))], { observer: 'civilian' })]);
+        const before = forget(scouted(world, start(world)), 'customer'), seen = scouted(world, start(world));
+        const ev = [testEvent({ type: 'revealed', what: 'npc', id: 'customer' })];
+        expect(interruptsOf(world, before, { state: seen, events: ev }).map(i => i.kind)).toEqual(['revealed']);
+        expect(interruptsOf(world, before, { state: seen, events: ev }, { quietCivilians: true })).toEqual([]);
+    });
+
+    it('doesn’t walk the routes while waiting', () => {
+        const world = street([]);
+        const run = autoStep(world, scouted(world, start(world)), { jun: row(0, 1, 6) }, { target: { kind: 'turn', turn: 9 } });
+        expect(run.played.map(p => p.command.type)).toEqual(['endTurn']);
+        expect(run.routes.jun).toHaveLength(6);
+    });
+});
+
 describe('auto-advance: interrupts', () => {
     const world = street([person('clerk', 'clerk', P(10, 2), [post(P(10, 2))]), person('ghost', 'cleaner', P(20, 2), [post(P(20, 2))])]);
     const known = forget(scouted(world, start(world)), 'ghost');
@@ -212,17 +291,20 @@ describe('Wait for…', () => {
         expect(run.state.npcs[0]!.status).not.toBe('away');
     });
 
-    it('waits until the guard passes a tile', () => {
+    it('waits until the guard passes a tile, counting only a crossing the crew could see', () => {
         const route = [P(4, 2), P(20, 2)];
-        const world = street([person('guard', 'guard', P(4, 2), [{ from: 1, activity: 'patrol', label: 'patrol', room: '', route }], { observer: 'enforcer' })]);
-        let state = scouted(world, start(world));
-        state = commit(world, state, { type: 'endTurn' }).state;
-        const passes = waitOptions(world, state, P(12, 0)).find(o => o.target.kind === 'passes');
-        expect(passes).toBeDefined();
+        const guard = person('guard', 'guard', P(4, 2), [{ from: 1, activity: 'patrol', label: 'patrol', room: '', route }], { observer: 'enforcer' });
         const target = { kind: 'passes' as const, npc: 'guard', tile: P(15, 2) };
-        const run = autoAdvance(world, state, {}, { target });
+        // Behind the tall wall the crew can't see it go by: the wait runs out.
+        const hidden = street([guard]);
+        let state = commit(hidden, scouted(hidden, start(hidden)), { type: 'endTurn' }).state;
+        expect(waitOptions(hidden, state, P(12, 0)).find(o => o.target.kind === 'passes')).toBeDefined();
+        expect(autoAdvance(hidden, state, {}, { target, cap: 6 }).stop?.kind).toBe('cap');
+        // In the open, it is seen crossing.
+        const open = fixtureWorld(['........................', '........................', '........................'], { people: [guard] });
+        state = commit(open, scouted(open, start(open, [{ id: 'jun', name: 'Jun', pos: P(14, 0), facing: 'e' }])), { type: 'endTurn' }).state;
+        const run = autoAdvance(open, state, {}, { target });
         expect(run.stop).toMatchObject({ kind: 'target', text: 'the guard passed' });
-        expect(run.state.npcs[0]!.pos.x).toBeGreaterThanOrEqual(15);
     });
 
     it('gives up after the turn cap', () => {

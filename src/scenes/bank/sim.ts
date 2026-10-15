@@ -156,6 +156,7 @@ export class PlayMode {
         this.walls = walls;
         this.camera = camera;
         this.recap = parts.resumed && session.recent.length > 0;
+        this.lastStop = session.ui.autoStop ?? null;
         bank.people.forEach((p, i) => this.sprite.set(p.id, i));
         session.state.crew.forEach((c, i) => this.sprite.set(c.id, bank.people.length + i));
         document.body.classList.add('play');
@@ -853,6 +854,7 @@ export class PlayMode {
                 this.session.setPendingCommand(null);
                 this.session.setRoute(member.id, route);
                 this.lastStop = null;
+                this.session.setAutoStop(null);
                 this.toast(`Route: ${plan.legs.at(-1)!.turn - this.session.state.turn + 1} turns. Go to walk it`);
                 return this.refresh();
             }
@@ -910,6 +912,16 @@ export class PlayMode {
 
     // ------------------------------------------------------------------------------------------------- Auto-advance
 
+    /** The plan of a route being dragged, with this turn's unsafe tiles (§8.8), once per state and path. */
+    private dragPlanFor?: { state: State; key: string; plan: ReturnType<typeof planRoute> };
+    private dragPlan(crew: string, route: Pos[]): ReturnType<typeof planRoute> {
+        const state = this.session.state, key = `${crew}:${JSON.stringify(route)}`;
+        if (this.dragPlanFor?.state !== state || this.dragPlanFor.key !== key) {
+            this.dragPlanFor = { state, key, plan: planRoute(this.session.world, state, crew, route, { safety: true }) };
+        }
+        return this.dragPlanFor.plan;
+    }
+
     /** Starts a Go (no target: walk the routes) or a Wait for… (§6.5). */
     private startAuto(target: AutoRun['target'], label: string | null): void {
         if (this.recap) return;
@@ -917,6 +929,7 @@ export class PlayMode {
         this.session.setPendingCommand(null);
         this.target = null;
         this.lastStop = null;
+        this.session.setAutoStop(null);
         this.auto = new AutoRun(this.session, target, label);
         this.refresh();
     }
@@ -1021,10 +1034,11 @@ export class PlayMode {
                 // Beyond this turn's reach: drawn as the route it would become, its turns numbered.
                 const cut = routeBreak(this.session.world, this.session.state, member.id, this.dragPath);
                 const route = cut < 0 ? this.dragPath : this.dragPath.slice(0, cut);
-                const plan = planRoute(this.session.world, this.session.state, member.id, route);
+                const plan = this.dragPlan(member.id, route);
                 const others = layer.routes.filter(r => r.crew !== member.id);
+                const mine = { crew: member.id, colour, from: member.pos, legs: plan.legs, rest: route.slice(plan.walkable), unsafe: plan.unsafe, now: this.session.state.turn };
                 return {
-                    ...base, routes: [...others, { crew: member.id, colour, from: member.pos, legs: plan.legs, rest: route.slice(plan.walkable) }],
+                    ...base, routes: [...others, mine],
                     from: member.pos, path: this.dragPath, badFrom: cut < 0 ? undefined : cut, routeDrag: true
                 };
             }

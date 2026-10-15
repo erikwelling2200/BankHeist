@@ -1,6 +1,6 @@
 import {
     assertPlainJson, autoStep, carrierPreview, clonePlain, projectCarriers, type CarrierChanges, commit, deepFreeze, hashOf, noticedUnseen, popUndo, preview, projectEvents, projectPreviewEvents, RECENT_EVENTS, recordUndo, SaveFormatError, stableJson,
-    type AutoOptions, type AutoStepResult, type Command, type CommitResult, type Pos, type PreviewResult, type ReadonlyWorld, type Routes, type SimEvent, type State,
+    type AutoOptions, type AutoStepResult, type AutoStop, type Command, type CommitResult, type Pos, type PreviewResult, type ReadonlyWorld, type Routes, type SimEvent, type State,
     type UndoStack
 } from '../sim';
 import { deserialiseHeist, deserialiseUi, heistWorldId, serialiseHeist, serialiseUi, serialiseWorld } from './persist';
@@ -37,6 +37,8 @@ export interface UiState {
     pendingCommand: Command | null;
     /** Each crew member's multi-turn route still to walk (§6.5, src/sim/rules/autoAdvance.ts), by crew id; absent: none. */
     routes?: Routes;
+    /** Why the last auto-advance stopped, as the HUD's line shows it until the next run (§6.5); absent: none. */
+    autoStop?: AutoStop;
 }
 
 export type SessionChange =
@@ -96,7 +98,7 @@ export type ResumeOptions = Pick<SessionOptions, 'uiSaveDelay' | 'onListenerErro
  * The undo stack's companion: the recent events (and their turns) before each undoable action, and the playback items it
  * queued.
  */
-interface UndoExtra { recent: readonly SimEvent[]; recentTurns: readonly number[]; seqs: number[] }
+interface UndoExtra { recent: readonly SimEvent[]; recentTurns: readonly number[]; seqs: number[]; /** The routes before it (in memory only). */ routes?: Routes }
 
 /** The turns of saved recent events, or (a save from before turns were kept, or out of step) the current turn for each. */
 const turnsOrNow = (turns: readonly number[] | undefined, events: readonly SimEvent[], turn: number): number[] =>
@@ -118,7 +120,19 @@ function checkUi(ui: Partial<UiState> | null | undefined, state: State): UiState
     }
     // Older saves also kept a picked action ('dash'): movement now picks Move or Dash by distance, so it is dropped.
     const routes = checkRoutes(ui?.routes, state);
-    return { selected, camera, pendingCommand, ...(Object.keys(routes).length ? { routes } : {}) };
+    const autoStop = checkStop(ui?.autoStop);
+    return { selected, camera, pendingCommand, ...(Object.keys(routes).length ? { routes } : {}), ...(autoStop ? { autoStop } : {}) };
+}
+
+/** A saved stop, checked: a kind and a line, and a tile if any. */
+function checkStop(stop: unknown): AutoStop | undefined {
+    if (!stop || typeof stop !== 'object') return undefined;
+    const { kind, text, at, npc, crew } = stop as Record<string, unknown>;
+    if (typeof kind !== 'string' || typeof text !== 'string') return undefined;
+    return {
+        kind: kind as AutoStop['kind'], text, ...(isTile(at) ? { at: { x: at.x, y: at.y } } : {}),
+        ...(typeof npc === 'string' ? { npc } : {}), ...(typeof crew === 'string' ? { crew } : {})
+    };
 }
 
 const isTile = (p: unknown): p is Pos => !!p && typeof p === 'object' && Number.isInteger((p as Pos).x) && Number.isInteger((p as Pos).y);
@@ -160,6 +174,8 @@ export class Session {
     private retired = false;
     /** Auto-advance is committing: its moves keep their crew member's route. */
     private autoPlaying = false;
+    /** The routes as they were before the command auto-advance is committing (it sets the routes after it first). */
+    private routesBefore: Routes | null = null;
 
     /** Stops this Session saving: another one owns its save slot now. */
     retire(): void {
@@ -376,13 +392,14 @@ export class Session {
      */
     commit(cmd: Command): CommitResult {
         const before = this._state, result = deepFreeze(commit(this.world, before, cmd));
+        const routesBefore = this.routesBefore ?? this.routes;
         // A crew member moved by hand gives up their route; one walking it for auto-advance keeps the rest.
         if (!this.autoPlaying && (cmd.type === 'move' || cmd.type === 'dash') && Object.hasOwn(this.routes, cmd.crew)) this.dropRoute(cmd.crew);
         // The player is told only what the crew perceives (§8.15): playback, the event log and the recap get the projection.
         const shown = deepFreeze(projectEvents(this.world, result.state, result.events, before));
         const queued = this.playback.push(shown, result.state, before.turn);
         this._undo = deepFreeze(recordUndo(this._undo, before, result.undoable));
-        this.undoExtra = result.undoable ? [...this.undoExtra, { recent: this._recent, recentTurns: this._recentTurns, seqs: queued.map(i => i.seq) }] : [];
+        this.undoExtra = result.undoable ? [...this.undoExtra, { recent: this._recent, recentTurns: this._recentTurns, seqs: queued.map(i => i.seq), routes: routesBefore }] : [];
         // Each event's turn is the one the playback queue gave it: a world phase's events belong to the turn that ended.
         this._recent = deepFreeze([...this._recent, ...shown].slice(-RECENT_EVENTS));
         this._recentTurns = deepFreeze([...this._recentTurns, ...queued.map(i => i.turn)].slice(-RECENT_EVENTS));
@@ -408,15 +425,22 @@ export class Session {
         try {
             step = autoStep(this.world, this._state, this.routes, {
                 ...options,
-                play: (cmd, state) => {
+                play: (cmd, state, routes) => {
                     if (state !== this._state) throw new Error('Auto-advance played from a state that isn\'t the session\'s');
-                    return this.commit(cmd);
+                    // The routes as they will be go into the autosave with the command, so a resume walks on from there.
+                    this.routesBefore = this.routes;
+                    this.putRoutes(routes);
+                    try {
+                        return this.commit(cmd);
+                    } finally {
+                        this.routesBefore = null;
+                    }
                 }
             });
         } finally {
             this.autoPlaying = false;
         }
-        this.setUi({ routes: step.routes });
+        this.putRoutes(step.routes);
         this.emit({ kind: 'ui' });
         return step;
     }
@@ -430,10 +454,24 @@ export class Session {
         this.emit({ kind: 'ui' });
     }
 
+    /** Why the last auto-advance stopped (kept with the UI state, so a resume shows it), or null to clear it. */
+    setAutoStop(stop: AutoStop | null): void {
+        const { autoStop: _old, ...rest } = this._ui;
+        this._ui = deepFreeze(stop ? { ...rest, autoStop: clonePlain(stop) } : rest);
+        this.setUi({});
+    }
+
+    /** Sets the routes, leaving the key out of the UI state when there are none (so a save reads back the same). */
+    private putRoutes(routes: Routes): void {
+        const { routes: _old, ...rest } = this._ui;
+        this._ui = deepFreeze(Object.keys(routes).length ? { ...rest, routes } : rest);
+        this.setUi({});
+    }
+
     private dropRoute(crew: string): void {
         if (!Object.hasOwn(this.routes, crew)) return;
         const { [crew]: _gone, ...rest } = this.routes;
-        this.setUi({ routes: rest });
+        this.putRoutes(rest);
         this.emit({ kind: 'ui' });
     }
 
@@ -445,6 +483,7 @@ export class Session {
         this.undoExtra = this.undoExtra.slice(0, -1);
         this._recent = extra.recent;
         this._recentTurns = extra.recentTurns;
+        if (extra.routes && stableJson(extra.routes) !== stableJson(this.routes)) this.putRoutes(extra.routes);
         this.playback.remove(extra.seqs);
         this.setState(popped.state);
         this.save();

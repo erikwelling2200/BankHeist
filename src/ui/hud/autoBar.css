@@ -15,3 +15,4 @@
 .sh-waititem { min-height: 44px; padding: 0 10px !important; text-align: left; border: 1px solid var(--line) !important; border-radius: var(--r);
   background: rgba(242, 230, 200, 0.05); font: 500 calc(var(--sh-text) * 13px) var(--sans) !important; letter-spacing: 0 !important; }
 .sh-waititem:hover { background: rgba(242, 230, 200, 0.12); }
+.sh-waitnote { margin-top: 2px; font: 500 calc(var(--sh-text) * 12px) var(--sans); letter-spacing: 0; }

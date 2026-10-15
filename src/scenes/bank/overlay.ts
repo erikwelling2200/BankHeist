@@ -60,7 +60,7 @@ export interface OverlayContent {
      * Multi-turn routes (§6.5): each crew member's, from where they stand, in the Moves each turn walks it in; a dashed
      * line in the crew colour with the turn number where each turn's walk ends. `rest` is what can't be planned now.
      */
-    routes?: { crew: string; colour: string; from: Pos; legs: { turn: number; path: Pos[] }[]; rest: Pos[] }[];
+    routes?: { crew: string; colour: string; from: Pos; legs: { turn: number; path: Pos[] }[]; rest: Pos[]; unsafe?: Pos[]; now?: number }[];
     /** The dragged path is a route being drawn: only steps past `badFrom` are red, not those past this turn's reach. */
     routeDrag?: boolean;
     /** The NPCs' committed walks for the next world phase: a dotted line and a pin where each ends. */
@@ -460,6 +460,20 @@ export class WorldOverlay {
             ctx.setLineDash([]);
         };
         line(points, r.colour, [6, 4]);
+        // This turn's steps a preview warns of: amber, struck through like the overlay's unsafe floor (auto-advance stops before them).
+        for (const p of r.unsafe ?? []) {
+            const [x, y] = mid(p), S = 32;
+            ctx.fillStyle = alpha(pal.amber, 0.25);
+            ctx.fillRect(x - S / 2, y - S / 2, S, S);
+            ctx.strokeStyle = pal.amber;
+            ctx.lineWidth = 2;
+            ctx.beginPath();
+            ctx.moveTo(x - 5, y - 5);
+            ctx.lineTo(x + 5, y + 5);
+            ctx.moveTo(x + 5, y - 5);
+            ctx.lineTo(x - 5, y + 5);
+            ctx.stroke();
+        }
         if (r.rest.length) line([points.at(-1)!, ...r.rest.map(mid)], alpha(pal.red, 0.7), [2, 4]);
         for (const leg of r.legs) {
             const [x, y] = mid(leg.path.at(-1)!);
@@ -473,7 +487,8 @@ export class WorldOverlay {
         ctx.textBaseline = 'middle';
         r.legs.forEach((leg, i) => {
             if (r.legs[i + 1]?.turn === leg.turn) return;
-            const [x, y] = mid(leg.path.at(-1)!), text = String(leg.turn), w = Math.max(16, ctx.measureText(text).width + 8), py = y - 16;
+            // Later turns are estimates: the NPCs will have moved by then.
+            const [x, y] = mid(leg.path.at(-1)!), text = r.now !== undefined && leg.turn > r.now ? `~${leg.turn}` : String(leg.turn), w = Math.max(16, ctx.measureText(text).width + 8), py = y - 16;
             ctx.fillStyle = 'rgba(11, 13, 23, 0.9)';
             ctx.fillRect(Math.round(x - w / 2), py - 7, w, 14);
             ctx.strokeStyle = r.colour;

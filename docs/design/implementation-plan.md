@@ -762,6 +762,12 @@ Later milestones: within each milestone, the `∥` notes in §3 apply. UI packag
     of NPCs whose routine the crew knows. While waiting for something else, schedule events don't interrupt. "Until X
     leaves" means leaving the room it was in (or the map), "until the guard passes" its walk crossing a chosen tile
     (the menu offers the tile of its intent nearest the selected crew member). A run plays at most 20 turns.
+    Review: a step is never auto-committed if its preview (projected) warns of suspicion, exposure, a challenge, a
+    carrier or a camera sighting: the Move is cut before it and the run stops `unsafe` there (the drawn route marks
+    this turn's unsafe tiles; later turns' numbers read "~N"). Routes advance by the steps walked, so loops walk as
+    drawn; a known NPC in the way gets one turn to move on. Stops point at where the crew knows an NPC to be. A wait
+    walks no routes and ignores public civilians coming into view; a Go counts schedule events only within 12 tiles
+    (or the room) of the crew or its routes. Routes come back with an undo, and the last stop is kept with the UI.
 
 ### Critical files for implementation
 

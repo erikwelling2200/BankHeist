@@ -13,7 +13,7 @@ export interface AutoBarVM {
     /** Go: plays the routes. Disabled with a reason when there is no route or auto-advance isn't allowed now. */
     go: { enabled: boolean; reason?: string };
     /** Wait for…: the menu's entries, by id. Disabled with a reason when there is nothing to wait for. */
-    wait: { enabled: boolean; reason?: string; options: { id: string; label: string }[] };
+    wait: { enabled: boolean; reason?: string; options: { id: string; label: string }[]; /** A line under the menu's title. */ note?: string };
     /** Auto-advance is playing: Go reads Stop. */
     running: boolean;
     /** What is running ("Waiting: the manager leaves") or why it stopped; null shows nothing. */
@@ -90,7 +90,7 @@ export function mountAutoBar(root: HTMLElement, callbacks: AutoBarCallbacks): Au
         status.textContent = vm.status ?? '';
         status.classList.toggle('alert', !!vm.alert);
         menu.replaceChildren(
-            h('div.sh-waittitle', {}, 'WAIT FOR…'),
+            h('div.sh-waittitle', {}, 'WAIT FOR…', vm.wait.note ? h('div.sh-waitnote', {}, vm.wait.note) : null),
             ...vm.wait.options.map(o => h('button.sh-waititem', { type: 'button', role: 'menuitem', 'data-id': o.id }, o.label))
         );
         if (vm.running || !vm.wait.enabled) setOpen(false);

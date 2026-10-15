@@ -147,7 +147,7 @@ export {
     type Pace, type PlannedWalk, type Walked, type WalkTarget
 } from './rules/npc/walk';
 export {
-    AUTO_TURN_CAP, autoAdvance, autoAdvanceBlocked, autoStep, interruptsOf, knownSchedule, npcLabel, planRoute, routeBreak, routeLeg, trimRoute, waitOptions,
+    AUTO_TURN_CAP, autoAdvance, autoAdvanceBlocked, autoStep, interruptsOf, knownSchedule, NEAR_TILES, npcLabel, planRoute, previewDanger, routeBreak, routeLeg, safeLeg, waitOptions,
     waitReached, type AutoOptions, type AutoStepResult, type AutoStop, type Interrupt, type InterruptKind, type InterruptOptions, type KnownEvent,
     type RouteLeg, type Routes, type StopKind, type WaitOption, type WaitTarget
 } from './rules/autoAdvance';
