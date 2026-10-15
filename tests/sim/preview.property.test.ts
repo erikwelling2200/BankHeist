@@ -45,6 +45,11 @@ const VERBOSE = !!process.env.PREVIEW_PROBE_VERBOSE;
 const FIXTURES = Math.round(40 * SCALE);
 const BANK_SEEDS = Number(process.env.PREVIEW_PROBE_BANKS ?? Math.max(1, Math.round(SCALE)));
 const FIXTURE_TURNS = 4, BANK_TURNS = Math.round(6 * Math.min(SCALE, 2));
+/**
+ * Generating the banks takes most of the time (0.4–1.4 s each), so the default run (`npm test`, which must stay under
+ * 30 s) leaves out every fourth tier × archetype (a different fourth for each bank seed); scaled runs play them all.
+ */
+const BANK_SKIP = SCALE > 1 || process.env.PREVIEW_PROBE_BANKS ? 0 : 4;
 const W = 14, H = 10;
 
 // ---------------------------------------------------------------------------------------------------------- Worlds
@@ -518,6 +523,10 @@ describe('previews (property, §8.8)', () => {
         }
         let combo = 0;
         for (let s = 0; s < BANK_SEEDS; s++) for (const tier of TIERS) for (const archetype of archetypesFor(tier)) {
+            if (BANK_SKIP && (combo + s) % BANK_SKIP === BANK_SKIP - 1) {
+                combo++;
+                continue;
+            }
             seeds++;
             playBank(probe, tier, archetype, PLOTS[combo % PLOTS.length]!, s, combo++, BANK_TURNS);
         }

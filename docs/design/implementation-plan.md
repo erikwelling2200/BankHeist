@@ -412,7 +412,8 @@ Each package lists its goal, the design sections it covers, the files, what it d
       committed on the picture (0 differences allowed) and against the truth as the crew perceives it (omniscient: 0
       differences; otherwise only what the crew can't know, by class); each crew member's own tile before every end of
       turn; the eye, "who and why", action previews (events, carriers, ears and badges) and the dash ring. Default 40
-      fixtures + 13 banks (~600 commands, 20 s); `PREVIEW_PROBE_SCALE=10`: 6,092 commands over 540 seeds, 4,952 tile
+      fixtures + 10 of the 13 banks (every fourth tier × archetype left out, a different one per seed: generating a
+      bank is most of the time; ~575 commands, 16 s alone, 20 s within `npm test`); `PREVIEW_PROBE_SCALE=10`: 6,092 commands over 540 seeds, 4,952 tile
       and 3,916 stay checks, 0 differences; the truth differed only by 249 moves cut by someone unseen. Green never got
       the crew member spotted during the move (1,333 green moves); in the world phase 36 of 2,747 green tiles were
       spotted by NPCs the crew didn't know (decision 24 promises only the known NPCs' walks), never by a known one.
@@ -440,6 +441,20 @@ Each package lists its goal, the design sections it covers, the files, what it d
       against `safeFloor` (and that neither changes the state). `PREVIEW_PROBE_SCALE=10 PREVIEW_LONG_GAMES=26`: 7,667
       commands, 6,313 tile and 5,194 stay checks, 4,940 drag prefixes, 0 differences; the truth differed by 320 moves cut
       by someone unseen, one tile someone unseen also acted on and one told by someone unseen.
+    - **Follow-up fixes.** Turn 1's hatched grey is not an empty fresh set: the state's initialiser already makes the
+      tiles the crew sees fresh (a test now checks it, and that a resumed save keeps them). It is decision 24 at work:
+      the crew sees 10 tiles round them in the open and `unknownReach` is 10, so every seen tile of the street is within
+      reach of one it can't see; only spaces seen whole (rooms) read green. The scene uses `safeFloorJob` directly
+      (src/game/floorJob.ts is gone) and tints the Move band a tile at a time, so the Dash band is left to the frames
+      after (6–7 ms slices); `actionPreview`'s stopped carriers are typed `CarrierKind`. Selecting a crew member
+      stalled ~100–160 ms in the sandbox: resizing a WebGL canvas (Act view's zoom) waits for the GPU process, which a
+      software renderer keeps a few frames behind, and then the world overlay was drawn again on every frame of the
+      pan to the crew member (thousands of fills each, a 1×1 rect per pixel of the Dash hatch). Now a closer zoom keeps
+      the canvas and scales it in CSS (`BankCamera.applyZoom`; the filters' drawing contexts and the copy shader are
+      readied while the bank builds), the overlay shifts while the view moves and is drawn afresh once it holds still,
+      and the hatch is a pattern. Measured over 5 selections each (city and HQ banks, Chromium/SwiftShader): the longest
+      main-thread task 117/132 ms → none over 50 ms; the worst of the first five frames 146/156 → 56/55 ms (the idle
+      frame is ~38 ms there).
 - [ ] **M1-10 What the crew knows.**
   - **Covers:** §8.15, §17.8 (the casing layer inside a heist).
   - **Work:**
