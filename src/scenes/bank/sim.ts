@@ -1103,14 +1103,15 @@ export class PlayMode {
 
     /**
      * The selected member's safe floor (§8.8) for this state: the Move band now, so selecting feels instant, then the
-     * Dash band filled in over the following frames, `FLOOR_SLICE_MS` of judging each (src/game/floorJob.ts).
+     * Dash band filled in over the following frames, `FLOOR_SLICE_MS` of judging each (the sim's `safeFloorJob`).
      */
     private floor(member: CrewState): FloorTileVM[] {
         const state = this.session.state;
         let f = this.floorFor;
         if (!f || f.state !== state || f.id !== member.id) {
             const t0 = performance.now(), job = this.session.floorJob(member.id);
-            while (!job.done && !job.has(['stay', 'move'])) job.step();
+            // A tile at a time (a deadline already passed), so the Dash band is left for the frames after.
+            while (!job.has(['stay', 'move'])) job.step(t0, () => performance.now());
             f = this.floorFor = {
                 state, id: member.id, job, shown: job.tiles.length, tiles: floorTiles(job), dash: job.done,
                 ms: { move: performance.now() - t0, dash: 0, slice: 0, slices: 0 }

@@ -1,6 +1,6 @@
 import { IllegalCommand, preview, type PreviewResult } from '../core/engine';
 import type { PendingOdds } from '../core/rng';
-import type { Command, Pos, ReadonlyWorld, SimEvent, State } from '../core/types';
+import type { CarrierKind, Command, Pos, ReadonlyWorld, SimEvent, State } from '../core/types';
 import { eventClass } from '../core/undo';
 import type { NoiseKind } from '../data/noise';
 import { inRing, soundRing } from '../geo/sound';
@@ -61,7 +61,7 @@ export type ActionPreview =
         events: SimEvent[];
         noises: NoisePreview[];
         witnesses: Witness[];
-        carriers: { starts: CarrierPreview[]; stops: { carrier: string; kind: string; why: string }[]; worldPhase: CarrierPreview[] };
+        carriers: { starts: CarrierPreview[]; stops: { carrier: string; kind: CarrierKind; why: string }[]; worldPhase: CarrierPreview[] };
         undoable: boolean;
         /** Actions it spends. */
         cost: number;

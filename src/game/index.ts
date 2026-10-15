@@ -13,6 +13,6 @@ export {
 export { actionMenu, cameraName, doorMiddle, knownCameras, menuIsLegal, nextCamera, targetsOf, VERBS, type ActionEntry, type Targets } from './actions';
 export { moveAlong, moveKind, moveRange, moveTo, type MoveRange } from './movement';
 export { deserialiseHeist, deserialiseUi, heistWorldId, serialiseHeist, serialiseUi, serialiseWorld, type HeistExtras } from './persist';
-export { floorJob, type FloorJob } from './floorJob';
+export type { FloorJob } from '../sim';
 export { installDebugHandle, type SimHandle } from './debug';
 export { AutoRun, autoBarView, routeViews, stopLine, stopNeedsAttention, waitMenu, type RouteView } from './autoAdvance';

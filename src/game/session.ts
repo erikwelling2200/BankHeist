@@ -1,10 +1,9 @@
 import {
-    actionPreview, assertPlainJson, autoStep, clonePlain, explain, pathSafety, safeFloor, type ActionPreview, type CarrierChanges, type Explanation, type FloorBand,
+    actionPreview, assertPlainJson, autoStep, clonePlain, explain, pathSafety, safeFloor, safeFloorJob, type ActionPreview, type CarrierChanges, type Explanation, type FloorBand, type FloorJob,
     type PathSafety, type SafeFloor, commit, deepFreeze, hashOf, noticedUnseen, popUndo, preview, projectEvents, projectPreviewEvents, RECENT_EVENTS, recordUndo, SaveFormatError, stableJson,
     type AutoOptions, type AutoStepResult, type AutoStop, type Command, type CommitResult, type Pos, type PreviewResult, type ReadonlyWorld, type Routes, type SimEvent, type State,
     type UndoStack
 } from '../sim';
-import { floorJob, type FloorJob } from './floorJob';
 import { deserialiseHeist, deserialiseUi, heistWorldId, serialiseHeist, serialiseUi, serialiseWorld } from './persist';
 import { PlaybackQueue, type PlaybackItem } from './playback';
 import type { SaveStorage } from './storage';
@@ -348,8 +347,7 @@ export class Session {
      */
     carrierChanges(cmd: Command): CarrierChanges | undefined {
         const shown = this.actionPreview(cmd);
-        // `actionPreview` types a stopped carrier's kind as a plain string; it is the carrier's own kind.
-        return shown.ok ? { ...shown.carriers, stops: shown.carriers.stops as CarrierChanges['stops'] } : undefined;
+        return shown.ok ? shown.carriers : undefined;
     }
 
     /**
@@ -361,9 +359,12 @@ export class Session {
         return safeFloor(this.world, this._state, crew, bands ? { bands } : {});
     }
 
-    /** The safe floor a slice at a time (src/game/floorJob.ts): the Move band first, the Dash band over later frames. */
+    /**
+     * The safe floor a slice at a time (the sim's `safeFloorJob`, one job per state and crew member): the scene tints the
+     * Move band at once and the Dash band over later frames.
+     */
     floorJob(crew: string): FloorJob {
-        return floorJob(this.world, this._state, crew);
+        return safeFloorJob(this.world, this._state, crew);
     }
 
     /** A drawn path's safety (§8.8): each step's `!`s, the first unsafe step (the eye), its end as the floor tints it. */

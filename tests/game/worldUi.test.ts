@@ -1,7 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { floorJob } from '../../src/game/floorJob';
 import { explainView, floorTiles, npcBadges, npcCone, pathView, previewHearers, previewNoise, previewWitnesses } from '../../src/game/worldUi';
-import { actionPreview, clonePlain, explain, fixtureWorld, initialState, knownView, pathSafety, safeFloor, type Facing, type ObserverClass, type PersonDef, type Pos, type State } from '../../src/sim';
+import { actionPreview, clonePlain, explain, fixtureWorld, initialState, knownView, pathSafety, safeFloor, safeFloorJob, type Facing, type ObserverClass, type PersonDef, type Pos, type State } from '../../src/sim';
 import { scouted } from '../sim/helpers';
 
 const P = (x: number, y: number): Pos => ({ x, y });
@@ -63,9 +62,9 @@ describe('the world UI over heads', () => {
         const { world, state } = scene(s => { s.crew[0]!.loadout.items.push('assaultRifle'); });
         const floor = safeFloor(world, state, 'jun'), tiles = floorTiles(floor);
         // A slice at a time: the Move band first, then the rest, ending with the same tiles.
-        const job = floorJob(world, clonePlain(state), 'jun');
-        job.step();
-        expect(job.has(['stay', 'move'])).toBe(true);
+        const job = safeFloorJob(world, clonePlain(state), 'jun');
+        while (!job.has(['stay', 'move'])) job.step(0, () => 1);
+        expect(job.done).toBe(false);
         while (!job.step(0, () => 1));
         expect(floorTiles(job)).toEqual(tiles);
         // Every tile but the crew member's own, each with the engine's tint.
