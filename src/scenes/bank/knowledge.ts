@@ -1,6 +1,6 @@
 import type Phaser from 'phaser';
 import type { BankData } from '../../level/bankData';
-import { TILE } from '../../level/level';
+import { TILE } from '../../level/constants';
 import type { Heights } from './heights';
 import { DEPTH } from './layers';
 

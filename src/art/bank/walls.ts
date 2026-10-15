@@ -1,4 +1,4 @@
-import { TILE } from '../../level/level';
+import { TILE } from '../../level/constants';
 import { px, WALL_HEIGHT } from '../../level/space';
 import { WALL_THICKNESS, type Wall, type WallKind } from '../../level/walls';
 import { PAL, mix, step } from '../palette';

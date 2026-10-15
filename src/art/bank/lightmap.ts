@@ -1,4 +1,4 @@
-import { TILE } from '../../level/level';
+import { TILE } from '../../level/constants';
 import { isOffMap, isOutdoors, type Level } from '../../level/plan';
 import { wallFootprint, type Wall, type WallKind } from '../../level/walls';
 import { bayer4 } from '../random';

@@ -14,7 +14,7 @@
     "test:visual": "playwright test --grep @visual --fully-parallel",
     "test:visual:update": "playwright test --grep @visual --fully-parallel --update-snapshots",
     "sweep": "vitest run --config scripts/vitest.sweep.config.ts",
-    "screenshot": "playwright test -g \"boots into the bank\""
+    "screenshot": "playwright test -g \"boots into the game\""
   },
   "dependencies": {
     "phaser": "^4.2.1"

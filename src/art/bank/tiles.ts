@@ -1,4 +1,4 @@
-import { TILE } from '../../level/level';
+import { TILE } from '../../level/constants';
 import { PAL, deepen, mix, step } from '../palette';
 import { PixelBitmap } from '../PixelBitmap';
 import { mulberry32, valueNoise } from '../random';

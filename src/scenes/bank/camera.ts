@@ -1,6 +1,6 @@
 import Phaser from 'phaser';
 import { PAL } from '../../art/palette';
-import { TILE } from '../../level/level';
+import { TILE } from '../../level/constants';
 import { mapZoom, nearestStep, zoomSteps } from '../../logic/zoom';
 import { CameraControls } from '../../ui/CameraControls';
 

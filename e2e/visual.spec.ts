@@ -9,7 +9,7 @@ import { expect, test, type Page } from '@playwright/test';
 const exact = !!process.env.VISUAL_EXACT;
 const tolerance = exact ? { threshold: 0, maxDiffPixels: 0 } : { threshold: 0.1, maxDiffPixelRatio: 0.002 };
 
-const HIDE_HTML = '.generator-bar, .briefing, .camera-controls, .fullscreen-button, .hud { display: none !important; }';
+const HIDE_HTML = '.generator-bar, .briefing, .camera-controls, .fullscreen-button { display: none !important; }';
 
 /** Opens `path` with `?still`, hides the HTML over the canvas and waits for `scene` to run. */
 async function open(page: Page, path: string, scene = 'bank'): Promise<string[]> {
@@ -42,9 +42,9 @@ const toggleMap = (page: Page) => page.evaluate(() => (window as any).game.scene
 
 const BANKS: [string, string][] = [
     ['example', '/?bank=example'],
-    ['city-twoWing', '/?seed=31-2&tier=city&archetype=twoWing'],
-    ['hq-mezzanineWatch', '/?seed=15838-2&tier=hq&archetype=mezzanineWatch&plot=stripMallEnd'],
-    ['small-fortress', '/?seed=31-2&tier=small&archetype=fortress']
+    ['city-twoWing', '/?view&seed=31-2&tier=city&archetype=twoWing'],
+    ['hq-mezzanineWatch', '/?view&seed=15838-2&tier=hq&archetype=mezzanineWatch&plot=stripMallEnd'],
+    ['small-fortress', '/?view&seed=31-2&tier=small&archetype=fortress']
 ];
 
 test.describe('looks the same', { tag: '@visual' }, () => {

@@ -1,6 +1,6 @@
 import type { OfficerFrame } from '../art/bank/officer';
 import { propSize } from '../level/catalog';
-import { TILE } from '../level/level';
+import { TILE } from '../level/constants';
 import type { LevelProp } from '../level/plan';
 import { turned, type Box } from '../level/space';
 import { cycle, Timeline, type Cel } from '../logic/timeline';

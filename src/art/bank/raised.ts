@@ -1,4 +1,4 @@
-import { TILE } from '../../level/level';
+import { TILE } from '../../level/constants';
 import type { FloorTile } from '../../level/plan';
 import { PAL, mix } from '../palette';
 import { PixelBitmap } from '../PixelBitmap';

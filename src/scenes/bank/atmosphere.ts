@@ -2,7 +2,7 @@ import Phaser from 'phaser';
 import { farFront, streetFront } from '../../art/bank/lightmap';
 import { PixelBitmap } from '../../art/PixelBitmap';
 import { bayer4, mulberry32, valueNoise } from '../../art/random';
-import { TILE } from '../../level/level';
+import { TILE } from '../../level/constants';
 import { isOutdoors, type Level } from '../../level/plan';
 import type { Baker } from './bake';
 import { DEPTH, KEY } from './layers';

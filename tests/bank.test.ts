@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { buildExposure, buildLightMaps, streetFront, type Caster } from '../src/art/bank/lightmap';
-import { TILE } from '../src/level/level';
+import { TILE } from '../src/level/constants';
 import { propBox } from '../src/level/catalog';
 import { BANK_PEOPLE, BANK_PLAN, BANK_PROPS, BANK_ROOMS } from '../src/level/bank';
 import { floorHeight, isOffMap, parsePlan, RAISED_HEIGHT } from '../src/level/plan';

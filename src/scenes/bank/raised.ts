@@ -1,7 +1,7 @@
 import type Phaser from 'phaser';
 import { bakeLighting } from '../../art/bank/lamps';
 import { slabFace, slabMaterial, stairTile } from '../../art/bank/raised';
-import { TILE } from '../../level/level';
+import { TILE } from '../../level/constants';
 import type { Level } from '../../level/plan';
 import { AMBIENT, EVERYWHERE, type AtlasPiece, type Baker } from './bake';
 import { STOREY_STEPS, type Heights } from './heights';

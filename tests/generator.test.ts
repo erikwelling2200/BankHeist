@@ -15,7 +15,7 @@ import { Rng } from '../src/gen/rng';
 import { ROOM_RULES } from '../src/gen/rooms';
 import { edgeBetween, edgeKey, Site, tilesOf } from '../src/gen/site';
 import { TIER_SPECS } from '../src/gen/tiers';
-import { TILE } from '../src/level/level';
+import { TILE } from '../src/level/constants';
 import { isOnTop, propBox } from '../src/level/catalog';
 import { isOffMap, parsePlan, toPlan } from '../src/level/plan';
 import { boxesOverlap, FACINGS, PERSON_SIZE, place, supportOf, WALL_HEIGHT, type Box, type Facing } from '../src/level/space';

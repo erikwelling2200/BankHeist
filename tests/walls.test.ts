@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { RAIL_HEIGHT, wallArt, wallLook, wallMargin } from '../src/art/bank/walls';
-import { TILE } from '../src/level/level';
+import { TILE } from '../src/level/constants';
 import { BANK_PLAN } from '../src/level/bank';
 import { parsePlan } from '../src/level/plan';
 import { WALL_STEPS } from '../src/level/space';

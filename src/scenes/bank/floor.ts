@@ -2,7 +2,7 @@ import { BANK_TILE_INDEX, bankTileset, type BankTileName } from '../../art/bank/
 import { doorSill } from '../../art/bank/walls';
 import { deepen, mix, PAL } from '../../art/palette';
 import { PixelBitmap } from '../../art/PixelBitmap';
-import { TILE } from '../../level/level';
+import { TILE } from '../../level/constants';
 import { floorHeight, type Level } from '../../level/plan';
 import { wallFootprint } from '../../level/walls';
 import { bakeLighting } from '../../art/bank/lamps';

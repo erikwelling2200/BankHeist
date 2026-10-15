@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { bakeLighting, LampReach, lightBlockers, LIT, tileLight, type Lamp } from '../src/art/bank/lamps';
 import { PixelBitmap } from '../src/art/PixelBitmap';
-import { TILE } from '../src/level/level';
+import { TILE } from '../src/level/constants';
 import { BANK_PLAN } from '../src/level/bank';
 import { parsePlan } from '../src/level/plan';
 

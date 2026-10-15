@@ -1,4 +1,4 @@
-import { TILE } from '../../level/level';
+import { TILE } from '../../level/constants';
 import { isOffMap, isOutdoors, type Level, type Room } from '../../level/plan';
 import { wallFootprint, type WallKind } from '../../level/walls';
 import { PixelBitmap } from '../PixelBitmap';

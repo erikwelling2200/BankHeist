@@ -5,7 +5,7 @@ import { BANK_TILE_INDEX, bankTileset } from '../art/bank/tiles';
 import { PAL } from '../art/palette';
 import { PixelBitmap } from '../art/PixelBitmap';
 import { propSize } from '../level/catalog';
-import { TILE } from '../level/level';
+import { TILE } from '../level/constants';
 import { baseLine } from '../level/space';
 import type { Timeline } from '../logic/timeline';
 import { COVER, COVER_PROP, FADE_MS, FLOOR, officerTimeline, VIEW } from './officerSequence';

@@ -5,7 +5,7 @@ import { propArt, type PropArt } from '../../art/bank/props';
 import type { PixelBitmap } from '../../art/PixelBitmap';
 import type { BankData } from '../../level/bankData';
 import { isOnTop, propBox, propSize } from '../../level/catalog';
-import { TILE } from '../../level/level';
+import { TILE } from '../../level/constants';
 import type { LevelProp } from '../../level/plan';
 import { baseLine, drawLine, frontRow, GLOW_DEPTH, supportOf, type Box } from '../../level/space';
 import { EVERYWHERE, footprintPoints, type Baker } from './bake';

@@ -1,21 +1,16 @@
 import { expect, test, type Page } from '@playwright/test';
 
-interface DebugState { player: { x: number; y: number }; collected: number; total: number; ended: boolean }
-
-async function state(page: Page): Promise<DebugState> {
-    return page.evaluate(() => (window as any).game.scene.getScene('vault').debugState);
-}
-
 /**
- * Opens a scene and waits for it to run: a generated bank (`bank`, from a fixed seed unless `query` says otherwise),
- * the hand-made example bank (`example`) or the old stack demo (`vault`).
+ * Opens a page and waits for its bank to run: a generated bank in the viewer (`bank`, `?view` from a fixed seed unless
+ * `query` says otherwise), the hand-made example bank (`example`) or the game (`play`, the default page).
  */
-async function boot(page: Page, scene: 'bank' | 'example' | 'vault' = 'vault', query = 'seed=2024-1'): Promise<string[]> {
+async function boot(page: Page, scene: 'bank' | 'example' | 'play' = 'bank', query = 'seed=2024-1'): Promise<string[]> {
     const errors: string[] = [];
     page.on('pageerror', e => errors.push(e.message));
     page.on('console', m => { if (m.type() === 'error') errors.push(m.text()); });
-    await page.goto(scene === 'bank' ? `/?${query}` : scene === 'example' ? '/?bank=example' : '/?scene=demo');
-    await page.waitForFunction(s => (window as any).game?.scene.getScene(s)?.sys.isActive(), scene === 'vault' ? 'vault' : 'bank', { timeout: 60000 });
+    await page.goto(scene === 'bank' ? `/?view&${query}` : scene === 'example' ? '/?bank=example' : '/');
+    await page.waitForFunction(() => (window as any).game?.scene.getScene('bank')?.sys.isActive(), undefined, { timeout: 60000 });
+    if (scene === 'play') await page.waitForFunction(() => (window as any).sim, undefined, { timeout: 60000 });
     await page.waitForTimeout(800);
     return errors;
 }
@@ -23,42 +18,29 @@ async function boot(page: Page, scene: 'bank' | 'example' | 'vault' = 'vault', q
 /** `npm run test:smoke` runs only the tests tagged `@smoke`: a quick check that every page still boots. */
 const SMOKE = { tag: '@smoke' };
 
-test('boots into the bank without errors', SMOKE, async ({ page }) => {
-    const errors = await boot(page, 'bank');
-    await page.locator('canvas').screenshot({ path: 'screenshots/start.png' });
+test('boots into the game without errors', SMOKE, async ({ page }) => {
+    // The default page is the heist in the pinned bank, the crew at their van.
+    const errors = await boot(page, 'play');
+    await expect.poll(() => page.evaluate(() => (window as any).game.scene.getScene('bank').debugState.settled), { timeout: 20000 }).toBe(true);
+    expect(await page.evaluate(() => (window as any).sim.state.crew.map((c: { id: string }) => c.id))).toEqual(['mara', 'jun']);
+    await expect(page.locator('.sh-rail .sh-crew')).toHaveCount(2);
+    expect(new URL(page.url()).searchParams.get('seed')).toBe('31-2');
+    await page.screenshot({ path: 'screenshots/start.png' });
     expect(errors).toEqual([]);
     console.log(`fps: ${await page.evaluate(() => (window as any).game.loop.actualFps.toFixed(1))}`);
 });
 
-test('runs the old stack demo on its own link', async ({ page }) => {
-    const errors = await boot(page);
+test('boots into the generated-bank viewer without errors', SMOKE, async ({ page }) => {
+    const errors = await boot(page, 'bank');
+    await expect(page.locator('.generator-bar')).toBeVisible();
+    expect(await page.evaluate(() => (window as any).sim)).toBeUndefined();
+    expect(new URL(page.url()).search).toMatch(/^\?view&/);
+    await page.locator('canvas').screenshot({ path: 'screenshots/viewer.png' });
     expect(errors).toEqual([]);
-    expect((await state(page)).total).toBeGreaterThan(0);
-});
-
-test('keyboard moves the player', async ({ page }) => {
-    await boot(page);
-    const before = (await state(page)).player;
-    await page.keyboard.down('ArrowRight');
-    // Software WebGL in CI renders slowly, so poll instead of assuming a frame rate.
-    await expect.poll(async () => (await state(page)).player.x).toBeGreaterThan(before.x + 10);
-    await page.keyboard.up('ArrowRight');
-});
-
-test('touch joystick moves the player', async ({ page }) => {
-    await boot(page);
-    const before = (await state(page)).player;
-    const box = (await page.locator('canvas').boundingBox())!;
-    await page.mouse.move(box.x + box.width * 0.25, box.y + box.height * 0.6);
-    await page.mouse.down();
-    await page.mouse.move(box.x + box.width * 0.25, box.y + box.height * 0.9, { steps: 5 });
-    await expect.poll(async () => (await state(page)).player.y).toBeGreaterThan(before.y + 10);
-    await page.locator('canvas').screenshot({ path: 'screenshots/joystick.png' });
-    await page.mouse.up();
 });
 
 test('registers a service worker for offline play', async ({ page }) => {
-    await boot(page);
+    await boot(page, 'bank');
     const registered = await page.evaluate(async () => !!(await navigator.serviceWorker.ready));
     expect(registered).toBe(true);
 });
@@ -454,6 +436,8 @@ test.describe('the generator bar', () => {
             expect(await page.evaluate(() => (window as any).sameDocument)).toBe(true);
             const now = await bank();
             expect(new URL(page.url()).searchParams.get('seed')).toBe(now.seed);
+            // Still the viewer, not the game.
+            expect(new URL(page.url()).searchParams.has('view')).toBe(true);
             return now;
         };
         let now = await reloaded(() => bar.getByRole('combobox', { name: 'Archetype' }).selectOption('atrium'));

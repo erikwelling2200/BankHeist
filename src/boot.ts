@@ -8,27 +8,37 @@ import { GeneratorBar } from './ui/GeneratorBar';
 import { BankScene } from './scenes/BankScene';
 import { OfficerScene } from './scenes/OfficerScene';
 import { PropSheetScene } from './scenes/PropSheetScene';
-import { VaultScene } from './scenes/VaultScene';
 import { Fullscreen } from './ui/Fullscreen';
 import { installDebugHandle, MemoryStorage, Session, webStorage } from './game';
 import { bankAddress, playPlan, savedHeist, startHeist } from './game/heist';
 import type { BankData } from './level/bankData';
 import type { PlaySetup } from './scenes/BankScene';
 
-/** The bank `?play` opens without a seed in the address: a small branch (decision Q1), pinned so every run is the same. */
+/**
+ * The M1 bank (implementation plan M1-16, decision Q1): the small branch the game opens without a seed in the address,
+ * pinned so every run is the same.
+ */
 export const PLAY_BANK = { seed: '31-2', tier: 'small', archetype: 'twoWing' } as const;
 
-/** Starts the game on the scene the address names (`?scene=`, default the generated bank). Loaded only off the HUD page. */
+/**
+ * Whether the address opens the game: the default page (`/`, `?play` being an older link to it), unless it names a
+ * scene, the generated-bank viewer (`?view`) or the hand-made example bank (`?bank=example`).
+ */
+export const playsTheGame = (params: URLSearchParams): boolean => !params.has('scene') && !params.has('view') && params.get('bank') !== 'example';
+
+/** Starts the game on the scene the address names (`?scene=`, default the bank). Loaded only off the HUD page. */
 export function startGame(params: URLSearchParams, scene: string): void {
-    // `?play` is the game (implementation plan §2.5): the pinned bank (or `&seed=`), played through a Session that
-    // autosaves to this browser and resumes (`&new` starts afresh, after asking).
-    if (params.has('play') && !params.has('scene')) {
+    // The default page is the game (implementation plan §2.5): the pinned bank (or `&seed=`), played through a Session
+    // that autosaves to this browser and resumes (`&new` starts afresh, after asking).
+    if (playsTheGame(params)) {
         void preparePlay(params).then(({ bank, setup }) => launch(params, scene, bank, setup));
         return;
     }
-    // `?scene=rooms` is the room gallery: every room type furnished in a few sizes (`?seed=` picks other parcels).
+    // `?view` is the generated-bank viewer (`&seed=`, `tier`, `archetype`, `plot`, and the generator bar), `?bank=example`
+    // the hand-made bank; `?scene=rooms` is the room gallery: every room type furnished in a few sizes (`?seed=` picks
+    // other parcels).
     const gallery = scene === 'rooms' ? roomGallery(Number(params.get('seed') ?? 1)) : undefined;
-    const bank = gallery ? { data: gallery.data, generated: undefined } : ['props', 'officer', 'demo'].includes(scene) ? undefined : generateAddressed();
+    const bank = gallery ? { data: gallery.data, generated: undefined } : ['props', 'officer'].includes(scene) ? undefined : generateAddressed();
     launch(params, scene, bank, undefined, gallery);
 }
 
@@ -46,12 +56,10 @@ function launch(params: URLSearchParams, scene: string, bank: { data: BankData; 
         render: { maxLights: 32 },
         // EXPAND keeps 180px of height and widens the view to the screen's aspect ratio, so there are no black bars on phones.
         scale: { mode: Phaser.Scale.EXPAND, autoCenter: Phaser.Scale.CENTER_BOTH },
-        physics: { default: 'arcade', arcade: { debug: false } },
         input: { activePointers: 3 },
-        // A generated bank opens by default (`?bank=example` for the hand-made one); `?scene=props` shows every prop in its
-        // four facings, `?scene=demo` the old stack demo, `?scene=officer` the police officer's animation preview.
-        // `?scene=lobby` is an older link to the bank.
-        scene: [{ bank: BankScene, lobby: BankScene, rooms: BankScene, props: PropSheetScene, officer: OfficerScene, demo: VaultScene }[scene] ?? BankScene],
+        // The bank scene plays the game and shows the viewer's banks; `?scene=props` shows every prop in its four facings,
+        // `?scene=officer` the police officer's animation preview. `?scene=bank` and `?scene=lobby` are older links to the viewer.
+        scene: [{ bank: BankScene, lobby: BankScene, rooms: BankScene, props: PropSheetScene, officer: OfficerScene }[scene] ?? BankScene],
         // `?still` stops what moves by itself (drifting clouds, patrols, dust), so screenshots of a view match pixel for pixel.
         callbacks: { preBoot: g => g.registry.set('bankData', bank?.data).set('still', params.has('still')).set('play', playSetup) }
     });
@@ -76,7 +84,7 @@ function launch(params: URLSearchParams, scene: string, bank: { data: BankData; 
      * scene restarts on the new bank. Generating takes a moment, so the page shows it is busy first.
      */
     function regenerate(params: Record<string, string>): void {
-        history.pushState(null, '', `${location.pathname}?${new URLSearchParams(params)}`);
+        history.pushState(null, '', `${location.pathname}?view&${new URLSearchParams(params)}`);
         showAddressedBank();
     }
 
@@ -110,17 +118,17 @@ function generateAddressed(): ReturnType<typeof bankFromAddress> {
     return next;
 }
 
-/** Writes play mode's address: `?play` first, then the bank's picks (no `play=`, no `new`). */
+/** Writes the game's address: the bank's picks (no `play`, no `new`), so a reload resumes this heist in this bank. */
 function writePlayAddress(): void {
     const params = new URLSearchParams(location.search);
     params.delete('play');
     params.delete('new');
     const rest = params.toString();
-    history.replaceState(null, '', `${location.pathname}?play${rest ? `&${rest}` : ''}`);
+    history.replaceState(null, '', `${location.pathname}${rest ? `?${rest}` : ''}`);
 }
 
 /**
- * The heist `?play` opens (§20.6), never overwriting a saved one without the player's consent: without a seed in the
+ * The heist the game opens (§20.6), never overwriting a saved one without the player's consent: without a seed in the
  * address the saved heist resumes in its own bank; with another bank's seed, or `&new`, a dialog asks first, and
  * declining goes back to the saved heist. A save that can't be read is only replaced after asking too; declining
  * that plays without saving, so the save stays as it was. Sets up `window.sim` and saving when the page is hidden.
@@ -146,7 +154,7 @@ async function preparePlay(params: URLSearchParams): Promise<{ bank: ReturnType<
     if (plan === 'ask') {
         const name = saved?.name ? `in ${saved.name}` : 'in another bank';
         if (!(await askPlayer(`A heist ${name} is saved on this device.`, 'Starting this one overwrites it.', 'Start new', 'Resume saved'))) {
-            location.replace(`${location.pathname}?play`);
+            location.replace(location.pathname);
             return new Promise(() => undefined);
         }
         plan = 'new';

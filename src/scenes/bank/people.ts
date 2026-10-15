@@ -2,7 +2,7 @@ import type Phaser from 'phaser';
 import { bakeLighting } from '../../art/bank/lamps';
 import { LOOKS, person, PERSON_HEIGHT } from '../../art/bank/people';
 import { PixelBitmap } from '../../art/PixelBitmap';
-import { TILE } from '../../level/level';
+import { TILE } from '../../level/constants';
 import type { LevelPerson, PersonFacing as Facing, PersonPose } from '../../level/plan';
 import { baseLine, PERSON_SIZE, px, type Box } from '../../level/space';
 import { AMBIENT, EVERYWHERE, footprintPoints, type Baker } from './bake';

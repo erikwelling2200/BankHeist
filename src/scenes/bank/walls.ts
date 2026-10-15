@@ -3,7 +3,7 @@ import { leafArt, openWallArt, opens, type Hinge } from '../../art/bank/doors';
 import { bakeLighting, type Exposure, type Lamp } from '../../art/bank/lamps';
 import { farFront, streetFront } from '../../art/bank/lightmap';
 import { supportArt, supportMaterial, wallArt, wallLook, wallMargin, type SupportMaterial, type WallLook } from '../../art/bank/walls';
-import { TILE } from '../../level/level';
+import { TILE } from '../../level/constants';
 import { isOffMap, isOutdoors, type Level } from '../../level/plan';
 import { WALL_STEPS, type Box } from '../../level/space';
 import { wallFootprint, type Footprint, type Wall } from '../../level/walls';

@@ -3,7 +3,7 @@ import { propArt, type PropArt } from '../art/bank/props';
 import { Turn } from '../art/bank/view';
 import { PAL } from '../art/palette';
 import { CATALOG, propBox, propSize } from '../level/catalog';
-import { TILE } from '../level/level';
+import { TILE } from '../level/constants';
 import type { LevelProp } from '../level/plan';
 import { baseLine, drawLine, FACINGS, frontRow, GLOW_DEPTH, supportOf, turned, type Box, type Facing } from '../level/space';
 

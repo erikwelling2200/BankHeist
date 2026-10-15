@@ -3,7 +3,7 @@ import { propArt } from '../src/art/bank/props';
 import { Turn, View } from '../src/art/bank/view';
 import { CATALOG, isOnTop, propBox, propSize } from '../src/level/catalog';
 import { BANK_PROPS } from '../src/level/bank';
-import { TILE } from '../src/level/level';
+import { TILE } from '../src/level/constants';
 import type { LevelProp } from '../src/level/plan';
 import { baseLine, boxesOverlap, drawLine, FACINGS, frontRow, PERSON_SIZE, place, px, supportOf, topRows, turned } from '../src/level/space';
 

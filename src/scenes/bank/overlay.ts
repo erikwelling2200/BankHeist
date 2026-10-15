@@ -2,7 +2,7 @@ import Phaser from 'phaser';
 import { drawNumber, drawRows, GLYPHS, glyphSize, numberWidth, type GlyphName } from '../../art/ui/glyphs';
 import { witnessPlate, type BadgeVM, type CameraVM, type ConeVM, type ExplainVM, type FloorTileVM, type HearerVM, type PathVM, type PlateVM, type Signal, type WitnessVM } from '../../game/worldUi';
 import type { TintKind } from '../../sim';
-import { TILE } from '../../level/level';
+import { TILE } from '../../level/constants';
 import type { Pos } from '../../sim';
 
 /**

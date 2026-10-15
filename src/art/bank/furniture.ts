@@ -1,4 +1,4 @@
-import { TILE } from '../../level/level';
+import { TILE } from '../../level/constants';
 import type { LevelProp } from '../../level/plan';
 import type { Facing, Size } from '../../level/space';
 import { PAL, mix } from '../palette';

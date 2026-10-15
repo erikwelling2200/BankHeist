@@ -8,7 +8,7 @@ import {
     type PlaybackItem, type PlaybackSpeed, type Session, type SessionChange
 } from '../../game';
 import type { GeneratedBank } from '../../gen/model';
-import { TILE } from '../../level/level';
+import { TILE } from '../../level/constants';
 import type { PersonFacing, PersonPose } from '../../level/plan';
 import {
     COMBAT_STATUSES, crewPicture, dashRefusal, IllegalCommand, knownView, doorStatus, planRoute, routeBreak, soundRing, type ActionPreview,

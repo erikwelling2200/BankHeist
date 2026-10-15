@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { drawPose, joint, OFFICER_FRAME, OFFICER_FRAMES, OFFICER_POSES, type OfficerFrame } from '../src/art/bank/officer';
 import { boxesOverlap } from '../src/level/space';
-import { TILE } from '../src/level/level';
+import { TILE } from '../src/level/constants';
 import { cycle, Timeline } from '../src/logic/timeline';
 import { COVER, OFFICER_CELS, officerTimeline, START } from '../src/scenes/officerSequence';
 

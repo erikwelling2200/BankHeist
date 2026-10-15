@@ -1,4 +1,4 @@
-import { TILE } from '../../level/level';
+import { TILE } from '../../level/constants';
 import { floorHeight, RAISED_HEIGHT, type Level } from '../../level/plan';
 import { CUT_HEIGHT } from '../../level/space';
 

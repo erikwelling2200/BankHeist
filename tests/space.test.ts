@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { TILE } from '../src/level/level';
+import { TILE } from '../src/level/constants';
 import { boxesOverlap, place, px, type Size } from '../src/level/space';
 
 const cabinet: Size = { w: px(0.95), d: px(0.5), h: px(1.3) };
