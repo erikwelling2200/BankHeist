@@ -4,7 +4,7 @@ import { defineConfig } from '@playwright/test';
  * By default the tests run against the production build (`npm run build` + `vite preview`), so they also prove the build
  * works: CI and the full run before a push do that. `npm run test:e2e:dev`, `test:smoke:dev` and `e2e:one` (or
  * `E2E_DEV=1` on any run) use the Vite dev server instead, with no build: a server already up on the port is reused, so a
- * warm `npm run dev` makes a run start at once.
+ * warm `npm run dev` (or the one `npm run shot` leaves running) makes a run start at once.
  *
  * `E2E_PORT` serves on another port than the default (4173 for the build, 5173 for the dev server), so test runs in two
  * checkouts at once don't reuse each other's server.

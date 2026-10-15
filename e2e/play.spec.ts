@@ -1,5 +1,6 @@
 import { expect, test, type Page } from '@playwright/test';
 import { effectKind, TINT_RANK, type Effect } from '../src/sim';
+import { ALARM_HELPERS, PAGE_HELPERS } from './setups';
 
 /** `npm run test:smoke` runs only the tests tagged `@smoke`. */
 const SMOKE = { tag: '@smoke' };
@@ -335,16 +336,6 @@ async function restartWith<T>(page: Page, script: string): Promise<T | null> {
     return found.info;
 }
 
-/** In the page: helpers for the scripted setups (a free tile, knowing an NPC is there). */
-const PAGE_HELPERS = `
-    const sim = window.sim, w = sim.world, same = (a, b) => a.x === b.x && a.y === b.y;
-    const clone = s => JSON.parse(JSON.stringify(s));
-    const free = (st, p) => p.x >= 0 && p.y >= 0 && p.x < w.width && p.y < w.height && !w.tiles[p.y * w.width + p.x].blocksMove
-        && !st.crew.some(c => same(c.pos, p)) && !st.npcs.some(n => n.status !== 'away' && same(n.pos, p));
-    const know = (st, n) => { st.knowledge.npcs[n.id] = { at: { ...n.pos }, facing: n.facing, turn: st.turn, live: true, routine: false, rota: false, watched: 1, watchedTurn: st.turn, tick: st.knowledge.phaseTick + 1 }; };
-    const AROUND = [{ x: 0, y: 1 }, { x: 1, y: 0 }, { x: -1, y: 0 }, { x: 0, y: -1 }];
-`;
-
 test('knocks out an NPC in reach, drags the body and stashes it', SMOKE, async ({ page }) => {
     const errors = await boot(page);
     // Mara beside a standing NPC (one she may knock out), who the crew sees.
@@ -526,13 +517,6 @@ test('draws the world UI: badges and pips, cones on long-press, a noise ring wit
     await page.keyboard.press('b');
     expect(errors).toEqual([]);
 });
-
-/** In the page: an NPC of a role (by a test on it), present, and a free tile in reach of `p` for Mara on `st`. */
-const ALARM_HELPERS = `
-    const npcOf = (st, test) => st.npcs.find(n => n.status !== 'away' && test(w.people.find(p => p.id === n.id).role));
-    const carrier = (st, kind, holder, countdown) => ({ id: 'carrier-e2e', kind, source: holder.id, pos: { ...holder.pos }, countdown, started: { turn: st.turn - 1, phase: 'world' }, halted: null });
-    const NEAR = [...AROUND, { x: 1, y: 1 }, { x: -1, y: 1 }, { x: 1, y: -1 }, { x: -1, y: -1 }];
-`;
 
 /** Opens the threat ledger (if it isn't) and returns its rows' text. */
 async function ledgerRows(page: Page): Promise<string[]> {
