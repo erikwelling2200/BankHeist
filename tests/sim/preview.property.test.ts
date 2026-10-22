@@ -4,10 +4,11 @@ import { cachedBank } from '../bankCache';
 import { PLOTS, TIERS } from '../../src/gen/model';
 import { Rng } from '../../src/gen/rng';
 import {
-    actionPreview, carriersStarted, DEAF_STATUSES, clonePlain, commit, crewBudget, crewMoveOptions, doorDoubt, effectOf, encodeBits, explain, FACINGS, hearing, isKnownNow, fixtureWorld, initialState,
-    hashOf, legalActions, noiseRadius, npcsInside, onFloor, pathSafety, pendingCarriers, planningState, previewPicture, projectCarriers, projectPreviewEvents, safeFloor, safeFloorJob, soundRing,
-    validatePath, worldFromBank, type CameraDef, type Command, type CrewStart, type Effect, type FixtureWall, type FloorTile, type ObserverClass,
-    type PersonDef, type Pos, type ReadonlyWorld, type SafeFloor, type ScheduleBlock, type SimEvent, type State, type WorldObject
+    actionPreview, carriersStarted, DEAF_STATUSES, clonePlain, commit, crewBudget, crewMoveOptions, decodeBits, doorDoubt, effectKind, effectOf, encodeBits, explain, FACINGS, hearing,
+    isKnownNow, fixtureWorld, initialState, hashOf, legalActions, noiseRadius, npcsInside, onFloor, pathSafety, pendingCarriers, planningState, previewCertain, previewPicture,
+    projectCarriers, projectEvents, projectPreviewEvents, safeFloor, safeFloorJob, sightDoubted, soundRing, TINT_RANK, tintOf, validatePath, withDoubtedShut, worldFromBank,
+    type CameraDef, type Command, type CrewStart, type DoorStatus, type Effect, type FixtureWall, type FloorTile, type ObserverClass, type PersonDef, type Pos, type ReadonlyWorld,
+    type SafeFloor, type ScheduleBlock, type SimEvent, type State, type WorldObject
 } from '../../src/sim';
 import { dashRing, judgeFor } from '../../src/sim/preview/floor';
 
@@ -50,6 +51,7 @@ const SEED = Number(process.env.PREVIEW_PROBE_SEED ?? 20261015);
 const VERBOSE = !!process.env.PREVIEW_PROBE_VERBOSE;
 const FIXTURES = Math.round(40 * SCALE);
 const DOOR_RUNS = Math.round(12 * SCALE);
+const DOUBT_RUNS = Math.round(24 * SCALE);
 const BANK_SEEDS = Number(process.env.PREVIEW_PROBE_BANKS ?? Math.max(1, Math.round(SCALE)));
 const FIXTURE_TURNS = 4, BANK_TURNS = Math.round(6 * Math.min(SCALE, 2));
 /**
@@ -166,6 +168,13 @@ function known(e: Effect, npcs: ReadonlySet<string>, cameras: ReadonlySet<string
     };
 }
 
+/**
+ * An effect without the NPCs whose world-phase sightings a tile counts only as far as certain (`unsure`: they react to
+ * what a door in doubt decides, or such a door could stop their walk), which the oracle walks in full.
+ */
+const sure = (e: Effect, tile: FloorTile, npcs: ReadonlySet<string>, cameras: ReadonlySet<string>): Effect =>
+    (tile.unsure.length ? known(e, new Set([...npcs].filter(id => !tile.unsure.includes(id))), cameras) : e);
+
 const hidden = (e: Effect, npcs: ReadonlySet<string>, cameras: ReadonlySet<string>): boolean =>
     e.exposed.some(id => !npcs.has(id)) || e.watching.some(id => !npcs.has(id)) || Object.keys(e.pips).some(id => !npcs.has(id))
     || (e.challenged !== null && !npcs.has(e.challenged)) || e.cameras.some(id => !cameras.has(id));
@@ -196,12 +205,13 @@ function checkMove(run: Run, state: State, crew: string, cmd: Extract<Command, {
     if (show(oNow) !== show(tile.now)) probe.fail(`${at}: now ${show(tile.now)}, the rules on the picture ${show(oNow)}`);
     const o2 = tile.next || endTurn ? commit(world, o1.state, { type: 'endTurn' }) : null;
     if (tile.next) {
-        const oNext = effectOf(o2!.events, crew, o1.state);
-        if (show(oNext) !== show(tile.next)) probe.fail(`${at}: next ${show(tile.next)}, the rules on the picture ${show(oNext)}`);
+        const oNext = sure(effectOf(o2!.events, crew, o1.state), tile, npcs, cameras);
+        if (show(oNext) !== show(sure(tile.next, tile, npcs, cameras))) probe.fail(`${at}: next ${show(tile.next)}, the rules on the picture ${show(oNext)}`);
     }
     probe.bump('oracle checks');
     // 2. The truth, as the crew perceives it.
     const r = commit(world, state, cmd);
+    checkCertainEvents(run, state, cmd, crew, r);
     const tNowAll = effectOf(r.events, crew, state), tNow = known(tNowAll, npcs, cameras);
     const cutBy = r.events.find((e): e is Extract<SimEvent, { type: 'moveCut' }> => e.type === 'moveCut'), cut = !!cutBy;
     if (cutBy?.reason === 'door') {
@@ -278,6 +288,8 @@ function classify(
     tile?: FloorTile
 ): string | null {
     if (tile?.doorRisk && doorDoubt(run.world, state)) return 'a door not seen this turn decides it (hatched)';
+    const tint = (e: Effect): FloorTile['tint'] => tintOf(e, null, 'scouted', false);
+    if (doorDoubt(run.world, state) && effectKind(predicted) === 'red' && atLeast(tint(seen), tint(predicted))) return 'red for certain, a door not seen this turn adds to it';
     if (run.omniscient) return null;
     const camerasOnly = show({ ...predicted, cameras: [] }) === show({ ...seen, cameras: [] });
     if (camerasOnly && predicted.cameras.every(id => seen.cameras.includes(id) || !state.knowledge.cctv)) return 'a camera of unknown feed status is off';
@@ -301,6 +313,7 @@ function playOne(run: Run, state: State, timing: boolean): State {
         const floor = safeFloor(world, state, member.id);
         if (timing) (probe.floorMs[run.tier] ??= []).push(performance.now() - t0);
         checkFlipped(run, state, member.id, floor);
+        checkDoorVariants(run, state, member.id, floor, 1);
         const moves = floor.tiles.filter(t => t.band !== 'stay');
         if (!moves.length) return state;
         // Interesting tiles first now and then: every tint gets played.
@@ -355,7 +368,9 @@ function playOne(run: Run, state: State, timing: boolean): State {
     probe.bump('commands');
     probe.bump(`command ${cmd.type}`);
     if (!shown.ok) { probe.fail(`${run.label}: ${cmd.type} refused in preview, committed`); return r.state; }
-    const projected = projectPreviewEvents(world, state, r);
+    checkCertainEvents(run, state, cmd, member.id, r);
+    // The same rules: the commit with the doors the crew can't vouch for shut, as the preview judges it.
+    const projected = projectPreviewEvents(world, state, commit(world, withDoubtedShut(world, state), cmd));
     if (JSON.stringify(shown.events) !== JSON.stringify(projected)) probe.fail(`${run.label}: ${cmd.type} preview events differ from its commit`);
     const started = projectCarriers(world, state, carriersStarted(r.events));
     if (JSON.stringify(shown.carriers.starts) !== JSON.stringify(started)) probe.fail(`${run.label}: ${cmd.type} carriers shown ${JSON.stringify(shown.carriers.starts)}, started ${JSON.stringify(started)}`);
@@ -367,9 +382,9 @@ function playOne(run: Run, state: State, timing: boolean): State {
         const ears = noise.ears.map(e => e.npc);
         if (JSON.stringify(ears) !== JSON.stringify(heard)) probe.fail(`${run.label}: ${cmd.type} ears ${JSON.stringify(ears)}, heard ${JSON.stringify(heard)}`);
         if (ears.length) probe.bump('ears');
-        // When everyone who heard it is known, the badges are what the hearers make of it in the truth.
+        // When everyone who heard it is known, the badges are what the hearers make of it in the truth (no door in doubt).
         const truth = r.events.find(e => e.type === 'noise' && e.cause === noise.cause) as Extract<SimEvent, { type: 'noise' }> | undefined;
-        if (truth && truth.heard.every(id => knownNpcs.has(id))) {
+        if (truth && truth.heard.every(id => knownNpcs.has(id)) && !doorDoubt(world, state)) {
             const ring = soundRing(world, r.state, noise.sources, noise.radius);
             const able = new Set(truth.heard);
             const real = hearing(world, { ...state, npcs: state.npcs.filter(n => !able.has(n.id) ? !npcsInside({ ...state, npcs: [n] }, ring).length : true) }, ring, noise.kind, noise.cause);
@@ -394,8 +409,8 @@ function endTurn(run: Run, state: State): State {
     const stays = state.crew.map(c => ({ crew: c.id, tile: safeFloor(world, state, c.id).at(c.pos)! }));
     const oracle = commit(world, picture, { type: 'endTurn' });
     for (const { crew, tile } of stays) {
-        const o = effectOf(oracle.events, crew, picture);
-        if (show(o) !== show(tile.next)) probe.fail(`${run.label} t${state.turn} stay ${crew}: next ${show(tile.next)}, the rules on the picture ${show(o)}`);
+        const o = sure(effectOf(oracle.events, crew, picture), tile, npcs, cameras);
+        if (show(o) !== show(sure(tile.next!, tile, npcs, cameras))) probe.fail(`${run.label} t${state.turn} stay ${crew}: next ${show(tile.next)}, the rules on the picture ${show(o)}`);
         probe.bump('stay checks');
     }
     const pending = projectCarriers(world, state, pendingCarriers(world, state));
@@ -426,6 +441,112 @@ function checkFlipped(run: Run, state: State, crew: string, floor: SafeFloor): v
     }
     run.probe.bump('floors checked with doubted doors flipped');
     if (floor.tiles.some(t => t.doorRisk)) run.probe.bump('floors with door risk');
+}
+
+/** `state` with each of `ids` set to `status(id)`. */
+function withDoors(state: State, ids: Iterable<string>, status: (id: string) => DoorStatus): State {
+    const doors = { ...state.doors };
+    for (const id of ids) doors[id] = { ...doors[id], status: status(id) };
+    return { ...state, doors };
+}
+
+/** Whether tint `got` warns of at least what `want` does: its kind, its eye, and (short of red) each NPC's pips. */
+function atLeast(got: FloorTile['tint'], want: FloorTile['tint']): boolean {
+    const rank = (k: string): number => (k in TINT_RANK ? TINT_RANK[k as keyof typeof TINT_RANK] : 0);
+    if (rank(got.kind) < rank(want.kind) || (want.eye && !got.eye)) return false;
+    return got.kind === 'red' || want.pips.every(p => (got.pips.find(q => q.npc === p.npc)?.pips ?? 0) >= p.pips);
+}
+
+/**
+ * (a), (b) The tint is certain whatever the doors the crew can't vouch for are (decision 44): a sample of the floor's
+ * tiles (door-risk ones first; none reached through a door that could refuse the crew, none hidden) is played on the
+ * picture with those doors all open, all shut and as they really are. A tile without door risk reads exactly the same
+ * in each (a red one may gain observers: nothing is worse); one with it warns of at least its tint in each (its kind,
+ * eye and pips): door risk never stands in for a certain warning.
+ */
+function checkDoorVariants(run: Run, state: State, crew: string, floor: SafeFloor, sample: number): void {
+    const { world, probe } = run;
+    const d = doorDoubt(world, state);
+    if (!d) return;
+    const picture = previewPicture(world, state);
+    const variants: [string, State][] = [
+        ['open', withDoors(picture, d.doors, () => 'open')],
+        ['shut', withDoors(picture, d.doors, id => (world.doors[id]!.lock === 'none' ? 'closed' : 'locked'))],
+        ['real', withDoors(picture, d.doors, id => state.doors[id]?.status ?? world.doors[id]!.start)]
+    ];
+    const tiles = floor.tiles.filter(t => t.band !== 'stay' && !t.unknownPath && t.knowledge !== 'hidden');
+    // Spread over the floor without the run's dice, so the rest of the sample plays as it did.
+    const picked = [tiles.filter(t => t.doorRisk), tiles.filter(t => !t.doorRisk)].flatMap(from => {
+        const n = Math.min(sample, from.length);
+        return Array.from({ length: n }, (_, i) => from[Math.floor(((i + 0.5) * from.length) / n)]!);
+    });
+    for (const tile of picked) {
+        const cmd: Command = { type: tile.band === 'dash' ? 'dash' : 'move', crew, path: tile.path };
+        if (tile.doorRisk && tile.tint.kind !== 'unknownRisk') probe.bump('door risk tiles with a certain warning');
+        for (const [name, s] of variants) {
+            const r = commit(world, s, cmd);
+            if (r.events.some(e => e.type === 'moveCut')) { probe.bump('door variants cut'); continue; }
+            const now = effectOf(r.events, crew, s);
+            const next = tile.next ? effectOf(commit(world, r.state, { type: 'endTurn' }).events, crew, r.state) : null;
+            const got = tintOf(now, next, 'scouted', false), at = `${run.label} t${state.turn} ${crew}→${JSON.stringify(tile.pos)} doors ${name}`;
+            probe.bump('door variants checked');
+            if (tile.doorRisk) {
+                if (!atLeast(got, tile.tint)) probe.fail(`${at}: door risk over ${JSON.stringify(tile.tint)}, but only ${JSON.stringify(got)} happens`);
+                else if (effectKind(now) !== effectKind(tile.now) || JSON.stringify(got) !== JSON.stringify(tile.tint)) probe.bump('door variants worse than a door-risk tint');
+            } else if (tile.tint.kind === 'red') {
+                if (!atLeast(got, tile.tint)) probe.fail(`${at}: red, but ${JSON.stringify(got)} happens`);
+            } else if (show(now) !== show(tile.now) || (tile.next && show(next) !== show(tile.next))) {
+                probe.fail(`${at}: no door risk, now ${show(tile.now)} next ${show(tile.next)}, but ${show(now)} ${show(next)} happens`);
+            }
+        }
+    }
+}
+
+/** The perception events about crew member `crew` (who saw them, how), by observer. */
+function perceivedBy(events: readonly SimEvent[], crew: string): Map<string, string[]> {
+    const out = new Map<string, string[]>();
+    for (const e of events) {
+        if (!['exposed', 'suspicionRaised', 'challenged', 'cameraSaw', 'perceptionCheck'].includes(e.type)) continue;
+        const f = e as unknown as { npc?: string; camera?: string; crew: string };
+        if (f.crew !== crew) continue;
+        const who = f.npc ?? f.camera!;
+        out.set(who, [...(out.get(who) ?? []), JSON.stringify(e)]);
+    }
+    return out;
+}
+
+/**
+ * (c) A certain sighting is never dropped (decision 44): the preview of `cmd` (`previewCertain`, projected) tells the
+ * same of every observer the crew knows whose every line to the crew member's tiles is clear of the doors it can't
+ * vouch for (`sightDoubted`) as the truth's commit, projected alike; and it never shows anyone else seeing them when
+ * the truth doesn't. Commands with a noise (hearing couples observers) and moves cut short are left out.
+ */
+function checkCertainEvents(run: Run, state: State, cmd: Command, crew: string, truth: { state: State; events: readonly SimEvent[] }): void {
+    const { world, probe } = run;
+    const d = doorDoubt(world, state);
+    if (!d || truth.events.some(e => e.type === 'noise' || e.type === 'moveCut')) return;
+    let shown: SimEvent[];
+    try {
+        shown = projectPreviewEvents(world, state, previewCertain(world, state, cmd));
+    } catch {
+        return;
+    }
+    const told = projectEvents(world, truth.state, truth.events, state, { mode: 'preview' });
+    const member = state.crew.find(c => c.id === crew)!;
+    const tiles: Pos[] = [member.pos, ...truth.events.flatMap(e => (e.type === 'moved' && e.crew === crew ? e.path : []))];
+    const a = perceivedBy(shown, crew), b = perceivedBy(told, crew);
+    const watchers = [
+        ...state.npcs.filter(n => isKnownNow(world, state, n.id)).map(n => ({ id: n.id, pos: n.pos })),
+        ...world.cameras.filter(c => state.knowledge.cameras.includes(c.id)).map(c => ({ id: c.id, pos: c.pos }))
+    ];
+    for (const w of watchers) {
+        const x = JSON.stringify(a.get(w.id) ?? []), y = JSON.stringify(b.get(w.id) ?? []);
+        if (!tiles.some(t => sightDoubted(world, d, w.pos, t))) {
+            probe.bump('certain observers compared');
+            if (b.has(w.id)) probe.bump('certain sightings kept');
+            if (x !== y) probe.fail(`${run.label} t${state.turn}: ${cmd.type} preview tells ${x} of ${w.id} seeing ${crew}, the truth ${y} (no door in doubt between)`);
+        } else if (a.has(w.id) && !b.has(w.id)) probe.fail(`${run.label} t${state.turn}: ${cmd.type} preview shows ${w.id} seeing ${crew}, the truth doesn't`);
+    }
 }
 
 /** The eye sits on the first step with a `!`, or on the end when the end isn't safe; nothing before it acts. */
@@ -597,6 +718,77 @@ function playDoorCuts(probe: Probe, rng: Rng, n: number): void {
     play(run, state, 2, false);
 }
 
+/**
+ * The crew knows every NPC and camera, but neither side of `door` is seen this turn: the door is in doubt, as last seen
+ * `seen`, whatever it really is (`real`, when given).
+ */
+function doubting(world: ReadonlyWorld, state: State, door: readonly [Pos, Pos], seen: DoorStatus, real?: DoorStatus): State {
+    const s = omniscient(world, state), k = s.knowledge;
+    const fresh = decodeBits(k.fresh, world.width * world.height);
+    for (const p of door) fresh[p.y * world.width + p.x] = 0;
+    k.fresh = encodeBits(fresh);
+    k.doors = { ...k.doors, gate: seen };
+    if (real) s.doors.gate = { ...s.doors.gate, status: real };
+    return s;
+}
+
+/**
+ * Doors in doubt with everyone known (decision 44): a corridor split by a wall (a pane or two of glass) with one door,
+ * lockable or not, NPCs of every class on both sides, some walking through it, and a crew in any loadout. Before each crew member's turn neither
+ * side of the door is seen (`doubting`, as last seen and as it really is drawn at random), so every floor is judged
+ * with the door in doubt: checked against each of its states (`checkDoorVariants`) and flipped, then a move (to a
+ * door-risk tile half the time) is played and checked as any other, its preview included (`checkCertainEvents`).
+ */
+function playDoubtedDoors(probe: Probe, rng: Rng, n: number): void {
+    const WIDTH = 20, HEIGHT = 7, wx = rng.int(6, 12), doorY = rng.int(1, HEIGHT - 2);
+    const lock = rng.pick(['none', 'none', 'mechanical'] as const);
+    const walls: FixtureWall[] = Array.from({ length: HEIGHT }, (_, y): FixtureWall => {
+        const between: [Pos, Pos] = [{ x: wx, y }, { x: wx + 1, y }];
+        if (y === doorY) return { between, door: { id: 'gate', lock, start: lock === 'none' ? 'closed' : 'locked' } };
+        return rng.chance(0.12) ? { between, material: 'glass' } : { between };
+    });
+    const free: Pos[] = [];
+    for (let y = 0; y < HEIGHT; y++) for (let x = 0; x < WIDTH; x++) free.push({ x, y });
+    const pool = free.filter(p => p.y !== doorY || (p.x !== wx && p.x !== wx + 1));
+    const take = (left?: boolean): Pos => {
+        const from = pool.filter(p => left === undefined || (p.x <= wx) === left);
+        const p = rng.pick(from);
+        pool.splice(pool.indexOf(p), 1);
+        return p;
+    };
+    const people: PersonDef[] = [];
+    for (let i = 0, count = rng.int(2, 5); i < count; i++) {
+        const observer = rng.pick(['civilian', 'staff', 'enforcer'] as ObserverClass[]);
+        const role = observer === 'civilian' ? 'customer' : observer === 'staff' ? 'teller' : 'guard';
+        people.push({ id: `n${i}`, name: `n${i}`, role, observer, pos: take(i % 2 === 0), facing: rng.pick(FACINGS), schedule: randomSchedule(rng, free) });
+    }
+    const near = rng.pick(['.', '.', 's']), far = rng.pick(['.', 's', 's']);
+    const zones = Array.from({ length: HEIGHT }, () => near.repeat(wx + 1) + far.repeat(WIDTH - wx - 1));
+    const world = fixtureWorld(Array.from({ length: HEIGHT }, (_, y) => zones[y]!), { walls, people, rules: { checkInPeriod: 2, dispatchCheckInPeriod: 2, dispatchSilence: 2 } });
+    let state = initialState(world, { seed: n, crew: crewFor(rng, 2, () => take(true)) });
+    const run: Run = { world, rng, omniscient: false, label: `doubted door ${n}`, tier: 'fixture', probe, stealth: true };
+    const door = [{ x: wx, y: doorY }, { x: wx + 1, y: doorY }] as const, statuses: DoorStatus[] = lock === 'none' ? ['open', 'closed'] : ['open', 'locked'];
+    for (let round = 0; round < 3 && !state.bank.alarm; round++) {
+        for (const id of state.crew.map(c => c.id)) {
+            if (state.bank.alarm) break;
+            state = doubting(world, state, door, rng.pick(statuses), rng.pick(statuses));
+            const member = state.crew.find(c => c.id === id)!;
+            if (member.actionsLeft < 1) continue;
+            const floor = safeFloor(world, state, id);
+            checkFlipped(run, state, id, floor);
+            checkDoorVariants(run, state, id, floor, 3);
+            const moves = floor.tiles.filter(t => t.band !== 'stay');
+            if (!moves.length) continue;
+            const risky = moves.filter(t => t.doorRisk);
+            const tile = risky.length && rng.chance(0.5) ? rng.pick(risky) : rng.pick(moves);
+            probe.bump('doubted door moves');
+            if (tile.doorRisk) probe.bump('doubted door moves to door-risk tiles');
+            state = checkMove(run, state, id, { type: tile.band === 'dash' ? 'dash' : 'move', crew: id, path: tile.path }, tile, rng.chance(0.4));
+        }
+        if (!state.bank.alarm) state = endTurn(run, doubting(world, state, door, rng.pick(statuses)));
+    }
+}
+
 describe('previews (property, §8.8)', () => {
     it('show what happens: the safe floor, drawn paths, "who and why" and action previews', () => {
         const probe = new Probe();
@@ -614,6 +806,9 @@ describe('previews (property, §8.8)', () => {
             play(run, state, FIXTURE_TURNS, true);
         }
         for (let n = 0; n < DOOR_RUNS; n++, seeds++) playDoorCuts(probe, rng, n);
+        // Its own stream, so the rest of the sample stays as it was.
+        const drng = new Rng(SEED + 4441);
+        for (let n = 0; n < DOUBT_RUNS; n++, seeds++) playDoubtedDoors(probe, drng, n);
         let combo = 0;
         for (let s = 0; s < BANK_SEEDS; s++) for (const tier of TIERS) for (const archetype of archetypesFor(tier)) {
             if (BANK_SKIP && (combo + s) % BANK_SKIP === BANK_SKIP - 1) {
@@ -638,7 +833,10 @@ describe('previews (property, §8.8)', () => {
         }
         expect((st['tint amber hatched'] ?? 0) + (st['tint red hatched'] ?? 0) + (st['tint trespass hatched'] ?? 0), 'hatched').toBeGreaterThan(0);
         expect((st['tint trespass'] ?? 0) + (st['tint trespass hatched'] ?? 0), 'trespass').toBeGreaterThan(0);
-        for (const k of ['truth: move cut by a door', 'floors checked with doubted doors flipped', 'floors with door risk']) expect(st[k] ?? 0, k).toBeGreaterThan(0);
+        for (const k of [
+            'truth: move cut by a door', 'floors checked with doubted doors flipped', 'floors with door risk', 'door variants checked', 'door risk tiles with a certain warning',
+            'doubted door moves to door-risk tiles', 'certain sightings kept'
+        ]) expect(st[k] ?? 0, k).toBeGreaterThan(0);
         for (const type of ['door', 'knockout', 'drag', 'interact']) expect(st[`command ${type}`] ?? 0, type).toBeGreaterThan(0);
     }, 600_000);
     // Long games (the reviewer's harness): a quiet crew (no weapons, no knockouts, mostly calm tiles) plays on while

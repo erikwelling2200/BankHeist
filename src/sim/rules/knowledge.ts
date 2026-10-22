@@ -1,10 +1,10 @@
-import { registerCommandHook, type CommitResult } from '../core/engine';
+import { preview, registerCommandHook, type CommitResult, type PreviewResult } from '../core/engine';
 import { facingToward, inBounds } from '../core/grid';
 import { sortedIds } from '../core/json';
 import { registerStateCheck } from '../core/save';
 import { crewMember, registerRuleDefaults, registerStateInit } from '../core/state';
 import type {
-    CameraDef, CrewState, DeepReadonly, DoorState, DoorStatus, Facing, Intent, NpcState, NpcStatus, ObserverClass, Pos, ReadonlyWorld, SimEvent, State
+    CameraDef, Command, CrewState, DeepReadonly, DoorDef, DoorState, DoorStatus, Facing, Intent, NpcState, NpcStatus, ObserverClass, Pos, ReadonlyWorld, SimEvent, State
 } from '../core/types';
 import { eventClass } from '../core/undo';
 import { crewHasKey, registerMoveHook, registerPlanView } from '../crew/movement';
@@ -14,12 +14,12 @@ import type { NoiseKind } from '../data/noise';
 import { bandAt, bandOf, fieldOn, profilesOf, rangeOn, seesOn, type Observer, type SightField, type VisionProfile } from '../geo/cones';
 import { buildSightMap, lineOfSight, sightInputs, sightMap, type SightMap } from '../geo/los';
 import { doorBetween, doorStatus, LYING_STATUSES } from '../geo/move';
-import { inRing, registerNoiseHook, soundRing } from '../geo/sound';
+import { inRing, registerNoiseHook } from '../geo/sound';
 import { liveFeeds } from './cctv';
 import { reaction, type Reaction } from './perceive';
 import { crewLook, type CrewLook } from './profile';
 import { isWarned } from './trespass';
-import { isPresent } from './npc/walk';
+import { isPresent, npcCanPass, personOf } from './npc/walk';
 import { bodyPos, onFloor } from './place';
 import { bitsCount, decodeBits, encodeBits } from './knowledgeBits';
 
@@ -61,9 +61,9 @@ import { bitsCount, decodeBits, encodeBits } from './knowledgeBits';
  * - **Doors**: the status of each door last seen (a tile beside it in view). Doors move: one with no fresh tile beside
  *   it is pictured as last seen, or plain closed if never seen (`knownDoorStatus`), never as it is. Whether a door locks
  *   is layout, known unless only hidden tiles are beside it. A door the crew can't vouch for (`doorDoubt`: not seen this
- *   turn, in a status something unseen could change) makes a verdict it could change unknown: previews count a known
- *   observer whose sight or hearing of the crew it could decide as unknown (`projectEvents`), and the safe floor hatches
- *   such tiles (preview/floor.ts).
+ *   turn, in a status something unseen could change) never shows through a preview: previews judge with such doors shut
+ *   (`withDoubtedShut`, `previewCertain`), so all they show happens however those doors stand (sight and hearing only
+ *   grow as doors open), and the safe floor hatches a tile such a door could make worse (preview/floor.ts).
  * - **Sound pings**: a loud noise whose ring reaches any crew member is kept with its source tile and turn, in or out of
  *   sight; quiet noises aren't.
  * - **Cameras**: a camera is known from the start on the blueprint's layout (it is in plain view there, and cameras
@@ -306,29 +306,35 @@ export function withPicturedDoors(world: ReadonlyWorld, knowing: State, state: S
  * Whether the crew can't vouch for a door's pictured status (decision 44): no tile beside it is seen this turn, and its
  * status is one something unseen could have changed (an NPC opens a closed or locked door it walks through; an open
  * leaf door swings shut at the end of a world phase, relocking if it locks). A breached or jammed door stays as it is,
- * and so does an open one that never swings shut (built open, or the vault's).
+ * and so does an open one that never swings shut (built open, propped by the crew, or the vault's).
  */
-function isDoubted(world: ReadonlyWorld, fresh: Uint8Array, k: DeepReadonly<Knowledge>, d: DoorSides): boolean {
+function isDoubted(world: ReadonlyWorld, state: State, fresh: Uint8Array, d: DoorSides): boolean {
     if (sideIn(fresh, d)) return false;
-    const def = world.doors[d.id]!, pictured = lastSeen(k, d.id);
+    const def = world.doors[d.id]!, pictured = lastSeen(state.knowledge, d.id);
     if (pictured === 'breached' || pictured === 'jammed') return false;
-    return !(pictured === 'open' && (def.start === 'open' || def.lock === 'vault'));
+    const propped = Object.hasOwn(state.doors, d.id) && !!state.doors[d.id]!.propped;
+    return !(pictured === 'open' && (def.start === 'open' || def.lock === 'vault' || propped));
 }
 
 /**
  * What a verdict needs to tell whether it hangs on the doors the crew can't vouch for (`isDoubted`): a sight line or a
  * sound that some status of theirs lets through and another doesn't. Sight only grows as doors open, so whether `b` is
- * in sight from `a` can change with them exactly when it is with every door open and isn't with every door open but the
- * doubted ones (`open`, `shut`); likewise for a sound's reach with the other doors as they are (`doubtStates`).
+ * in sight from `a` can change with them exactly when it is with the doubted doors open and isn't with them shut, every
+ * other door as the crew pictures it (`open`, `shut`); likewise for a sound's reach (`doubtStates`). An NPC opens the
+ * doors it walks through, so for the world phase's walks every other door counts as open too (`walkMaps`).
  */
 export interface DoorDoubt {
     /** The doubted doors. */
     doors: ReadonlySet<string>;
     /** Those with only hidden tiles beside them: whether they lock isn't known. */
     unknownLock: ReadonlySet<string>;
-    /** Sight with every door open; with every door open but the doubted ones, shut. */
+    /** The state judged around them, the doubted doors shut (`withDoubtedShut`): every other door as pictured. */
+    base: State;
+    /** Sight with the doubted doors open, and shut; every other door as in `base`. */
     open: SightMap;
     shut: SightMap;
+    /** The same with every other door open (`walkMaps`, built when first asked). */
+    walk?: { open: SightMap; shut: SightMap };
     /** Per doubted door, the box of its two tiles (x0, y0, x1, y1): a line crosses its edge only through both. */
     boxes: Int32Array;
     /** The furthest any NPC or camera sees, in tiles. */
@@ -341,7 +347,7 @@ const DOUBTED = new WeakMap<State, { world: ReadonlyWorld; ids: readonly string[
 function doubtedIds(world: ReadonlyWorld, state: State): readonly string[] {
     const cached = DOUBTED.get(state);
     if (cached?.world === world) return cached.ids;
-    const fresh = tileSets(world, state).fresh, ids = doorSides(world).filter(d => isDoubted(world, fresh, state.knowledge, d)).map(d => d.id);
+    const fresh = tileSets(world, state).fresh, ids = doorSides(world).filter(d => isDoubted(world, state, fresh, d)).map(d => d.id);
     DOUBTED.set(state, { world, ids });
     return ids;
 }
@@ -358,39 +364,92 @@ function doubtedOpen(world: ReadonlyWorld, state: State): State {
     return { ...state, doors };
 }
 
+/** A doubted door shut: locked when pictured locked, else closed (it blocks sight either way; the crew opens a closed one). */
+const shutAs = (pictured: DoorStatus): DoorStatus => (pictured === 'locked' ? 'locked' : 'closed');
+
+/**
+ * `state` (default `knowing`) with every door not seen this turn in `knowing` as the crew pictures it and each one it
+ * can't vouch for shut (`shutAs` its pictured status): the doors of the certain lower bound. Sight and hearing only grow
+ * as doors open, so whatever is seen or heard here is seen or heard however those doors really stand (decision 44). A
+ * shallow copy (`state` when nothing differs).
+ */
+export function withDoubtedShut(world: ReadonlyWorld, knowing: State, state: State = knowing): State {
+    const ids = doubtedIds(world, knowing);
+    const pictured = withPicturedDoors(world, knowing, state);
+    let doors: Record<string, DoorState> | null = null;
+    for (const id of ids) {
+        const status = shutAs(lastSeen(knowing.knowledge, id));
+        if (doorStatus(world, pictured, id) === status) continue;
+        (doors ??= { ...pictured.doors })[id] = { ...(Object.hasOwn(pictured.doors, id) ? pictured.doors[id] : {}), status };
+    }
+    return doors ? { ...pictured, doors } : pictured;
+}
+
+/**
+ * `base` with the doors `ids` open, and with them shut (locked where `base` has them locked, else closed); every other
+ * door as in `base`, or open with `others`.
+ */
+function openShut(world: ReadonlyWorld, base: State, ids: ReadonlySet<string>, others?: 'open'): { open: State; shut: State } {
+    const open: Record<string, DoorState> = { ...base.doors }, shut: Record<string, DoorState> = { ...base.doors };
+    for (const id of others ? sortedIds(world.doors) : ids) {
+        const was = Object.hasOwn(base.doors, id) ? base.doors[id] : {};
+        open[id] = { ...was, status: 'open' };
+        shut[id] = { ...was, status: !ids.has(id) ? 'open' : doorStatus(world, base, id) === 'locked' ? 'locked' : 'closed' };
+    }
+    return { open: { ...base, doors: open }, shut: { ...base, doors: shut } };
+}
+
+/** The doubt of `doors` (doubted doors) judged on `base`. */
+function makeDoubt(world: ReadonlyWorld, doors: ReadonlySet<string>, unknownLock: ReadonlySet<string>, base: State): DoorDoubt {
+    const w = world.width, box: number[] = [];
+    for (const d of doorSides(world)) {
+        // A door on the map's edge has no line across it.
+        if (d.a < 0 || d.b < 0 || !doors.has(d.id)) continue;
+        box.push(Math.min(d.a % w, d.b % w), Math.min(Math.floor(d.a / w), Math.floor(d.b / w)), Math.max(d.a % w, d.b % w), Math.max(Math.floor(d.a / w), Math.floor(d.b / w)));
+    }
+    const p = profilesOf(world), { open, shut } = openShut(world, base, doors);
+    const reach = Math.max(...[p.calm, p.alerted, p.camera, p.darkCamera].flatMap(x => x.arcs.map(a => a.range)));
+    return { doors, unknownLock, base, open: buildSightMap(world, open), shut: buildSightMap(world, shut), boxes: Int32Array.from(box), reach };
+}
+
 const DOUBTS = new WeakMap<State, { world: ReadonlyWorld; doubt: DoorDoubt | null }>();
 
 /** The doors the crew can't vouch for in a state and what judging around them needs, or null when there are none. */
 export function doorDoubt(world: ReadonlyWorld, state: State): DoorDoubt | null {
     const cached = DOUBTS.get(state);
     if (cached?.world === world) return cached.doubt;
-    const w = world.width, ids = new Set(doubtedIds(world, state)), box: number[] = [];
-    for (const d of doorSides(world)) {
-        // A door on the map's edge has no line across it.
-        if (d.a < 0 || d.b < 0 || !ids.has(d.id)) continue;
-        box.push(Math.min(d.a % w, d.b % w), Math.min(Math.floor(d.a / w), Math.floor(d.b / w)), Math.max(d.a % w, d.b % w), Math.max(Math.floor(d.a / w), Math.floor(d.b / w)));
-    }
+    const ids = new Set(doubtedIds(world, state));
     let doubt: DoorDoubt | null = null;
     if (ids.size) {
-        const doors = ids, open: Record<string, DoorState> = {}, shut: Record<string, DoorState> = {};
-        for (const id of sortedIds(world.doors)) {
-            const was = Object.hasOwn(state.doors, id) ? state.doors[id] : {};
-            open[id] = { ...was, status: 'open' };
-            shut[id] = { ...was, status: doors.has(id) ? 'closed' : 'open' };
-        }
-        const p = profilesOf(world);
-        const reach = Math.max(...[p.calm, p.alerted, p.camera, p.darkCamera].flatMap(x => x.arcs.map(a => a.range)));
         const vis = tileSets(world, state).visibility, unknownLock = new Set<string>();
         for (const d of doorSides(world)) {
             if (ids.has(d.id) && (d.a < 0 || vis[d.a] === HIDDEN) && (d.b < 0 || vis[d.b] === HIDDEN)) unknownLock.add(d.id);
         }
-        doubt = {
-            doors, unknownLock, open: buildSightMap(world, { ...state, doors: open }), shut: buildSightMap(world, { ...state, doors: shut }),
-            boxes: Int32Array.from(box), reach
-        };
+        doubt = makeDoubt(world, ids, unknownLock, withDoubtedShut(world, state));
     }
     DOUBTS.set(state, { world, doubt });
     return doubt;
+}
+
+/**
+ * The doubt left once the doors stand as in `state` (a state of `d.base` with some doors opened on the way): a doubted
+ * door opened is open however it stood before, and the rest are judged with it open. `d` itself when none of its doors
+ * is open there; null when all are.
+ */
+export function narrowDoubt(world: ReadonlyWorld, d: DoorDoubt, state: State): DoorDoubt | null {
+    const opened = [...d.doors].filter(id => doorStatus(world, state, id) === 'open');
+    if (!opened.length) return d;
+    const doors = new Set([...d.doors].filter(id => !opened.includes(id)));
+    return doors.size ? makeDoubt(world, doors, d.unknownLock, state) : null;
+}
+
+/** The sight maps of `d` with every door but the doubted ones open: what an NPC that opens doors as it walks sees. */
+function walkMaps(world: ReadonlyWorld, d: DoorDoubt): { open: SightMap; shut: SightMap } {
+    if (!d.walk) {
+        const { open, shut } = openShut(world, d.base, d.doors, 'open');
+        d.walk = { open: buildSightMap(world, open), shut: buildSightMap(world, shut) };
+    }
+    return d.walk;
 }
 
 /** Whether some doubted door's edge could lie on the line from `a` to `b` (both its tiles within their box). */
@@ -400,17 +459,38 @@ function crossesDoubted(d: DoorDoubt, a: DeepReadonly<Pos>, b: DeepReadonly<Pos>
     return false;
 }
 
-/** Whether a doubted door could decide if `b` is in sight from `a` (within anyone's reach): see `DoorDoubt`. */
-export function sightDoubted(d: DoorDoubt, a: DeepReadonly<Pos>, b: DeepReadonly<Pos>): boolean {
+/**
+ * Whether a doubted door could decide if `b` is in sight from `a` (within anyone's reach): see `DoorDoubt`. `walk`
+ * counts every other door as open (`walkMaps`), for someone who opens doors on the way.
+ */
+export function sightDoubted(world: ReadonlyWorld, d: DoorDoubt, a: DeepReadonly<Pos>, b: DeepReadonly<Pos>, walk = false): boolean {
     if (Math.max(Math.abs(a.x - b.x), Math.abs(a.y - b.y)) > d.reach || !crossesDoubted(d, a, b)) return false;
-    return lineOfSight(d.open, a, b) && !lineOfSight(d.shut, a, b);
+    const m = walk ? walkMaps(world, d) : d;
+    return lineOfSight(m.open, a, b) && !lineOfSight(m.shut, a, b);
 }
 
-/** Whether a doubted door could decide if an observer as it stands sees `tile` (its arcs and range as well). */
-export function viewDoubted(d: DoorDoubt, observer: Observer, tile: DeepReadonly<Pos>): boolean {
+/** Whether a doubted door could decide if an observer as it stands sees `tile` (its arcs and range too); `walk` as above. */
+export function viewDoubted(world: ReadonlyWorld, d: DoorDoubt, observer: Observer, tile: DeepReadonly<Pos>, walk = false): boolean {
     if (!crossesDoubted(d, observer.pos, tile)) return false;
-    const p = { x: tile.x, y: tile.y };
-    return seesOn(d.open, observer, p) !== null && seesOn(d.shut, observer, p) === null;
+    const p = { x: tile.x, y: tile.y }, m = walk ? walkMaps(world, d) : d;
+    return seesOn(m.open, observer, p) !== null && seesOn(m.shut, observer, p) === null;
+}
+
+/** Whether an observer could see `tile` with the doubted doors open, every other door open too. */
+export function viewOpen(world: ReadonlyWorld, d: DoorDoubt, observer: Observer, tile: DeepReadonly<Pos>): boolean {
+    return seesOn(walkMaps(world, d).open, observer, { x: tile.x, y: tile.y }) !== null;
+}
+
+/**
+ * Whether a doubted door could stop someone who can't pass it locked (`pass`) on the step from `a` to `b`: one that
+ * locks, or one whose lock the crew can't know (`unknownLock`).
+ */
+export function doubtStops(
+    world: ReadonlyWorld, d: DoorDoubt, a: DeepReadonly<Pos>, b: DeepReadonly<Pos>, pass: (door: DeepReadonly<DoorDef>, status: DoorStatus) => boolean
+): boolean {
+    if (Math.abs(a.x - b.x) + Math.abs(a.y - b.y) !== 1) return false;
+    const door = doorBetween(world, { x: a.x, y: a.y }, { x: b.x, y: b.y });
+    return !!door && d.doors.has(door.id) && (door.lock !== 'none' || d.unknownLock.has(door.id)) && !pass(door, 'locked');
 }
 
 /**
@@ -1123,7 +1203,7 @@ export interface ProjectOptions {
      * `playback` (default): what the player is told after a command or a world phase; an NPC is known if the crew sees
      * or predicts it before or after, or saw it during the command. `preview`: what a preview may tell, judged by the
      * state before the command alone; `revealed` events are dropped and a move cut short by someone unknown is shown
-     * along its drawn path.
+     * along its drawn path. Its events must come from `previewCertain` (the doors the crew can't vouch for shut).
      */
     mode?: 'playback' | 'preview';
 }
@@ -1138,41 +1218,32 @@ function doorInView(world: ReadonlyWorld, state: State, door: string): boolean {
 }
 
 /**
- * The NPCs and cameras the crew knows in `before` whose seeing or hearing of the crew during a command could hang on a
- * door it can't vouch for (`doorDoubt`): a line from where one stood (or walked) to a tile a crew member stood on or was
- * to walk (`sightDoubted`), or a noise's reach at an NPC's tile (`doubtStates`). Neither depends on what the doubted
- * doors really are.
+ * The NPCs the crew knows in `before` whose walk in a world phase a door it can't vouch for could stop (`doubtStops`:
+ * one that locks, or might, and that the NPC holds no key to). Where such an NPC gets to, and so what it sees and does
+ * there, isn't certain: for a previewed world phase it is as unknown.
  */
-function doubtedWatchers(world: ReadonlyWorld, before: State, after: State, events: readonly SimEvent[]): Set<string> {
+function doubtedWalkers(world: ReadonlyWorld, before: State, events: readonly SimEvent[]): Set<string> {
     const out = new Set<string>(), d = doorDoubt(world, before);
-    if (!d) return out;
-    const crewTiles: Pos[] = before.crew.map(c => ({ x: c.pos.x, y: c.pos.y })), walks = new Map<string, Pos[]>(), keep = new Set<string>();
-    const crewIds = new Set(before.crew.map(c => c.id));
-    for (const e of events) {
-        if (e.type === 'moved') crewTiles.push(...e.path);
-        else if (e.type === 'moveCut') crewTiles.push(...e.planned);
-        else if (e.type === 'npcWalked') walks.set(e.npc, [...(walks.get(e.npc) ?? []), ...e.path]);
-        else if (e.type === 'doorOpened' && crewIds.has(e.by)) keep.add(e.door);
-    }
-    const seen = (from: readonly DeepReadonly<Pos>[]): boolean => from.some(q => crewTiles.some(c => sightDoubted(d, q, c)));
+    if (!d || !events.some(e => e.type === 'npcWalked')) return out;
     for (const npc of before.npcs) {
         if (!isPresent(npc) || !isKnownNow(world, before, npc.id)) continue;
-        if (seen([npc.pos, ...(walks.get(npc.id) ?? [])])) out.add(npc.id);
-    }
-    for (const id of before.knowledge.cameras) {
-        const def = world.cameras.find(c => c.id === id);
-        if (def && seen([def.pos])) out.add(id);
-    }
-    for (const e of events) {
-        if (e.type !== 'noise') continue;
-        const { open, shut } = doubtStates(world, after, d, keep);
-        const a = soundRing(world, open, e.sources, e.radius), b = soundRing(world, shut, e.sources, e.radius);
-        for (const npc of before.npcs) {
-            const i = npc.pos.y * world.width + npc.pos.x;
-            if (isKnownNow(world, before, npc.id) && a.byIndex.get(i)?.remaining !== b.byIndex.get(i)?.remaining) out.add(npc.id);
+        const pass = npcCanPass(personOf(world, npc.id));
+        let prev: DeepReadonly<Pos> = npc.pos;
+        for (const p of npc.intent.path) {
+            if (doubtStops(world, d, prev, p, pass)) { out.add(npc.id); break; }
+            prev = p;
         }
     }
     return out;
+}
+
+/**
+ * A command previewed for the player (§8.8): on the truth with every door the crew can't vouch for shut
+ * (`withDoubtedShut`), so all it sees and hears happens however those doors really stand, and nothing of how they stand
+ * shows (decision 44). Project its events with `projectPreviewEvents`.
+ */
+export function previewCertain(world: ReadonlyWorld, state: State, cmd: Command): PreviewResult {
+    return preview(world, withDoubtedShut(world, state), cmd);
 }
 
 /**
@@ -1185,9 +1256,10 @@ export function projectEvents(world: ReadonlyWorld, state: State, events: readon
     const base = preview ? before ?? state : state;
     const npcIds = new Set(state.npcs.map(n => n.id)), crewIds = new Set(state.crew.map(c => c.id));
     const seenDuring = (id: string): boolean => !!before && Object.hasOwn(state.knowledge.npcs, id) && state.knowledge.npcs[id]!.tick > before.knowledge.tick;
-    // A preview can't tell what an NPC or a camera the crew knows does when a door it can't vouch for decides whether
-    // they see or hear the crew: for this command they are as unknown (decision 44).
-    const doubted = preview ? doubtedWatchers(world, base, state, events) : null;
+    // A previewed world phase can't tell where a known NPC gets to when a door the crew can't vouch for could stop its
+    // walk: for this command it is as unknown (decision 44). What doubted doors decide otherwise never happens in a
+    // preview (`previewCertain` shuts them).
+    const doubted = preview ? doubtedWalkers(world, base, events) : null;
     const known = (id: string): boolean => preview
         ? isKnownNow(world, base, id) && !doubted!.has(id)
         : isKnownNow(world, state, id) || (!!before && isKnownNow(world, before, id)) || seenDuring(id);
@@ -1239,7 +1311,7 @@ export function projectEvents(world: ReadonlyWorld, state: State, events: readon
     return out;
 }
 
-/** `projectEvents` in preview mode for a previewed command from `before` (what `projectPreview` should call). */
+/** `projectEvents` in preview mode for a command from `before` previewed by `previewCertain` (what `projectPreview` should call). */
 export const projectPreviewEvents = (world: ReadonlyWorld, before: State, result: Pick<CommitResult, 'state' | 'events'>): SimEvent[] =>
     projectEvents(world, result.state, result.events, before, { mode: 'preview' });
 

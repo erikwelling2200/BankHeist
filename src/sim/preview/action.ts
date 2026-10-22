@@ -1,4 +1,4 @@
-import { IllegalCommand, preview, type PreviewResult } from '../core/engine';
+import { IllegalCommand, type PreviewResult } from '../core/engine';
 import type { PendingOdds } from '../core/rng';
 import type { CarrierKind, Command, Pos, ReadonlyWorld, SimEvent, State } from '../core/types';
 import { eventClass } from '../core/undo';
@@ -6,20 +6,22 @@ import type { NoiseKind } from '../data/noise';
 import { inRing, soundRing } from '../geo/sound';
 import { carrierPreview, projectCarriers, type CarrierPreview } from '../rules/carriers';
 import { hearing } from '../rules/evidence';
-import { projectPreviewEvents, withPicturedDoors } from '../rules/knowledge';
+import { previewCertain, projectPreviewEvents } from '../rules/knowledge';
 import { pathSafety, type PathSafety } from './floor';
 import { previewPicture } from './picture';
 
 /*
  * The preview of any command (§8.8, §8.9, §20.2 step 3), as the player may see it. The command is previewed on the
- * truth (`preview`: the same reducer on a copy) and everything shown is projected through what the crew knows
- * (`projectPreviewEvents`, `projectCarriers`): events naming NPCs or cameras it doesn't know are dropped, a carrier's
- * unknown holder is redacted, a move cut short by someone unseen or by a door found locked shows along the drawn path.
- * An NPC or camera the crew knows whose seeing or hearing of the crew a door it can't vouch for could decide (decision
- * 44) counts as unknown for the command, so a preview never tells how such a door really stands.
+ * truth with every door the crew can't vouch for shut (`previewCertain`: the same reducer on a copy; decision 44) and
+ * everything shown is projected through what the crew knows (`projectPreviewEvents`, `projectCarriers`): events naming
+ * NPCs or cameras it doesn't know are dropped, a carrier's unknown holder is redacted, a move cut short by someone
+ * unseen or by a door found locked shows along the drawn path. Sight and hearing only grow as doors open, so what is
+ * seen or heard with those doors shut is seen or heard however they stand: a sighting through one never shows, a
+ * certain one always does, and a preview never tells how such a door really stands. A known NPC whose walk in a
+ * previewed world phase one could stop counts as unknown for it (`projectEvents`).
  *
- * - **Noise** (§8.9): every noise's ring (the tiles it reaches, through the doors as pictured) and an ear per NPC the
- *   crew knows inside it, labelled with what it will do (`hearing`, the function the noise hook applies, judged among
+ * - **Noise** (§8.9): every noise's ring (the tiles it reaches, the doors the crew can't vouch for shut) and an ear per
+ *   NPC the crew knows inside it, labelled with what it will do (`hearing`, the function the noise hook applies, judged among
  *   the NPCs the crew knows; `still` for one face down).
  * - **Witnesses**: who would notice (Exposed, pips, a challenge, a camera report, or seeing it at all).
  * - **Carriers** (§9.1): those the command starts or stops at once, and those the coming world phase would start
@@ -98,8 +100,8 @@ function noisesOf(world: ReadonlyWorld, before: State, result: PreviewResult, sh
         if (e.type !== 'noise') continue;
         // The truth's event for the same noise: who could hear it then (a knocked-out victim no longer can).
         const truth = result.events.find(t => t.type === 'noise' && t.cause === e.cause) as Extract<SimEvent, { type: 'noise' }> | undefined;
-        // Drawn through the doors as the crew pictures them: the doors it can't vouch for never show through the ring.
-        const ring = soundRing(world, withPicturedDoors(world, before, result.state), e.sources, e.radius);
+        // Drawn as it is heard: the doors the crew can't vouch for shut (`previewCertain`), so they never show through it.
+        const ring = soundRing(world, result.state, e.sources, e.radius);
         const able = new Set(truth?.heard ?? e.heard);
         const listeners: State = { ...picture, npcs: picture.npcs.filter(n => !inRing(ring, n.pos) || able.has(n.id)) };
         const react = new Map(hearing(world, listeners, ring, e.kind, e.cause).map(h => [h.npc, h]));
@@ -116,7 +118,7 @@ function noisesOf(world: ReadonlyWorld, before: State, result: PreviewResult, sh
 export function actionPreview(world: ReadonlyWorld, state: State, cmd: Command): ActionPreview {
     let result: PreviewResult;
     try {
-        result = preview(world, state, cmd);
+        result = previewCertain(world, state, cmd);
     } catch (e) {
         if (e instanceof IllegalCommand) return { ok: false, reason: e.message };
         throw e;

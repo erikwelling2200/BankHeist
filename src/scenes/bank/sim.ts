@@ -1,6 +1,6 @@
 import Phaser from 'phaser';
 import {
-    cameraViews, explainView, floorTiles, npcBadges, npcCone, npcDrawnOn, npcSprites, pathView, unhiddenRuns, previewHearers, previewNoise, previewWitnesses, type CameraVM, type ExplainVM, type FloorTileVM,
+    cameraViews, explainView, floorTiles, npcBadges, npcCone, npcDrawnOn, npcSprites, pathView, unhiddenRuns, unhiddenTiles, previewHearers, previewNoise, previewWitnesses, type CameraVM, type ExplainVM, type FloorTileVM,
     type PathVM
 } from '../../game/worldUi';
 import {
@@ -203,7 +203,8 @@ export class PlayMode {
         people.alsoAbove((index, x, y) => this.npcOf.has(index) && this.visibilityAt(x, y) === 'hidden');
         document.body.classList.add('play');
 
-        this.overlay = new WorldOverlay(scene, (tx, ty) => walls.liftAt((tx + 0.5) * TILE, (ty + 0.5) * TILE));
+        const plot = { width: bank.level.tiles[0]!.length * TILE, height: bank.level.tiles.length * TILE };
+        this.overlay = new WorldOverlay(scene, (tx, ty) => walls.liftAt((tx + 0.5) * TILE, (ty + 0.5) * TILE), plot);
         this.input = new MapInput(scene, {
             tap: (x, y) => this.tap(x, y),
             claim: (x, y) => this.claim(x, y),
@@ -1145,7 +1146,7 @@ export class PlayMode {
         const bodies = this.session.state.crew.filter(c => c.dragging !== null).map(c => this.trailOf(c));
         const floor = range ? this.floor(member) : undefined;
         const base = {
-            colour, intents, ...layer, ...(range ? { reach: { move: range.walk, dash: range.run, at: member.pos, unfilled: bodies } } : {}),
+            colour, intents, ...layer, ...(range ? { reach: { move: unhiddenTiles(this.known(), range.walk), dash: unhiddenTiles(this.known(), range.run), at: member.pos, unfilled: bodies } } : {}),
             ...(floor ? { safeFloor: floor } : {}), ...(this.explained ? { explain: this.explained } : {})
         };
         if (this.dragPath) {
@@ -1249,7 +1250,7 @@ export class PlayMode {
      * with an ear badge per known hearer naming what they'll do (`still` for one face down), and the witnesses' plates.
      */
     private previewMarks(shown: ActionPreview): Pick<OverlayContent, 'noise' | 'hearers' | 'witnesses'> {
-        const known = this.known(), noise = previewNoise(shown);
+        const known = this.known(), noise = previewNoise(shown, known);
         return { ...(noise ? { noise } : {}), hearers: previewHearers(known, shown), witnesses: previewWitnesses(this.session.world, known, shown) };
     }
 

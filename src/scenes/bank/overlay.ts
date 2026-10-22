@@ -7,8 +7,8 @@ import type { Pos } from '../../sim';
 
 /**
  * The world UI layer (UI.md "Two layers", "Visual language", M1-14): a canvas over the game's at twice the art's
- * resolution (one UI pixel is half an art pixel), redrawn after a frame in which it or the view changed (while the view
- * moves, the last drawing is shifted along and drawn afresh once it holds still). Hairlines with
+ * resolution (one UI pixel is half an art pixel), drawn with a margin round the view and slid along as the view moves,
+ * redrawn when what it shows changes or the view nears the drawing's edge (`draw`). Hairlines with
  * a 1px ink drop shadow, muted signal colours, faint scanline fills, dark plates with a thin border in the signal
  * colour; every state also has a shape or a pattern, and the colour-blind preset swaps the palette (UI.md "Signal
  * palette"). It takes no input: taps go through to the map. Drawn, bottom to top:
@@ -137,24 +137,46 @@ const GREY = '#8a8894';
 const WATCHER = '#d0ced8';
 const PING = 'rgba(226, 162, 64, 0.8)';
 
+/**
+ * How far past the view the overlay is drawn on each side, as a share of the view: while the view moves the drawing is
+ * slid along, and drawn afresh only when the view nears its edge. Half a view lets an arrow-key pan (480 screen px/s) run
+ * a second or more between redraws on any screen, for four times a view's pixels.
+ */
+const MARGIN = 0.5;
+/** The most UI pixels the drawing may have (a 4K frame, 33 MB): a larger view gets a narrower margin. */
+const MAX_PIXELS = 3840 * 2160;
+/** The drawing's corner sits on a multiple of this many art pixels, so the fill patterns stay put on the map across redraws. */
+const SNAP = 12;
+/** How far past the plot's edge there is anything to draw (art pixels): plates and pips over heads, the Alarm's rings. */
+const PAD = 3 * SNAP;
+
 export class WorldOverlay {
     readonly canvas: HTMLCanvasElement;
+    /** Clips the drawing to the camera's part of the game's canvas. */
+    private readonly frame: HTMLDivElement;
     private readonly ctx: CanvasRenderingContext2D;
     private content: OverlayContent | null = null;
-    /** What the last drawing was made from (all but where the camera looked): redraw only when it or the view changes. */
+    /** What the last drawing was made from (all but where the camera looked): redraw when it changes. */
     private drawn = '';
-    /** Where the camera looked (`x,y`) at the last drawing, and at the last frame. */
-    private drawnView = '';
-    private lastView = '';
+    /** The map area the drawing covers, in art pixels. */
+    private area = { x: 0, y: 0, w: 0, h: 0 };
+    /** Where the camera looked at the last frame. */
+    private lastView = { x: 0, y: 0 };
     private readonly onRender = () => this.draw();
 
-    /** `lift` says how many art pixels up the screen tile (tx, ty) is drawn now (a raised floor; 0 on the ground). */
-    constructor(private readonly scene: Phaser.Scene, private readonly lift: (tx: number, ty: number) => number = () => 0) {
+    /**
+     * `lift` says how many art pixels up the screen tile (tx, ty) is drawn now (a raised floor; 0 on the ground); `plot`
+     * is the map's size in art pixels, past which there is nothing to draw.
+     */
+    constructor(private readonly scene: Phaser.Scene, private readonly lift: (tx: number, ty: number) => number = () => 0, private readonly plot?: { width: number; height: number }) {
+        this.frame = document.createElement('div');
+        Object.assign(this.frame.style, { position: 'fixed', overflow: 'hidden', pointerEvents: 'none', zIndex: '2' });
         this.canvas = document.createElement('canvas');
         this.canvas.className = 'world-overlay';
-        Object.assign(this.canvas.style, { position: 'fixed', pointerEvents: 'none', zIndex: '2', imageRendering: 'pixelated' });
+        Object.assign(this.canvas.style, { position: 'absolute', left: '0', top: '0', transformOrigin: '0 0', imageRendering: 'pixelated' });
         this.ctx = this.canvas.getContext('2d')!;
-        document.body.append(this.canvas);
+        this.frame.append(this.canvas);
+        document.body.append(this.frame);
         scene.game.events.on(Phaser.Core.Events.POST_RENDER, this.onRender);
         scene.events.once(Phaser.Scenes.Events.SHUTDOWN, () => this.destroy());
     }
@@ -179,57 +201,91 @@ export class WorldOverlay {
 
     destroy(): void {
         this.scene.game.events.off(Phaser.Core.Events.POST_RENDER, this.onRender);
-        this.canvas.remove();
+        this.frame.remove();
     }
 
-    /** Draws over the frame just rendered: sized and placed over the game's canvas, shifted by the camera's view. */
+    /** Where there is anything to draw along an axis, in art pixels: the plot and its pad, on `SNAP`; unbounded without a plot. */
+    private static bounds(plot: number | undefined): [number, number] {
+        return plot === undefined ? [-Infinity, Infinity] : [-PAD, Math.ceil((plot + PAD) / SNAP) * SNAP];
+    }
+
+    /** Whether the drawing covers what a view at (vx, vy), vw by vh art pixels, shows of the plot. */
+    private covers(vx: number, vy: number, vw: number, vh: number): boolean {
+        // Per axis: 0 when the view shows none of the plot along it, 1 when the drawing covers what it shows, -1 otherwise.
+        const axis = (v: number, size: number, plot: number | undefined, at: number, len: number) => {
+            const [lo, hi] = WorldOverlay.bounds(plot), a = Math.max(lo, v), b = Math.min(hi, v + size);
+            return a >= b ? 0 : a >= at && b <= at + len ? 1 : -1;
+        };
+        const { area: d } = this, x = axis(vx, vw, this.plot?.width, d.x, d.w), y = axis(vy, vh, this.plot?.height, d.y, d.h);
+        return x === 0 || y === 0 || (x === 1 && y === 1);
+    }
+
+    /**
+     * The area to draw for a view at v of `size` art pixels along an axis: `margin` past it on each side, its corner on
+     * `SNAP`, slid inside the plot's bounds (so its size depends only on the view's and the plot's).
+     */
+    private static place(v: number, size: number, margin: number, plot: number | undefined): [number, number] {
+        const [lo, hi] = WorldOverlay.bounds(plot), len = Math.min(hi - lo, (Math.ceil((size + 2 * margin) / SNAP) + 1) * SNAP);
+        return [Math.max(lo, Math.min(hi - len, Math.floor((v - margin) / SNAP) * SNAP)), len];
+    }
+
+    /**
+     * Draws over the frame just rendered, clipped to the camera's part of the game's canvas. The drawing covers the view
+     * and a margin round it (`MARGIN`); while the view moves (a pan, a drag) it is slid along rather than drawn again
+     * every frame (a drawing is a few thousand fills, which a software GPU takes a frame or more to raster), and drawn
+     * afresh, round the view, when what it shows changes or when the view, two frames further on at its current speed
+     * (headroom for an uneven frame), would show the plot past the drawing's edge.
+     */
     private draw(): void {
         const game = this.scene.game, cam = this.scene.cameras.main, canvasBox = game.canvas.getBoundingClientRect();
         // Over the camera's part of the canvas (all of it, but when zoomed closer than the canvas is sized for, see BankCamera.applyZoom).
         const { scale } = this.scene, sx = canvasBox.width / scale.width, sy = canvasBox.height / scale.height;
         const box = { left: canvasBox.left, top: canvasBox.top, width: cam.width * sx, height: cam.height * sy };
-        const w = Math.round(cam.width * UI_SCALE), h = Math.round(cam.height * UI_SCALE);
-        const vx = Math.round(cam.worldView.x), vy = Math.round(cam.worldView.y);
+        // CSS pixels per art pixel.
+        const kx = box.width / cam.width, ky = box.height / cam.height;
+        const vw = cam.width, vh = cam.height, vx = Math.round(cam.worldView.x), vy = Math.round(cam.worldView.y);
+        const step = { x: vx - this.lastView.x, y: vy - this.lastView.y };
+        this.lastView = { x: vx, y: vy };
         // A raised floor rises and drops as it is cut: what is drawn on it follows (the lifts are part of the key).
         const c0 = this.content;
         let lifts = 0;
         for (const p of [...(c0?.reach?.move ?? []), ...(c0?.reach?.dash ?? []), ...(c0?.path ?? [])]) lifts += this.lift(p.x, p.y);
-        const key = `${w}x${h}:${box.left},${box.top},${box.width},${box.height}:${lifts}`, view = `${vx},${vy}`;
-        const { canvas, ctx } = this;
-        if (key === this.drawn) {
-            if (view === this.drawnView) return;
-            if (view !== this.lastView) {
-                // The view is moving (a pan, a drag): shift what is drawn rather than draw it all again every frame (a
-                // drawing is a few thousand fills, which a software GPU takes a frame or more to raster); it is drawn
-                // afresh once the view holds still.
-                this.lastView = view;
-                const [dx, dy] = this.drawnView.split(',').map(Number) as [number, number], css = (box.width / w) * UI_SCALE;
-                canvas.style.transform = `translate(${(dx - vx) * css}px, ${(dy - vy) * (box.height / h) * UI_SCALE}px)`;
-                return;
-            }
+        const key = `${vw}x${vh}:${box.left},${box.top},${box.width},${box.height}:${lifts}`;
+        const { canvas, ctx, frame } = this;
+        const place = () => (canvas.style.transform = `translate(${(this.area.x - vx) * kx}px, ${(this.area.y - vy) * ky}px)`);
+        if (key === this.drawn && this.covers(vx, vy, vw, vh) && this.covers(vx + 2 * step.x, vy + 2 * step.y, vw, vh)) {
+            place();
+            return;
         }
         this.drawn = key;
-        this.drawnView = this.lastView = view;
-        canvas.style.transform = '';
+        // The margin narrows so the drawing stays within `MAX_PIXELS`.
+        const fit = (Math.sqrt(MAX_PIXELS / (vw * vh * UI_SCALE * UI_SCALE)) - 1) / 2, margin = Math.max(0, Math.min(MARGIN, fit));
+        // Drawn in the area's own pixels: its corner is map point (ox, oy).
+        const [ox, aw] = WorldOverlay.place(vx, vw, Math.round(vw * margin), this.plot?.width);
+        const [oy, ah] = WorldOverlay.place(vy, vh, Math.round(vh * margin), this.plot?.height);
+        this.area = { x: ox, y: oy, w: aw, h: ah };
+        const w = aw * UI_SCALE, h = ah * UI_SCALE;
         if (canvas.width !== w || canvas.height !== h) {
             canvas.width = w;
             canvas.height = h;
         }
-        Object.assign(canvas.style, { left: `${box.left}px`, top: `${box.top}px`, width: `${box.width}px`, height: `${box.height}px` });
+        Object.assign(frame.style, { left: `${box.left}px`, top: `${box.top}px`, width: `${box.width}px`, height: `${box.height}px` });
+        Object.assign(canvas.style, { width: `${aw * kx}px`, height: `${ah * ky}px` });
+        place();
         ctx.clearRect(0, 0, w, h);
         const c = this.content;
         if (!c) return;
         const S = TILE * UI_SCALE;
-        const left = (p: Pos) => (p.x * TILE - vx) * UI_SCALE, top = (p: Pos) => (p.y * TILE - this.lift(p.x, p.y) - vy) * UI_SCALE;
+        const left = (p: Pos) => (p.x * TILE - ox) * UI_SCALE, top = (p: Pos) => (p.y * TILE - this.lift(p.x, p.y) - oy) * UI_SCALE;
         const mid = (p: Pos): [number, number] => [left(p) + S / 2, top(p) + S / 2];
         const pal = PALETTES[c.colourBlind ? 'colourBlind' : 'default'];
 
         if (c.visibility) {
-            // A grey veil over every tile in view not seen this turn.
+            // A grey veil over every tile in the drawn area not seen this turn.
             const { width, codes } = c.visibility, height = codes.length / width;
             ctx.fillStyle = STALE_VEIL;
-            const x0 = Math.max(0, Math.floor(vx / TILE)), y0 = Math.max(0, Math.floor(vy / TILE));
-            const x1 = Math.min(width - 1, Math.floor((vx + w / UI_SCALE) / TILE)), y1 = Math.min(height - 1, Math.floor((vy + h / UI_SCALE) / TILE));
+            const x0 = Math.max(0, Math.floor(ox / TILE)), y0 = Math.max(0, Math.floor(oy / TILE));
+            const x1 = Math.min(width - 1, Math.floor((ox + aw) / TILE)), y1 = Math.min(height - 1, Math.floor((oy + ah) / TILE));
             for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) if (codes[y * width + x] === 1) ctx.fillRect(left({ x, y }), top({ x, y }), S, S);
         }
 
@@ -364,7 +420,7 @@ export class WorldOverlay {
             }
         }
         if (c.targetDoor) {
-            const x = (c.targetDoor.x * TILE - vx) * UI_SCALE, y = (c.targetDoor.y * TILE - this.lift(Math.floor(c.targetDoor.x), Math.floor(c.targetDoor.y)) - vy) * UI_SCALE;
+            const x = (c.targetDoor.x * TILE - ox) * UI_SCALE, y = (c.targetDoor.y * TILE - this.lift(Math.floor(c.targetDoor.x), Math.floor(c.targetDoor.y)) - oy) * UI_SCALE;
             const across = Number.isInteger(c.targetDoor.x);
             const w = across ? 6 : S - 4, h = across ? S - 4 : 6;
             ctx.lineWidth = 2;
@@ -448,7 +504,7 @@ export class WorldOverlay {
             // The path's own tints (§8.8 "along the whole drawn path"), at full strength over the dimmed floor; its end
             // as the floor tints it, glyph and all.
             if (safety) {
-                for (const step of safety.steps.slice(0, -1)) this.tintTile(step.kind, step.hatched, 'move', left(step.pos), top(step.pos), S, pal, 1.25);
+                for (const step of safety.steps.slice(0, -1)) this.tintTile(step.kind, step.hatched, 'move', left(step.pos), top(step.pos), S, pal, 1.25, step.doorRisk);
                 this.drawSafeFloor([safety.end], pal, left, top, S, 1.25, true);
             }
             const stepColour = (i: number): string => {
@@ -697,14 +753,15 @@ export class WorldOverlay {
     /**
      * The safe-floor tints (§8.8, UI.md "Safe floor"), two channels each: the signal colour (sage, amber, red, grey) and
      * a shape: amber's pips (one square per pip), a challenge's hand, the eye of someone who Exposes them, a camera's
-     * glyph; unknown risk is grey hatched, with no glyph. Move's tiles in scanlines, the Dash band's in a sparser dotted fill (its edge
+     * glyph; unknown risk is grey hatched, with no glyph, and a tint a door not seen this turn could make worse
+     * (`doorRisk`) has the same grey hatch over it, glyph and all. Move's tiles in scanlines, the Dash band's in a sparser dotted fill (its edge
      * says so too), the coming world phase's outcomes hatched. `strength` scales the fill (a dimmed floor while a path
      * leads); `glyphs` false leaves the shapes off.
      */
     private drawSafeFloor(tiles: readonly FloorTileVM[], pal: Record<Signal, string>, left: (p: Pos) => number, top: (p: Pos) => number, S: number, strength = 1, glyphs = true): void {
         const ctx = this.ctx;
         for (const t of tiles) {
-            const x = left(t.pos), y = top(t.pos), colour = this.tintTile(t.kind, t.hatched, t.band, x, y, S, pal, strength);
+            const x = left(t.pos), y = top(t.pos), colour = this.tintTile(t.kind, t.hatched, t.band, x, y, S, pal, strength, t.doorRisk);
             if (!glyphs) continue;
             // Unknown risk has no glyph: its grey hatch (a shape, not only a colour) says it.
             if (t.kind === 'unknownRisk') continue;
@@ -727,8 +784,11 @@ export class WorldOverlay {
         }
     }
 
-    /** Fills one tile with a tint (see `drawSafeFloor`); returns the tint's colour. */
-    private tintTile(kind: TintKind, hatched: boolean, band: 'move' | 'dash', x: number, y: number, S: number, pal: Record<Signal, string>, strength: number): string {
+    /**
+     * Fills one tile with a tint (see `drawSafeFloor`), and unknown risk's grey hatch over it when a door could make it
+     * worse (`doorRisk`); returns the tint's colour.
+     */
+    private tintTile(kind: TintKind, hatched: boolean, band: 'move' | 'dash', x: number, y: number, S: number, pal: Record<Signal, string>, strength: number, doorRisk = false): string {
         const ctx = this.ctx;
         const colour = kind === 'safe' ? pal.safe : kind === 'amber' || kind === 'trespass' ? pal.amber : kind === 'red' || kind === 'camera' ? pal.red : GREY;
         const a = (kind === 'safe' ? 0.26 : kind === 'grey' || kind === 'unknownRisk' ? 0.3 : 0.5) * strength;
@@ -742,6 +802,14 @@ export class WorldOverlay {
         ctx.fillRect(x, y, S, S);
         ctx.fillStyle = this.pattern(style, alpha(colour, Math.min(1, a * ink)), `rgba(13, 12, 20, ${(Math.min(1, a * ink) * 0.9).toFixed(3)})`);
         ctx.fillRect(x, y, S, S);
+        if (doorRisk && kind !== 'unknownRisk') {
+            // Unknown risk's hatch at its own strength; over a hatched tint it runs between that tint's lines (3 pixels on).
+            const grey = 0.3 * strength * 1.5, shift = hatched ? 3 : 0;
+            ctx.fillStyle = this.pattern('duo', alpha(GREY, Math.min(1, grey)), `rgba(13, 12, 20, ${(Math.min(1, grey) * 0.9).toFixed(3)})`);
+            ctx.translate(shift, 0);
+            ctx.fillRect(x - shift, y, S, S);
+            ctx.translate(-shift, 0);
+        }
         return colour;
     }
 

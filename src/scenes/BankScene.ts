@@ -89,6 +89,7 @@ export class BankScene extends Phaser.Scene {
         this.timed('walls', () => this.walls.build(baker));
         const { occluders, casters, shown } = this.timed('props', () => addProps(this, baker, this.walls, props.filter(({ box }) => box.h > 0), heights));
         knowledge.trackProps(shown);
+        knowledge.trackRaised(raised);
         this.timed('people', () => this.people.build(this.bank.people, play ? play.session.state.crew.map((c, i) => ({
             look: M1_CREW.find(m => m.id === c.id)?.look ?? 'crewSol', tx: c.pos.x, ty: c.pos.y, facing: 'back' as const, ring: CREW_COLOURS[i % CREW_COLOURS.length]!
         })) : []));

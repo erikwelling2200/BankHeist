@@ -135,10 +135,13 @@ are:
 - **Hidden:** grey.
 - **Unknown risk:** grey, hatched (no glyph): someone the crew hasn't seen could react to this crew member there: an
   NPC from a tile a person can stand on that the crew hasn't seen since the last world phase, or a camera from a hidden
-  tile, either looking through any door not seen this turn as if open. Also hatched, whatever the known NPCs would
-  do: a tile whose outcome a door not seen this turn could change (someone known could see or hear the crew member
-  through it, or walk differently), and every tile reached through such a door that could turn out locked. A step of
-  a drawn path that a door not seen this turn could expose is hatched too. "Who and why" says which.
+  tile, either looking through any door not seen this turn as if open. Also hatched: every tile reached through such
+  a door that could turn out locked, and a tile whose outcome such a door could make worse (someone known could see or
+  hear the crew member through it, or walk differently). Doors not seen this turn are judged shut, so the tint under
+  the hatch is what happens however they stand: certain danger always shows, the grey hatch drawn over a warning's
+  tint and glyph (green for certain becomes plain hatched grey), never instead of it; red, which can't get worse, isn't
+  hatched. A step of a drawn path that such a door could let someone see is hatched the same way, its eye on the first
+  certain `!`. "Who and why" names who sees them for certain and says a door could make it worse.
 
 The path's eye icon sits on the **first** unsafe tile, and long-pressing that tile answers who and why: the NPC's
 position next phase is ghosted, with its cone and a sightline to the tile. Long-pressing an unknown-risk tile outlines

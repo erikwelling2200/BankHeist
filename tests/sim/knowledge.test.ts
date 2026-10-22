@@ -3,12 +3,13 @@ import type { GenerateOptions } from '../../src/gen/generate';
 import { cachedBank } from '../bankCache';
 import {
     bandAt, cameraObserver, clonePlain, commit, crewLook, crewPicture, decodeBits, explain, pathSafety, reaction, safeFloor, unknownWatcher, unknownWatchers, deserialise, encodeBits, fieldOn, fixtureWorld, floorKnowledge, freezeWorld,
-    doorStatus, hashOf, initialState, isKnownNow, knownDoorStatus, tileVisibility, isUnknownRisk, noticedUnseen, pathTo, projectPreviewEvents, SaveFormatError, knownBlockers, knownView, makeNoise, markerKind, npcObserver, preview, previewPicture, projectEvents, reachable,
-    serialise, sightMap, tileAt, updateKnowledge, worldFromBank, withLayoutCameras, interruptsOf, type Command, type FixtureOptions, type PersonDef, type Pos, type ReadonlyWorld,
+    doorStatus, hashOf, initialState, isKnownNow, knownDoorStatus, tileVisibility, isUnknownRisk, noticedUnseen, pathTo, previewCertain, projectPreviewEvents, SaveFormatError, knownBlockers, knownView, makeNoise, markerKind, npcObserver, preview, previewPicture, projectEvents, reachable,
+    serialise, sightMap, tileAt, updateKnowledge, worldFromBank, withLayoutCameras, interruptsOf, actionPreview, doorDoubt, overlayTiles, previewDanger, safeLeg, sightDoubted, type Command, type FixtureOptions, type PersonDef, type Pos, type ReadonlyWorld,
     type SimEvent, type State, type UnknownOptions, type World
 } from '../../src/sim';
 import { OUTCOME_RANK } from '../../src/sim/data/matrix';
 import { registerTestCommand, scouted, step } from './helpers';
+import { floorTiles } from '../../src/game/worldUi';
 
 /*
  * M1-10, what the crew knows (§8.8, §8.15, §17.8): seen tiles, live / predicted / ghost NPCs, unknown risk, sound
@@ -495,7 +496,7 @@ describe('doors not seen this turn (decision 44)', () => {
         // Found: now it is known as it is.
         expect(knownView(world, r.state).doors[0]).toMatchObject({ status: 'locked', inView: true, fresh: true });
         expect(projectEvents(world, r.state, r.events, state)).toContainEqual(expect.objectContaining({ type: 'moveCut', reason: 'door' }));
-        const shown = projectPreviewEvents(world, state, preview(world, state, { type: 'move', crew: 'jun', path }));
+        const shown = projectPreviewEvents(world, state, previewCertain(world, state, { type: 'move', crew: 'jun', path }));
         expect(shown.find(e => e.type === 'moved')).toMatchObject({ to: P(9, 4), path });
         expect(shown.some(e => e.type === 'moveCut')).toBe(false);
     });
@@ -587,7 +588,7 @@ describe('doors not seen this turn (decision 44)', () => {
         const through = a.at(P(19, 1))!;
         expect(through.doorRisk).toBe(true);
         expect(through.tint.kind).toBe('unknownRisk');
-        expect(explain(open.world, open.state, 'jun', P(19, 1)).map(l => l.text)).toContain('A door not seen this turn could change who sees you');
+        expect(explain(open.world, open.state, 'jun', P(19, 1)).map(l => l.text)).toContain('A door not seen this turn could make it worse');
         // A tile the far guard can't see through the door (out of reach) keeps its verdict: the near guard's eye.
         const aside = a.at(P(13, 1))!;
         expect(aside.doorRisk).toBe(false);
@@ -597,10 +598,93 @@ describe('doors not seen this turn (decision 44)', () => {
         const byGuard = (events: readonly SimEvent[]): boolean => events.some(e => e.type === 'exposed' && e.npc === 'guard');
         expect(byGuard(step(open.world, open.state, move).events)).toBe(true);
         expect(byGuard(step(shut.world, shut.state, move).events)).toBe(false);
-        // Nor does the move's preview: the far guard counts as unknown for it.
-        const shown = (x: { world: ReadonlyWorld; state: State }): SimEvent[] => projectPreviewEvents(x.world, x.state, preview(x.world, x.state, move));
+        // Nor does the move's preview: it is judged with the door shut, so the far guard never shows through it.
+        const shown = (x: { world: ReadonlyWorld; state: State }): SimEvent[] => projectPreviewEvents(x.world, x.state, previewCertain(x.world, x.state, move));
         expect(shown(open)).toEqual(shown(shut));
         expect(byGuard(shown(open))).toBe(false);
+    });
+
+    it('shows certain danger through the doubt: red where a known NPC sees the crew in plain view, not hatched', () => {
+        // The near guard sees masked jun on (17, 1) in plain view; the far guard could too, through the door.
+        const { world, state } = doorway('open'), shut = doorway('closed');
+        expect(sightDoubted(world, doorDoubt(world, state)!, P(24, 1), P(17, 1))).toBe(true);
+        for (const x of [{ world, state }, shut]) {
+            const tile = safeFloor(x.world, x.state, 'jun').at(P(17, 1))!;
+            expect(tile.tint).toMatchObject({ kind: 'red', eye: true, doorRisk: false });
+            expect(tile.doorRisk).toBe(false);
+        }
+        const drawn = pathSafety(world, state, 'jun', [P(17, 1)]);
+        if (!drawn.ok) throw new Error(drawn.reason);
+        expect(drawn.firstUnsafe).toBe(0);
+        expect(explain(world, state, 'jun', P(17, 1)).map(l => l.observer)).toContain('near');
+        expect(explain(world, state, 'jun', P(17, 1)).map(l => l.text)).not.toContain('A door not seen this turn could make it worse');
+    });
+
+    it('hatches a certain warning only where the door could make it worse', () => {
+        // Staff floor: a teller at (13, 1) sees armed jun (pips); the far guard could see them through the door (worse).
+        const build = (door: 'open' | 'closed'): { world: ReadonlyWorld; state: State } => {
+            const walls: FixtureOptions['walls'] = [0, 1, 2].map(y => ({
+                between: [P(20, y), P(21, y)] as [Pos, Pos], ...(y === 1 ? { door: { id: 'd', start: 'closed' as const } } : {})
+            }));
+            const rows = Array.from({ length: 3 }, () => 's'.repeat(26));
+            const people = [
+                clerk(P(24, 1), { id: 'guard', role: 'guard', observer: 'enforcer' }),
+                clerk(P(13, 1), { id: 'teller', role: 'teller', facing: 'e', schedule: [{ from: 1, activity: 'post', label: 'post', room: '', at: P(13, 1), facing: 'e' }] })
+            ];
+            const world = freezeWorld({ ...(clonePlain(fixtureWorld(rows, { walls, people, zones: rows })) as World), intel: { guardRota: true } });
+            const start = initialState(world, { seed: 1, crew: [{ id: 'jun', pos: P(6, 1), items: ['pistol'] }] });
+            return { world, state: patch(start, s => { s.crew[0]!.pos = P(16, 1); s.doors.d = { status: door }; }) };
+        };
+        const open = build('open'), shut = build('closed');
+        const a = safeFloor(open.world, open.state, 'jun'), b = safeFloor(shut.world, shut.state, 'jun');
+        expect(JSON.stringify(a.tiles)).toBe(JSON.stringify(b.tiles));
+        const tile = a.at(P(20, 1))!;
+        expect(tile.tint.kind).toBe('amber');
+        expect(tile.tint.pips).toEqual([{ npc: 'teller', pips: 2 }]);
+        expect(tile.doorRisk).toBe(true);
+        // Worse with the door open: the guard sees jun through it.
+        const move: Command = { type: 'move', crew: 'jun', path: tile.path };
+        const byGuard = (events: readonly SimEvent[]): boolean => events.some(e => e.type === 'exposed' && e.npc === 'guard');
+        expect(byGuard(step(open.world, open.state, move).events)).toBe(true);
+        expect(byGuard(step(shut.world, shut.state, move).events)).toBe(false);
+        expect(floorTiles(a).find(t => t.pos.x === 20 && t.pos.y === 1)).toMatchObject({ kind: 'amber', doorRisk: true });
+        expect(overlayTiles(a).find(t => t.pos.x === 20 && t.pos.y === 1)).toMatchObject({ state: 'pip2', doorRisk: true });
+    });
+
+    it('warns of a certain sighting of the mover whoever else a doubted door hides: previews and auto-advance', () => {
+        // Masked jun idles at (18, 1), where the guard could see them only through the door; masked mara walks from the
+        // far corner into the guard's plain view. Neither side of the door is seen this turn.
+        const build = (door: 'open' | 'closed'): { world: ReadonlyWorld; state: State } => {
+            const walls: FixtureOptions['walls'] = [0, 1, 2, 3, 4].map(y => ({
+                between: [P(20, y), P(21, y)] as [Pos, Pos], ...(y === 1 ? { door: { id: 'd', start: 'closed' as const } } : {})
+            }));
+            const people = [clerk(P(24, 1), { id: 'guard', role: 'guard', observer: 'enforcer' })];
+            const world = freezeWorld({ ...(clonePlain(fixtureWorld(Array.from({ length: 5 }, () => '.'.repeat(26)), { walls, people })) as World), intel: { guardRota: true } });
+            const start = initialState(world, { seed: 1, crew: [{ id: 'jun', pos: P(18, 1), masked: true }, { id: 'mara', pos: P(25, 4), masked: true }] });
+            return {
+                world, state: patch(start, s => {
+                    s.doors.d = { status: door };
+                    const fresh = decodeBits(s.knowledge.fresh, world.width * world.height);
+                    fresh[1 * world.width + 20] = fresh[1 * world.width + 21] = 0;
+                    s.knowledge.fresh = encodeBits(fresh);
+                })
+            };
+        };
+        const path = [P(24, 3), P(23, 2)];
+        for (const door of ['open', 'closed'] as const) {
+            const { world, state } = build(door);
+            const d = doorDoubt(world, state)!;
+            expect(d.doors.has('d')).toBe(true);
+            expect(sightDoubted(world, d, P(24, 1), P(18, 1))).toBe(true);
+            expect(sightDoubted(world, d, P(24, 1), P(23, 2))).toBe(false);
+            const move: Command = { type: 'move', crew: 'mara', path };
+            const shown = actionPreview(world, state, move);
+            if (!shown.ok) throw new Error(shown.reason);
+            expect(shown.witnesses).toContainEqual(expect.objectContaining({ observer: 'guard', crew: 'mara', what: 'exposed' }));
+            expect(shown.witnesses.some(w => w.crew === 'jun')).toBe(false);
+            expect(previewDanger(world, state, move)?.stop).toMatch(/would make/);
+            expect(safeLeg(world, state, 'mara', path)).toMatchObject({ path: [P(24, 3)], unsafeAt: P(23, 2) });
+        }
     });
 
     it('judges by the door as it is once it is seen this turn', () => {

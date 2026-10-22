@@ -5,7 +5,7 @@ import type { Sighting, Why } from '../rules/perceive';
 import { pipsOf } from '../rules/suspicion';
 import type { MoveMode } from '../crew/movement';
 import type { Effect } from './effect';
-import { judgePath, judgeStay, safeFloor, type FloorOptions, type Judged } from './floor';
+import { judgePath, judgeStay, safeFloor, tintOf, type FloorOptions, type Judged } from './floor';
 import { previewPicture } from './picture';
 
 /*
@@ -14,11 +14,12 @@ import { previewPicture } from './picture';
  * from the very sightings the tint was judged from, on the crew's picture, so it never names someone the crew doesn't
  * know. Tiles the crew can't vouch for (grey, unknown risk, or reached through such) also say why, after any lines:
  * unknown risk names the worst an unseen observer could do there (`unknownWatcher`, decision 24), and every tile one
- * could stand on to do anything (`unknownWatchers`); a door not seen this turn says it could change who sees them
- * (`doorRisk`), or that it could be locked on the way (decision 44).
+ * could stand on to do anything (`unknownWatchers`); a door not seen this turn says it could make it worse
+ * than the lines say (`doorRisk`: the lines are what happens however it stands), or that it could be locked on the way
+ * (decision 44).
  */
 
-const DOOR_RISK = 'A door not seen this turn could change who sees you';
+const DOOR_RISK = 'A door not seen this turn could make it worse';
 
 export interface Explanation {
     /** Who: an NPC's or a camera's id (the portrait), or null for what the crew doesn't know. */
@@ -149,7 +150,7 @@ export function explain(
         judged = judgeStay(world, state, crewId, options);
         knowledge = floorKnowledge(world, state, tile, who);
         unknownPath = false;
-        doorRisk = judged.doubt;
+        doorRisk = tintOf(judged.now, judged.next, knowledge, false, judged.doubt).doorRisk;
     } else {
         const drawn = options.path ?? safeFloor(world, state, crewId, options).at(tile)?.path;
         if (!drawn?.length) return [];

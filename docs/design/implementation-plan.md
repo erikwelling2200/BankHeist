@@ -945,28 +945,35 @@ Later milestones: within each milestone, the `∥` notes in §3 apply. UI packag
     blueprint's layout is known from the start, and one elsewhere once its tile has been seen: from then on it is a
     known camera (feed status unknown counts as live) and never unknown risk. Each kind has its own reach (an Alerted
     NPC's 8; a camera's 7, none on a dark tile for cameras blind in the dark), and frisk range only matters for NPCs.
-44. **Three tile states: hidden, not seen this turn, seen this turn (§8.8, §8.15, §17.8; `tileVisibility`).** Hidden
-    is a tile neither on the blueprint's layout nor ever seen (without Blueprints, the Staff and Secure rooms until
-    looked into): an opaque dark block, nothing of the room drawn (props, cameras, the floor, doors, people as they
-    are), grey in the safe floor. Seen this turn is a fresh tile: drawn as it is, people included. Every other tile is
-    not seen this turn (stale, the grey veil); public floor starts there, never hidden. On a stale tile what doesn't
-    move is known (the layout, furniture, cameras, whether a door locks); what moves isn't: an NPC is drawn there only
-    as a predicted or ghost marker, never as it is, and a door shows as last seen, plain closed if never seen.
-    Predicted and ghost markers show over hidden tiles too (above the block), their cones and walks drawn only over
-    tiles that aren't hidden. A door whose status the crew can't vouch for (`doorDoubt`: no tile beside it seen this
-    turn, and a status something unseen could change; not breached, jammed, or an open one that never swings shut)
-    never shows through a preview: the safe floor judges on the picture (`previewPicture`, doors as pictured) and
-    hatches any tile such a door could change (`doorRisk`: a known observer's sight of a tile passed or ended on, a
-    dash's reach at an NPC, a known NPC's sight from its walk or a walk it could be locked out of), so every tint
-    that isn't hatched is what happens however those doors stand; an action preview counts a known observer whose
-    sight or hearing of the crew such a door could decide as unknown; unknown observers look through every such door
-    as if open. The crew plans on that picture (`crewPicture`): a move through a door pictured open or closed walks
-    on, opening a closed one; one found locked or jammed stops the move on the tile before it, the action spent and
-    the move final (`moveCut`, reason `door`, with the status found: "It's locked!"), as a bump does, and the preview
-    shows the drawn path. A path through such a door that could refuse the crew member (it has a lock they hold no key
-    to, or only hidden tiles beside it, so whether it locks is unknown) is hatched from there on (`unknownPath`).
-    Unknown NPCs may stand on stale or hidden tiles; unknown cameras only on hidden ones. Why: a clear visual of what
-    is and isn't known; immobile is known, mobile is unknown when not seen this turn.
+44. **Three tile states: hidden, not seen this turn, seen this turn (§8.8, §8.15, §17.8; `tileVisibility`).** Hidden is
+    a tile neither on the blueprint's layout nor ever seen (without Blueprints, the Staff and Secure rooms until looked
+    into): an opaque dark block, nothing of the room drawn (props, cameras, the floor, doors, people as they are; flat,
+    a raised floor under it not lifted), grey in the safe floor. Seen this turn is a fresh tile: drawn as it is, people
+    included. Every other tile is not seen this turn (stale, the grey veil); public floor starts there, never hidden. On
+    a stale tile what doesn't move is known (the layout, furniture, cameras, whether a door locks); what moves isn't: an
+    NPC is drawn there only as a predicted or ghost marker, never as it is, and a door shows as last seen, plain closed
+    if never seen. Predicted and ghost markers show over hidden tiles too (above the block, at floor level), their cones
+    and walks, the cameras' cones, a noise's ring and the reach band drawn only over tiles that aren't hidden. A door
+    whose status the crew can't vouch for (`doorDoubt`: no tile beside it seen this turn, and a status something unseen
+    could change; not breached, jammed, or an open one that never swings shut: built open, propped, the vault's) never
+    shows through a preview: previews and the safe floor judge with every such door shut (`withDoubtedShut`:
+    `previewPicture`, and `previewCertain` for action previews and auto-advance), and sight and hearing only grow as
+    doors open, so all they show happens however those doors stand: the certain lower bound, never hidden. The world
+    phase's walks don't grow that way, so an NPC that reacts to something such a door decides counts none of its
+    world-phase sightings, and one whose walk such a door could stop counts only its steps before it (`CertainWalks`). A
+    tile such a door could make worse than that (`doorRisk`: a known observer's sight of a tile passed (a `!`) or ended
+    on, a dash's reach at an NPC, a known NPC's or camera's world-phase sight through one or from beyond one that could
+    stop it) is hatched over its certain tint; a red one can't get worse; green with it is unknown risk. An action
+    preview shows every sighting and hearing that happens with them shut, so a certain one is never dropped for another
+    observer's doubted line; a known NPC whose previewed walk one could stop counts as unknown. Unknown observers look
+    through every such door as if open. The crew plans on that picture (`crewPicture`): a move through a door pictured
+    open or closed walks on, opening a closed one; one found locked or jammed stops the move on the tile before it, the
+    action spent and the move final (`moveCut`, reason `door`, with the status found: "It's locked!"), as a bump does,
+    and the preview shows the drawn path. A path through such a door that could refuse the crew member (it has a lock
+    they hold no key to, or only hidden tiles beside it, so whether it locks is unknown) is hatched from there on
+    (`unknownPath`). Unknown NPCs may stand on stale or hidden tiles; unknown cameras only on hidden ones. Why: a clear
+    visual of what is and isn't known; immobile is known, mobile is unknown when not seen this turn; and uncertainty may
+    only add a warning, never hide a certain one (a hatch over a red eye would hide the danger the player most needs).
 
 ### Critical files for implementation
 

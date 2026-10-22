@@ -1,6 +1,6 @@
 import {
     actionPreview, assertPlainJson, autoStep, clonePlain, explain, pathSafety, safeFloor, safeFloorJob, type ActionPreview, type CarrierChanges, type Explanation, type FloorBand, type FloorJob,
-    type PathSafety, type SafeFloor, commit, deepFreeze, hashOf, noticedUnseen, popUndo, preview, projectEvents, projectPreviewEvents, RECENT_EVENTS, recordUndo, SaveFormatError, stableJson,
+    type PathSafety, type SafeFloor, commit, deepFreeze, hashOf, noticedUnseen, popUndo, preview, previewCertain, projectEvents, projectPreviewEvents, RECENT_EVENTS, recordUndo, SaveFormatError, stableJson,
     type AutoOptions, type AutoStepResult, type AutoStop, type Command, type CommitResult, type Pos, type PreviewResult, type ReadonlyWorld, type Routes, type SimEvent, type State,
     type UndoStack, withLayoutCameras
 } from '../sim';
@@ -422,9 +422,13 @@ export class Session {
         return cached.result;
     }
 
-    /** The preview the HUD and overlays may show: `preview` projected to what the crew can know. */
+    /**
+     * The preview the HUD and overlays may show: `preview` with the events of `previewCertain` (the doors the crew can't
+     * vouch for shut) projected to what the crew can know.
+     */
     playerPreview(cmd: Command): PlayerPreview {
-        return projectPreview(this.preview(cmd), this._state, this.world);
+        const truth = this.preview(cmd);
+        return { ...truth, events: projectPreviewEvents(this.world, this._state, previewCertain(this.world, this._state, cmd)) };
     }
 
     /**

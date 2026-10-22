@@ -155,18 +155,26 @@ export function previewHearers(known: KnownView, preview: ActionPreview): Hearer
     return out;
 }
 
-/** Every tile a previewed command's noises reach (the rings as drawn), or undefined when it makes none. */
-export function previewNoise(preview: ActionPreview): Pos[] | undefined {
+/**
+ * Every tile a previewed command's noises reach (the rings as drawn), or undefined when it makes none. With `known`,
+ * only those that aren't hidden: sound floods round walls, so a ring over a hidden room would draw its layout.
+ */
+export function previewNoise(preview: ActionPreview, known?: KnownView): Pos[] | undefined {
     if (!preview.ok || !preview.noises.length) return undefined;
     const seen = new Set<string>(), out: Pos[] = [];
     for (const n of preview.noises) {
         for (const t of n.tiles) {
             const k = `${t.x},${t.y}`;
-            if (!seen.has(k)) { seen.add(k); out.push({ x: t.x, y: t.y }); }
+            if (seen.has(k) || (known && hiddenAt(known, t))) continue;
+            seen.add(k);
+            out.push({ x: t.x, y: t.y });
         }
     }
     return out;
 }
+
+/** The tiles of `tiles` that aren't hidden (decision 44): a band drawn over a hidden room would draw its layout. */
+export const unhiddenTiles = (known: KnownView, tiles: readonly Pos[]): Pos[] => tiles.filter(t => !hiddenAt(known, t));
 
 /** Someone who would notice a previewed command (§8.4), and what they'd make of it: their plate says so. */
 export interface WitnessVM { id: string; pos: Pos; lying: boolean; what: Witness['what']; by: Witness['by']; pips?: number }
@@ -212,10 +220,13 @@ export interface FloorTileVM {
     pips: number;
     eye: boolean;
     camera: boolean;
+    /** A door the crew can't vouch for could make it worse than this (hatched grey over the tint; `unknownRisk` is it). */
+    doorRisk: boolean;
 }
 
 const tintVM = (pos: Pos, band: 'move' | 'dash', t: Tint): FloorTileVM => ({
-    pos: { x: pos.x, y: pos.y }, band, kind: t.kind, hatched: t.hatched, pips: t.pips.reduce((n, p) => n + p.pips, 0), eye: t.eye, camera: t.camera
+    pos: { x: pos.x, y: pos.y }, band, kind: t.kind, hatched: t.hatched, pips: t.pips.reduce((n, p) => n + p.pips, 0), eye: t.eye, camera: t.camera,
+    doorRisk: t.doorRisk
 });
 
 /** The safe floor's Move and Dash tiles (the crew member's own tile, `stay`, is under them: not drawn). */
@@ -223,24 +234,26 @@ export function floorTiles(floor: { readonly tiles: readonly SafeFloor['tiles'][
     return floor.tiles.flatMap(t => (t.band === 'stay' ? [] : [tintVM(t.pos, t.band, t.tint)]));
 }
 
-/** One step of a drawn path, tinted (§8.8 "along the whole drawn path"). */
-export interface PathStepVM { pos: Pos; kind: TintKind; hatched: boolean }
+/** One step of a drawn path, tinted (§8.8 "along the whole drawn path"); `doorRisk` as on `FloorTileVM`. */
+export interface PathStepVM { pos: Pos; kind: TintKind; hatched: boolean; doorRisk: boolean }
 
 /** A drawn or previewed path judged by `pathSafety`: each step's tint, the eye on the first unsafe step, the end's tile. */
 export interface PathVM { steps: PathStepVM[]; eyeAt: number | null; end: FloorTileVM }
 
 /**
- * Each step passed is red where someone would see a `!` (only `!` counts mid-move; a camera's is the camera's), else
- * what the crew knows of it; the end is tinted as the safe floor tints it (hatched when the world phase does it).
+ * Each step passed is red where someone would see a `!` for certain (only `!` counts mid-move; a camera's is the
+ * camera's), else unknown risk where a door the crew can't vouch for could let someone known see one (`doubted`), else
+ * what the crew knows of it; the end is tinted as the safe floor tints it (hatched when the world phase does it). A
+ * certain camera's `!` that a door could make an NPC's too is `doorRisk`.
  */
 export function pathView(safety: PathSafety): PathVM | undefined {
     if (!safety.ok) return undefined;
     const last = safety.steps.length - 1;
     const steps = safety.steps.map((s, i): PathStepVM => {
-        if (i === last) return { pos: { ...s.pos }, kind: safety.end.tint.kind, hatched: safety.end.tint.hatched };
-        const kind: TintKind = s.doubted ? 'unknownRisk' : s.sightings.length ? (s.sightings.every(x => x.by === 'camera') ? 'camera' : 'red')
-            : s.passing === 'hidden' ? 'grey' : s.passing === 'unknownRisk' ? 'unknownRisk' : 'safe';
-        return { pos: { ...s.pos }, kind, hatched: false };
+        if (i === last) return { pos: { ...s.pos }, kind: safety.end.tint.kind, hatched: safety.end.tint.hatched, doorRisk: safety.end.tint.doorRisk };
+        const seen: TintKind | null = s.sightings.length ? (s.sightings.every(x => x.by === 'camera') ? 'camera' : 'red') : null;
+        const kind: TintKind = seen ?? (s.doubted ? 'unknownRisk' : s.passing === 'hidden' ? 'grey' : s.passing === 'unknownRisk' ? 'unknownRisk' : 'safe');
+        return { pos: { ...s.pos }, kind, hatched: false, doorRisk: s.doubted && kind !== 'red' };
     });
     return { steps, eyeAt: safety.firstUnsafe, end: tintVM(safety.end.pos, safety.mode, safety.end.tint) };
 }
@@ -315,7 +328,10 @@ export interface CameraVM {
     next?: Pos[];
 }
 
-/** The cameras the crew knows of (`known.cameras`); with `cones`, the tiles each watches, on the crew's picture. */
+/**
+ * The cameras the crew knows of (`known.cameras`); with `cones`, the tiles each watches, on the crew's picture, none
+ * over hidden tiles (walls and furniture clip a cone, and would draw the hidden layout, as `npcCone`).
+ */
 export function cameraViews(world: ReadonlyWorld, state: State, known: KnownView, cones: boolean): CameraVM[] {
     const picture = cones ? crewPicture(world, state) : undefined;
     const profiles = profilesOf(world);
@@ -330,10 +346,12 @@ export function cameraViews(world: ReadonlyWorld, state: State, known: KnownView
         const field = (k: number) => seenTiles(world, picture, { pos: def.pos, facing: def.facings[k % def.facings.length]!, profile });
         const f = field(now.facing);
         for (const t of f.tiles) {
-            if (t.x === def.pos.x && t.y === def.pos.y) continue;
+            if ((t.x === def.pos.x && t.y === def.pos.y) || hiddenAt(known, t)) continue;
             (bandAt(f, t) === 'core' ? vm.core : vm.peripheral).push({ x: t.x, y: t.y });
         }
-        if (def.facings.length > 1 && loopLeft === undefined) vm.next = field(now.facing + 1).tiles.filter(t => t.x !== def.pos.x || t.y !== def.pos.y).map(t => ({ x: t.x, y: t.y }));
+        if (def.facings.length > 1 && loopLeft === undefined) {
+            vm.next = field(now.facing + 1).tiles.filter(t => (t.x !== def.pos.x || t.y !== def.pos.y) && !hiddenAt(known, t)).map(t => ({ x: t.x, y: t.y }));
+        }
         return vm;
     });
 }

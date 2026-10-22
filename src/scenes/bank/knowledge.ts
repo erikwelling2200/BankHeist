@@ -4,6 +4,7 @@ import { TILE } from '../../level/constants';
 import type { Heights } from './heights';
 import { DEPTH } from './layers';
 import type { ShownProp } from './props';
+import type { RaisedFloors } from './raised';
 
 /** A question mark, five pixels by seven, for rooms the blueprint doesn't show. */
 const QUESTION = [' ### ', '#   #', '    #', '   # ', '  #  ', '     ', '  #  '];
@@ -25,6 +26,7 @@ export class Knowledge {
     private veil?: Phaser.GameObjects.Graphics;
     private hidden?: { width: number; bits: Uint8Array };
     private props: readonly ShownProp[] = [];
+    private raised?: Pick<RaisedFloors, 'veil'>;
 
     constructor(private readonly scene: Phaser.Scene, private readonly outlines: NonNullable<BankData['outlines']>, private readonly heights?: Heights) {
         // A raised room's block goes up and down with its floor.
@@ -37,6 +39,11 @@ export class Knowledge {
     /** The props on screen, so play can leave those on hidden tiles undrawn. */
     trackProps(props: readonly ShownProp[]): void {
         this.props = props;
+    }
+
+    /** The raised floors, so play can leave those on hidden tiles undrawn. */
+    trackRaised(raised: Pick<RaisedFloors, 'veil'>): void {
+        this.raised = raised;
     }
 
     /** Shows everything (`full`) or only what the blueprint knows. */
@@ -66,8 +73,9 @@ export class Knowledge {
     }
 
     /**
-     * Play (decision 44): draws the tiles whose visibility code is hidden (0) as opaque blocks, and hides the props on
-     * them. Drawn again only when the hidden tiles change; true when they did.
+     * Play (decision 44): draws the tiles whose visibility code is hidden (0) as opaque blocks, flat (a raised floor under
+     * one would show in its outline), and hides the props and raised floors on them. Drawn again only when the hidden
+     * tiles change; true when they did.
      */
     showHidden(visibility: Uint8Array, width: number): boolean {
         const bits = visibility.map(v => (v === 0 ? 1 : 0)), was = this.hidden;
@@ -75,6 +83,7 @@ export class Knowledge {
         this.hidden = { width, bits };
         this.drawHidden(width, bits);
         const at = (tx: number, ty: number) => tx >= 0 && ty >= 0 && tx < width && bits[ty * width + tx] === 1;
+        this.raised?.veil(at);
         for (const p of this.props) {
             const gone = at(p.tx, p.ty);
             for (const image of p.images) {
@@ -90,18 +99,12 @@ export class Knowledge {
         this.veil?.destroy();
         const g = (this.veil = this.scene.add.graphics().setDepth(DEPTH.knowledge)), height = bits.length / width;
         const hidden = (x: number, y: number) => x >= 0 && y >= 0 && x < width && y < height && bits[y * width + x] === 1;
-        const lift = (x: number, y: number) => this.heights?.lift(x, y) ?? 0;
         g.fillStyle(BLOCK, 1);
-        for (let y = 0; y < height; y++) for (let x = 0; x < width; x++) {
-            if (!hidden(x, y)) continue;
-            // A raised tile's block reaches down over the face of the storey under it, unless the block below does.
-            const up = lift(x, y), below = hidden(x, y + 1) ? lift(x, y + 1) : 0;
-            g.fillRect(x * TILE, y * TILE - up, TILE, TILE + Math.max(0, up - below));
-        }
+        for (let y = 0; y < height; y++) for (let x = 0; x < width; x++) if (hidden(x, y)) g.fillRect(x * TILE, y * TILE, TILE, TILE);
         g.fillStyle(EDGE, 0.9);
         for (let y = 0; y < height; y++) for (let x = 0; x < width; x++) {
             if (!hidden(x, y)) continue;
-            const top = y * TILE - lift(x, y);
+            const top = y * TILE;
             if (!hidden(x, y - 1)) g.fillRect(x * TILE, top, TILE, 1);
             if (!hidden(x, y + 1)) g.fillRect(x * TILE, top + TILE - 1, TILE, 1);
             if (!hidden(x - 1, y)) g.fillRect(x * TILE, top, 1, TILE);
@@ -112,12 +115,12 @@ export class Knowledge {
             for (let y = p.y; y < p.y + p.h; y++) for (let x = p.x; x < p.x + p.w; x++) if (!hidden(x, y)) return false;
             return true;
         };
-        for (const r of this.outlines) if (r.parts.every(whole)) this.question(g, r);
+        for (const r of this.outlines) if (r.parts.every(whole)) this.question(g, r, true);
     }
 
-    /** A pixel question mark in the middle of a room's largest rectangle. */
-    private question(g: Phaser.GameObjects.Graphics, r: NonNullable<BankData['outlines']>[number]): void {
-        const lift = (x: number, y: number) => this.heights?.lift(x, y) ?? 0;
+    /** A pixel question mark in the middle of a room's largest rectangle (lifted with a raised floor unless `flat`). */
+    private question(g: Phaser.GameObjects.Graphics, r: NonNullable<BankData['outlines']>[number], flat = false): void {
+        const lift = (x: number, y: number) => (flat ? 0 : this.heights?.lift(x, y) ?? 0);
         const main = r.parts[0]!, cx = Math.floor((main.x + main.w / 2) * TILE) - 5, cy = Math.floor((main.y + main.h / 2) * TILE) - 7 - lift(main.x, main.y);
         g.fillStyle(EDGE, 1);
         QUESTION.forEach((row, y) => [...row].forEach((c, x) => c === '#' && g.fillRect(cx + x * 2, cy + y * 2, 2, 2)));

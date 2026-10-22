@@ -6,7 +6,7 @@ import type { Command, DeepReadonly, Pos, ReadonlyWorld, SimEvent, State } from 
 import { crewBudget, crewMoveOptions, planningState } from '../crew/movement';
 import { MOVE_ACTIONS } from '../data/movement';
 import { LYING_STATUSES, validatePath } from '../geo/move';
-import { isKnownNow, knownView, markerKind, projectEvents, projectPreviewEvents } from './knowledge';
+import { isKnownNow, knownView, markerKind, previewCertain, projectEvents, projectPreviewEvents } from './knowledge';
 import { blockIndexAt } from './npc/schedule';
 import { isPresent, personOf } from './npc/walk';
 import { onFloor } from './place';
@@ -141,7 +141,7 @@ const UNSAFE_EVENTS: ReadonlySet<string> = new Set(['suspicionRaised', 'exposed'
 export function previewDanger(world: ReadonlyWorld, before: State, cmd: Command): { stop: string } | null {
     let events: SimEvent[];
     try {
-        events = projectPreviewEvents(world, before, preview(world, before, cmd));
+        events = projectPreviewEvents(world, before, previewCertain(world, before, cmd));
     } catch (e) {
         if (e instanceof IllegalCommand || e instanceof PreviewRollError) return { stop: e.message };
         throw e;

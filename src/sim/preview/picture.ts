@@ -1,5 +1,5 @@
 import type { CameraState, NpcState, ReadonlyWorld, State } from '../core/types';
-import { isKnownNow, withPicturedDoors } from '../rules/knowledge';
+import { isKnownNow, withDoubtedShut } from '../rules/knowledge';
 import { draggedBy } from '../rules/place';
 
 /*
@@ -15,8 +15,10 @@ import { draggedBy } from '../rules/place';
  *   a looped or dead feed from a live one, so every camera it knows counts as live (§8.8 "cameras whose feed status is
  *   unknown count as live"); once it is scouted, cameras are as they are.
  * - Doors: one no tile beside which is seen this turn is as last seen (`withPicturedDoors`, decision 44), as moves are
- *   planned (`crewPicture`). A verdict that a door the crew can't vouch for could change is the judge's to hatch
- *   (floor.ts, `doorDoubt`).
+ *   planned (`crewPicture`), and one the crew can't vouch for (`doorDoubt`) is shut (`withDoubtedShut`: closed, or
+ *   locked when pictured locked). Sight and hearing only grow as doors open, so what is seen or heard here is seen or
+ *   heard however those doors stand: the certain lower bound. Whether such a door could make a verdict worse is the
+ *   judge's to hatch (floor.ts).
  *
  * It is a shallow copy (the truth itself when nothing differs): never change it. Cached per state object.
  */
@@ -31,7 +33,7 @@ export function previewPicture(world: ReadonlyWorld, state: State): State {
         if (isKnownNow(world, state, n.id) || n.status === 'away' || draggedBy(state, n.id)) return;
         (npcs ??= [...state.npcs])[i] = { ...n, status: 'away', intent: { path: [] } };
     });
-    const base: State = withPicturedDoors(world, state, npcs ? { ...state, npcs } : state);
+    const base: State = withDoubtedShut(world, state, npcs ? { ...state, npcs } : state);
     const k = state.knowledge;
     let cameras: Record<string, CameraState> | null = null;
     for (const def of world.cameras) {

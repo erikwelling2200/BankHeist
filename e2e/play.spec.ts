@@ -617,8 +617,11 @@ test('a carrier counts down in the ledger with the check-ins, then the Alarm: "A
         guard.status = 'alerted'; guard.alerted = true;
         know(st, guard);
         st.carriers.push(carrier(st, 'guardRadio', guard, 3));
-        // Every camera known (as if cased), the CCTV room not scouted: their feed status unknown, so each counts as live.
+        // Every camera known (as if cased: every tile seen, so no cone is clipped to nothing over a hidden room), the
+        // CCTV room not scouted: their feed status unknown, so each counts as live.
         st.knowledge.cameras = w.cameras.map(c => c.id).sort();
+        const n = w.width * w.height, bits = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
+        st.knowledge.seen = '/'.repeat(Math.floor(n / 6)) + (n % 6 ? bits[(1 << (n % 6)) - 1] : '');
         return { state: st, info: { guard: guard.id, camera: w.cameras[0] && w.cameras[0].pos } };
     })()`);
     expect(setup).not.toBeNull();

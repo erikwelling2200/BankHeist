@@ -132,11 +132,12 @@ export class People {
      * one; there the shadow and ring go just after the floor they lie on, as the ground's lie under everything standing.
      */
     private place(p: PersonSprite): void {
-        const tx = Math.floor(p.x / TILE), ty = Math.floor(p.y / TILE), lift = this.heights?.lift(tx, ty) ?? 0;
-        const raised = (this.heights?.region(tx, ty) ?? -1) >= 0, floorDepth = DEPTH.standing + ty * TILE + RAISED_DEPTH;
-        const x = Math.round(p.x - PERSON_SIZE.w / 2) + PERSON_SIZE.w / 2, y = Math.round(p.y - PERSON_SIZE.d / 2) + PERSON_SIZE.d / 2 - lift;
-        // A marker over a hidden tile's block (`alsoAbove`) is drawn over the knowledge layer, its shadow with it.
+        // A marker over a hidden tile's block (`alsoAbove`) is drawn over the knowledge layer, its shadow with it, at floor
+        // level: the block is flat, so a raised floor under it doesn't show.
         const above = !p.ring && !!this.aboveToo?.(p.index, p.x, p.y) ? DEPTH.knowledge + 1 : 0;
+        const tx = Math.floor(p.x / TILE), ty = Math.floor(p.y / TILE), lift = above ? 0 : this.heights?.lift(tx, ty) ?? 0;
+        const raised = !above && (this.heights?.region(tx, ty) ?? -1) >= 0, floorDepth = DEPTH.standing + ty * TILE + RAISED_DEPTH;
+        const x = Math.round(p.x - PERSON_SIZE.w / 2) + PERSON_SIZE.w / 2, y = Math.round(p.y - PERSON_SIZE.d / 2) + PERSON_SIZE.d / 2 - lift;
         p.image.setPosition(p.left, p.top - lift).setDepth(DEPTH.standing + Math.round(p.y - PERSON_SIZE.d / 2) + PERSON_SIZE.d + above);
         p.shadow.setPosition(x, y - (p.person.pose ? LYING_SHADOW_RISE : 0)).setDepth(above ? above - 0.5 : raised ? floorDepth + 0.001 : DEPTH.shadows);
         p.ring?.setPosition(x, y).setDepth(raised ? floorDepth + 0.002 : DEPTH.shadows + 0.5);

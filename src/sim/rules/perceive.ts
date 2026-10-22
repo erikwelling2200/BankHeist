@@ -407,13 +407,36 @@ export function sightingsAlong(
     return strongestAlong(world, state, npcWatcher(world, npc), poses, member, look, tile);
 }
 
+/**
+ * What of the coming world phase is certain whatever the doors the crew can't vouch for (decision 44, the safe floor's
+ * lower bound): an NPC whose walk such a door could change (it reacts to something one decides) has no sighting that
+ * counts, and one such a door could stop counts only its walk up to that door.
+ */
+export interface CertainWalks {
+    /** NPCs none of whose sightings or acts count. */
+    skip: ReadonlySet<string>;
+    /** How many steps of its committed intent an NPC surely walks, or undefined: all of them. */
+    steps(npc: DeepReadonly<NpcState>): number | undefined;
+}
+
+/** An NPC's poses as far as they are certain (`CertainWalks`): its standing pose and the steps it surely takes. */
+function certainPoses(walk: readonly PoseAt[], npc: DeepReadonly<NpcState>, walked: DeepReadonly<Intent> | undefined, certain?: CertainWalks): readonly PoseAt[] {
+    if (!certain) return walk;
+    if (certain.skip.has(npc.id)) return [];
+    const k = certain.steps(npc);
+    return k === undefined ? walk : walk.slice(0, 1 + Math.min(k, walked?.path.length ?? 0));
+}
+
 /** Every sighting of the coming world phase, including those that do nothing; cameras look where they pan to (§8.3). */
-function worldSightings(world: ReadonlyWorld, state: State, poses: WorldPoses, crewId: string, tile: Pos, look: CrewLook | undefined): Sighting[] {
+function worldSightings(
+    world: ReadonlyWorld, state: State, poses: WorldPoses, crewId: string, tile: Pos, look: CrewLook | undefined, certain?: CertainWalks
+): Sighting[] {
     const out: Sighting[] = [];
     const member = crewMember(state, crewId), seen = look ?? crewLook(member);
     for (const npc of state.npcs) {
-        const walk = poses.byNpc.get(npc.id);
-        if (!walk) continue;
+        const all = poses.byNpc.get(npc.id);
+        if (!all) continue;
+        const walk = certainPoses(all, npc, poses.walked[npc.id], certain);
         const s = strongestAlong(world, state, npcWatcher(world, npc), walk, member, seen, tile);
         if (s) out.push(s);
     }
@@ -429,6 +452,8 @@ function worldSightings(world: ReadonlyWorld, state: State, poses: WorldPoses, c
 export interface WorldPhaseOptions extends AssessOptions {
     /** The NPCs' walks, from `worldPoses` on the same state and sight map: work them out once for many tiles. */
     poses?: WorldPoses;
+    /** Only what is certain whatever the doors the crew can't vouch for (`CertainWalks`). */
+    certain?: CertainWalks;
 }
 
 /**
@@ -449,15 +474,22 @@ export function assessWorldPhase(world: ReadonlyWorld, state: State, sight: Sigh
             // The crew member (and any body they drag) on the tile, on a copy.
             const scratch = clonePlain(placeCrew(state, crewId, tile));
             applySightings({ world, state: scratch, dice: new Dice(scratch, 'preview'), emit: () => {} }, end);
-            return assessWorldPhase(world, scratch, sightMap(world, scratch), crewId, tile, options.look ? { look: options.look } : {});
+            return assessWorldPhase(world, scratch, sightMap(world, scratch), crewId, tile, {
+                ...(options.look ? { look: options.look } : {}), ...(options.certain ? { certain: options.certain } : {})
+            });
         }
     }
     const base = options.poses?.sight === sight ? options.poses : worldPoses(world, state, sight);
     const poses = posesWith(world, state, base, crewId, tile);
-    const out = worldSightings(world, state, poses, crewId, tile, options.look).filter(s => s.outcome !== '-');
+    const out = worldSightings(world, state, poses, crewId, tile, options.look, options.certain).filter(s => s.outcome !== '-');
     const deadline = deadlineOutcome(world, state, crewId, tile, options.look);
     if (deadline) out.push(deadline);
-    out.push(...npcActSightings(world, state, crewId, tile, options.look));
+    // An act at the end of a walk that isn't certain isn't either.
+    const { certain } = options, sure = (id: string): boolean => {
+        const npc = certain && state.npcs.find(n => n.id === id);
+        return !npc || (!certain!.skip.has(id) && certain!.steps(npc) === undefined);
+    };
+    out.push(...npcActSightings(world, state, crewId, tile, options.look).filter(s => sure(s.observer)));
     return out;
 }
 

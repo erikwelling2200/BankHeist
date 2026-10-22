@@ -82,6 +82,11 @@ export class RaisedFloors {
         }
     }
 
+    /** Hides the raised tiles `hidden` says are hidden (decision 44: the hidden block is flat, nothing of the floor shows). */
+    veil(hidden: (tx: number, ty: number) => boolean): void {
+        for (const t of this.tiles) t.image.setVisible(!hidden(t.tx, t.ty));
+    }
+
     private place(t: RaisedFloors['tiles'][number]): void {
         const s = this.heights.step(t.region);
         t.image.setFrame(t.frames[s]!).setY(t.ty * TILE - this.heights.liftAtStep(t.tx, t.ty, s));
