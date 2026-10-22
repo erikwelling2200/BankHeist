@@ -119,11 +119,13 @@ are:
 - **+1 next phase** and **exposed next phase:** the same states hatched.
 - **Camera:** a camera glyph.
 - **Unscouted:** grey.
-- **Unknown risk:** grey, hatched (no glyph): someone the crew hasn't seen could react to this crew member there.
+- **Unknown risk:** grey, hatched (no glyph): someone the crew hasn't seen could react to this crew member there: an
+  NPC from a tile a person can stand on that the crew hasn't seen since the last world phase, or a camera from a tile in
+  a room the blueprint only outlines that nobody has seen.
 
 The path's eye icon sits on the **first** unsafe tile, and long-pressing that tile answers who and why: the NPC's
 position next phase is ghosted, with its cone and a sightline to the tile. Long-pressing an unknown-risk tile outlines
-in pale grey, each with a dot, every tile from which someone unseen could react there (fainter for those watching a
+in pale grey, each with a dot, every tile from which someone unseen (an NPC or a camera, by those rules) could react there (fainter for those watching a
 tile passed on the way), with a faint dotted sightline from the worst.
 
 ### Over heads

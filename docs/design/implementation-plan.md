@@ -937,6 +937,13 @@ Later milestones: within each milestone, the `∥` notes in §3 apply. UI packag
     drawing), their rail card or their number key selects nobody and drops any pending preview: no range, safe floor or
     action grid, as at the start of a heist. Before, a tap on their tile did nothing and their card or key only
     refreshed. A drag that starts on them still draws a path. The camera stays where it is.
+43. **Unknown observers only where one could be (§8.8, refines 24).** An unknown NPC stands only on a tile that isn't
+    fresh and that a person can stand on (not furniture: `blocksMove`, what the Move and Dash bands go round). An
+    unknown camera hangs only where the player can't see the layout: a tile never seen in a room the blueprint shows
+    only as an outline (nowhere, with Blueprints); furniture doesn't stop one. Cameras don't move, so a camera on the
+    blueprint's layout is known from the start, and one elsewhere once its tile has been seen: from then on it is a
+    known camera (feed status unknown counts as live) and never unknown risk. Each kind has its own reach (an Alerted
+    NPC's 8; a camera's 7, none on a dark tile for cameras blind in the dark), and frisk range only matters for NPCs.
 
 ### Critical files for implementation
 

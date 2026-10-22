@@ -35,6 +35,8 @@ export interface FixtureWall {
 export interface FixtureOptions {
     walls?: readonly FixtureWall[];
     zones?: readonly string[];
+    /** Rooms, a grid like the map: each character other than '.' a room of that id (the blueprint outlines non-public ones). */
+    rooms?: readonly string[];
     /** Unlit tiles, by position. */
     dark?: readonly Pos[];
     /** Tiles with something of middle height on them (a vehicle), by position. */
@@ -59,9 +61,9 @@ const SEE_THROUGH: readonly Material[] = ['glass', 'tellerGlass', 'rail', 'fence
 export function fixtureWorld(map: readonly string[], options: FixtureOptions = {}): ReadonlyWorld {
     const height = map.length, width = map[0]?.length ?? 0;
     if (!width) throw new Error('A fixture needs at least one tile');
-    const zones = options.zones;
-    if (zones && (zones.length !== height || zones.some(row => row.length !== width))) {
-        throw new Error(`The zones grid must be ${width}x${height}, like the map`);
+    const zones = options.zones, rooms = options.rooms;
+    for (const [name, grid] of [['zones', zones], ['rooms', rooms]] as const) {
+        if (grid && (grid.length !== height || grid.some(row => row.length !== width))) throw new Error(`The ${name} grid must be ${width}x${height}, like the map`);
     }
     const tiles: Tile[] = [];
     map.forEach((line, y) => {
@@ -71,7 +73,7 @@ export function fixtureWorld(map: readonly string[], options: FixtureOptions = {
             const z = zones ? zones[y]![x]! : c in ZONES ? c : '.';
             const zone = ZONES[z];
             if (!zone) throw new Error(`Unknown zone '${z}' at (${x}, ${y}): zones are '.', 's' and 'x'`);
-            tiles.push({ zone, raised: c === '^', floor: c === '^' ? RAISED_HEIGHT : 0, lit: true, blocksMove: OBJECTS.has(c), tall: c === 'T', halfCover: c === '#', room: null });
+            tiles.push({ zone, raised: c === '^', floor: c === '^' ? RAISED_HEIGHT : 0, lit: true, blocksMove: OBJECTS.has(c), tall: c === 'T', halfCover: c === '#', room: rooms && rooms[y]![x] !== '.' ? rooms[y]![x]! : null });
         });
     });
     map.forEach((line, y) => [...line].forEach((c, x) => {

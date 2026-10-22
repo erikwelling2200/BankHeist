@@ -541,7 +541,7 @@ When a crew member is selected, every reachable tile is tinted:
 | **Hatched** version of amber or red | The same outcome, but it happens during the coming world phase as NPCs walk their committed paths. |
 | **Red with a camera icon** | A camera would see a `!` and start the operator's verify carrier. Cameras whose feed status is unknown (CCTV room not scouted) count as live. |
 | **Grey** | No data: unscouted area. **Never drawn as safe.** |
-| **Hatched grey** | Unknown risk: the tile can be seen from unscouted space, so an NPC the crew doesn't know about could be watching it (§8.15), and could react to this crew member there (judged at its worst: Alerted, any role). |
+| **Hatched grey** | Unknown risk: someone the crew doesn't know about could be watching the tile (§8.15), and could react to this crew member there (judged at its worst: Alerted, any role; a camera as live): an NPC from a tile a person can stand on (not furniture) that the crew hasn't seen since the last world phase, or a camera from a tile whose layout the player can't see (unscouted, in a room the blueprint only outlines). A camera on the blueprint's layout is known from the start. |
 
 Rules:
 
@@ -681,7 +681,7 @@ The player sees the bank through the crew's eyes. This holds in stealth and in a
   even out of sight, as a dashed **predicted marker** with its route. Tagged NPCs count toward the safe-floor overlay
   like visible ones. If something knocks a tagged NPC off its routine (a noise, evidence, the alarm), its prediction
   stops and it becomes a ghost.
-- **Unknown NPCs** are not shown at all. Tiles that could be seen from unscouted space get the hatched "unknown risk"
+- **Unknown NPCs** are not shown at all. Tiles that an unknown NPC or camera could see get the hatched "unknown risk"
   pattern in the overlay (§8.8).
 - **Cameras:** with the CCTV room under control (operator neutralised and a crew member at the console), the player
   also sees what every live camera sees. Looped feeds show nothing.

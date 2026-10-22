@@ -37,7 +37,8 @@ import { previewPicture } from './picture';
  *   door set (`worldPoses`) and only the walks that change walked again. Applied likewise.
  * - **Knowledge**: a tile nobody has seen is grey and never safe; a tile where someone the crew doesn't know about
  *   could be watching and would react to this crew member (`floorKnowledge` with the crew member: `unknownRisk`,
- *   `unknownWatcher`, decision 24), or reached past one (passing it: only an unknown `!`) or through grey, is hatched
+ *   `unknownWatcher`, decisions 24 and 43: an NPC on a tile a person can stand on that isn't fresh, a camera where the
+ *   player can't see the layout), or reached past one (passing it: only an unknown `!`) or through grey, is hatched
  *   grey where the known NPCs leave it green.
  *
  * The tint is the worse of now and next (next only when strictly worse, then hatched): red (someone Exposes the crew

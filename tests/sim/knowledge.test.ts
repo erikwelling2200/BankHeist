@@ -3,7 +3,7 @@ import type { GenerateOptions } from '../../src/gen/generate';
 import { cachedBank } from '../bankCache';
 import {
     bandAt, cameraObserver, clonePlain, commit, crewLook, crewPicture, decodeBits, explain, reaction, safeFloor, unknownWatcher, unknownWatchers, deserialise, encodeBits, fieldOn, fixtureWorld, floorKnowledge, freezeWorld,
-    hashOf, initialState, isKnownNow, isUnknownRisk, noticedUnseen, pathTo, projectPreviewEvents, SaveFormatError, knownBlockers, knownView, makeNoise, markerKind, npcObserver, preview, projectEvents, reachable,
+    hashOf, initialState, isKnownNow, isUnknownRisk, noticedUnseen, pathTo, projectPreviewEvents, SaveFormatError, knownBlockers, knownView, makeNoise, markerKind, npcObserver, preview, previewPicture, projectEvents, reachable,
     serialise, sightMap, tileAt, updateKnowledge, worldFromBank, type Command, type FixtureOptions, type PersonDef, type Pos, type ReadonlyWorld,
     type SimEvent, type State, type UnknownOptions, type World
 } from '../../src/sim';
@@ -598,8 +598,38 @@ function watchersAgree(world: ReadonlyWorld, state: State, crew: string, p: Pos,
     if (w) {
         expect(all.some(a => a.from.x === w.from.x && a.from.y === w.from.y), where).toBe(true);
         expect(Math.max(...all.map(a => OUTCOME_RANK[a.reaction.outcome])), where).toBe(OUTCOME_RANK[w.reaction.outcome]);
+        expect(isUnknownRisk(world, state, p), where).toBe(true);
+    }
+    // An NPC only where a person can stand on a tile not fresh; a camera only on a tile never seen.
+    const n = world.width * world.height, seen = decodeBits(state.knowledge.seen, n), fresh = decodeBits(state.knowledge.fresh, n);
+    for (const a of all) {
+        const j = a.from.y * world.width + a.from.x;
+        if (a.by === 'npc') expect(!fresh[j] && !world.tiles[j]!.blocksMove, `${where} from (${a.from.x}, ${a.from.y})`).toBe(true);
+        else expect(seen[j], `${where} from (${a.from.x}, ${a.from.y})`).toBe(0);
     }
     return all.length;
+}
+
+/**
+ * A 12x12 open floor, every tile seen and fresh but those given: `stale` seen and not fresh, `unseen` never seen; `#`
+ * where `furniture` says. Public, but for a staff room `a` (an outline on the blueprint) where x >= 8 or y >= 10. jun
+ * Armed (a rifle) at (0, 0).
+ */
+function staged(spec: { stale?: Pos[]; unseen?: Pos[]; furniture?: Pos[]; rules?: FixtureOptions['rules'] }): { world: ReadonlyWorld; state: State } {
+    const grid = (f: (x: number, y: number) => string): string[] => Array.from({ length: 12 }, (_, y) => Array.from({ length: 12 }, (_, x) => f(x, y)).join(''));
+    const inRoom = (x: number, y: number): boolean => x >= 8 || y >= 10;
+    const rows = grid((x, y) => (spec.furniture?.some(f => f.x === x && f.y === y) ? '#' : '.'));
+    const world = fixtureWorld(rows, {
+        zones: grid((x, y) => (inRoom(x, y) ? 's' : '.')), rooms: grid((x, y) => (inRoom(x, y) ? 'a' : '.')), ...(spec.rules ? { rules: spec.rules } : {})
+    });
+    const n = world.width * world.height, seen = new Uint8Array(n).fill(1), fresh = new Uint8Array(n).fill(1);
+    for (const p of spec.stale ?? []) fresh[p.y * 12 + p.x] = 0;
+    for (const p of spec.unseen ?? []) seen[p.y * 12 + p.x] = fresh[p.y * 12 + p.x] = 0;
+    const state = patch(initialState(world, { seed: 1, crew: [{ id: 'jun', pos: P(0, 0), items: ['assaultRifle'] }] }), x => {
+        x.knowledge.seen = encodeBits(seen);
+        x.knowledge.fresh = encodeBits(fresh);
+    });
+    return { world, state };
 }
 
 describe('every tile an unknown observer could react from', () => {
@@ -639,15 +669,9 @@ describe('every tile an unknown observer could react from', () => {
     });
 
     it('picks the worst on a tie as before: an NPC over a camera, the nearest over the nearest within frisk range', () => {
-        // Frisk range 3: the nearest stale tile to (4, 4) is (8, 4), 4 away (Chebyshev 4); the nearest within frisk
+        // Frisk range 3: the nearest unseen tile to (4, 4) is (8, 4), 4 away (Chebyshev 4); the nearest within frisk
         // range is (7, 7), 4.2 away (Chebyshev 3). Armed in Public: `!` from both, to a guard and a camera alike.
-        const world = fixtureWorld(Array.from({ length: 12 }, () => '.'.repeat(12)), { rules: { friskRange: 3 } });
-        const n = world.width * world.height, fresh = new Uint8Array(n).fill(1);
-        fresh[4 * 12 + 8] = fresh[7 * 12 + 7] = 0;
-        const state = patch(initialState(world, { seed: 1, crew: [{ id: 'jun', pos: P(0, 0), items: ['assaultRifle'] }] }), x => {
-            x.knowledge.seen = encodeBits(new Uint8Array(n).fill(1));
-            x.knowledge.fresh = encodeBits(fresh);
-        });
+        const { world, state } = staged({ unseen: [P(8, 4), P(7, 7)], rules: { friskRange: 3 } });
         const all = unknownWatchers(world, state, 'jun', P(4, 4));
         expect(all.map(w => [w.from, w.reaction.outcome])).toEqual([[P(8, 4), '!'], [P(7, 7), '!']]);
         // A camera there would see `!` too (in its core, 4 away): the guard, judged first, keeps the tie.
@@ -658,6 +682,51 @@ describe('every tile an unknown observer could react from', () => {
         });
         expect(camera.outcome).toBe('!');
         expect(unknownWatcher(world, state, 'jun', P(4, 4))).toMatchObject({ by: 'npc', observer: 'enforcer', from: P(8, 4) });
+    });
+
+    it('puts nobody on furniture, and a camera only where the player can\'t see the layout', () => {
+        // From (4, 4) in Public: (8, 4) is 4 away, within an NPC's reach (8) and a camera's (7); (4, 11) is 7 away,
+        // (11, 7) 7.6, (11, 8) 8.1, all in the staff room the blueprint outlines; (2, 4) is 2 away, on the blueprint.
+        const at = (spec: Parameters<typeof staged>[0]) => {
+            const { world, state } = staged(spec);
+            watchersAgree(world, state, 'jun', P(4, 4));
+            return { risk: isUnknownRisk(world, state, P(4, 4)), w: unknownWatcher(world, state, 'jun', P(4, 4)), all: unknownWatchers(world, state, 'jun', P(4, 4)) };
+        };
+        // A stale floor tile: an NPC could stand there, a camera can't hang there (the crew saw the tile: no camera).
+        expect(at({ stale: [P(8, 4)] }).w).toMatchObject({ by: 'npc', from: P(8, 4) });
+        expect(at({ stale: [P(8, 4)] }).all.map(a => a.by)).toEqual(['npc']);
+        // A stale desk: nobody stands on it, and its neighbours aren't hatched for it.
+        expect(at({ stale: [P(8, 4)], furniture: [P(8, 4)] })).toEqual({ risk: false, w: null, all: [] });
+        const { world, state } = staged({ stale: [P(8, 4)], furniture: [P(8, 4)] });
+        for (const p of [P(7, 4), P(8, 5), P(9, 3)]) expect(floorKnowledge(world, state, p, { crew: 'jun' }), `(${p.x}, ${p.y})`).toBe('scouted');
+        // A desk never seen in the outlined room: a camera could hang there (mounted, so furniture doesn't stop one).
+        expect(at({ unseen: [P(8, 4)], furniture: [P(8, 4)] }).w).toMatchObject({ by: 'camera', from: P(8, 4) });
+        // A desk never seen on the blueprint's public floor: a camera there would be in plain view, nobody stands on it.
+        expect(at({ unseen: [P(2, 4)], furniture: [P(2, 4)] })).toEqual({ risk: false, w: null, all: [] });
+        // ...but an NPC could stand on an unseen floor tile there.
+        expect(at({ unseen: [P(2, 4)] }).w).toMatchObject({ by: 'npc', from: P(2, 4) });
+        // Each kind has its own reach: a camera's 7 reaches (4, 11); 8.1 is past both.
+        expect(at({ unseen: [P(4, 11)], furniture: [P(4, 11)] }).w).toMatchObject({ by: 'camera', from: P(4, 11) });
+        expect(at({ unseen: [P(11, 8)] }).risk).toBe(false);
+        expect(at({ stale: [P(11, 7)] }).w).toMatchObject({ by: 'npc', from: P(11, 7) });
+        expect(at({ unseen: [P(11, 7)], furniture: [P(11, 7)] }).w).toBeNull();
+    });
+
+    it('knows a camera on the blueprint\'s layout from the start, and one in an outlined room once seen', () => {
+        // jun sees x 0..4 (a wall after 4); 5..9 is public, on the blueprint; 10 on a staff room behind a second wall.
+        const wall = (x: number) => [0, 1, 2].map(y => ({ between: [P(x, y), P(x + 1, y)] as [Pos, Pos] }));
+        const world = fixtureWorld(['.'.repeat(16), '.'.repeat(16), '.'.repeat(16)], {
+            walls: [...wall(4), ...wall(9)], zones: Array(3).fill('.'.repeat(10) + 's'.repeat(6)), rooms: Array(3).fill('.'.repeat(10) + 'a'.repeat(6)),
+            cameras: [{ id: 'public', pos: P(7, 1), facings: ['w'], room: null }, { id: 'staff', pos: P(12, 1), facings: ['w'], room: 'a' }]
+        });
+        const state = initialState(world, { seed: 1, crew: [{ id: 'jun', pos: P(0, 1) }] });
+        expect(seenAt(world, state, P(7, 1))).toBe(false);
+        expect(state.knowledge.cameras).toEqual(['public']);
+        // Its feed status unknown, it counts as live in every preview; the unseen one isn't there for them.
+        const picture = previewPicture(world, state);
+        expect(picture.cameras['public']!.live).toBe(true);
+        expect(picture.cameras['staff']!.live).toBe(false);
+        expect(knownView(world, state).cameras.map(c => [c.id, c.status])).toEqual([['public', 'unknown']]);
     });
 
     it('agrees with the worst on fixture worlds', () => {
@@ -673,8 +742,11 @@ describe('every tile an unknown observer could react from', () => {
         expect(found).toBeGreaterThan(0);
     });
 
-    it('agrees with the worst on a generated bank, through a played turn', () => {
-        let { world, state } = generatedHeist({ tier: 'city', archetype: 'atrium', layout: 2000, population: 1 }, 2);
+    it.each([
+        { tier: 'city' as const, archetype: 'atrium' as const, layout: 2000, population: 1 },
+        { tier: 'small' as const, archetype: 'twoWing' as const, layout: 2000, population: 1 }
+    ])('agrees with the worst on a generated bank, through a played turn ($tier)', bank => {
+        let { world, state } = generatedHeist(bank, 2);
         let found = 0;
         for (let turn = 0; turn < 2; turn++) {
             for (const c of state.crew) {

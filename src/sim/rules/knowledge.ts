@@ -11,7 +11,7 @@ import { registerMoveHook, registerPlanView } from '../crew/movement';
 import type { Profile } from '../data/items';
 import { OUTCOME_RANK, UNIFORMS, type Uniform } from '../data/matrix';
 import type { NoiseKind } from '../data/noise';
-import { bandAt, bandOf, fieldOn, profilesOf, rangeOn, type SightField } from '../geo/cones';
+import { bandAt, bandOf, fieldOn, profilesOf, rangeOn, type SightField, type VisionProfile } from '../geo/cones';
 import { lineOfSight, sightInputs, sightMap, type SightMap } from '../geo/los';
 import { doorStatus, LYING_STATUSES } from '../geo/move';
 import { inRing, registerNoiseHook } from '../geo/sound';
@@ -48,14 +48,17 @@ import { bitsCount, decodeBits, encodeBits } from './knowledgeBits';
  *   stealth, the prediction stops and the routine is forgotten (the rota's aside): a *ghost* at its last known place.
  *   Ghosts (behind `rules.ghosts`, decision 16) stay `ghostTurns` (2) turns after the turn it was last seen or
  *   predicted, then go. NPCs the crew hasn't seen are not shown at all.
- * - **Unknown risk** (hatched grey, §8.8, decision 24): a seen tile that a tile that isn't fresh could see within any
- *   NPC's or camera's reach (`isUnknownRisk`, cached per sight map and fresh set), where someone the crew doesn't know
- *   about, at its worst (any class, Alerted, a camera taken as live), would react to the crew member by the reaction
- *   rules (`unknownWatcher`). Green therefore means nobody, known or not, would do anything about them there.
+ * - **Unknown risk** (hatched grey, §8.8, decisions 24 and 43): a seen tile that someone the crew doesn't know about
+ *   could see, each from where it could be (`isUnknownRisk`, cached per sight map and tile sets): an NPC, within its
+ *   reach, from a tile a person can stand on that isn't fresh; a camera, within a camera's reach, from a tile whose
+ *   layout the player can't see (never seen, in a room the blueprint only outlines). There, at its worst (any class,
+ *   Alerted, a camera taken as live), it would react to the crew member by the reaction rules (`unknownWatcher`). Green
+ *   therefore means nobody, known or not, would do anything about them there.
  * - **Doors**: the status of each door last seen (a tile beside it in view).
  * - **Sound pings**: a loud noise whose ring reaches any crew member is kept with its source tile and turn, in or out of
  *   sight; quiet noises aren't.
- * - **Cameras**: a camera is known once its tile has been seen. Its feed status (live, looped, dead) is unknown until
+ * - **Cameras**: a camera is known from the start on the blueprint's layout (it is in plain view there, and cameras
+ *   don't move), elsewhere once its tile has been seen. Its feed status (live, looped, dead) is unknown until
  *   the CCTV room (the room of a `cctvDesk`) is scouted; a camera of unknown status counts as live (§8.8). Once it is,
  *   the view also says which feeds are on the operator's monitors this turn (§8.12). With the CCTV room under control
  *   the crew sees through every camera that isn't looped or dead (`registerLookout`, rules/cameras.ts, §8.15).
@@ -367,7 +370,10 @@ function learnRoomsAndCameras(world: ReadonlyWorld, k: Knowledge, bits: Uint8Arr
     }
     const cams = new Set(k.cameras);
     for (const c of world.cameras) {
-        if (cams.has(c.id) || !inBounds(world, c.pos) || !bits[c.pos.y * world.width + c.pos.x]) continue;
+        if (cams.has(c.id) || !inBounds(world, c.pos)) continue;
+        // On the blueprint's layout a camera is in plain view from the start; elsewhere once its tile is seen.
+        const i = c.pos.y * world.width + c.pos.x;
+        if (!bits[i] && !sharedBlueprint(world).known[i]) continue;
         cams.add(c.id);
         k.cameras = [...cams].sort();
         emit({ type: 'revealed', what: 'camera', id: c.id });
@@ -500,20 +506,36 @@ registerStateCheck('knowledge', (state, world) => {
 
 // ---------------------------------------------------------------------------------------------------------- Unknown risk
 
-/** The furthest anyone the crew doesn't know about could see: the longest arc of any NPC's or camera's profile (8). */
-export function unknownReach(world: ReadonlyWorld): number {
-    const p = profilesOf(world);
-    return Math.max(...[p.calm, p.alerted, p.camera, p.darkCamera].flatMap(profile => profile.arcs.map(arc => arc.range)));
+/**
+ * How far someone the crew doesn't know about could see a tile from, by kind: an NPC, taken Alerted, its longest arc
+ * (8); a camera, its profile's (7; the dark camera's when any camera here sees in the dark). On a dark tile half that,
+ * and none for a camera that is blind in the dark (-1).
+ */
+export function unknownReach(world: ReadonlyWorld, by: 'npc' | 'camera', lit = true): number {
+    const profile = by === 'npc' ? profilesOf(world).alerted : unknownCamera(world);
+    if (!lit && profile.blindInDark) return -1;
+    return rangeOn(Math.max(...profile.arcs.map(arc => arc.range)), lit);
+}
+
+/** The profile an unknown camera is taken to have: the dark camera's when any camera here sees in the dark. */
+function unknownCamera(world: ReadonlyWorld): VisionProfile {
+    const profiles = profilesOf(world);
+    return world.cameras.some(cam => cam.seesInDark) ? profiles.darkCamera : profiles.camera;
 }
 
 /**
- * Unknown space as seen from each tile, worked out on demand: per tile, the nearest tile that isn't fresh with a clear
- * line of sight within reach (`far`), and the nearest such within frisk range (`close`), as tile indices; -1 none, -2
- * not worked out yet. With the decoded tile sets and the sight map it is worked out on. Shared by every state with the
- * same walls and sets (keyed), and remembered per state object too, so asking about many tiles of one state doesn't
- * rebuild the key each time. Both crew-independent: what a crew member makes of them is `unknownWatcher`.
+ * Unknown space as seen from each tile, worked out on demand: per tile, the nearest place an unknown NPC could stand
+ * with a clear line of sight within its reach (`far`), the nearest such within frisk range (`close`), and the nearest
+ * place an unknown camera could hang within a camera's reach (`camera`), as tile indices; -1 none, -2 not worked out
+ * yet (`nearestUnknown`). With the decoded tile sets and the sight map it is worked out on. Shared by every state with
+ * the same walls and sets (keyed), and remembered per state object too, so asking about many tiles of one state doesn't
+ * rebuild the key each time. All crew-independent: what a crew member makes of them is `unknownWatcher`.
  */
-interface RiskCache { key: string; far: Int32Array; close: Int32Array; seen: Uint8Array; fresh: Uint8Array; sight: SightMap }
+interface RiskCache {
+    key: string; far: Int32Array; close: Int32Array; camera: Int32Array; seen: Uint8Array; fresh: Uint8Array; sight: SightMap;
+    /** The blueprint's layout (`Blueprint.known`): a camera there is known. */
+    layout: Uint8Array;
+}
 
 const RISK = new WeakMap<ReadonlyWorld, RiskCache[]>();
 const RISK_BY_STATE = new WeakMap<State, { world: ReadonlyWorld; cache: RiskCache }>();
@@ -529,8 +551,9 @@ function riskCache(world: ReadonlyWorld, state: State): RiskCache {
     if (!cache) {
         const n = tilesOf(world);
         cache = {
-            key, far: new Int32Array(n).fill(-2), close: new Int32Array(n).fill(-2), seen: decodeBits(state.knowledge.seen, n),
-            fresh: decodeBits(state.knowledge.fresh, n), sight: sightMap(world, state)
+            key, far: new Int32Array(n).fill(-2), close: new Int32Array(n).fill(-2), camera: new Int32Array(n).fill(-2), seen: decodeBits(state.knowledge.seen, n),
+            fresh: decodeBits(state.knowledge.fresh, n), sight: sightMap(world, state),
+            layout: sharedBlueprint(world).known
         };
         list.unshift(cache);
         if (list.length > RISK_KEEP) list.length = RISK_KEEP;
@@ -552,19 +575,35 @@ function offsetsWithin(r: number): Int32Array {
     return found;
 }
 
-/** The nearest tile that isn't fresh and sees `p` (within frisk range, with `close`), worked out once per cache. */
-function nearestUnknown(world: ReadonlyWorld, c: RiskCache, p: Pos, close: boolean): number {
-    const w = world.width, i = p.y * w + p.x, memo = close ? c.close : c.far;
+/**
+ * Where someone the crew doesn't know about could be (decision 43): an NPC on a tile that isn't fresh and that a person
+ * can stand on (not furniture: what movement can't enter, `blocksMove`); a camera on a tile whose layout the player
+ * can't see: never seen and not on the blueprint (a camera there would be known, and cameras don't move).
+ */
+function unknownNpcAt(world: ReadonlyWorld, c: RiskCache, j: number): boolean {
+    return !c.fresh[j] && !world.tiles[j]!.blocksMove;
+}
+
+const unknownCameraAt = (c: RiskCache, j: number): boolean => !c.seen[j] && !c.layout[j];
+
+/**
+ * The nearest place someone unknown sees `p` from, worked out once per cache: an NPC's (`far`), an NPC's within frisk
+ * range (`close`), or a camera's (`camera`), each within its own reach.
+ */
+function nearestUnknown(world: ReadonlyWorld, c: RiskCache, p: Pos, kind: 'far' | 'close' | 'camera'): number {
+    const w = world.width, i = p.y * w + p.x, memo = c[kind];
     if (memo[i] !== -2) return memo[i]!;
     let found = -1;
-    if (c.seen[i]) {
-        const r = rangeOn(unknownReach(world), world.tiles[i]!.lit), offsets = offsetsWithin(r), frisk = world.rules.friskRange;
+    const r = c.seen[i] ? unknownReach(world, kind === 'camera' ? 'camera' : 'npc', world.tiles[i]!.lit) : -1;
+    if (r >= 0) {
+        const offsets = offsetsWithin(r), frisk = kind === 'close' ? world.rules.friskRange : Infinity;
         for (let k = 0; k < offsets.length; k += 2) {
             const dx = offsets[k]!, dy = offsets[k + 1]!, x = p.x + dx, y = p.y + dy;
-            if (close && Math.max(Math.abs(dx), Math.abs(dy)) > frisk) continue;
-            if (x < 0 || y < 0 || x >= w || y >= world.height || c.fresh[y * w + x]) continue;
+            if (Math.max(Math.abs(dx), Math.abs(dy)) > frisk || x < 0 || y < 0 || x >= w || y >= world.height) continue;
+            const j = y * w + x;
+            if (kind === 'camera' ? !unknownCameraAt(c, j) : !unknownNpcAt(world, c, j)) continue;
             // Someone could stand on a stale tile itself.
-            if ((!dx && !dy) || lineOfSight(c.sight, { x, y }, p)) { found = y * w + x; break; }
+            if ((!dx && !dy) || lineOfSight(c.sight, { x, y }, p)) { found = j; break; }
         }
     }
     memo[i] = found;
@@ -572,13 +611,16 @@ function nearestUnknown(world: ReadonlyWorld, c: RiskCache, p: Pos, close: boole
 }
 
 /**
- * Whether a seen tile can be seen from unknown space: a tile that isn't fresh (not seen since the last world phase,
- * the tile itself included) lies within reach of it (halved when it is dark) with a clear line of sight, so someone the
- * crew doesn't know about could stand there and see it. Unseen tiles are grey, not this. Whether that matters to a
- * crew member is `unknownWatcher` (decision 24): this is the geometry alone.
+ * Whether a seen tile can be seen from unknown space, with a clear line of sight: a tile a person can stand on that
+ * isn't fresh (not seen since the last world phase, the tile itself included) within an NPC's reach, or a tile never
+ * seen within a camera's (each halved when the tile is dark; none for a camera blind in the dark), so someone the crew
+ * doesn't know about could be there and see it. Unseen tiles are grey, not this. Whether that matters to a crew member
+ * is `unknownWatcher` (decision 24): this is the geometry alone.
  */
 export function isUnknownRisk(world: ReadonlyWorld, state: State, p: Pos): boolean {
-    return inBounds(world, p) && nearestUnknown(world, riskCache(world, state), p, false) >= 0;
+    if (!inBounds(world, p)) return false;
+    const c = riskCache(world, state);
+    return nearestUnknown(world, c, p, 'far') >= 0 || nearestUnknown(world, c, p, 'camera') >= 0;
 }
 
 /** Someone the crew doesn't know about who could react to a crew member on a tile, at worst (decision 24). */
@@ -624,8 +666,9 @@ function unknownNpcs(world: ReadonlyWorld): readonly { observer: ObserverClass; 
 
 /**
  * Whether anyone the crew doesn't know about could react to this crew member on `p` (hatched grey, §8.8, decision
- * 24), and the worst such: `p` is seen, and a tile that isn't fresh (`isUnknownRisk`'s unknown space, `p` itself
- * included) sees it, from where an unknown observer, at its worst, would do something by the very rules perception
+ * 24), and the worst such: `p` is seen, and a place an unknown NPC could stand or an unknown camera hang
+ * (`isUnknownRisk`'s unknown space, `p` itself included for an NPC) sees it, from where that observer, at its worst,
+ * would do something by the very rules perception
  * uses (`reaction`: the matrix, the profile as read, uniforms, Notoriety, frisk range). At its worst means any class
  * (and the manager or the security chief, who see through a uniform), Alerted (one profile higher; both arcs Core,
  * reaching 6 and 8), facing the tile; or a camera of unknown status, taken as live. The distance from that tile
@@ -633,52 +676,62 @@ function unknownNpcs(world: ReadonlyWorld): readonly { observer: ObserverClass; 
  * nobody unknown could change anything there, or `p` is unseen (grey, which is never safe anyway).
  *
  * A reaction only grows as the observer comes nearer (a nearer tile is in every band and range a further one is) and
- * within frisk range, so the worst is that of the nearest unknown tile in sight, or of the nearest within frisk range:
- * both worked out once per tile and shared by every crew member (`nearestUnknown`).
+ * within frisk range, so the worst is that of the nearest NPC's place in sight, of the nearest within frisk range, or of
+ * the nearest camera's place: each worked out once per tile and shared by every crew member (`nearestUnknown`). On a
+ * tie the NPC's nearest place wins, then its nearest within frisk range, then the camera.
  */
 export function unknownWatcher(world: ReadonlyWorld, state: State, crewId: string, p: Pos, options: UnknownOptions = {}): UnknownWatcher | null {
     if (!inBounds(world, p)) return null;
-    const c = riskCache(world, state), far = nearestUnknown(world, c, p, false);
-    if (far < 0) return null;
-    const close = nearestUnknown(world, c, p, true), worst = worstFrom(world, state, crewId, p, options);
+    const c = riskCache(world, state), far = nearestUnknown(world, c, p, 'far'), camera = nearestUnknown(world, c, p, 'camera');
+    if (far < 0 && camera < 0) return null;
+    const close = far < 0 ? -1 : nearestUnknown(world, c, p, 'close'), worst = worstFrom(world, state, crewId, p, options);
     let best: UnknownWatcher | null = null;
-    for (const q of close >= 0 && close !== far ? [far, close] : [far]) {
-        const w = worst({ x: q % world.width, y: Math.floor(q / world.width) });
+    const look = (q: number, npc: boolean): void => {
+        const w = worst({ x: q % world.width, y: Math.floor(q / world.width) }, npc, !npc);
         if (w && (!best || OUTCOME_RANK[w.reaction.outcome] > OUTCOME_RANK[best.reaction.outcome])) best = w;
-    }
+    };
+    if (far >= 0) look(far, true);
+    if (close >= 0 && close !== far) look(close, true);
+    if (camera >= 0) look(camera, false);
     return best;
 }
 
 /**
  * Every tile someone unknown could react to this crew member on `p` from, each with the worst there, nearest first:
- * `unknownWatcher`'s search without stopping at the nearest (unknown space within reach of `p`, halved when it is
- * dark, in sight of it, `p` itself included), judged by the same worst case. Non-empty exactly when `unknownWatcher`
+ * `unknownWatcher`'s searches without stopping at the nearest (an NPC's places and a camera's, each within its reach
+ * of `p` and in sight of it), judged by the same worst case. Non-empty exactly when `unknownWatcher`
  * finds someone, whose `from` is among them. On demand: for the one tile held (§8.8 "who and why").
  */
 export function unknownWatchers(world: ReadonlyWorld, state: State, crewId: string, p: Pos, options: UnknownOptions = {}): UnknownWatcher[] {
     if (!inBounds(world, p)) return [];
     const c = riskCache(world, state), w = world.width;
     if (!c.seen[p.y * w + p.x]) return [];
-    const offsets = offsetsWithin(rangeOn(unknownReach(world), world.tiles[p.y * w + p.x]!.lit)), worst = worstFrom(world, state, crewId, p, options);
+    const lit = world.tiles[p.y * w + p.x]!.lit, npcs = unknownReach(world, 'npc', lit), cameras = unknownReach(world, 'camera', lit);
+    const offsets = offsetsWithin(Math.max(npcs, cameras)), worst = worstFrom(world, state, crewId, p, options);
     const out: UnknownWatcher[] = [];
     for (let k = 0; k < offsets.length; k += 2) {
         const dx = offsets[k]!, dy = offsets[k + 1]!, x = p.x + dx, y = p.y + dy;
-        if (x < 0 || y < 0 || x >= w || y >= world.height || c.fresh[y * w + x]) continue;
+        if (x < 0 || y < 0 || x >= w || y >= world.height) continue;
+        const j = y * w + x, d = dx * dx + dy * dy;
+        const npc = d <= npcs * npcs && unknownNpcAt(world, c, j), camera = d <= cameras * cameras && unknownCameraAt(c, j);
+        if (!npc && !camera) continue;
         // Someone could stand on a stale tile itself.
         if ((dx || dy) && !lineOfSight(c.sight, { x, y }, p)) continue;
-        const found = worst({ x, y });
+        const found = worst({ x, y }, npc, camera);
         if (found) out.push(found);
     }
     return out;
 }
 
-/** The worst an unknown observer on a given tile could do to this crew member on `p`, or null (`unknownWatcher`). */
-function worstFrom(world: ReadonlyWorld, state: State, crewId: string, p: Pos, options: UnknownOptions): (from: Pos) => UnknownWatcher | null {
+/**
+ * The worst an unknown observer on a given tile could do to this crew member on `p`, or null (`unknownWatcher`): an
+ * NPC there when `npc`, a camera when `cam`, the NPCs judged first.
+ */
+function worstFrom(world: ReadonlyWorld, state: State, crewId: string, p: Pos, options: UnknownOptions): (from: Pos, npc: boolean, cam: boolean) => UnknownWatcher | null {
     const member = crewMember(state, crewId), look = options.look ?? crewLook(member), rules = world.rules;
-    const tile = world.tiles[p.y * world.width + p.x]!, profiles = profilesOf(world);
-    const camera = world.cameras.some(cam => cam.seesInDark) ? profiles.darkCamera : profiles.camera;
+    const tile = world.tiles[p.y * world.width + p.x]!, profiles = profilesOf(world), camera = unknownCamera(world);
     const warnedByAny = isWarned(state, crewId);
-    return from => {
+    return (from, npc, cam) => {
         let best: UnknownWatcher | null = null;
         const facing = facingToward(from, p) ?? 'n', chebyshev = Math.max(Math.abs(p.x - from.x), Math.abs(p.y - from.y));
         const dx = p.x - from.x, dy = p.y - from.y;
@@ -692,8 +745,8 @@ function worstFrom(world: ReadonlyWorld, state: State, crewId: string, p: Pos, o
             if (options.step ? r.outcome !== '!' : r.outcome === '-') return;
             if (!best || OUTCOME_RANK[r.outcome] > OUTCOME_RANK[best.reaction.outcome]) best = { by, observer, role, from, reaction: r, profile: look.profile };
         };
-        for (const n of unknownNpcs(world)) consider('npc', n.observer, n.role);
-        consider('camera', 'enforcer', null);
+        if (npc) for (const n of unknownNpcs(world)) consider('npc', n.observer, n.role);
+        if (cam) consider('camera', 'enforcer', null);
         return best;
     };
 }
