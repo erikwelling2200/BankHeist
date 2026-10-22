@@ -102,7 +102,7 @@ Top-down 2D pixel-art stealth game. Phaser 4 + TypeScript + Vite, shipped as an 
 - The bank scene sets its own resolution: the screen's device pixels over a whole-number zoom (`BankCamera.applyZoom`,
   steps from `src/logic/zoom.ts`, §20.1), by changing the game config's base size and calling `scale.refresh()` – a
   plain `setGameSize` is undone by `EXPAND`. Resizing a WebGL canvas waits for the GPU (~100 ms here), so zooming in
-  (Act view on select) keeps the canvas, draws the camera into its corner and scales it in CSS. Pan, zoom and the tactical map buttons are HTML (`src/ui/CameraControls.ts`).
+  keeps the canvas, draws the camera into its corner and scales it in CSS. Pan, zoom and the tactical map buttons are HTML (`src/ui/CameraControls.ts`).
 - Lighting: Phaser's Light2D (objects opt in with `setLighting(true)`; normal maps are the texture's data source;
   `render.maxLights` is 32 and lights beyond that are silently dropped) shines through walls, so the bank doesn't use
   it. Its lamps are baked with Light2D's formula in `src/art/bank/lamps.ts`, traced against the walls; light anything

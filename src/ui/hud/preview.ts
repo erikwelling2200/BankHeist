@@ -18,7 +18,13 @@ export function showHudPreview(): void {
 
     const record = (entry: string) => { log.push(entry); };
     const callbacks: HudCallbacks = {
-        selectCrew: id => { record(`selectCrew:${id}`); vm.crew = vm.crew.map(c => ({ ...c, selected: c.id === id })); hud.update(vm); },
+        selectCrew: id => {
+            record(`selectCrew:${id}`);
+            // As the game does: the selected one's card again selects nobody.
+            const next = vm.crew.find(c => c.selected)?.id === id ? null : id;
+            vm = { ...vm, selected: next, crew: vm.crew.map(c => ({ ...c, selected: c.id === next })), ...(next ? {} : { actions: [] }) };
+            hud.update(vm);
+        },
         action: id => {
             record(`action:${id}`);
             const a = vm.actions.find(x => x.id === id);

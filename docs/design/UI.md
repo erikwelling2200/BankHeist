@@ -163,7 +163,8 @@ blue. A dashed line in the crew colour links a new pip to its cause during the w
 
 | Gesture | Effect |
 | --- | --- |
-| Tap a crew member or portrait | Selects them, and zooms to Act view if the camera is further out. |
+| Tap a crew member or portrait | Selects them, and centres the view on them at the current zoom. On the tactical map the map stays. |
+| Tap the selected crew member or their portrait again | Deselects them: no range, safe floor or preview is shown, and a pending preview is dropped. Their number key does the same. |
 | Tap a tile | Previews the move or action: the tap snaps to the nearest valid tile, and nothing is committed yet. |
 | Tap the same tile again, or Confirm | Commits. |
 | Drag that starts on the selected crew member | Draws a path. |

@@ -211,6 +211,23 @@ describe('the game session', () => {
         }
     });
 
+    it('deselects to nobody: no actions, no Confirm, and resumes with nobody selected', () => {
+        const { session, storage } = start();
+        session.select('mara');
+        session.setPendingCommand(MOVE_MARA);
+        expect(session.hud().actions.length).toBeGreaterThan(0);
+        // What BankScene does on a second tap on the selected crew member, their card or their key.
+        session.select(null);
+        session.setPendingCommand(null);
+        const hud = session.hud();
+        expect(hud.selected).toBeNull();
+        expect(hud.crew.every(c => !c.selected)).toBe(true);
+        expect(hud.actions).toEqual([]);
+        expect(hud.confirm.enabled).toBe(false);
+        session.save();
+        expect(Session.resume(storage)!.ui).toMatchObject({ selected: null, pendingCommand: null });
+    });
+
     it('drops a saved UI that no longer fits, and an undo stack without its events', () => {
         const { session, storage } = start();
         session.commit(MOVE_JUN);

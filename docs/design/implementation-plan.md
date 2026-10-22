@@ -929,6 +929,14 @@ Later milestones: within each milestone, the `∥` notes in §3 apply. UI packag
     at the step the stranger came into view, the action spent ("Hold up, someone there!"). Why: the player chose the
     path, and the stop threw a planned move away for nothing they could act on; with crew sight at 13 tiles it came
     up on most long moves.
+41. **Focusing on a character keeps the zoom (§20.1).** Selecting a crew member (a tap, their card or their key)
+    centres on them at the player's zoom, without zooming in to Act view. On the tactical map the map stays, showing
+    the whole plot, and leaving it lands on them. Playback and the ledger only pan. Why: the player sets the zoom, and
+    focusing on someone shouldn't take it away.
+42. **Tapping the selected crew member deselects (UI.md "Touch grammar").** A plain tap on them (their tile or their
+    drawing), their rail card or their number key selects nobody and drops any pending preview: no range, safe floor or
+    action grid, as at the start of a heist. Before, a tap on their tile did nothing and their card or key only
+    refreshed. A drag that starts on them still draws a path. The camera stays where it is.
 
 ### Critical files for implementation
 

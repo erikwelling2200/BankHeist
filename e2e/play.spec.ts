@@ -77,7 +77,7 @@ async function endTurn(page: Page): Promise<void> {
 
 const AROUND: Pos[] = [{ x: 0, y: -3 }, { x: 2, y: -2 }, { x: -2, y: -2 }, { x: 3, y: 0 }, { x: -3, y: 0 }, { x: 0, y: 3 }, { x: 2, y: 2 }];
 
-// At the full size: selecting zooms in to Act view, which needs a screen with a zoom step above the one it opens on.
+// At the full size (@layout): the screen has zoom steps either side of the opening one.
 test('plays three turns of a heist through taps', { tag: ['@smoke', '@layout'] }, async ({ page }) => {
     // Three world phases at 1× and a reload: about 30 s on the sandbox's software renderer, on the edge of the default.
     test.setTimeout(60000);
@@ -89,11 +89,26 @@ test('plays three turns of a heist through taps', { tag: ['@smoke', '@layout'] }
     await expect(page.locator('.sh-rail .sh-crew')).toHaveCount(2);
     await page.screenshot({ path: 'screenshots/play-start.png' });
 
-    // Turn 1: select Mara on the map (the view zooms in to Act view), tap a tile, then Confirm.
+    // Turn 1: select Mara on the map (the view centres on her at the same zoom), tap a tile, then Confirm.
     const opening = (await scene(page)).zoom;
     await tapTile(page, start.crew[0]!.pos);
     expect((await play(page)).selected).toBe('mara');
-    expect((await scene(page)).zoom).toBeGreaterThan(opening);
+    expect((await scene(page)).zoom).toBe(opening);
+    await page.waitForTimeout(400);
+    // A plain tap on her again selects nobody: no range, no safe floor, an empty grid; a third selects her again.
+    await tapTile(page, start.crew[0]!.pos);
+    const none = await play(page);
+    expect([none.selected, none.reach, none.safeFloor.length]).toEqual([null, 0, 0]);
+    await expect(page.locator('.sh-actions [data-action]')).toHaveCount(0);
+    await tapTile(page, start.crew[0]!.pos);
+    expect((await play(page)).selected).toBe('mara');
+    await page.waitForTimeout(400);
+    // So does a tap on her head, drawn over the tile north of her (most often one she could move to); then select again.
+    const head = await onPage(page, { x: start.crew[0]!.pos.x, y: start.crew[0]!.pos.y - 0.7 });
+    await page.mouse.click(head.x, head.y);
+    expect(await play(page)).toMatchObject({ selected: null, pending: null });
+    await tapTile(page, start.crew[0]!.pos);
+    expect((await play(page)).selected).toBe('mara');
     await page.waitForTimeout(400);
     const target = await previewNear(page, 'mara', AROUND);
     const preview = await play(page);
@@ -119,6 +134,13 @@ test('plays three turns of a heist through taps', { tag: ['@smoke', '@layout'] }
     expect((await play(page)).selected).toBe('jun');
     await page.waitForTimeout(400);
     const junTarget = await previewNear(page, 'jun', AROUND);
+    // Jun's card again selects nobody and drops the preview; Jun's key (2) selects them again, nothing previewed.
+    await page.locator('.sh-rail .sh-crew').nth(1).click();
+    expect(await play(page)).toMatchObject({ selected: null, pending: null, path: [], reach: 0 });
+    await page.keyboard.press('2');
+    expect(await play(page)).toMatchObject({ selected: 'jun', pending: null });
+    await page.waitForTimeout(400);
+    await tapTile(page, junTarget);
     await tapTile(page, junTarget);
     await idle(page);
     expect((await member(page, 'jun')).pos).toEqual(junTarget);
@@ -225,6 +247,13 @@ test('plays the NPCs\' world phase: people on screen stand where the state says'
     await page.keyboard.press('m');
     await page.waitForTimeout(1200);
     await page.screenshot({ path: 'screenshots/play-knowledge.png' });
+    // Selecting someone on the map keeps the map and its zoom (§20.1).
+    const onMap = await scene(page);
+    expect(onMap.map).toBe(true);
+    const selected = (await play(page)).selected, crew = (await sim(page)).crew, other = crew.findIndex((c: any) => c.id !== selected);
+    await page.keyboard.press(String(other + 1));
+    expect((await play(page)).selected).toBe(crew[other]!.id);
+    expect([(await scene(page)).map, (await scene(page)).zoom]).toEqual([true, onMap.zoom]);
     expect(errors).toEqual([]);
 });
 

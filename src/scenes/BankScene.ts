@@ -102,7 +102,7 @@ export class BankScene extends Phaser.Scene {
         if (play?.setupMs !== undefined) this.timings.heist = play.setupMs;
         if (play) this.timed('play', () => {
             this.play = new PlayMode(this, { ...play, people: this.people, walls: this.walls, camera: this.camera });
-            this.camera.prepareActView();
+            this.camera.prepareZoomIn();
             // Play mode opens on the crew: the walls stand as that view asks from the first frame.
             this.walls.update(0, this.cameras.main.midPoint.y, this.camera.onMap);
             this.walls.settle();

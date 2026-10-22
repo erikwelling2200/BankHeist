@@ -2047,11 +2047,11 @@ to tap reliably on a phone, so **precise input never depends on tapping a small 
 
 ### 20.1 Camera
 
-- **Pan and zoom:** drag to pan; pinch (or the mouse wheel) to zoom between about 11 and 34 tiles high, in crisp
-  steps. A one-tap button jumps to a **tactical map** of the whole plot.
-- **Act view:** selecting a crew member zooms in to the close level if the player is further out, so a tile is
-  roughly 10mm and taps are reliable. The player can zoom back out at any time; taps at wide zoom snap to the nearest
-  valid tile and show it enlarged before Confirm.
+- **Pan and zoom:** drag (or, on a keyboard, the arrow keys or WASD) to pan; pinch (or the mouse wheel) to zoom
+  between about 11 and 34 tiles high, in crisp steps. A one-tap button jumps to a **tactical map** of the whole plot.
+- **Act view:** the close level, where a tile is roughly 10mm and taps are reliable. Selecting a crew member centres
+  on them but keeps the player's zoom (on the tactical map, the map stays): the player sets it and chooses when to go
+  close; taps at wide zoom snap to the nearest valid tile and show it enlarged before Confirm.
 - The camera **never moves on its own during the crew phase**, except to centre the newly selected crew member.
 
 ### 20.2 Input flow

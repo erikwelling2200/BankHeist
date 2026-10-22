@@ -181,7 +181,7 @@ export class WorldOverlay {
     /** Draws over the frame just rendered: sized and placed over the game's canvas, shifted by the camera's view. */
     private draw(): void {
         const game = this.scene.game, cam = this.scene.cameras.main, canvasBox = game.canvas.getBoundingClientRect();
-        // Over the camera's part of the canvas (all of it, but in Act view, see BankCamera.applyZoom).
+        // Over the camera's part of the canvas (all of it, but when zoomed closer than the canvas is sized for, see BankCamera.applyZoom).
         const { scale } = this.scene, sx = canvasBox.width / scale.width, sy = canvasBox.height / scale.height;
         const box = { left: canvasBox.left, top: canvasBox.top, width: cam.width * sx, height: cam.height * sy };
         const w = Math.round(cam.width * UI_SCALE), h = Math.round(cam.height * UI_SCALE);

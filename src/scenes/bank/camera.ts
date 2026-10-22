@@ -4,27 +4,27 @@ import { TILE } from '../../level/constants';
 import { mapZoom, nearestStep, zoomSteps } from '../../logic/zoom';
 import { CameraControls } from '../../ui/CameraControls';
 
-/** Arrow keys pan this many screen pixels a second, whatever the zoom. */
+/** The arrow keys and WASD pan this many screen pixels a second, whatever the zoom. */
 const PAN_SPEED = 480;
 /** The tactical map keeps this many CSS pixels clear round the plot. */
 const MAP_MARGIN = 8;
 /** The camera opens on the lobby, about this many tiles high. */
 const START_TILES = 17;
-/** Act view (§20.1): selecting a crew member zooms in to about this many tiles high if the view is wider. */
-const ACT_TILES = 13;
 /** The vignette over the view (keep `strength` low: Phaser's goes near black at its radius). */
 const VIGNETTE = { x: 0.5, y: 0.5, radius: 1, strength: 0.16 };
-/** How many of the renderer's drawing contexts (the camera's filters draw through them) `prepareActView` makes. */
-const ACT_CONTEXTS = 3;
+/** How many of the renderer's drawing contexts (the camera's filters draw through them) `prepareZoomIn` makes. */
+const ZOOM_IN_CONTEXTS = 3;
 
 /**
  * The bank's camera (§20.1). Zoom steps are whole screen pixels per art pixel: the canvas renders at the screen's size
- * over the zoom, and the camera's middle can reach every tile. Drag pans, as do the arrow keys; the wheel, a pinch, the
+ * over the zoom, and the camera's middle can reach every tile. Drag pans, as do the arrow keys and WASD; the wheel, a pinch, the
  * buttons and +/- zoom; M or the Map button shows the whole plot.
  */
 export class BankCamera {
     private controls?: CameraControls;
     private cursors?: Phaser.Types.Input.Keyboard.CursorKeys;
+    /** W, A, S and D, without capture: a focused text field still gets the letters. */
+    private wasd?: Record<'W' | 'A' | 'S' | 'D', Phaser.Input.Keyboard.Key>;
     /** The screen's size in device pixels. */
     private screen = { width: 0, height: 0 };
     /** Screen pixels per art pixel: the zoom (§20.1). The canvas renders at the screen's size over this. */
@@ -88,6 +88,7 @@ export class BankCamera {
 
         const { input } = scene;
         this.cursors = input.keyboard?.createCursorKeys();
+        this.wasd = input.keyboard?.addKeys('W,A,S,D', false) as BankCamera['wasd'];
         input.keyboard?.on('keydown', (e: KeyboardEvent) => {
             if (e.key === '+' || e.key === '=') this.zoomStep(1);
             else if (e.key === '-' || e.key === '_') this.zoomStep(-1);
@@ -138,15 +139,17 @@ export class BankCamera {
         });
     }
 
-    /** Pans by the arrow keys held, for `dt` seconds. */
+    /** Pans by the arrow keys and WASD held, for `dt` seconds; not while a text field has the focus. */
     update(dt: number): void {
-        if (this.cursors) {
-            const cam = this.scene.cameras.main;
-            const dx = (this.cursors.right.isDown ? 1 : 0) - (this.cursors.left.isDown ? 1 : 0);
-            const dy = (this.cursors.down.isDown ? 1 : 0) - (this.cursors.up.isDown ? 1 : 0);
-            cam.scrollX += (dx * PAN_SPEED * dt) / this.zoom;
-            cam.scrollY += (dy * PAN_SPEED * dt) / this.zoom;
-        }
+        const c = this.cursors, k = this.wasd;
+        if (!c && !k) return;
+        if (document.activeElement?.closest('input, select, textarea, [contenteditable]')) return;
+        const held = (...keys: (Phaser.Input.Keyboard.Key | undefined)[]) => (keys.some(key => key?.isDown) ? 1 : 0);
+        const dx = held(c?.right, k?.D) - held(c?.left, k?.A), dy = held(c?.down, k?.S) - held(c?.up, k?.W);
+        if (!dx && !dy) return;
+        const cam = this.scene.cameras.main;
+        cam.scrollX += (dx * PAN_SPEED * dt) / this.zoom;
+        cam.scrollY += (dy * PAN_SPEED * dt) / this.zoom;
     }
 
     /**
@@ -202,24 +205,20 @@ export class BankCamera {
         else this.onMapChange?.(false);
     }
 
-    /**
-     * Act view (§20.1): centres on map point (x, y), first zooming in to about `ACT_TILES` high if the view is further
-     * out (leaving the tactical map); a closer view stays as close and pans there over `ms`.
-     */
-    actView(x: number, y: number, ms = 0): void {
-        if (this.mapView) this.toggleMap();
-        const act = nearestStep(this.zoomLevels, this.screen.height, TILE, ACT_TILES);
-        if (this.zoom < act) {
-            this.applyZoom(act);
-            this.scene.cameras.main.centerOn(x, y);
-        } else this.centreOn(x, y, ms);
-    }
-
     /** Map point (x, y) moved so a view centred on it stays on the plot along any axis the plot is wider than the view. */
     clampToPlot(x: number, y: number): [number, number] {
         const cam = this.scene.cameras.main;
         const clamp = (v: number, view: number, size: number) => (size > view ? Math.min(size - view / 2, Math.max(view / 2, v)) : v);
         return [clamp(x, cam.width, this.width), clamp(y, cam.height, this.height)];
+    }
+
+    /**
+     * Focuses on a character at map point (x, y) without changing the zoom: centres on it over `ms`, or on the tactical
+     * map, which already shows the whole plot, stays there and leaves the map centred on it.
+     */
+    focusOn(x: number, y: number, ms = 0): void {
+        if (this.mapView) Object.assign(this.mapView, { x, y });
+        else this.centreOn(x, y, ms);
     }
 
     /** Moves the view so map point (x, y) is in the middle: at once, or panning over `ms`. Leaves the tactical map first. */
@@ -247,17 +246,17 @@ export class BankCamera {
     }
 
     /**
-     * Readies Act view while the bank builds, so the first selection doesn't stall (see `applyZoom`): the drawing
+     * Readies the next step in while the bank builds, so the first zoom in doesn't stall (see `applyZoom`): the drawing
      * contexts the camera's filters (bloom, vignette) need at its size, which the renderer pools by size, and the shader
      * that copies a camera smaller than the canvas onto it, compiled and drawn once. Each would wait for the GPU.
      */
-    prepareActView(): void {
+    prepareZoomIn(): void {
         const renderer = this.scene.game.renderer;
         if (!(renderer instanceof Phaser.Renderer.WebGL.WebGLRenderer)) return;
-        const act = nearestStep(this.zoomLevels, this.screen.height, TILE, ACT_TILES);
-        if (act <= this.zoom || !Number.isInteger(act) || !Number.isInteger(this.zoom)) return;
-        const pool = renderer.drawingContextPool, width = Math.round(this.screen.width / act), height = Math.round(this.screen.height / act);
-        const made = Array.from({ length: ACT_CONTEXTS }, () => pool.get(width, height));
+        const next = this.zoomLevels[this.zoomLevels.indexOf(this.zoom) + 1];
+        if (next === undefined || next <= this.zoom || !Number.isInteger(next) || !Number.isInteger(this.zoom)) return;
+        const pool = renderer.drawingContextPool, width = Math.round(this.screen.width / next), height = Math.round(this.screen.height / next);
+        const made = Array.from({ length: ZOOM_IN_CONTEXTS }, () => pool.get(width, height));
         const [target, source] = made as [Phaser.Renderer.WebGL.DrawingContext, Phaser.Renderer.WebGL.DrawingContext];
         const copy = renderer.renderNodes.getNode('BatchHandlerQuadSingle') as Phaser.Renderer.WebGL.RenderNodes.BatchHandlerQuadSingle | null;
         if (copy && source.texture) {
@@ -329,8 +328,7 @@ export class BankCamera {
      * Resizing a WebGL canvas waits for the GPU to finish every frame queued before it (60–120 ms in the sandbox's
      * software renderer), so a whole-number zoom closer than the canvas is sized for keeps the canvas (unless `exact`):
      * the camera draws into its top-left corner at the closer zoom's size, and a CSS scale from that corner makes each
-     * canvas pixel `zoom` screen pixels; the rest of the canvas lies off the screen. Selecting a crew member zooms in to
-     * Act view (§20.1) this way. Zooming out past the canvas, the tactical map, a new screen size, the opening view and
+     * canvas pixel `zoom` screen pixels; the rest of the canvas lies off the screen. Zooming out past the canvas, the tactical map, a new screen size, the opening view and
      * a restored one size it afresh.
      */
     private applyZoom(zoom: number, exact = false): void {

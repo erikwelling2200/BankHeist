@@ -64,6 +64,8 @@ function drawnFacing(f: Facing, current: PersonFacing): PersonFacing {
 const centre = (p: Pos): [number, number] => [(p.x + 0.5) * TILE, (p.y + 0.5) * TILE];
 /** Where the colour-blind preset is remembered. */
 const COLOUR_BLIND_KEY = 'bankheist.colourBlind';
+/** Keys that don't stop a Go or Wait for… run: modifiers, and the camera's pan keys (arrows, WASD; camera.ts). */
+const KEEP_RUN_KEYS: ReadonlySet<string> = new Set(['Shift', 'Control', 'Alt', 'Meta', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'w', 'a', 's', 'd']);
 
 function readColourBlind(): boolean {
     if (new URLSearchParams(location.search).has('cb')) return true;
@@ -165,9 +167,9 @@ export class PlayMode {
     private readonly onAnyTap = (e: PointerEvent) => {
         if (this.auto && !(e.target as Element | null)?.closest?.('.sh-autoroot')) this.stopAuto();
     };
-    /** And so does any key (a hotkey acts on the bank as the player left it). */
+    /** And so does any key (a hotkey acts on the bank as the player left it), but the camera's pan keys: watch a run. */
     private readonly onAnyKey = (e: KeyboardEvent) => {
-        if (this.auto && !['Shift', 'Control', 'Alt', 'Meta'].includes(e.key)) this.stopAuto();
+        if (this.auto && !KEEP_RUN_KEYS.has(e.key.length === 1 ? e.key.toLowerCase() : e.key)) this.stopAuto();
     };
 
     constructor(private readonly scene: Phaser.Scene, parts: PlayParts) {
@@ -694,22 +696,42 @@ export class PlayMode {
         return id ? this.session.state.crew.find(c => c.id === id) : undefined;
     }
 
+    /** The crew member whose drawing is at map point (x, y): the front-most (furthest south) when drawings overlap. */
     private crewAt(x: number, y: number): CrewState | undefined {
-        return this.session.state.crew.find(c => this.people.hit(this.sprite.get(c.id)!, x, y));
+        let front: CrewState | undefined;
+        for (const c of this.session.state.crew) {
+            if (this.people.hit(this.sprite.get(c.id)!, x, y) && (!front || c.pos.y > front.pos.y)) front = c;
+        }
+        return front;
     }
 
+    /** Selects crew member `id`; when they already are (a tap on them, their card or their key), nobody is. */
     private select(id: string): void {
-        if (this.busy) this.skip();
+        // During playback the selected one's card or key only skips it.
+        if (this.busy) {
+            this.skip();
+            if (this.session.selected === id) return;
+        }
         if (this.recap) return;
         const member = this.session.state.crew.find(c => c.id === id);
         if (!member) return;
-        if (this.session.selected !== id) {
-            this.session.select(id);
-            this.session.setPendingCommand(null);
-            this.target = null;
-            // The camera centres on the newly selected crew member, zooming in to Act view if further out (§20.1).
-            this.camera.actView(...centre(member.pos), 250);
-        }
+        if (this.session.selected === id) return this.deselect();
+        this.session.select(id);
+        this.session.setPendingCommand(null);
+        this.target = null;
+        // The camera centres on the newly selected crew member at the player's zoom, on the map too (§20.1, decision 41).
+        this.camera.focusOn(...centre(member.pos), 250);
+        this.refresh();
+    }
+
+    /** Nobody selected: no range, safe floor or preview, and the HUD's empty grid, as at the start of a heist. */
+    private deselect(): void {
+        // The Dash band stops being judged for nobody; a half-judged floor is dropped, so reselecting starts it again.
+        cancelAnimationFrame(this.floorFrame);
+        if (this.floorFor && !this.floorFor.dash) this.floorFor = undefined;
+        this.session.select(null);
+        this.session.setPendingCommand(null);
+        this.target = null;
         this.refresh();
     }
 
@@ -723,10 +745,11 @@ export class PlayMode {
         }
         // Where on the ground the tap is: a raised floor is drawn up the screen (walls.liftAt).
         const gy = this.groundY(x, y), tile = { x: Math.floor(x / TILE), y: Math.floor(gy / TILE) }, { crew } = this.session.state;
-        // Someone standing on the tile tapped; then a second tap on the previewed tile, which commits it (UI.md); then
+        // Someone standing on the tile tapped (the one selected: nobody is then), unless a crew drawing in front of them
+        // was hit (a head over their tile); then a second tap on the previewed tile, which commits it (UI.md); then
         // someone whose drawing (standing up over the tiles behind them) was tapped.
-        const onTile = crew.find(c => same(c.pos, tile));
-        if (onTile) return onTile.id === this.session.selected ? undefined : this.select(onTile.id);
+        const onTile = crew.find(c => same(c.pos, tile)), drawn = this.crewAt(x, y);
+        if (onTile) return this.select(drawn && drawn.pos.y > onTile.pos.y ? drawn.id : onTile.id);
         const pending = this.session.pendingCommand;
         if (pending && 'path' in pending && same(pending.path.at(-1), tile)) return this.confirm();
         const member = this.selectedMember();
@@ -734,10 +757,9 @@ export class PlayMode {
         // A door, an NPC or a stash in reach: pick it as the target and preview what to do with it (UI.md "Touch grammar").
         if (member && canAct && this.tapTarget(member, x, y, gy)) return;
         const target = canAct ? this.snap(member, x / TILE - 0.5, gy / TILE - 0.5) : undefined;
-        // A drawing stands over the tiles behind it: tapping one selects them, unless that tile is somewhere the selected
-        // crew member can go.
-        const drawn = this.crewAt(x, y);
-        if (drawn && drawn.id !== this.session.selected && !same(target?.pos, tile)) return this.select(drawn.id);
+        // A drawing stands over the tiles behind it: tapping the selected one's selects nobody, whatever is behind; tapping
+        // another's selects them, unless that tile is somewhere the selected crew member can go.
+        if (drawn && (drawn.id === this.session.selected || !same(target?.pos, tile))) return this.select(drawn.id);
         // Only a tap on the previewed tile itself commits; one that snaps to it from a tile beside it just previews again.
         if (!target || (pending && 'path' in pending && same(pending.path.at(-1), target.pos))) return;
         this.preview(target.command);
