@@ -148,5 +148,5 @@ Top-down 2D pixel-art stealth game. Phaser 4 + TypeScript + Vite, shipped as an 
   a browser tab. iPhone Safari has no Fullscreen API; there only the installed PWA is fullscreen.
 
 ## Deploy
-Pushing to `main` runs `.github/workflows/deploy.yml`: tests, then builds and deploys to GitHub Pages. Vite uses
+Pushing to `main` runs `.github/workflows/deploy.yml`: tests, then builds and deploys to GitHub Pages. The test job runs in Playwright's own image (`mcr.microsoft.com/playwright:v1.56.1-noble`) so CI doesn't depend on the runner's OS; bump that tag together with `@playwright/test`. Vite uses
 `base: './'`, so the build works under any sub-path and survives repo renames. The service worker (vite-plugin-pwa, `registerType: autoUpdate`) caches everything for offline play.
