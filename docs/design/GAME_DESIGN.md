@@ -105,7 +105,7 @@ design sharpens it. Each change below is deliberate and can be reversed by the d
 | Cone aim with Aim, Recoil and Bullets. | Kept, plus **Damage, Pierce, Range, Threat, Noise, Profile** and a **moving penalty**. Each bullet lands at a **random point within its arc**: this replaces XCOM's hit chance (director's decision). | A 50% per-bullet cover roll otherwise makes spray weapons the answer to everything [R20]. The randomness stays visible as geometry: the player sees the arc the bullet can land in, never a percentage [R18]. |
 | Cover gives a 50% block if it is right in front. | Kept for **half cover**, with an exact definition of "in front" (a 90° arc). **Full cover** (walls, pillars) blocks line of sight; attacking from a corner means **leaning out**, which leaves the shooter exposed until their next turn. | Cover has to be readable from one icon, and the icon has to match the hit logic exactly [R19]. |
 | Floor shows where a character can go without raising alarms. | Kept as a **strict promise**: calculated per character, along the whole path, against what NPCs *will* do in their next phase, using the same rules as the real check. Three colours: safe, suspicious, spotted. | One wrong tile destroys trust in the whole stealth layer [R1, R2]. |
-| Each character is spotted individually. | Kept. NPCs who know something is wrong become **Alerted** and read every crew member as **one profile more suspicious**, with wider vision; knowledge spreads physically (radio, shouts, people running to tell someone). | Without some link between characters, spotting each one separately becomes a string of easy ambushes, or guards ignoring the gunman next to their partner [R11]. An on-edge state is easier to show than a rule about who was seen with whom (director's suggestion). |
+| Each character is spotted individually. | Kept. NPCs who know something is wrong become **Alerted** and read every crew member as **one profile more suspicious**, watching their whole cone closely; knowledge spreads physically (radio, shouts, people running to tell someone). | Without some link between characters, spotting each one separately becomes a string of easy ambushes, or guards ignoring the gunman next to their partner [R11]. An on-edge state is easier to show than a rule about who was seen with whom (director's suggestion). |
 | Off-limits areas at the back. | Three zones: **Public, Staff, Secure**. Being caught in Staff gets you **challenged** on a first offence: walk back to Public by the end of your next turn (§8.6). Secure means instant exposure. | Being caught is never a game over, but a single sighting shouldn't instantly flip the whole bank from stealth to loud either. That all-or-nothing switch was Payday 2's most criticised stealth design; Payday 3's tiers fixed it [R7]. |
 | Sound is a circle; anyone in it is alerted. | The circle is drawn **clipped by walls**: closed doors and soft walls take reach away, reinforced walls stop it. **Quiet** sounds make people curious; **loud** sounds alert them. | Closing a door and choosing a quiet route become decisions, and the preview stays exact [R4]. |
 | A command keeps an NPC down for 2 turns. | Kept, plus a **Hold** stance that pauses the timer, and a **telegraphed lapse**: when the timer runs out, the NPC shows what it will do one turn before doing it. | Re-shouting at 20 people every 2 turns is a chore, and an NPC acting without warning is a gotcha [R26, R2]. |
@@ -185,7 +185,7 @@ These words mean exactly one thing everywhere: UI, tutorial, code and this docum
 | **Profile** | How conspicuous a crew member looks: Clean, Concealed, Armed, Heavy. |
 | **Suspicion** | 0–3 pips an NPC holds about one crew member. 3 = Exposed. |
 | **Exposed** | That NPC knows that crew member is a criminal. Exposure is per NPC, per crew member. |
-| **Alert / Alerted** | An NPC knows something is wrong and acts by role. An Alerted NPC is also **on edge**: it reads every crew member one profile higher and sees further (§8.7). It is local; it never means the police were called. |
+| **Alert / Alerted** | An NPC knows something is wrong and acts by role. An Alerted NPC is also **on edge**: it reads every crew member one profile higher and its Peripheral view counts as Core, at the same ranges (§8.7). It is local; it never means the police were called. |
 | **Alarm** | A single event: the police have been called. Only an alarm carrier can raise it. |
 | **Alarm carrier** | An NPC or device in the middle of raising the Alarm, always shown with a countdown. |
 | **Loud** | The bank has heard a gunshot, explosion, shout or scream. Ends the chance to take over. |
@@ -406,8 +406,8 @@ Zones are drawn into the floor material, so the art carries the rule, and the zo
 
 ### 8.3 Vision
 
-- NPCs see a **Core** arc (6 tiles, 90°) and a **Peripheral** arc (8 tiles, 140°, including Core). **Alerted** NPCs see
-  further and treat Peripheral as Core (§8.7). Walls,
+- NPCs see a **Core** arc (6 tiles, 90°) and a **Peripheral** arc (8 tiles, 140°, including Core). **Alerted** NPCs treat
+  Peripheral as Core (same ranges, §8.7). Walls,
   full-height objects and closed doors block sight. Glass doesn't. An observer on a **raised tile** also sees over
   low objects (§14.7).
 - **Cameras** have Core only (7 tiles, 70°). They are either fixed or panning; a panning camera alternates between
@@ -506,7 +506,7 @@ physically:
 something is wrong becomes **Alerted**, and an Alerted NPC is **on edge** toward *everyone*:
 
 - it reads every crew member **one profile higher** (Clean as Concealed, Concealed as Armed, Armed as Heavy);
-- its **Peripheral view counts as Core**, and both reach 2 tiles further (Core 8, Peripheral 10);
+- its **Peripheral view counts as Core** (same ranges);
 - it stays Alerted for the rest of the heist (guards and staff), or until it is Commanded or tied (civilians).
 
 An NPC becomes Alerted when it Exposes a crew member, sees violence, hears a loud noise, finds major evidence,
@@ -515,7 +515,7 @@ NPC quicker to Expose the *next* one.
 
 What this does in play: once the guard has seen the gunman, the unarmed inside man standing next to him isn't
 automatically burned, but he can no longer walk up to that guard. A pistol under his jacket now reads as a drawn
-weapon. The player sees it at once: Alerted NPCs wear a red `!` badge, their cones are drawn red and wider, and the
+weapon. The player sees it at once: Alerted NPCs wear a red `!` badge, their cones are drawn red and all Core, and the
 safe-floor overlay of every crew member shrinks around them.
 
 **Eyes down.** Commanded and tied NPCs are face down: they don't build suspicion or Expose anyone while they stay that
@@ -669,7 +669,7 @@ profile rules still apply to anything visible on top. A disguised crew member's 
 
 The player sees the bank through the crew's eyes. This holds in stealth and in a firefight.
 
-- **Crew vision:** each crew member sees all around them up to 10 tiles. Walls, full-height objects and closed doors
+- **Crew vision:** each crew member sees all around them up to 13 tiles. Walls, full-height objects and closed doors
   block it, and darkness halves it.
 - **Live NPCs:** an NPC is shown live only while at least one crew member can see it.
 - **Fading ghosts:** an NPC that leaves view stays on the map as a faded ghost at its last-seen position, labelled

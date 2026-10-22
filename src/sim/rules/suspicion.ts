@@ -12,7 +12,7 @@ import { registerEvents } from '../core/undo';
  * - **Pips** are 0–3 per crew member (`NpcState.suspicion`; a missing entry is 0). Reaching 3 Exposes.
  * - **Exposed** (`NpcState.exposedTo`) is permanent (§8.7): the pips stay at 3 and never decay.
  * - **Alerted** (`NpcState.alerted`, with `alertCause`) is a flag of its own, not a status: a commanded guard stays
- *   Alerted. An Alerted NPC is on edge: it sees further (geo/cones.ts) and reads everyone one profile higher (§8.7).
+ *   Alerted. An Alerted NPC is on edge: its Peripheral view counts as Core (geo/cones.ts) and it reads everyone one profile higher (§8.7).
  *   Whoever makes an NPC Hostile sets it too.
  * - **Eyes down** (§8.7): commanded and tied NPCs are face down, out cold or dead ones see nothing; none of them build
  *   suspicion or Expose anyone while they stay that way (`EYES_DOWN`).

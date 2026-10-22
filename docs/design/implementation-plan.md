@@ -141,7 +141,7 @@ Each package lists its goal, the design sections it covers, the files, what it d
     - Core (6 tiles, 90°) and Peripheral (8 tiles, 140°) arcs; Alerted (8 and 10, Peripheral counts as Core).
     - Darkness halves every range.
     - Camera core arc (7 tiles, 70°), with pan facings.
-    - Crew sight: 360°, 10 tiles.
+    - Crew sight: 360°, 13 tiles (decision 39).
     - Integer cone tests.
   - **Files:** `src/sim/geo/los.ts`, `cones.ts`.
   - **Depends on:** M1-01. **∥** M1-02, M1-03.
@@ -445,7 +445,7 @@ Each package lists its goal, the design sections it covers, the files, what it d
       by someone unseen, one tile someone unseen also acted on and one told by someone unseen.
     - **Follow-up fixes.** Turn 1's hatched grey is not an empty fresh set: the state's initialiser already makes the
       tiles the crew sees fresh (a test now checks it, and that a resumed save keeps them). It is decision 24 at work:
-      the crew sees 10 tiles round them in the open and `unknownReach` is 10, so every seen tile of the street is within
+      the crew sees 13 tiles round them in the open (10 before decision 39) and `unknownReach` is 8 (10 before decision 38), so every seen tile of the street is within
       reach of one it can't see; only spaces seen whole (rooms) read green. The scene uses `safeFloorJob` directly
       (src/game/floorJob.ts is gone) and tints the Move band a tile at a time, so the Dash band is left to the frames
       after (6–7 ms slices); `actionPreview`'s stopped carriers are typed `CarrierKind`. Selecting a crew member
@@ -503,7 +503,7 @@ Each package lists its goal, the design sections it covers, the files, what it d
       perception judges exactly the tiles walked. The preview (the truth) stops there too, but its projection shows
       the drawn path: a preview can't promise the whole path through unknown space.
     - **Unknown risk** (`isUnknownRisk`, `floorKnowledge`): a seen tile that isn't fresh, or that a tile that isn't
-      fresh sees within `unknownReach` (10, halved on a dark tile); for a crew member (`floorKnowledge(…, { crew })`,
+      fresh sees within `unknownReach` (8, the longest NPC or camera arc, from the rules; halved on a dark tile); for a crew member (`floorKnowledge(…, { crew })`,
       `unknownWatcher`), only where such an unknown observer, at its worst, would react to them (decision 24). Worked out per tile on demand, cached per sight
       map and fresh set. The blueprint (`blueprint(world)`) is layout, not scouting: an unseen tile is `unscouted`.
     - **Measured** (4 crew): one update after a move 0.32 ms mean on a city bank, 0.13–0.60 ms on HQ banks; one more
@@ -831,14 +831,14 @@ Later milestones: within each milestone, the `∥` notes in §3 apply. UI packag
     **Per crew member, by the reaction rules (M1-09/M1-10 follow-up).** A seen tile is hatched grey for a crew member
     only where someone unknown could actually change something for them there: pips, exposure, a challenge or a camera
     report. The unknown observer is taken at its worst: any class (and the manager or the security chief, who see
-    through a uniform), Alerted (one profile higher, both arcs Core, reaching 8 and 10), facing the tile, from the
+    through a uniform), Alerted (one profile higher, both arcs Core, reaching 6 and 8: decision 38), facing the tile, from the
     nearest stale tile with a line of sight (which settles the band and frisk range); or a camera of unknown status,
     taken as live (it registers only `!`). Judged by `reaction` itself, with Notoriety, uniforms and a Warned crew
     member's second offence, so there is no second copy of the matrix; trespass counts; a tile passed mid-move counts
     only for a `!`. A reaction only grows as the observer comes nearer, so the worst is that of the nearest stale tile
     in sight or the nearest within frisk range, both worked out once per tile and shared by the crew
     (`rules/knowledge.ts` `unknownWatcher`; `isUnknownRisk` is the geometry alone). Why: the street at the van is within
-    10 tiles of unseen space, so every reachable tile used to hatch, though nobody, not even an Alerted guard, reacts
+    `unknownReach` (8, the furthest any NPC or camera sees) of unseen space, so every reachable tile used to hatch, though nobody, not even an Alerted guard, reacts
     to a Clean crew member in Public unless within frisk range: the hatch cried wolf and taught players to ignore it.
     Now Clean in Public hatches only within 2 tiles of unseen space; Concealed (read as Armed), Armed, a Clean crew
     member in the Staff zone (read as Concealed: `!` to a guard; a uniform doesn't help, the security chief sees
@@ -911,6 +911,18 @@ Later milestones: within each milestone, the `∥` notes in §3 apply. UI packag
     drawn; a known NPC in the way gets one turn to move on. Stops point at where the crew knows an NPC to be. A wait
     walks no routes and ignores public civilians coming into view; a Go counts schedule events only within 12 tiles
     (or the room) of the crew or its routes. Routes come back with an undo, and the last stop is kept with the UI.
+38. **Alerted NPCs see no further (§8.3, §8.7).** An Alerted NPC keeps a calm one's ranges (Core 6 tiles / 90°,
+    Peripheral 8 / 140°) but its whole cone counts as Core, so any movement in it gets the full reaction; it still
+    reads every crew member one profile higher, and darkness still halves the ranges. Before, it also saw 2 tiles
+    further in both arcs (Core 8, Peripheral 10, `alertedRangeBonus`, now gone). Why: one effect, not two: alerted NPCs
+    watch their whole cone closely but see no further. `unknownReach` follows from the profiles (`geo/cones.ts`), so
+    the unknown-risk reach is 8, the furthest any NPC or camera sees.
+39. **Crew sight is further than a Dash (§8.15).** Crew members see all round to 13 tiles (`crewRange`, was 10;
+    darkness still halves it). Why: a Dash reaches 12 tiles, and a crew member who could dash further than they can
+    see felt wrong; at 13 a Dash in the open always ends on ground they could see before moving. Larger fields cost
+    little (10 → 13, 3 runs each, `knowledge.test.ts` and `PREVIEW_PROBE_VERBOSE=1` preview property): one fresh crew
+    field 0.08–0.11 → 0.13–0.19 ms; knowledge update after a move, mean 0.24–0.37 → 0.26–0.42 ms (city and HQ); safe
+    floor median / p90 ms small 8.6 / 31.8 → 6.0 / 34.2, city 4.9 / 45.9 → 4.6 / 31.3, HQ 5.2 / 24.4 → 5.2 / 20.8.
 
 ### Critical files for implementation
 

@@ -242,18 +242,36 @@ describe('the profile', () => {
 // ------------------------------------------------------------------------------------------------- On edge, eyes down
 
 describe('on edge (§8.7)', () => {
-    it('reads every crew member one profile higher and sees further', () => {
+    it('reads every crew member one profile higher and watches its Peripheral view as Core', () => {
         const world = floor('public', 15, 15, { people: [person('t', 'staff', P(1, 7), 'e')] });
         const state = initialState(world, { seed: 1, crew: [{ id: 'jun', pos: P(3, 7), items: ['pistol'] }, { id: 'mara', pos: P(8, 7) }] });
         expect(outcomeOf(world, state, 'jun', P(3, 7), 't')).toBe('-');
         state.npcs[0]!.alerted = true;
-        // Concealed reads as Armed: +2 from a teller; and 7 tiles away is now in its (wider) Core.
+        // Concealed reads as Armed: +2 from a teller; and 7 tiles away, in Peripheral view, now counts as Core.
         expect(outcomeOf(world, state, 'jun', P(3, 7), 't')).toBe('+2');
         expect(assessEnd(world, state, sightMap(world, state), 'mara', P(8, 7))).toEqual([]);
         expect(outcomeOf(world, state, 'jun', P(8, 7), 't')).toBe('+2');
         const s = assessEnd(world, state, sightMap(world, state), 'jun', P(8, 7))[0]!;
         expect(s.band).toBe('core');
         expect(s.why).toContain('onEdge');
+    });
+
+    it('sees no further than a calm NPC: its 140° arc to 8 tiles, all Core (decision 38)', () => {
+        const world = floor('public', 15, 15, { people: [person('t', 'staff', P(1, 7), 'e')] });
+        const state = initialState(world, { seed: 1, crew: [{ id: 'jun', pos: P(3, 7), items: ['pistol'] }] });
+        state.npcs[0]!.alerted = true;
+        const at = (tile: Pos) => assessEnd(world, state, sightMap(world, state), 'jun', tile).find(s => s.observer === 't');
+        // 7–8 tiles away but outside the 140° arc: (2, 7) is at 74°, (-7, 0) behind.
+        expect(at(P(3, 14))).toBeUndefined();
+        expect(at(P(0, 7))).toBeUndefined();
+        // 8 tiles away inside the arc, straight ahead and at 50° (Peripheral for a calm NPC): Core, the full reaction.
+        for (const tile of [P(9, 7), P(6, 13)]) {
+            const s = at(tile)!;
+            expect(s.band).toBe('core');
+            expect(s.outcome).toBe('+2');
+        }
+        // 9 tiles away: out of range, alerted or not.
+        expect(at(P(10, 7))).toBeUndefined();
     });
 
     it('stays when commanded: a commanded guard is Alerted but eyes down', () => {

@@ -123,7 +123,7 @@ describe('NPCs: live, known routines, predicted markers and ghosts', () => {
         expect(t3.state.knowledge.npcs.clerk).toMatchObject({ watched: 3, routine: true });
         const gone = step(world, away(t3.state), { type: 'endTurn' });
         // The far end of the corridor is new; the clerk going out of view tells nothing.
-        expect(revealed(gone.events)).toEqual(['tiles 11']);
+        expect(revealed(gone.events)).toEqual(['tiles 14']);
         const view = knownView(world, gone.state);
         expect(view.npcs).toEqual([expect.objectContaining({ id: 'clerk', kind: 'predicted', pos: P(5, 0), seenAgo: 0, status: 'calm' })]);
         // Predicted NPCs count like visible ones; unseen ones don't.
@@ -313,12 +313,14 @@ describe('previews tell nothing new', () => {
     });
 
     it('says when an unseen NPC noticed a move, without saying who', () => {
-        // The clerk stands in the dark at the far end: it sees the crew in the lit corridor, the crew can't see it.
-        const dark = [P(6, 0), P(7, 0), P(8, 0)];
-        const world = fixtureWorld(['.........'], { people: [clerk(P(7, 0), { id: 'hidden' })], dark, zones: ['sssssssss'] });
+        // The clerk stands in the dark at the far end: on edge, it sees the crew in the lit corridor 7 tiles off with its
+        // whole cone as Core; the crew sees only 6 tiles into the dark (13 halved), so it can't see the clerk.
+        const dark = [P(7, 0), P(8, 0), P(9, 0)];
+        const world = fixtureWorld(['..........'], { people: [clerk(P(8, 0), { id: 'hidden' })], dark, zones: ['ssssssssss'] });
         // Every tile known already (the clerk's dark corner included, earlier), so the move reveals nothing.
         const state = patch(initialState(world, { seed: 1, crew: [{ id: 'jun', pos: P(0, 0) }] }), s => {
-            s.knowledge.seen = encodeBits(new Uint8Array(9).fill(1));
+            s.knowledge.seen = encodeBits(new Uint8Array(10).fill(1));
+            s.npcs[0]!.alerted = true;
         });
         expect(markerKind(world, state, 'hidden')).toBe(null);
         const r = step(world, state, { type: 'move', crew: 'jun', path: [P(1, 0)] });
@@ -432,18 +434,18 @@ describe('unknown risk', () => {
         // The stranger has walked onto tiles the crew saw earlier and has since left behind.
         const world = fixtureWorld(['.'.repeat(40)], { people: [clerk(P(39, 0), { id: 'stranger' })] });
         let s = initialState(world, { seed: 1, crew: [{ id: 'jun', pos: P(0, 0) }] });
-        s = step(world, patch(s, x => { x.crew[0]!.pos = P(14, 0); }), { type: 'wait', crew: 'jun' }).state;
-        // Fresh this crew phase: 0..24. After a world phase only what the crew sees now (4..24) is fresh.
+        s = step(world, patch(s, x => { x.crew[0]!.pos = P(17, 0); }), { type: 'wait', crew: 'jun' }).state;
+        // Fresh this crew phase: 0..30. After a world phase only what the crew sees now (4..30) is fresh.
         expect(floorKnowledge(world, s, P(2, 0))).toBe('scouted');
         s = step(world, s, { type: 'endTurn' }).state;
         expect(floorKnowledge(world, s, P(2, 0))).toBe('unknownRisk');
-        // Within reach of the stale tiles (3 and 25 are 9 away from 12, 11 from 14).
-        expect(floorKnowledge(world, s, P(12, 0))).toBe('unknownRisk');
-        expect(floorKnowledge(world, s, P(14, 0))).toBe('scouted');
+        // Within reach (8) of the stale tiles: 3 is 8 away from 11; 12 is 9 from 3 and 19 from 31.
+        expect(floorKnowledge(world, s, P(11, 0))).toBe('unknownRisk');
+        expect(floorKnowledge(world, s, P(12, 0))).toBe('scouted');
         // Walking back makes them fresh again.
         s = step(world, patch(s, x => { x.crew[0]!.pos = P(0, 0); }), { type: 'wait', crew: 'jun' }).state;
         expect(floorKnowledge(world, s, P(2, 0))).toBe('scouted');
-        expect(floorKnowledge(world, s, P(30, 0))).toBe('unscouted');
+        expect(floorKnowledge(world, s, P(35, 0))).toBe('unscouted');
     });
 
     it('is never green where an NPC the crew doesn’t see or predict could watch, through a played heist', () => {
@@ -499,7 +501,7 @@ describe('unknown risk', () => {
 });
 
 describe('unknown risk for a crew member (decision 24)', () => {
-    // A street: jun at its west end sees 10 tiles, so (11, 0) on is unseen and anyone could stand there. A staff strip
+    // A street: jun at its west end sees 13 tiles, so (14, 0) on is unseen and anyone could stand there. A staff strip
     // round x 6 in the second row.
     const build = (start: { items?: string[]; notoriety?: number } = {}): { world: ReadonlyWorld; state: State } => {
         const world = fixtureWorld(['.'.repeat(40), '.'.repeat(40)], { zones: ['.'.repeat(40), '.....sss' + '.'.repeat(32)] });
@@ -513,38 +515,38 @@ describe('unknown risk for a crew member (decision 24)', () => {
     it('leaves a Clean crew member green in Public near unscouted space, out of frisk range', () => {
         const { world, state } = build();
         // Within reach of the unseen street, so someone unseen could see it...
-        expect(floorKnowledge(world, state, P(4, 0))).toBe('unknownRisk');
-        expect(isUnknownRisk(world, state, P(4, 0))).toBe(true);
+        expect(floorKnowledge(world, state, P(7, 0))).toBe('unknownRisk');
+        expect(isUnknownRisk(world, state, P(7, 0))).toBe(true);
         // ...but nobody would do anything about Clean in Public, even Alerted (Clean reads as Concealed: an enforcer's +1 within 2).
-        expect(at(world, state, P(4, 0))).toBe('scouted');
         expect(at(world, state, P(7, 0))).toBe('scouted');
+        expect(at(world, state, P(10, 0))).toBe('scouted');
         const floor = safeFloor(world, state, 'jun');
-        expect(floor.at(P(3, 0))!.tint.kind).toBe('safe');
-        expect(floor.tiles.filter(t => t.pos.y === 0 && t.pos.x <= 7).every(t => t.tint.kind === 'safe')).toBe(true);
-        expect(explain(world, state, 'jun', P(3, 0))).toEqual([]);
+        expect(floor.at(P(6, 0))!.tint.kind).toBe('safe');
+        expect(floor.tiles.filter(t => t.pos.y === 0 && t.pos.x <= 10).every(t => t.tint.kind === 'safe')).toBe(true);
+        expect(explain(world, state, 'jun', P(6, 0))).toEqual([]);
         // Within frisk range of the unseen street an Alerted guard reading Concealed would add a pip.
-        expect(at(world, state, P(9, 0))).toBe('unknownRisk');
-        expect(unknownWatcher(world, state, 'jun', P(9, 0))!.reaction).toMatchObject({ outcome: '+1', profile: 'concealed' });
+        expect(at(world, state, P(12, 0))).toBe('unknownRisk');
+        expect(unknownWatcher(world, state, 'jun', P(12, 0))!.reaction).toMatchObject({ outcome: '+1', profile: 'concealed' });
     });
 
     it('hatches Concealed near unscouted space, where an unseen guard could frisk or read it as Armed', () => {
         const { world, state } = build({ items: ['pistol'] });
-        expect(at(world, state, P(9, 0))).toBe('unknownRisk');
-        expect(at(world, state, P(4, 0))).toBe('unknownRisk');
-        const w = unknownWatcher(world, state, 'jun', P(4, 0))!;
+        expect(at(world, state, P(12, 0))).toBe('unknownRisk');
+        expect(at(world, state, P(7, 0))).toBe('unknownRisk');
+        const w = unknownWatcher(world, state, 'jun', P(7, 0))!;
         expect(w).toMatchObject({ by: 'npc', observer: 'enforcer', reaction: { outcome: '!', profile: 'armed' } });
     });
 
     it('hatches Armed in Public, and says why', () => {
         const { world, state } = build({ items: ['assaultRifle'] });
-        expect(at(world, state, P(3, 0))).toBe('unknownRisk');
-        expect(safeFloor(world, state, 'jun').at(P(3, 0))!.tint.kind).toBe('unknownRisk');
-        const lines = explain(world, state, 'jun', P(3, 0));
+        expect(at(world, state, P(7, 0))).toBe('unknownRisk');
+        expect(safeFloor(world, state, 'jun').at(P(7, 0))!.tint.kind).toBe('unknownRisk');
+        const lines = explain(world, state, 'jun', P(7, 0));
         expect(lines.map(l => [l.observer, l.by, l.text])).toEqual([
             [null, 'unknown', 'An unseen guard could see you here (Armed)'], [null, 'unknown', 'An unseen guard could see you on the way (Armed)']
         ]);
         // Mid-move only `!` counts: Armed in Public is `!` to an Alerted guard, so a path past it is unknown too.
-        expect(unknownWatcher(world, state, 'jun', P(3, 0), { step: true })).not.toBeNull();
+        expect(unknownWatcher(world, state, 'jun', P(7, 0), { step: true })).not.toBeNull();
     });
 
     it('hatches Clean without a uniform in the Staff zone', () => {
@@ -565,11 +567,11 @@ describe('unknown risk for a crew member (decision 24)', () => {
     });
 
     it('raises it with Notoriety', () => {
-        expect(at(build().world, build().state, P(4, 0))).toBe('scouted');
+        expect(at(build().world, build().state, P(7, 0))).toBe('scouted');
         for (const notoriety of [2, 4]) {
             const { world, state } = build({ notoriety });
-            expect(at(world, state, P(4, 0)), `Notoriety ${notoriety}`).toBe('unknownRisk');
-            expect(unknownWatcher(world, state, 'jun', P(4, 0))!.reaction.why).toContain('notoriety');
+            expect(at(world, state, P(7, 0)), `Notoriety ${notoriety}`).toBe('unknownRisk');
+            expect(unknownWatcher(world, state, 'jun', P(7, 0))!.reaction.why).toContain('notoriety');
         }
     });
 

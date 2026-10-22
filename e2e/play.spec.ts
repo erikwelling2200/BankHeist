@@ -286,8 +286,9 @@ test('one movement range: a near tile is a Move (1 action), a far one a Dash (2)
     await expect(page.locator('.sh-confirm')).toContainText('MOVE');
     await expect(page.locator('.sh-confirm .sh-cost i')).toHaveCount(1);
 
-    // Far: a Dash, with its noise ring; Confirm costs 2.
-    const far = nearest(selected.range.run, start.pos, 9);
+    // Far: a Dash, with its noise ring; Confirm costs 2. Away from the bank (east): westward, Mara (seeing 13 tiles)
+    // spots the lobby guard on the way, which cuts the dash short.
+    const far = nearest(selected.range.run.filter((t: Pos) => t.x > start.pos.x), start.pos, 9);
     await tapTile(page, far);
     shown = await play(page);
     expect(shown.pending).toMatchObject({ type: 'dash' });
@@ -866,7 +867,8 @@ test('the safe floor: tints as the sim judges them, a drawn path\'s eye, who and
  * search over the real rules and recorded; the bank and the rules are deterministic, so it plays the same every time.
  */
 const blank = (turns: number): string[] => Array.from({ length: turns }, () => '');
-const M1_OPENING = ['mara:36,30 jun:36,29 mara:33,27 jun:33,26', 'jun:32,25 jun:34,23 mara:33,23'];
+// Mara's first step stops where the lobby guard comes into view (crew sight 13, decision 39), so she ends it there.
+const M1_OPENING = ['mara:37,31 jun:36,29 mara:34,28 jun:33,26', 'jun:32,25 jun:34,23 mara:33,25 mara:33,23'];
 /** From turn 10: Jun slips through the staff door behind the cleaner (turn 11) and keeps out of sight near the alarm closet. */
 const M1_INSIDE = [
     'jun:30,22', 'jun:26,23 jun:25,20', 'jun:23,17 jun:23,12', 'jun:28,12 jun:33,12', 'jun:38,12 jun:42,11', 'jun:43,11', ...blank(20),

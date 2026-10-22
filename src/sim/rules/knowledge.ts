@@ -28,7 +28,7 @@ import { bitsCount, decodeBits, encodeBits } from './knowledgeBits';
  * player sees the bank only through this. Kept in `State.knowledge`, updated after every command (crew actions and the
  * world phase alike, `registerCommandHook`), at every step of a crew move, and on every noise.
  *
- * - **Seen tiles** (the casing layer): every tile any crew member has seen (360°, 10 tiles, darkness halves it; the
+ * - **Seen tiles** (the casing layer): every tile any crew member has seen (360°, 13 tiles, darkness halves it; the
  *   `crew` profile of geo/cones.ts), as a compact bitset string (implementation plan §5: the state is copied on every
  *   command). Tiles never seen are grey, "no data", and never safe (§8.8).
  * - **Fresh tiles**: the tiles seen since the last world phase ended, reset to what the crew sees at the end of each
@@ -515,10 +515,10 @@ registerStateCheck('knowledge', (state, world) => {
 
 // ---------------------------------------------------------------------------------------------------------- Unknown risk
 
-/** The furthest anyone the crew doesn't know about could see: an Alerted NPC's Peripheral arc, or a camera. */
+/** The furthest anyone the crew doesn't know about could see: the longest arc of any NPC's or camera's profile (8). */
 export function unknownReach(world: ReadonlyWorld): number {
-    const r = world.rules;
-    return Math.max(r.peripheralRange + r.alertedRangeBonus, r.coreRange + r.alertedRangeBonus, r.cameraRange);
+    const p = profilesOf(world);
+    return Math.max(...[p.calm, p.alerted, p.camera, p.darkCamera].flatMap(profile => profile.arcs.map(arc => arc.range)));
 }
 
 /**
@@ -643,7 +643,7 @@ function unknownNpcs(world: ReadonlyWorld): readonly { observer: ObserverClass; 
  * included) sees it, from where an unknown observer, at its worst, would do something by the very rules perception
  * uses (`reaction`: the matrix, the profile as read, uniforms, Notoriety, frisk range). At its worst means any class
  * (and the manager or the security chief, who see through a uniform), Alerted (one profile higher; both arcs Core,
- * reaching 8 and 10), facing the tile; or a camera of unknown status, taken as live. The distance from that tile
+ * reaching 6 and 8), facing the tile; or a camera of unknown status, taken as live. The distance from that tile
  * decides the band and frisk range. Trespass counts; on a tile passed mid-move (`step`) only `!` does. Null when
  * nobody unknown could change anything there, or `p` is unseen (grey, which is never safe anyway).
  *

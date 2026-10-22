@@ -39,7 +39,7 @@ describe('the world UI over heads', () => {
         expect(badges.every(b => view.npcs.some(m => m.id === b.id))).toBe(true);
     });
 
-    it('names what each hearer of a knockout will do, and draws an Alerted NPC\'s cones wider', () => {
+    it('names what each hearer of a knockout will do, and draws an Alerted NPC\'s cones all Core, no wider', () => {
         const { world, state } = scene();
         const view = knownView(world, state);
         const cmd = { type: 'knockout' as const, crew: 'jun', npc: 'ann' };
@@ -54,7 +54,11 @@ describe('the world UI over heads', () => {
         const alerted = npcCone(world, scene(s => { s.npcs[1]!.alerted = true; s.npcs[1]!.status = 'alerted'; }).state, view, 'bob')!;
         expect(calm.alerted).toBe(false);
         expect(alerted.alerted).toBe(true);
-        expect(alerted.core.length + alerted.peripheral.length).toBeGreaterThan(calm.core.length + calm.peripheral.length);
+        // Same reach (decision 38): the whole cone is Core.
+        const key = (ps: readonly Pos[]): string[] => ps.map(p => `${p.x},${p.y}`).sort();
+        expect(alerted.peripheral).toEqual([]);
+        expect(calm.peripheral.length).toBeGreaterThan(0);
+        expect(key(alerted.core)).toEqual(key([...calm.core, ...calm.peripheral]));
     });
 
     it('draws the safe floor, a path\'s tints and its eye, and "who and why" from the preview engine', () => {

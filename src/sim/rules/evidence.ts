@@ -371,7 +371,7 @@ export function clearEvidence(ctx: Ctx, npc: NpcState): void {
 export const REPORT_CARRIERS: Readonly<Record<'radio' | 'phone', CarrierKind>> = { radio: 'guardRadio', phone: 'phoneCall' };
 
 // Noticing is judged on the state the world phase begins with, like the crew's sightings (perception.world, −100), and
-// applied after them, before anyone moves (npcs.passive, 0): an NPC alerted by the crew's sightings doesn't see further
+// applied after them, before anyone moves (npcs.passive, 0): an NPC alerted by the crew's sightings doesn't watch closer
 // for it, nor one alerted by evidence for the crew's sightings.
 const JUDGED = new WeakMap<State, EvidenceSighting[]>();
 

@@ -25,7 +25,8 @@ import { lineOfSight, sightMap, type SightMap } from './los';
  *   the diagonals of an axis facing, such as (3, 3) for an NPC facing east) and at 180°. The observer's own tile is
  *   always seen, in its best band.
  * - **Bands.** A profile is a list of arcs, each Core or Peripheral; a tile gets the best band of any arc that holds
- *   it. Alerted NPCs list their Peripheral arc as Core (§8.7).
+ *   it. Alerted NPCs list their Peripheral arc as Core, at the same ranges: they watch their whole cone closely but
+ *   see no further (§8.7).
  *
  * For many questions in one evaluation (perception over a path, the safe-floor overlay, the crew's knowledge), take
  * `sightMap(world, state)` once and ask `seesOn` and `fieldOn`; `sees` and `seenTiles` are the one-off forms.
@@ -33,14 +34,12 @@ import { lineOfSight, sightMap, type SightMap } from './los';
 
 declare module '../core/types' {
     interface Rules {
-        /** How far crew members see, all round (§8.15). */
+        /** How far crew members see, all round (§8.15): further than a Dash reaches (decision 39). */
         crewRange: number;
-        /** How much further Alerted NPCs see, in both arcs (§8.7: Core 8, Peripheral 10). */
-        alertedRangeBonus: number;
     }
     interface NpcState {
         /**
-         * On edge (§8.7): it sees further and treats Peripheral as Core, and reads everyone one profile higher. A flag
+         * On edge (§8.7): it treats Peripheral as Core (same ranges), and reads everyone one profile higher. A flag
          * of its own, not a status: a commanded guard stays Alerted. Set by rules/suspicion.ts (`alertNpc`).
          */
         alerted: boolean;
@@ -51,7 +50,7 @@ declare module '../core/types' {
     }
 }
 
-registerRuleDefaults({ crewRange: 10, alertedRangeBonus: 2 });
+registerRuleDefaults({ crewRange: 13 });
 
 /** How well a tile is seen. */
 export type Band = 'core' | 'peripheral';
@@ -87,11 +86,10 @@ export interface VisionProfiles { calm: VisionProfile; alerted: VisionProfile; c
 
 /** The vision profiles of §8.3, §8.7 and §8.15 from a bank's rules. */
 export function visionProfiles(rules: DeepReadonly<Rules>): VisionProfiles {
-    const bonus = rules.alertedRangeBonus;
     const camera: Arc[] = [{ band: 'core', range: rules.cameraRange, half: 35 }];
     return {
         calm: { name: 'calm', blindInDark: false, arcs: [{ band: 'core', range: rules.coreRange, half: 45 }, { band: 'peripheral', range: rules.peripheralRange, half: 70 }] },
-        alerted: { name: 'alerted', blindInDark: false, arcs: [{ band: 'core', range: rules.coreRange + bonus, half: 45 }, { band: 'core', range: rules.peripheralRange + bonus, half: 70 }] },
+        alerted: { name: 'alerted', blindInDark: false, arcs: [{ band: 'core', range: rules.coreRange, half: 45 }, { band: 'core', range: rules.peripheralRange, half: 70 }] },
         camera: { name: 'camera', blindInDark: true, arcs: camera },
         darkCamera: { name: 'darkCamera', blindInDark: false, arcs: camera },
         crew: { name: 'crew', blindInDark: false, arcs: [{ band: 'core', range: rules.crewRange, half: 180 }] }
@@ -165,7 +163,7 @@ export function cameraObserver(world: ReadonlyWorld, state: State, id: string, n
     return { pos: def.pos, facing, profile: def.seesInDark ? p.darkCamera : p.camera };
 }
 
-/** A crew member as an observer: all round, 10 tiles (§8.15). */
+/** A crew member as an observer: all round, 13 tiles (§8.15). */
 export function crewObserver(world: ReadonlyWorld, crew: DeepReadonly<CrewState>): Observer {
     return { pos: crew.pos, facing: crew.facing, profile: profilesOf(world).crew };
 }

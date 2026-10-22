@@ -267,21 +267,23 @@ describe('cones', () => {
         expect(band(look('calm', 'sw'), -4, 4)).toBe('core');
     });
 
-    it('lets Alerted NPCs see 2 further and Peripheral as Core (§8.7)', () => {
-        expect(world.rules.alertedRangeBonus).toBe(2);
+    it('lets Alerted NPCs see Peripheral as Core, no further than calm ones (§8.7)', () => {
         const alerted = look('alerted');
-        expect([8, 9, 10, 11].map(d => band(alerted, d, 0))).toEqual(['core', 'core', 'core', null]);
+        expect([0, 6, 7, 8, 9].map(d => band(alerted, d, 0))).toEqual(['core', 'core', 'core', 'core', null]);
+        expect(band(alerted, 5, 6)).toBe('core'); // 50°, 61 ≤ 64
+        expect(band(alerted, 6, 6)).toBe(null); // 72 > 64
         expect(band(alerted, 2, 4)).toBe('core');
         expect(band(alerted, 1, 4)).toBe(null);
     });
 
-    it('gives cameras a Core of 7 tiles and 70°, and crew all round to 10', () => {
+    it('gives cameras a Core of 7 tiles and 70°, and crew all round to 13, past a Dash', () => {
         const camera = look('camera');
         expect([7, 8].map(d => band(camera, d, 0))).toEqual(['core', null]);
         expect(band(camera, 5, 3)).toBe('core'); // 31°
         expect(band(camera, 4, 3)).toBe(null); // 36.9°
-        const crew = look('crew');
-        expect([band(crew, -10, 0), band(crew, 0, 10), band(crew, 6, -8), band(crew, -7, -8), band(crew, 11, 0)]).toEqual(['core', 'core', 'core', null, null]);
+        const wide = fixtureWorld(open(31)), crew: Observer = { pos: P(15, 15), facing: 'e', profile: profilesOf(wide).crew };
+        expect(world.rules.crewRange).toBeGreaterThan(world.rules.dashTiles);
+        expect([band(crew, -13, 0, wide), band(crew, 0, 13, wide), band(crew, 5, -12, wide), band(crew, -8, -10, wide), band(crew, -9, -10, wide), band(crew, 14, 0, wide)]).toEqual(['core', 'core', 'core', 'core', null, null]);
     });
 
     it('halves every range on a dark tile, rounded down', () => {
@@ -290,12 +292,12 @@ describe('cones', () => {
         const dim = fixtureWorld(open(25), { dark });
         const o = (name: 'calm' | 'alerted' | 'camera' | 'darkCamera' | 'crew'): Observer => ({ pos: P(12, 12), facing: 'e', profile: profilesOf(dim)[name] });
         expect([3, 4, 5].map(d => band(o('calm'), d, 0, dim))).toEqual(['core', 'peripheral', null]);
-        expect([5, 6].map(d => band(o('alerted'), d, 0, dim))).toEqual(['core', null]);
+        expect([3, 4, 5].map(d => band(o('alerted'), d, 0, dim))).toEqual(['core', 'core', null]);
         // Cameras below Regional HQ are blind in the dark; the rest see half as far.
         expect([1, 3, 4].map(d => band(o('camera'), d, 0, dim))).toEqual([null, null, null]);
         expect([3, 4].map(d => band(o('darkCamera'), d, 0, dim))).toEqual(['core', null]);
         expect(band(o('camera'), 5, 1, dim)).toBe('core');
-        expect([-5, -6].map(d => band(o('crew'), d, 0, dim))).toEqual(['core', null]);
+        expect([-6, -7].map(d => band(o('crew'), d, 0, dim))).toEqual(['core', null]);
         // A lit tile next to the dark row is seen as far as ever.
         expect(band(o('calm'), 5, 1, dim)).toBe('core');
     });

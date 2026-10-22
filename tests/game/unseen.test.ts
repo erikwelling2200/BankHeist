@@ -28,9 +28,12 @@ describe('the session and NPCs the crew doesn’t know', () => {
     });
 
     it('says a commit was noticed by someone unseen, so Undo greys out with a hint', () => {
-        const world = fixtureWorld(['.........'], { people: [clerk(P(7, 0), { id: 'hidden' })], dark: [P(6, 0), P(7, 0), P(8, 0)], zones: ['sssssssss'] });
+        // The clerk stands in the dark, out of the crew's halved sight (13 / 2 = 6), and, on edge, sees Jun 7 tiles off
+        // in the light with its whole cone as Core.
+        const world = fixtureWorld(['..........'], { people: [clerk(P(8, 0), { id: 'hidden' })], dark: [P(7, 0), P(8, 0), P(9, 0)], zones: ['ssssssssss'] });
         const state = clonePlain(initialState(world, { seed: 1, crew: [{ id: 'jun', pos: P(0, 0) }] }));
-        state.knowledge.seen = encodeBits(new Uint8Array(9).fill(1));
+        state.knowledge.seen = encodeBits(new Uint8Array(10).fill(1));
+        state.npcs[0]!.alerted = true;
         const s = session(world, state), changes: SessionChange[] = [];
         s.subscribe(c => changes.push(c));
         s.commit({ type: 'move', crew: 'jun', path: [P(1, 0)] });
