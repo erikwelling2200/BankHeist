@@ -209,7 +209,7 @@ export function pathView(safety: PathSafety): PathVM | undefined {
     const steps = safety.steps.map((s, i): PathStepVM => {
         if (i === last) return { pos: { ...s.pos }, kind: safety.end.tint.kind, hatched: safety.end.tint.hatched };
         const kind: TintKind = s.sightings.length ? (s.sightings.every(x => x.by === 'camera') ? 'camera' : 'red')
-            : s.knowledge === 'unscouted' ? 'grey' : s.knowledge === 'unknownRisk' ? 'unknownRisk' : 'safe';
+            : s.passing === 'unscouted' ? 'grey' : s.passing === 'unknownRisk' ? 'unknownRisk' : 'safe';
         return { pos: { ...s.pos }, kind, hatched: false };
     });
     return { steps, eyeAt: safety.firstUnsafe, end: tintVM(safety.end.pos, safety.mode, safety.end.tint) };

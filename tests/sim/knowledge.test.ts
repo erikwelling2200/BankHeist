@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { GenerateOptions } from '../../src/gen/generate';
 import { cachedBank } from '../bankCache';
 import {
-    cameraObserver, clonePlain, commit, crewPicture, decodeBits, deserialise, encodeBits, fieldOn, fixtureWorld, floorKnowledge, freezeWorld,
+    bandAt, cameraObserver, clonePlain, commit, crewLook, crewPicture, decodeBits, explain, reaction, safeFloor, unknownWatcher, deserialise, encodeBits, fieldOn, fixtureWorld, floorKnowledge, freezeWorld,
     hashOf, initialState, isKnownNow, isUnknownRisk, noticedUnseen, pathTo, projectPreviewEvents, SaveFormatError, knownBlockers, knownView, makeNoise, markerKind, npcObserver, preview, projectEvents, reachable,
     serialise, sightMap, tileAt, updateKnowledge, worldFromBank, type Command, type FixtureOptions, type PersonDef, type Pos, type ReadonlyWorld,
     type SimEvent, type State, type World
@@ -469,9 +469,22 @@ describe('unknown risk', () => {
                     ];
                     for (const o of observers) {
                         if (!o) continue;
-                        for (const t of fieldOn(sight, o).tiles) {
+                        const npc = state.npcs.find(n => n.pos.x === o.pos.x && n.pos.y === o.pos.y && o.profile.name === 'alerted');
+                        const person = npc && world.people.find(p => p.id === npc.id)!;
+                        const field = fieldOn(sight, o);
+                        for (const t of field.tiles) {
                             expect(floorKnowledge(world, state, t), `${when}: (${t.x}, ${t.y}) seen from (${o.pos.x}, ${o.pos.y})`).not.toBe('scouted');
                             checked++;
+                            // Green for a crew member means this unknown observer, Alerted, would do nothing to them there.
+                            for (const c of state.crew) {
+                                if (floorKnowledge(world, state, t, { crew: c.id }) !== 'scouted') continue;
+                                const r = reaction(world.rules, {
+                                    look: crewLook(c), notoriety: c.notoriety, observer: person?.observer ?? 'enforcer', role: person?.role ?? null, camera: !person,
+                                    alerted: !!person, band: bandAt(field, t)!, zone: tileAt(world, t)!.zone,
+                                    chebyshev: Math.max(Math.abs(t.x - o.pos.x), Math.abs(t.y - o.pos.y)), warnedByThis: false, warnedByAny: false
+                                });
+                                expect(r.outcome, `${c.id} green at (${t.x}, ${t.y}) seen from (${o.pos.x}, ${o.pos.y})`).toBe('-');
+                            }
                         }
                     }
                     if (when === 'crew phase') state = commit(world, state, { type: 'endTurn' }).state;
@@ -482,6 +495,90 @@ describe('unknown risk', () => {
             }
         }
         expect(checked).toBeGreaterThan(0);
+    });
+});
+
+describe('unknown risk for a crew member (decision 24)', () => {
+    // A street: jun at its west end sees 10 tiles, so (11, 0) on is unseen and anyone could stand there. A staff strip
+    // round x 6 in the second row.
+    const build = (start: { items?: string[]; notoriety?: number } = {}): { world: ReadonlyWorld; state: State } => {
+        const world = fixtureWorld(['.'.repeat(40), '.'.repeat(40)], { zones: ['.'.repeat(40), '.....sss' + '.'.repeat(32)] });
+        const state = patch(initialState(world, { seed: 1, crew: [{ id: 'jun', pos: P(0, 0), items: start.items ?? [] }] }), x => {
+            x.crew[0]!.notoriety = start.notoriety ?? 0;
+        });
+        return { world, state };
+    };
+    const at = (world: ReadonlyWorld, state: State, p: Pos): string => floorKnowledge(world, state, p, { crew: 'jun' });
+
+    it('leaves a Clean crew member green in Public near unscouted space, out of frisk range', () => {
+        const { world, state } = build();
+        // Within reach of the unseen street, so someone unseen could see it...
+        expect(floorKnowledge(world, state, P(4, 0))).toBe('unknownRisk');
+        expect(isUnknownRisk(world, state, P(4, 0))).toBe(true);
+        // ...but nobody would do anything about Clean in Public, even Alerted (Clean reads as Concealed: an enforcer's +1 within 2).
+        expect(at(world, state, P(4, 0))).toBe('scouted');
+        expect(at(world, state, P(7, 0))).toBe('scouted');
+        const floor = safeFloor(world, state, 'jun');
+        expect(floor.at(P(3, 0))!.tint.kind).toBe('safe');
+        expect(floor.tiles.filter(t => t.pos.y === 0 && t.pos.x <= 7).every(t => t.tint.kind === 'safe')).toBe(true);
+        expect(explain(world, state, 'jun', P(3, 0))).toEqual([]);
+        // Within frisk range of the unseen street an Alerted guard reading Concealed would add a pip.
+        expect(at(world, state, P(9, 0))).toBe('unknownRisk');
+        expect(unknownWatcher(world, state, 'jun', P(9, 0))!.reaction).toMatchObject({ outcome: '+1', profile: 'concealed' });
+    });
+
+    it('hatches Concealed near unscouted space, where an unseen guard could frisk or read it as Armed', () => {
+        const { world, state } = build({ items: ['pistol'] });
+        expect(at(world, state, P(9, 0))).toBe('unknownRisk');
+        expect(at(world, state, P(4, 0))).toBe('unknownRisk');
+        const w = unknownWatcher(world, state, 'jun', P(4, 0))!;
+        expect(w).toMatchObject({ by: 'npc', observer: 'enforcer', reaction: { outcome: '!', profile: 'armed' } });
+    });
+
+    it('hatches Armed in Public, and says why', () => {
+        const { world, state } = build({ items: ['assaultRifle'] });
+        expect(at(world, state, P(3, 0))).toBe('unknownRisk');
+        expect(safeFloor(world, state, 'jun').at(P(3, 0))!.tint.kind).toBe('unknownRisk');
+        const lines = explain(world, state, 'jun', P(3, 0));
+        expect(lines.map(l => [l.observer, l.by, l.text])).toEqual([
+            [null, 'unknown', 'An unseen guard could see you here (Armed)'], [null, 'unknown', 'An unseen guard could see you on the way (Armed)']
+        ]);
+        // Mid-move only `!` counts: Armed in Public is `!` to an Alerted guard, so a path past it is unknown too.
+        expect(unknownWatcher(world, state, 'jun', P(3, 0), { step: true })).not.toBeNull();
+    });
+
+    it('hatches Clean without a uniform in the Staff zone', () => {
+        const { world, state } = build();
+        expect(at(world, state, P(6, 1))).toBe('unknownRisk');
+        expect(at(world, state, P(3, 1))).toBe('scouted');
+        // A trespass to anyone of staff; an Alerted guard reads Clean as Concealed, which is `!` back here, mid-move too.
+        expect(unknownWatcher(world, state, 'jun', P(6, 1))!.reaction).toMatchObject({ outcome: '!', readAs: 'staff' });
+        expect(unknownWatcher(world, state, 'jun', P(6, 1), { step: true })).not.toBeNull();
+        expect(explain(world, state, 'jun', P(6, 1))[0]!.text).toBe('An unseen guard could see you here (Clean, Staff zone)');
+        // In a staff uniform the zone reads as Public, but the manager or the security chief sees through it in Core:
+        // with nobody of the roster to say which class they are, either is taken as anyone, and it is still `!`.
+        const dressed = patch(state, x => { x.crew[0]!.loadout.uniform = 'staff'; });
+        expect(unknownWatcher(world, dressed, 'jun', P(6, 1))!.reaction).toMatchObject({ outcome: '!', why: expect.arrayContaining(['seenThrough']) });
+        expect(explain(world, dressed, 'jun', P(6, 1))[0]!.text).toMatch(/^An unseen (manager|security chief) could see you here \(Clean, Staff zone\)$/);
+        // The uniform does help against the rest: out in Public it changes nothing, and the floor reads as before.
+        expect(at(world, dressed, P(4, 0))).toBe('scouted');
+    });
+
+    it('raises it with Notoriety', () => {
+        expect(at(build().world, build().state, P(4, 0))).toBe('scouted');
+        for (const notoriety of [2, 4]) {
+            const { world, state } = build({ notoriety });
+            expect(at(world, state, P(4, 0)), `Notoriety ${notoriety}`).toBe('unknownRisk');
+            expect(unknownWatcher(world, state, 'jun', P(4, 0))!.reaction.why).toContain('notoriety');
+        }
+    });
+
+    it('keeps grey grey, whatever the crew member carries', () => {
+        for (const items of [[], ['assaultRifle']]) {
+            const { world, state } = build({ items });
+            expect(at(world, state, P(20, 0))).toBe('unscouted');
+            expect(unknownWatcher(world, state, 'jun', P(20, 0))).toBeNull();
+        }
     });
 });
 

@@ -119,7 +119,7 @@ are:
 - **+1 next phase** and **exposed next phase:** the same states hatched.
 - **Camera:** a camera glyph.
 - **Unscouted:** grey.
-- **Unknown risk:** grey with `?`.
+- **Unknown risk:** grey, hatched (no glyph): someone the crew hasn't seen could react to this crew member there.
 
 The path's eye icon sits on the **first** unsafe tile, and long-pressing that tile answers who and why: the NPC's
 position next phase is ghosted, with its cone and a sightline to the tile.

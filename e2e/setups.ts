@@ -62,6 +62,29 @@ const LONE_NPC = `(() => { ${PAGE_HELPERS}
 })()`;
 
 export const SETUPS: Record<string, Setup> = {
+    'mara-selected': {
+        about: 'Mara selected at the van as the heist starts (her jammer shows: Concealed in Public)',
+        script: `(() => { ${PAGE_HELPERS} return { state: clone(sim.state), info: {} }; })()`,
+        then: selectMara
+    },
+    'mara-clean': {
+        about: 'Mara selected at the van with nothing showing (her jammer left behind: Clean in Public)',
+        script: `(() => { ${PAGE_HELPERS}
+            const st = clone(sim.state);
+            st.crew[0].loadout.items = st.crew[0].loadout.items.filter(id => id !== 'jammer');
+            return { state: st, info: {} };
+        })()`,
+        then: selectMara
+    },
+    'mara-armed': {
+        about: 'Mara selected at the van with a rifle in hand (Armed in Public: unknown risk wherever unseen space sees)',
+        script: `(() => { ${PAGE_HELPERS}
+            const st = clone(sim.state);
+            st.crew[0].loadout.items.push('assaultRifle');
+            return { state: st, info: {} };
+        })()`,
+        then: selectMara
+    },
     'beside-guard': {
         about: 'Mara selected on a tile beside a guard the crew sees, unnoticed',
         script: `(() => { ${PAGE_HELPERS} ${ALARM_HELPERS}

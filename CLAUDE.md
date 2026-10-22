@@ -68,8 +68,8 @@ Top-down 2D pixel-art stealth game. Phaser 4 + TypeScript + Vite, shipped as an 
 - `npm run shot -- '<url or path>' [--out f.png] [--size 844x390] [--wait settled|<selector>|<ms>]` – a screenshot
   without the test runner, from the dev server (reused, or started and left running), in the e2e tests' Chromium; waits
   for the walls to settle. `--setup <name>` (repeatable; `--list` names them) jumps the game to a situation first
-  through `window.sim`: presets in `e2e/setups.ts` (`beside-guard`, `alarm-countdown`, `panel-half-done`,
-  `dragging-body`). `--many '<url>' '<url>' …` shoots several pages in one browser. Prints each stage's time.
+  through `window.sim`: presets in `e2e/setups.ts` (`mara-selected`, `mara-clean`, `mara-armed`,
+  `beside-guard`, `alarm-countdown`, `panel-half-done`, `dragging-body`). `--many '<url>' '<url>' …` shoots several pages in one browser. Prints each stage's time.
 
 ## Fast loop
 - Looking: `npm run shot -- '/?view&seed=31-2'` (or `--setup …`), then read the PNG: ~5 s with a warm dev server.

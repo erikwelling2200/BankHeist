@@ -1,6 +1,6 @@
 import type { Pos, ReadonlyWorld, State } from '../core/types';
 import type { Outcome } from '../data/matrix';
-import { floorKnowledge, type FloorKnowledge } from '../rules/knowledge';
+import { floorKnowledge, unknownWatcher, type FloorKnowledge, type UnknownWatcher } from '../rules/knowledge';
 import type { Sighting, Why } from '../rules/perceive';
 import { pipsOf } from '../rules/suspicion';
 import type { MoveMode } from '../crew/movement';
@@ -12,7 +12,8 @@ import { previewPicture } from './picture';
  * "Who and why" (§8.8): long-press a tile of the safe floor (or the end of a drawn path) to see who would notice the
  * crew member there and why: the NPC's or camera's portrait, the sightline, and a line like "Guard: sees Armed". Built
  * from the very sightings the tint was judged from, on the crew's picture, so it never names someone the crew doesn't
- * know. Tiles the crew can't vouch for (grey, unknown risk, or reached through such) also say why, after any lines.
+ * know. Tiles the crew can't vouch for (grey, unknown risk, or reached through such) also say why, after any lines:
+ * unknown risk names the worst an unseen observer could do there (`unknownWatcher`, decision 24).
  */
 
 export interface Explanation {
@@ -78,10 +79,25 @@ export function sightingText(world: ReadonlyWorld, state: State, s: Sighting, cr
     return `${who}: sees you`;
 }
 
-const KNOWLEDGE: Record<Exclude<FloorKnowledge, 'scouted'>, string> = {
-    unscouted: 'No data: nobody has scouted here',
-    unknownRisk: 'Could be watched from somewhere nobody has checked since the last world phase'
-};
+const UNSCOUTED = 'No data: nobody has scouted here';
+
+const UNSEEN: Record<string, string> = { enforcer: 'guard', staff: 'member of staff', civilian: 'customer' };
+
+/**
+ * Why a tile is unknown risk (decision 24): the worst an unseen observer could do to the crew member there. "An unseen
+ * guard could see you here (Armed)", "An unseen member of staff could challenge you here (Staff zone)".
+ */
+export function unknownText(w: UnknownWatcher, onTheWay = false): string {
+    const r = w.reaction, where = onTheWay ? 'on the way' : 'here';
+    const who = w.by === 'camera' ? 'An unseen camera' : w.role !== null && r.why.includes('seenThrough')
+        ? `An unseen ${w.role === 'chief' ? 'security chief' : w.role}` : `An unseen ${UNSEEN[w.observer] ?? 'someone'}`;
+    // The crew member's own profile, and the zone when it isn't Public (the uniform's zone as read).
+    const notes = [capital(w.profile), ...(r.readAs !== 'public' ? [ZONE[r.readAs] ?? r.readAs] : []), ...(r.why.includes('friskRange') ? ['close up'] : [])];
+    if (r.why.includes('illegal')) return `${who} could see what you're doing ${where}`;
+    if (r.outcome === 'T') return `${who} could challenge you ${where} (${notes.join(', ')})`;
+    if (r.outcome === '!') return `${who} could see you ${where} (${notes.join(', ')})`;
+    return `${who} could grow suspicious of you ${where} (${notes.join(', ')})`;
+}
 
 /** Only the sightings that did something to the crew member (the effect read from the rules' events). */
 function acted(s: Sighting, effect: Effect | null): boolean {
@@ -118,10 +134,11 @@ export function explain(
     const picture = previewPicture(world, state);
     const member = state.crew.find(c => c.id === crewId);
     if (!member) return [];
-    let judged: Judged, knowledge: FloorKnowledge, unknownPath: boolean;
+    let judged: Judged, knowledge: FloorKnowledge, unknownPath: boolean, walked: readonly Pos[] = [];
+    const who = { crew: crewId, ...(options.look ? { look: options.look } : {}) };
     if (!options.path && member.pos.x === tile.x && member.pos.y === tile.y) {
         judged = judgeStay(world, state, crewId, options);
-        knowledge = floorKnowledge(world, state, tile);
+        knowledge = floorKnowledge(world, state, tile, who);
         unknownPath = false;
     } else {
         const path = options.path ?? safeFloor(world, state, crewId, options).at(tile)?.path;
@@ -131,14 +148,26 @@ export function explain(
         judged = along.judged;
         knowledge = along.end.knowledge;
         unknownPath = along.end.unknownPath;
+        walked = along.steps.slice(0, -1).map(s => s.pos);
     }
     const out = entries(world, picture, crewId, judged);
-    // Whatever the known NPCs do there, the crew can't vouch for the rest: say so on grey and unknown-risk tiles alike.
-    if (knowledge !== 'scouted' || unknownPath) {
-        out.push({
-            observer: null, by: 'unknown', phase: 'now', from: null, to: { x: tile.x, y: tile.y }, outcome: '-', known: false, why: [],
-            text: KNOWLEDGE[knowledge === 'scouted' ? 'unknownRisk' : knowledge]
-        });
+    // Whatever the known NPCs do there, the crew can't vouch for the rest: say why on grey and unknown-risk tiles alike.
+    // No sightline: nobody is known to stand there (`from` null, outcome '-' as for every line of knowledge).
+    const unknown = (text: string, to: Pos): void => {
+        out.push({ observer: null, by: 'unknown', phase: 'now', from: null, to: { x: to.x, y: to.y }, outcome: '-', known: false, why: [], text });
+    };
+    if (knowledge === 'unscouted') unknown(UNSCOUTED, tile);
+    else if (knowledge === 'unknownRisk') {
+        const w = unknownWatcher(world, state, crewId, tile, who);
+        if (w) unknown(unknownText(w), tile);
+    }
+    if (unknownPath) {
+        // The first tile on the way that the crew can't vouch for: grey, or an unknown `!` mid-move.
+        for (const p of walked) {
+            if (floorKnowledge(world, state, p) === 'unscouted') { unknown('On the way: no data, nobody has scouted there', p); break; }
+            const w = unknownWatcher(world, state, crewId, p, { ...who, step: true });
+            if (w) { unknown(unknownText(w, true), p); break; }
+        }
     }
     return out;
 }

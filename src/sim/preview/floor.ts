@@ -35,9 +35,10 @@ import { previewPicture } from './picture';
  * - **Next** (hatched): the coming world phase after that move: `assessWorldPhase` on the state the move leaves (the
  *   doors it opened, what it made the NPCs want and so where they walk now), with every NPC's walk worked out once per
  *   door set (`worldPoses`) and only the walks that change walked again. Applied likewise.
- * - **Knowledge**: a tile nobody has seen is grey and never safe; a tile that someone the crew doesn't know about
- *   could be watching (`floorKnowledge`: `unknownRisk`, decision 24), or reached through one, is hatched grey where the
- *   known NPCs leave it green.
+ * - **Knowledge**: a tile nobody has seen is grey and never safe; a tile where someone the crew doesn't know about
+ *   could be watching and would react to this crew member (`floorKnowledge` with the crew member: `unknownRisk`,
+ *   `unknownWatcher`, decision 24), or reached past one (passing it: only an unknown `!`) or through grey, is hatched
+ *   grey where the known NPCs leave it green.
  *
  * The tint is the worse of now and next (next only when strictly worse, then hatched): red (someone Exposes the crew
  * member, or one who already knows them sees them again: the eye) > camera (a camera sees a `!`, the operator's
@@ -78,7 +79,7 @@ export interface FloorTile {
     path: Pos[];
     /** The tile's own knowledge (§8.15). */
     knowledge: FloorKnowledge;
-    /** The path passes an unscouted or unknown-risk tile before this one. */
+    /** The path passes an unscouted tile, or one where an unknown observer could see a `!`, before this one. */
     unknownPath: boolean;
     /** What the move does to the crew member now (its steps and its end). */
     now: Effect;
@@ -160,7 +161,7 @@ export interface Judge {
     variants: Map<string, Variant>;
     /** The steps' and ends' sightings, by tile and door set. */
     seen: Map<string, Sighting[]>;
-    /** What the crew knows of each tile, by index (worked out on demand). */
+    /** What the crew knows of each tile for this crew member, by index × 2 (+1 passing it mid-move), on demand. */
     knowledge: Map<number, FloorKnowledge>;
     /** Tiles from which a dash's noise could reach an NPC of the picture. */
     near: Uint8Array | null;
@@ -201,11 +202,17 @@ function stepVariant(judge: Judge, v: Variant, from: DeepReadonly<Pos>, to: Deep
     return next;
 }
 
-/** `floorKnowledge` of a tile, once per judge. */
-function knowledgeAt(judge: Judge, p: DeepReadonly<Pos>): FloorKnowledge {
-    const i = p.y * judge.world.width + p.x;
+/**
+ * `floorKnowledge` of a tile for the judge's crew member and look, once per judge: ending a move there, or passing it
+ * mid-move (`step`: only an unknown observer's `!` makes it unknown risk).
+ */
+function knowledgeAt(judge: Judge, p: DeepReadonly<Pos>, step = false): FloorKnowledge {
+    const i = (p.y * judge.world.width + p.x) * 2 + (step ? 1 : 0);
     let k = judge.knowledge.get(i);
-    if (!k) judge.knowledge.set(i, k = floorKnowledge(judge.world, judge.state, { x: p.x, y: p.y }));
+    if (!k) {
+        const who = { crew: judge.crew, step, ...(judge.look ? { look: judge.look } : {}) };
+        judge.knowledge.set(i, k = floorKnowledge(judge.world, judge.state, { x: p.x, y: p.y }, who));
+    }
     return k;
 }
 
@@ -449,7 +456,7 @@ function jobFor(world: ReadonlyWorld, state: State, crewId: string, options: Flo
             node = {
                 v: stepVariant(judge, up.v, t.parent, t.pos),
                 steps: passed.length ? [...up.steps, ...passed] : up.steps,
-                unknown: up.unknown || (!isStart && knowledgeAt(judge, t.parent) !== 'scouted'),
+                unknown: up.unknown || (!isStart && knowledgeAt(judge, t.parent, true) !== 'scouted'),
                 path: [...up.path, { x: t.pos.x, y: t.pos.y }]
             };
         }
@@ -513,7 +520,10 @@ export interface PathStep {
     pos: Pos;
     /** The `!`s of passing it mid-move (on the last step: every sighting of ending there). */
     sightings: Sighting[];
+    /** What the crew knows of the tile for stopping on it. */
     knowledge: FloorKnowledge;
+    /** For passing it mid-move: unknown risk only where someone unknown could see a `!` (decision 24). */
+    passing: FloorKnowledge;
     /**
      * Stopping here instead (the path cut after this step), judged as a floor tile: so a path stopped one short of the
      * eye shows its own colour. Null where the move can't end (someone stands there), or with `stops: false`.
@@ -604,9 +614,10 @@ export function judgePath(
         if (!last) {
             passed.push(...sightings);
             if (sightings.length && firstUnsafe === null) firstUnsafe = i;
-            if (knowledge !== 'scouted') unknown = true;
         }
-        steps.push({ pos: { x: p.x, y: p.y }, sightings, knowledge, stop });
+        const passing = knowledgeAt(judge, p, true);
+        if (!last && passing !== 'scouted') unknown = true;
+        steps.push({ pos: { x: p.x, y: p.y }, sightings, knowledge, passing, stop });
         prev = p;
     });
     const tile = path[path.length - 1]!;

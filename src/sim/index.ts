@@ -137,7 +137,7 @@ export {
 export { committedEnd, reconsider } from './rules/npc/intent';
 export {
     blueprint, crewPicture, floorKnowledge, registerLookout, type Lookout, isKnownNow, isUnknownRisk, knownBlockers, knownNpcIds, knownView, markerKind, noticedUnseen, onRoutine,
-    projectEvents, projectPreviewEvents, unknownReach, updateKnowledge, type Blueprint, type FloorKnowledge, type Intel, type Knowledge, type KnownCamera,
+    projectEvents, projectPreviewEvents, unknownReach, unknownWatcher, updateKnowledge, type UnknownOptions, type UnknownWatcher, type Blueprint, type FloorKnowledge, type Intel, type Knowledge, type KnownCamera,
     type KnownDoor, type KnownView, type MarkerKind, type NpcKnowledge, type NpcMarker, type Ping, type ProjectOptions, type UpdateOptions
 } from './rules/knowledge';
 export { bitsCount, decodeBits, encodeBits } from './rules/knowledgeBits';

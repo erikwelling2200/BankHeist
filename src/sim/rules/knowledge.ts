@@ -2,19 +2,23 @@ import { registerCommandHook, type CommitResult } from '../core/engine';
 import { facingToward, inBounds } from '../core/grid';
 import { sortedIds } from '../core/json';
 import { registerStateCheck } from '../core/save';
-import { registerRuleDefaults, registerStateInit } from '../core/state';
+import { crewMember, registerRuleDefaults, registerStateInit } from '../core/state';
 import type {
-    CameraDef, CrewState, DeepReadonly, DoorStatus, Facing, Intent, NpcState, NpcStatus, Pos, ReadonlyWorld, SimEvent, State
+    CameraDef, CrewState, DeepReadonly, DoorStatus, Facing, Intent, NpcState, NpcStatus, ObserverClass, Pos, ReadonlyWorld, SimEvent, State
 } from '../core/types';
 import { eventClass } from '../core/undo';
 import { registerMoveHook, registerMoveLimit, registerPlanView } from '../crew/movement';
+import type { Profile } from '../data/items';
+import { OUTCOME_RANK, UNIFORMS, type Uniform } from '../data/matrix';
 import type { NoiseKind } from '../data/noise';
-import { bandAt, fieldOn, profilesOf, rangeOn, type SightField } from '../geo/cones';
+import { bandAt, bandOf, fieldOn, profilesOf, rangeOn, type SightField } from '../geo/cones';
 import { lineOfSight, sightInputs, sightMap, type SightMap } from '../geo/los';
 import { doorStatus, LYING_STATUSES } from '../geo/move';
 import { inRing, registerNoiseHook } from '../geo/sound';
 import { liveFeeds } from './cctv';
-import { sightsAlongWalk } from './perceive';
+import { reaction, sightsAlongWalk, type Reaction } from './perceive';
+import { crewLook, type CrewLook } from './profile';
+import { isWarned } from './trespass';
 import { isPresent } from './npc/walk';
 import { bodyPos, onFloor } from './place';
 import { bitsCount, decodeBits, encodeBits } from './knowledgeBits';
@@ -44,9 +48,10 @@ import { bitsCount, decodeBits, encodeBits } from './knowledgeBits';
  *   stealth, the prediction stops and the routine is forgotten (the rota's aside): a *ghost* at its last known place.
  *   Ghosts (behind `rules.ghosts`, decision 16) stay `ghostTurns` (2) turns after the turn it was last seen or
  *   predicted, then go. NPCs the crew hasn't seen are not shown at all.
- * - **Unknown risk** (hatched grey, §8.8): a seen tile that a tile that isn't fresh could see within any NPC's or
- *   camera's reach, so someone the crew doesn't know about could be watching it. Worked out per tile on demand and
- *   cached per sight map and fresh set (`isUnknownRisk`). Green therefore means nobody, known or not, sees the tile.
+ * - **Unknown risk** (hatched grey, §8.8, decision 24): a seen tile that a tile that isn't fresh could see within any
+ *   NPC's or camera's reach (`isUnknownRisk`, cached per sight map and fresh set), where someone the crew doesn't know
+ *   about, at its worst (any class, Alerted, a camera taken as live), would react to the crew member by the reaction
+ *   rules (`unknownWatcher`). Green therefore means nobody, known or not, would do anything about them there.
  * - **Doors**: the status of each door last seen (a tile beside it in view).
  * - **Sound pings**: a loud noise whose ring reaches any crew member is kept with its source tile and turn, in or out of
  *   sight; quiet noises aren't.
@@ -517,11 +522,13 @@ export function unknownReach(world: ReadonlyWorld): number {
 }
 
 /**
- * Whether tiles are unknown risk, by tile: -1 not worked out yet, 0 no, 1 yes; with the decoded tile sets and the sight
- * map it is worked out on. Shared by every state with the same walls and sets (keyed), and remembered per state
- * object too, so asking about many tiles of one state doesn't rebuild the key each time.
+ * Unknown space as seen from each tile, worked out on demand: per tile, the nearest tile that isn't fresh with a clear
+ * line of sight within reach (`far`), and the nearest such within frisk range (`close`), as tile indices; -1 none, -2
+ * not worked out yet. With the decoded tile sets and the sight map it is worked out on. Shared by every state with the
+ * same walls and sets (keyed), and remembered per state object too, so asking about many tiles of one state doesn't
+ * rebuild the key each time. Both crew-independent: what a crew member makes of them is `unknownWatcher`.
  */
-interface RiskCache { key: string; memo: Int8Array; seen: Uint8Array; fresh: Uint8Array; sight: SightMap }
+interface RiskCache { key: string; far: Int32Array; close: Int32Array; seen: Uint8Array; fresh: Uint8Array; sight: SightMap }
 
 const RISK = new WeakMap<ReadonlyWorld, RiskCache[]>();
 const RISK_BY_STATE = new WeakMap<State, { world: ReadonlyWorld; cache: RiskCache }>();
@@ -536,7 +543,10 @@ function riskCache(world: ReadonlyWorld, state: State): RiskCache {
     let cache = list.find(c => c.key === key);
     if (!cache) {
         const n = tilesOf(world);
-        cache = { key, memo: new Int8Array(n).fill(-1), seen: decodeBits(state.knowledge.seen, n), fresh: decodeBits(state.knowledge.fresh, n), sight: sightMap(world, state) };
+        cache = {
+            key, far: new Int32Array(n).fill(-2), close: new Int32Array(n).fill(-2), seen: decodeBits(state.knowledge.seen, n),
+            fresh: decodeBits(state.knowledge.fresh, n), sight: sightMap(world, state)
+        };
         list.unshift(cache);
         if (list.length > RISK_KEEP) list.length = RISK_KEEP;
     }
@@ -544,42 +554,144 @@ function riskCache(world: ReadonlyWorld, state: State): RiskCache {
     return cache;
 }
 
-/**
- * Whether a seen tile is unknown risk (hatched grey, §8.8): a tile that isn't fresh (not seen since the last world
- * phase, the tile itself included) lies within reach of it (halved when it is dark) with a clear line of sight, so
- * someone the crew doesn't know about could stand there and see it. Unseen tiles are grey, not unknown risk.
- */
-export function isUnknownRisk(world: ReadonlyWorld, state: State, p: Pos): boolean {
-    if (!inBounds(world, p)) return false;
-    const w = world.width, i = p.y * w + p.x, { memo, seen, fresh, sight } = riskCache(world, state);
-    if (memo[i] !== -1) return memo[i] === 1;
-    let risk = false;
-    if (seen[i]) {
-        if (!fresh[i]) risk = true;
-        else {
-            const r = rangeOn(unknownReach(world), world.tiles[i]!.lit);
-            for (let y = Math.max(0, p.y - r); y <= Math.min(world.height - 1, p.y + r) && !risk; y++) {
-                for (let x = Math.max(0, p.x - r); x <= Math.min(w - 1, p.x + r); x++) {
-                    const dx = x - p.x, dy = y - p.y;
-                    if (fresh[y * w + x] || dx * dx + dy * dy > r * r) continue;
-                    if (lineOfSight(sight, { x, y }, p)) { risk = true; break; }
-                }
-            }
+/** The offsets within a radius, nearest first (ties in row order): the order unknown space is searched in. */
+const OFFSETS = new Map<number, Int32Array>();
+
+function offsetsWithin(r: number): Int32Array {
+    let found = OFFSETS.get(r);
+    if (found) return found;
+    const list: [number, number][] = [];
+    for (let dy = -r; dy <= r; dy++) for (let dx = -r; dx <= r; dx++) if (dx * dx + dy * dy <= r * r) list.push([dx, dy]);
+    list.sort((a, b) => a[0] * a[0] + a[1] * a[1] - (b[0] * b[0] + b[1] * b[1]) || a[1] - b[1] || a[0] - b[0]);
+    OFFSETS.set(r, found = Int32Array.from(list.flat()));
+    return found;
+}
+
+/** The nearest tile that isn't fresh and sees `p` (within frisk range, with `close`), worked out once per cache. */
+function nearestUnknown(world: ReadonlyWorld, c: RiskCache, p: Pos, close: boolean): number {
+    const w = world.width, i = p.y * w + p.x, memo = close ? c.close : c.far;
+    if (memo[i] !== -2) return memo[i]!;
+    let found = -1;
+    if (c.seen[i]) {
+        const r = rangeOn(unknownReach(world), world.tiles[i]!.lit), offsets = offsetsWithin(r), frisk = world.rules.friskRange;
+        for (let k = 0; k < offsets.length; k += 2) {
+            const dx = offsets[k]!, dy = offsets[k + 1]!, x = p.x + dx, y = p.y + dy;
+            if (close && Math.max(Math.abs(dx), Math.abs(dy)) > frisk) continue;
+            if (x < 0 || y < 0 || x >= w || y >= world.height || c.fresh[y * w + x]) continue;
+            // Someone could stand on a stale tile itself.
+            if ((!dx && !dy) || lineOfSight(c.sight, { x, y }, p)) { found = y * w + x; break; }
         }
     }
-    memo[i] = risk ? 1 : 0;
-    return risk;
+    memo[i] = found;
+    return found;
+}
+
+/**
+ * Whether a seen tile can be seen from unknown space: a tile that isn't fresh (not seen since the last world phase,
+ * the tile itself included) lies within reach of it (halved when it is dark) with a clear line of sight, so someone the
+ * crew doesn't know about could stand there and see it. Unseen tiles are grey, not this. Whether that matters to a
+ * crew member is `unknownWatcher` (decision 24): this is the geometry alone.
+ */
+export function isUnknownRisk(world: ReadonlyWorld, state: State, p: Pos): boolean {
+    return inBounds(world, p) && nearestUnknown(world, riskCache(world, state), p, false) >= 0;
+}
+
+/** Someone the crew doesn't know about who could react to a crew member on a tile, at worst (decision 24). */
+export interface UnknownWatcher {
+    by: 'npc' | 'camera';
+    /** The observer class it is taken to be (a camera reads as an enforcer). */
+    observer: ObserverClass;
+    /** The role it is taken to have (one who sees through a uniform), or null. */
+    role: string | null;
+    /** A tile it could look from: unknown space with a clear line of sight. */
+    from: Pos;
+    /** What it would do, by the reaction rules (perceive.ts `reaction`); `reaction.profile` is the profile it reads. */
+    reaction: Reaction;
+    /** The crew member's own profile, as the HUD shows it. */
+    profile: Profile;
+}
+
+export interface UnknownOptions {
+    /** Judge this look instead of the crew member's own (a loadout change being previewed). */
+    look?: CrewLook;
+    /** A tile passed in the middle of a move: only `!` counts (§8.5). */
+    step?: boolean;
+}
+
+/**
+ * The unknown NPCs taken as the worst case: every class, and every role that sees through a uniform as the class it
+ * has in this bank's roster (any class, if nobody here has it). Per world.
+ */
+const UNKNOWN_NPCS = new WeakMap<ReadonlyWorld, readonly { observer: ObserverClass; role: string | null }[]>();
+
+function unknownNpcs(world: ReadonlyWorld): readonly { observer: ObserverClass; role: string | null }[] {
+    let found = UNKNOWN_NPCS.get(world);
+    if (found) return found;
+    const classes: readonly ObserverClass[] = ['enforcer', 'staff', 'civilian'];
+    const list: { observer: ObserverClass; role: string | null }[] = classes.map(observer => ({ observer, role: null }));
+    for (const role of new Set(sortedIds(UNIFORMS).flatMap(u => UNIFORMS[u as Uniform].seenThroughBy))) {
+        const as = [...new Set(world.people.filter(p => p.role === role).map(p => p.observer))];
+        for (const observer of as.length ? as : classes) list.push({ observer, role });
+    }
+    UNKNOWN_NPCS.set(world, found = list);
+    return found;
+}
+
+/**
+ * Whether anyone the crew doesn't know about could react to this crew member on `p` (hatched grey, §8.8, decision
+ * 24), and the worst such: `p` is seen, and a tile that isn't fresh (`isUnknownRisk`'s unknown space, `p` itself
+ * included) sees it, from where an unknown observer, at its worst, would do something by the very rules perception
+ * uses (`reaction`: the matrix, the profile as read, uniforms, Notoriety, frisk range). At its worst means any class
+ * (and the manager or the security chief, who see through a uniform), Alerted (one profile higher; both arcs Core,
+ * reaching 8 and 10), facing the tile; or a camera of unknown status, taken as live. The distance from that tile
+ * decides the band and frisk range. Trespass counts; on a tile passed mid-move (`step`) only `!` does. Null when
+ * nobody unknown could change anything there, or `p` is unseen (grey, which is never safe anyway).
+ *
+ * A reaction only grows as the observer comes nearer (a nearer tile is in every band and range a further one is) and
+ * within frisk range, so the worst is that of the nearest unknown tile in sight, or of the nearest within frisk range:
+ * both worked out once per tile and shared by every crew member (`nearestUnknown`).
+ */
+export function unknownWatcher(world: ReadonlyWorld, state: State, crewId: string, p: Pos, options: UnknownOptions = {}): UnknownWatcher | null {
+    if (!inBounds(world, p)) return null;
+    const c = riskCache(world, state), far = nearestUnknown(world, c, p, false);
+    if (far < 0) return null;
+    const member = crewMember(state, crewId), look = options.look ?? crewLook(member), rules = world.rules;
+    const tile = world.tiles[p.y * world.width + p.x]!, profiles = profilesOf(world);
+    const camera = world.cameras.some(cam => cam.seesInDark) ? profiles.darkCamera : profiles.camera;
+    const warnedByAny = isWarned(state, crewId);
+    let best: UnknownWatcher | null = null;
+    const consider = (from: Pos, by: 'npc' | 'camera', observer: ObserverClass, role: string | null, facing: Facing, chebyshev: number): void => {
+        const dx = p.x - from.x, dy = p.y - from.y;
+        const band = bandOf(by === 'npc' ? profiles.alerted : camera, facing, dx, dy, tile.lit);
+        if (!band) return;
+        const r = reaction(rules, {
+            look, notoriety: member.notoriety, observer, role, camera: by === 'camera', alerted: by === 'npc', band, zone: tile.zone, chebyshev,
+            warnedByThis: false, warnedByAny
+        });
+        if (options.step ? r.outcome !== '!' : r.outcome === '-') return;
+        if (!best || OUTCOME_RANK[r.outcome] > OUTCOME_RANK[best.reaction.outcome]) best = { by, observer, role, from, reaction: r, profile: look.profile };
+    };
+    const close = nearestUnknown(world, c, p, true);
+    for (const q of close >= 0 && close !== far ? [far, close] : [far]) {
+        const from = { x: q % world.width, y: Math.floor(q / world.width) };
+        const facing = facingToward(from, p) ?? 'n', chebyshev = Math.max(Math.abs(p.x - from.x), Math.abs(p.y - from.y));
+        for (const n of unknownNpcs(world)) consider(from, 'npc', n.observer, n.role, facing, chebyshev);
+        consider(from, 'camera', 'enforcer', null, facing, chebyshev);
+    }
+    return best;
 }
 
 /**
  * What the crew knows of a floor tile, for the safe floor (§8.8): `unscouted` is grey and never safe; `unknownRisk` is
  * hatched grey (a tile the crew's known NPCs leave green still reads hatched grey); `scouted` is judged by the known
- * NPCs alone, and nobody else can see it.
+ * NPCs alone. Without `crew` it is the geometry (`isUnknownRisk`: someone unknown could see the tile); with it, only
+ * where someone unknown could react to that crew member there (`unknownWatcher`, decision 24).
  */
 export type FloorKnowledge = 'unscouted' | 'unknownRisk' | 'scouted';
 
-export function floorKnowledge(world: ReadonlyWorld, state: State, p: Pos): FloorKnowledge {
+export function floorKnowledge(world: ReadonlyWorld, state: State, p: Pos, crew?: UnknownOptions & { crew: string }): FloorKnowledge {
     if (!inBounds(world, p) || !riskCache(world, state).seen[p.y * world.width + p.x]) return 'unscouted';
+    if (crew) return unknownWatcher(world, state, crew.crew, p, crew) ? 'unknownRisk' : 'scouted';
     return isUnknownRisk(world, state, p) ? 'unknownRisk' : 'scouted';
 }
 

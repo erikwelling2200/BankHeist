@@ -656,7 +656,7 @@ export class WorldOverlay {
     /**
      * The safe-floor tints (§8.8, UI.md "Safe floor"), two channels each: the signal colour (sage, amber, red, grey) and
      * a shape: amber's pips (one square per pip), a challenge's hand, the eye of someone who Exposes them, a camera's
-     * glyph, grey's `?` for unknown risk. Move's tiles in scanlines, the Dash band's in a sparser dotted fill (its edge
+     * glyph; unknown risk is grey hatched, with no glyph. Move's tiles in scanlines, the Dash band's in a sparser dotted fill (its edge
      * says so too), the coming world phase's outcomes hatched. `strength` scales the fill (a dimmed floor while a path
      * leads); `glyphs` false leaves the shapes off.
      */
@@ -665,14 +665,8 @@ export class WorldOverlay {
         for (const t of tiles) {
             const x = left(t.pos), y = top(t.pos), colour = this.tintTile(t.kind, t.hatched, t.band, x, y, S, pal, strength);
             if (!glyphs) continue;
-            // Unknown risk often covers whole rooms: its hatch says it, and a `?` on every third tile names it.
-            if (t.kind === 'unknownRisk') {
-                if ((t.pos.x + 2 * t.pos.y) % 3 === 0) {
-                    const g = glyphSize(GLYPHS.q);
-                    drawRows(ctx, GLYPHS.q, x + Math.floor((S - g.w) / 2), y + Math.floor((S - g.h) / 2), CREAM);
-                }
-                continue;
-            }
+            // Unknown risk has no glyph: its grey hatch (a shape, not only a colour) says it.
+            if (t.kind === 'unknownRisk') continue;
             const glyph: GlyphName | undefined = t.kind === 'trespass' ? 'hand' : t.kind === 'red' ? 'eye' : t.kind === 'camera' ? 'camera' : undefined;
             if (glyph) {
                 const g = glyphSize(GLYPHS[glyph]);
@@ -699,10 +693,13 @@ export class WorldOverlay {
         const a = (kind === 'safe' ? 0.26 : kind === 'grey' || kind === 'unknownRisk' ? 0.3 : 0.5) * strength;
         // The coming world phase (and unknown risk): a faint wash and a diagonal hatch; Dash's band dotted; Move's in
         // scanlines. Patterns are anchored to the canvas, so they run on across neighbouring tiles.
-        const [wash, style, ink] = hatched || kind === 'unknownRisk' ? [0.25, 'hatch', 1.5] as const : band === 'dash' ? [0.3, 'dots', 1.4] as const : [0.35, 'scan', 1] as const;
+        // Unknown risk's hatch is two-tone (a dark pixel beside each grey one), so it reads on pale floors too, where a
+        // grey hatch alone fades into the pavement: it has no glyph to fall back on.
+        const [wash, style, ink] = kind === 'unknownRisk' ? [0.25, 'duo', 1.5] as const : hatched ? [0.25, 'hatch', 1.5] as const
+            : band === 'dash' ? [0.3, 'dots', 1.4] as const : [0.35, 'scan', 1] as const;
         ctx.fillStyle = alpha(colour, a * wash);
         ctx.fillRect(x, y, S, S);
-        ctx.fillStyle = this.pattern(style, alpha(colour, Math.min(1, a * ink)));
+        ctx.fillStyle = this.pattern(style, alpha(colour, Math.min(1, a * ink)), `rgba(13, 12, 20, ${(Math.min(1, a * ink) * 0.9).toFixed(3)})`);
         ctx.fillRect(x, y, S, S);
         return colour;
     }
@@ -710,8 +707,8 @@ export class WorldOverlay {
     /** The fill patterns of the safe floor, made once per style and colour. */
     private readonly patterns = new Map<string, CanvasPattern | string>();
 
-    private pattern(style: 'scan' | 'dots' | 'hatch' | 'run', colour: string): CanvasPattern | string {
-        const key = `${style} ${colour}`;
+    private pattern(style: 'scan' | 'dots' | 'hatch' | 'duo' | 'run', colour: string, dark = INK): CanvasPattern | string {
+        const key = `${style} ${colour} ${style === 'duo' ? dark : ''}`;
         let found = this.patterns.get(key);
         if (found) return found;
         const size = style === 'scan' ? [1, 2] : style === 'dots' ? [4, 8] : style === 'run' ? [8, 8] : [6, 6];
@@ -727,6 +724,11 @@ export class WorldOverlay {
         } else if (style === 'run') {
             // One pixel where x + y is a multiple of 8: Dash's hatch before the safe floor arrives.
             for (let k = 0; k < 8; k++) t.fillRect((8 - k) % 8, k, 1, 1);
+        } else if (style === 'duo') {
+            // Lines at 45° every 6: a pixel of the colour beside a dark one.
+            for (let k = 0; k < 6; k++) t.fillRect((6 - k) % 6, k, 1, 1);
+            t.fillStyle = dark;
+            for (let k = 0; k < 6; k++) t.fillRect((7 - k) % 6, k, 1, 1);
         } else {
             // Lines at 45°, two pixels wide, every 6.
             for (let k = 0; k < 6; k++) {

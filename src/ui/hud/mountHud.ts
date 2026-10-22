@@ -91,7 +91,7 @@ export function mountHud(root: HTMLElement, callbacks: HudCallbacks, options: Hu
         drawer.append(b);
     }
     // The safe floor's promise, and its limit (§8.8, §8.15).
-    drawer.append(h('div.sh-legend', { role: 'note' }, 'Safe floor: green, and hatched for the next world phase, counts only the NPCs the crew knows of. Grey: no data.'));
+    drawer.append(h('div.sh-legend', { role: 'note' }, 'Safe floor: green, and hatched for the next world phase, counts only the NPCs the crew knows of. Grey: no data. Hatched grey: someone unseen could react to this crew member there.'));
 
     // ---------------------------------------------------------------------------------------------- right thumb
     const actions = h('div.sh-actions', { role: 'toolbar', 'aria-label': 'Actions' });

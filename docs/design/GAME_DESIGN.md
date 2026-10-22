@@ -541,7 +541,7 @@ When a crew member is selected, every reachable tile is tinted:
 | **Hatched** version of amber or red | The same outcome, but it happens during the coming world phase as NPCs walk their committed paths. |
 | **Red with a camera icon** | A camera would see a `!` and start the operator's verify carrier. Cameras whose feed status is unknown (CCTV room not scouted) count as live. |
 | **Grey** | No data: unscouted area. **Never drawn as safe.** |
-| **Hatched grey** | Unknown risk: the tile can be seen from unscouted space, so an NPC the crew doesn't know about could be watching it (§8.15). |
+| **Hatched grey** | Unknown risk: the tile can be seen from unscouted space, so an NPC the crew doesn't know about could be watching it (§8.15), and could react to this crew member there (judged at its worst: Alerted, any role). |
 
 Rules:
 

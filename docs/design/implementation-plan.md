@@ -387,7 +387,7 @@ Each package lists its goal, the design sections it covers, the files, what it d
       picture hears first has them react (`reactToNoise`). Next: `assessWorldPhase` on what the move leaves, each door
       set's `worldPoses` worked out once and only changed walks walked again (`posesAfter`). Tint: the worse of now and
       next (hatched when next is strictly worse); grey for unscouted, hatched grey (`unknownRisk`) where the known NPCs
-      leave it green but the tile, or a tile its path passes, is unknown risk. Cached per state object; `bands` lets the
+      leave it green but the tile, or a tile its path passes, is unknown risk for this crew member (decision 24). Cached per state object; `bands` lets the
       scene draw the Move band at once and the Dash band a frame later. `overlayTiles(floor)` maps it to the world
       overlay's `safeFloor` states.
     - **Drawn paths** (`pathSafety(world, state, crew, path, { mode? })`): each step's `!`s (only `!` counts mid-move),
@@ -503,7 +503,8 @@ Each package lists its goal, the design sections it covers, the files, what it d
       perception judges exactly the tiles walked. The preview (the truth) stops there too, but its projection shows
       the drawn path: a preview can't promise the whole path through unknown space.
     - **Unknown risk** (`isUnknownRisk`, `floorKnowledge`): a seen tile that isn't fresh, or that a tile that isn't
-      fresh sees within `unknownReach` (10, halved on a dark tile). Worked out per tile on demand, cached per sight
+      fresh sees within `unknownReach` (10, halved on a dark tile); for a crew member (`floorKnowledge(…, { crew })`,
+      `unknownWatcher`), only where such an unknown observer, at its worst, would react to them (decision 24). Worked out per tile on demand, cached per sight
       map and fresh set. The blueprint (`blueprint(world)`) is layout, not scouting: an unseen tile is `unscouted`.
     - **Measured** (4 crew): one update after a move 0.32 ms mean on a city bank, 0.13–0.60 ms on HQ banks; one more
       step of a move ~0.1 ms; unknown risk over a move's reach 1.5 ms (city) to 4.7 ms (HQ atrium) cold.
@@ -827,6 +828,26 @@ Later milestones: within each milestone, the `∥` notes in §3 apply. UI packag
     sees the tile during this crew phase. The fresh set restarts at the end of each world phase from what the crew sees
     then, and grows with every step and command. (The hatched world-phase overlay, about where NPCs walk next, still
     covers only the known NPCs' committed walks.)
+    **Per crew member, by the reaction rules (M1-09/M1-10 follow-up).** A seen tile is hatched grey for a crew member
+    only where someone unknown could actually change something for them there: pips, exposure, a challenge or a camera
+    report. The unknown observer is taken at its worst: any class (and the manager or the security chief, who see
+    through a uniform), Alerted (one profile higher, both arcs Core, reaching 8 and 10), facing the tile, from the
+    nearest stale tile with a line of sight (which settles the band and frisk range); or a camera of unknown status,
+    taken as live (it registers only `!`). Judged by `reaction` itself, with Notoriety, uniforms and a Warned crew
+    member's second offence, so there is no second copy of the matrix; trespass counts; a tile passed mid-move counts
+    only for a `!`. A reaction only grows as the observer comes nearer, so the worst is that of the nearest stale tile
+    in sight or the nearest within frisk range, both worked out once per tile and shared by the crew
+    (`rules/knowledge.ts` `unknownWatcher`; `isUnknownRisk` is the geometry alone). Why: the street at the van is within
+    10 tiles of unseen space, so every reachable tile used to hatch, though nobody, not even an Alerted guard, reacts
+    to a Clean crew member in Public unless within frisk range: the hatch cried wolf and taught players to ignore it.
+    Now Clean in Public hatches only within 2 tiles of unseen space; Concealed (read as Armed), Armed, a Clean crew
+    member in the Staff zone (read as Concealed: `!` to a guard; a uniform doesn't help, the security chief sees
+    through it) and Known or Wanted crew hatch as before. Grey (never seen) stays grey whatever they carry. "Who and
+    why" says it: "An unseen guard could see you here (Armed)". The overlay draws it as the grey hatch alone, without
+    the `?` glyph. Speed: the floor is as fast as before (same bench before → after, p50 / p90 / p99 ms, generated
+    banks, 3 crew with clean, pistol and rifle, 15 turns × 3 layouts: Move band small 2.3/5.5/16.3 → 2.8/5.6/10.3,
+    city 2.6/4.6/5.8 → 2.7/4.8/8.2, HQ 3.1/5.3/9.2 → 3.0/4.4/6.9; whole floor small 9.0/21.5/29.2 → 9.4/20.5/32.7,
+    city 7.7/17.0/29.9 → 8.5/16.9/22.1, HQ 10.2/16.2/31.0 → 8.7/16.1/26.2).
 
 25. **Doors by hand (M1-07).** Closing a door eases it shut without latching it (closed, not locked). Without a key,
     the crew can lock only a mechanical lock, and only from its inner side (the higher zone's, Public < Staff < Secure;
