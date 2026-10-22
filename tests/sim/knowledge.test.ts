@@ -173,17 +173,17 @@ describe('NPCs: live, known routines, predicted markers and ghosts', () => {
         expect(knownBlockers(world, looked)).toEqual([P(5, 0)]);
     });
 
-    it('stops a move where a stranger comes into view, and reveals one only passed on the way', () => {
+    it('walks on when a stranger comes into view, and reveals one only passed on the way', () => {
         // The clerk stands in an alcove off the corridor, seen only from the tile in front of it.
         const world = fixtureWorld(['.........', 'TTTT.TTTT', 'TTTT.TTTT'], { people: [clerk(P(4, 2), { facing: 'n' })] });
         const state = initialState(world, { seed: 1, crew: [{ id: 'jun', pos: P(0, 0) }] });
         expect(markerKind(world, state, 'clerk')).toBe(null);
         const path = [P(1, 0), P(2, 0), P(3, 0), P(4, 0), P(5, 0)];
         const moved = step(world, state, { type: 'move', crew: 'jun', path });
-        // Someone new: the move stops where the clerk came into view, the action spent.
-        expect(moved.state.crew[0]!.pos).toEqual(P(4, 0));
+        // Someone new comes into view on the way: the move walks on to its end and reveals the clerk (decision 40).
+        expect(moved.state.crew[0]!.pos).toEqual(P(5, 0));
         expect(moved.state.crew[0]!.actionsLeft).toBe(1);
-        expect(moved.events).toContainEqual({ type: 'moveCut', crew: 'jun', npc: 'clerk', reason: 'spotted', at: P(4, 0), planned: path });
+        expect(moved.events.some(e => e.type === 'moveCut')).toBe(false);
         expect(revealed(moved.events)).toContain('npc clerk');
         expect(moved.undoable).toBe(false);
         // A preview tells nothing of it: the drawn path, no cut, nothing revealed.
@@ -192,7 +192,7 @@ describe('NPCs: live, known routines, predicted markers and ghosts', () => {
         expect(shown).toEqual([{ type: 'moved', crew: 'jun', from: P(0, 0), to: P(5, 0), path }]);
         // Known now (once seen, never a stranger again): walking past it doesn't stop. Out of view it is still where it
         // was until the world phase, then a ghost.
-        const on = step(world, moved.state, { type: 'move', crew: 'jun', path: [P(5, 0), P(6, 0), P(7, 0), P(8, 0)] }).state;
+        const on = step(world, moved.state, { type: 'move', crew: 'jun', path: [P(6, 0), P(7, 0), P(8, 0)] }).state;
         expect(knownView(world, on).npcs).toEqual([expect.objectContaining({ id: 'clerk', kind: 'live', pos: P(4, 2) })]);
         expect(markerKind(world, step(world, on, { type: 'endTurn' }).state, 'clerk')).toBe('ghost');
         // Forgotten long ago, then passed on the way (seen only from (4, 0)): revealed, a ghost where it was passed.
@@ -301,15 +301,16 @@ describe('previews tell nothing new', () => {
         const state = initialState(world, { seed: 1, crew: [{ id: 'jun', pos: P(0, 0) }] });
         const path = [P(1, 0), P(2, 0), P(3, 0), P(4, 0), P(5, 0), P(6, 0), P(7, 0)];
         const pv = preview(world, state, { type: 'dash', crew: 'jun', path });
-        // The truth: heard, cut where it came into view, revealed.
-        expect(pv.events.map(e => e.type)).toEqual(expect.arrayContaining(['heard', 'moveCut', 'revealed']));
+        // The truth: heard and revealed, the dash walked to its end.
+        expect(pv.events.map(e => e.type)).toEqual(expect.arrayContaining(['heard', 'revealed']));
+        expect(pv.events.some(e => e.type === 'moveCut')).toBe(false);
         const shown = projectPreviewEvents(world, state, pv);
         expect(JSON.stringify(shown)).not.toContain('hidden');
         expect(shown.map(e => e.type)).toEqual(['moved', 'noise']);
         expect(shown[0]).toMatchObject({ to: P(7, 0), path });
         // Played back after the commit, the crew has seen it: it is told.
         const done = step(world, state, { type: 'dash', crew: 'jun', path });
-        expect(projectEvents(world, done.state, done.events, state).map(e => e.type)).toEqual(expect.arrayContaining(['heard', 'moveCut']));
+        expect(projectEvents(world, done.state, done.events, state).map(e => e.type)).toEqual(expect.arrayContaining(['heard', 'revealed']));
     });
 
     it('says when an unseen NPC noticed a move, without saying who', () => {
@@ -339,10 +340,11 @@ describe('moving in unknown space', () => {
     const state = initialState(blind, { seed: 1, crew: [{ id: 'jun', pos: P(0, 0) }] }), stranger = state;
     const path = [P(0, 1), P(0, 2), P(1, 2), P(2, 2), P(3, 2)];
 
-    it('stops where a stranger comes into view on the way', () => {
+    it('walks on when a stranger comes into view, and bumps into it', () => {
         const r = step(blind, state, { type: 'move', crew: 'jun', path });
-        // From (0, 2) the dark tile two steps on is within half range.
-        expect(r.events).toContainEqual({ type: 'moveCut', crew: 'jun', npc: 'hidden', reason: 'spotted', at: P(0, 2), planned: path });
+        // From (0, 2) the dark tile two steps on is within half range: seen, but the move only stops in front of it.
+        expect(r.events).toContainEqual({ type: 'moveCut', crew: 'jun', npc: 'hidden', reason: 'bump', at: P(1, 2), planned: path });
+        expect(revealed(r.events)).toContain('npc hidden');
     });
 
     it('plans through an unseen NPC’s tile and bumps into it', () => {

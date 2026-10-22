@@ -374,7 +374,6 @@ describe('a crew move', () => {
             { between: [P(4, 3), P(5, 3)] }, { between: [P(4, 4), P(5, 4)] }
         ];
         const world = lobby([person('teller', 'staff', P(8, 2), 'w')], { walls });
-        // Scouted, so the move doesn't stop at the door when the teller comes into view (rules/knowledge.ts).
         const state = scouted(world, initialState(world, { seed: 1, crew: [{ id: 'jun', pos: P(2, 2), items: ['assaultRifle'] }] }));
         const sight = sightMap(world, state);
         // With the door shut the teller sees nothing of the lobby.

@@ -498,9 +498,9 @@ Each package lists its goal, the design sections it covers, the files, what it d
       nothing shown about who: `noticedUnseen(world, before, result)` lets the UI say "something stirred".
     - **Moving in unknown space.** Moves are planned and validated on `crewPicture` (`registerPlanView`): an unseen
       NPC's tile reads as open. The move stops on the step before an NPC standing in its way (or before ending on
-      anyone) and at the step where an NPC the crew has never seen comes into view (`registerMoveLimit`), worked out
-      before the first step on the doors as the walk opens them; the action is spent, a `moveCut` event says why, and
-      perception judges exactly the tiles walked. The preview (the truth) stops there too, but its projection shows
+      anyone), worked out before the first step on the doors as the walk opens them; someone new coming into view
+      doesn't stop it, but is revealed on the way (decision 40). When it stops, the action is spent, a `moveCut` event
+      says why, and perception judges exactly the tiles walked. The preview (the truth) stops there too, but its projection shows
       the drawn path: a preview can't promise the whole path through unknown space.
     - **Unknown risk** (`isUnknownRisk`, `floorKnowledge`): a seen tile that isn't fresh, or that a tile that isn't
       fresh sees within `unknownReach` (8, the longest NPC or camera arc, from the rules; halved on a dark tile); for a crew member (`floorKnowledge(…, { crew })`,
@@ -923,6 +923,12 @@ Later milestones: within each milestone, the `∥` notes in §3 apply. UI packag
     little (10 → 13, 3 runs each, `knowledge.test.ts` and `PREVIEW_PROBE_VERBOSE=1` preview property): one fresh crew
     field 0.08–0.11 → 0.13–0.19 ms; knowledge update after a move, mean 0.24–0.37 → 0.26–0.42 ms (city and HQ); safe
     floor median / p90 ms small 8.6 / 31.8 → 6.0 / 34.2, city 4.9 / 45.9 → 4.6 / 31.3, HQ 5.2 / 24.4 → 5.2 / 20.8.
+40. **A stranger coming into view doesn't stop a move (§8.15).** A Move or Dash walks its whole drawn path when an NPC
+    the crew has never seen comes into view on the way; the NPC is revealed as it is passed, and the move becomes
+    final (it revealed something). Only a bump stops a move short (`moveCut`, reason `bump`). Before, the move stopped
+    at the step the stranger came into view, the action spent ("Hold up, someone there!"). Why: the player chose the
+    path, and the stop threw a planned move away for nothing they could act on; with crew sight at 13 tiles it came
+    up on most long moves.
 
 ### Critical files for implementation
 

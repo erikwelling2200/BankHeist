@@ -539,7 +539,7 @@ export class PlayMode {
             this.people.setAlpha(index, 1);
             this.people.move(index, x, y, drawnFacing(npc.facing, now.facing));
         }
-        this.bark(e.at, e.reason === 'bump' ? "Someone's there!" : 'Hold up, someone there!');
+        this.bark(e.at, "Someone's there!");
     }
 
     /**

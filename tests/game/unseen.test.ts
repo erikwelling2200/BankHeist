@@ -13,14 +13,15 @@ const session = (world: ReturnType<typeof fixtureWorld>, state: State): Session 
     Session.start({ world, state, storage: new MemoryStorage(), genVersion: 'fixture' });
 
 describe('the session and NPCs the crew doesn’t know', () => {
-    it('previews a dash past a hidden clerk without giving the clerk away', () => {
-        const world = fixtureWorld(['............', 'TTTTTT.TTTTT', '............'], { people: [clerk(P(6, 2), { id: 'hidden', facing: 'n' })] });
+    it('previews a move into a hidden clerk without giving the clerk away', () => {
+        // The clerk stands on a dark tile past the shelves, out of the crew's sight until the move is next to it.
+        const world = fixtureWorld(['.....', '.TTT.', '.....'], { people: [clerk(P(2, 2), { id: 'hidden', facing: 'n' })], dark: [P(2, 2)] });
         const s = session(world, initialState(world, { seed: 1, crew: [{ id: 'jun', pos: P(0, 0) }] }));
-        const path = [P(1, 0), P(2, 0), P(3, 0), P(4, 0), P(5, 0), P(6, 0), P(7, 0)];
-        const shown = s.playerPreview({ type: 'dash', crew: 'jun', path });
+        const path = [P(0, 1), P(0, 2), P(1, 2), P(2, 2), P(3, 2)];
+        const shown = s.playerPreview({ type: 'move', crew: 'jun', path });
         expect(JSON.stringify(shown.events)).not.toContain('hidden');
-        // Played for real, the cut is told, the camera visits it, and the log says why the crew stopped.
-        s.commit({ type: 'dash', crew: 'jun', path });
+        // Played for real, the bump is told, the camera visits it, and the log says why the crew stopped.
+        s.commit({ type: 'move', crew: 'jun', path });
         const cut = s.recent.find(e => e.type === 'moveCut')!;
         expect(cut).toBeDefined();
         expect(importance(cut, s.state)).toBe('surprise');

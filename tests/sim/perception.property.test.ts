@@ -220,8 +220,8 @@ describe('perception previews (property)', () => {
                 const path = randomPath(rng, world, npc.pos, rng.int(0, 4), occupiedBy(state));
                 npc.intent = rng.chance(0.5) ? { path, facing: rng.pick(FACINGS) } : { path };
             }
-            // The crew knows the whole floor and everyone on it, so no move stops for a stranger coming into view and
-            // undo depends on perception (rules/knowledge.ts tests what the crew learns).
+            // The crew knows the whole floor and everyone on it, so undo depends on perception (rules/knowledge.ts tests
+            // what the crew learns).
             state = scouted(world, state);
             for (let turn = 0; turn < 4; turn++) {
                 // The hatched overlay of the turn's last move, taken before it: its tile's world phase.

@@ -22,8 +22,8 @@ import { onFloor } from '../rules/place';
  * **Moving in unknown space (§8.15).** A path is planned and checked against the bank as the crew pictures it
  * (`registerPlanView`: rules/knowledge.ts shows only the NPCs the crew sees or predicts), so a tile an unseen NPC stands
  * on reads as open. The move then finds out: it stops on the step before an NPC standing in its way, or before ending
- * on anyone (`bump`), and limits (`registerMoveLimit`, e.g. knowledge stopping at the step where an NPC the crew has
- * never seen comes into view) can stop it earlier. The stop is always a tile of the drawn path, worked out before the
+ * on anyone (`bump`), and limits (`registerMoveLimit`) can stop it earlier. Someone new coming into view doesn't
+ * (decision 40). The stop is always a tile of the drawn path, worked out before the
  * first step, so perception judges exactly the tiles walked; the action is spent and a `moveCut` event says why. A
  * preview (the truth) shows the stop; what the player is shown of it is the projection's business (projectEvents in
  * preview mode keeps the drawn path): the preview can't promise the whole path through unknown space.
@@ -41,7 +41,7 @@ declare module '../core/types' {
          * A crew move stopped short of the drawn path (`planned`) at `at`: it bumped into an NPC the crew didn't know
          * stood there (`bump`), or an NPC it had never seen came into view (`spotted`).
          */
-        moveCut: { crew: string; npc: string; reason: 'bump' | 'spotted'; at: Pos; planned: Pos[] };
+        moveCut: { crew: string; npc: string; reason: 'bump'; at: Pos; planned: Pos[] };
     }
 }
 
@@ -131,7 +131,7 @@ export function registerPlanView(view: PlanView): void {
 export const planningState = (world: ReadonlyWorld, state: State): State => planView(world, state);
 
 /** Why a move stops short: how many steps of the path it keeps, the NPC and the reason. */
-export interface MoveCut { keep: number; npc: string; reason: 'bump' | 'spotted' }
+export interface MoveCut { keep: number; npc: string; reason: 'bump' }
 
 /** Says where a move stops short, if it does (`path` already cut by the limits before it). */
 export type MoveLimit = (ctx: Ctx, member: CrewState, path: readonly Pos[], mode: MoveMode) => MoveCut | undefined;

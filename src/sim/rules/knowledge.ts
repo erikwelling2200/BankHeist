@@ -7,7 +7,7 @@ import type {
     CameraDef, CrewState, DeepReadonly, DoorStatus, Facing, Intent, NpcState, NpcStatus, ObserverClass, Pos, ReadonlyWorld, SimEvent, State
 } from '../core/types';
 import { eventClass } from '../core/undo';
-import { registerMoveHook, registerMoveLimit, registerPlanView } from '../crew/movement';
+import { registerMoveHook, registerPlanView } from '../crew/movement';
 import type { Profile } from '../data/items';
 import { OUTCOME_RANK, UNIFORMS, type Uniform } from '../data/matrix';
 import type { NoiseKind } from '../data/noise';
@@ -16,7 +16,7 @@ import { lineOfSight, sightInputs, sightMap, type SightMap } from '../geo/los';
 import { doorStatus, LYING_STATUSES } from '../geo/move';
 import { inRing, registerNoiseHook } from '../geo/sound';
 import { liveFeeds } from './cctv';
-import { reaction, sightsAlongWalk, type Reaction } from './perceive';
+import { reaction, type Reaction } from './perceive';
 import { crewLook, type CrewLook } from './profile';
 import { isWarned } from './trespass';
 import { isPresent } from './npc/walk';
@@ -61,8 +61,8 @@ import { bitsCount, decodeBits, encodeBits } from './knowledgeBits';
  *   the crew sees through every camera that isn't looped or dead (`registerLookout`, rules/cameras.ts, §8.15).
  *
  * **Moving in unknown space.** Moves are planned on `crewPicture` (`registerPlanView`): an unseen NPC's tile reads as
- * open, and the move bumps into it (crew/movement.ts). A move also stops at the step where an NPC the crew has never
- * seen comes into view (`registerMoveLimit('knowledge')`), the action spent.
+ * open, and the move bumps into it (crew/movement.ts). Someone new coming into view doesn't stop a move (decision 40):
+ * the move walks on, and reveals them.
  *
  * **Undo (§6.6).** Whenever something new becomes known (a tile, an NPC in view or out of hiding, a room, a camera, the
  * CCTV feeds, a routine) a `revealed` event is emitted, which blocks undo: a move through known space with nobody new
@@ -457,21 +457,6 @@ registerMoveHook('knowledge', {
             if (isPresent(npc) && bandAt(field, npc.pos)) pending.npcs.set(npc.id, { pos: { x: npc.pos.x, y: npc.pos.y }, facing: npc.facing });
         }
     }
-});
-
-// A move stops at the step where someone the crew has never seen comes into view (§8.15): there is a new person to
-// think about. Worked out before the first step, on the doors as the walk will open them.
-registerMoveLimit('knowledge', (ctx, member, path) => {
-    const { world, state } = ctx;
-    const strangers = state.npcs.filter(n => isPresent(n) && !Object.hasOwn(state.knowledge.npcs, n.id));
-    if (!strangers.length || !path.length) return undefined;
-    const maps = sightsAlongWalk(world, state, sightMap(world, state), member.pos, path);
-    for (let i = 0; i < path.length; i++) {
-        const field = lookout(world, maps[i]!, { pos: path[i]! });
-        const seen = strangers.find(n => bandAt(field, n.pos) !== null);
-        if (seen) return { keep: i + 1, npc: seen.id, reason: 'spotted' };
-    }
-    return undefined;
 });
 
 // Moves are planned on the crew's picture.

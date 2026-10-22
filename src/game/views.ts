@@ -293,9 +293,7 @@ export function describeEvent(world: ReadonlyWorld, state: State, event: SimEven
     switch (event.type) {
         case 'moved': return `${name(event.crew)} moved to (${event.to.x}, ${event.to.y})`;
         case 'waited': return `${name(event.crew)} waited`;
-        case 'moveCut': return event.reason === 'bump'
-            ? `${name(event.crew)} ran into ${name(event.npc)} and stopped at (${event.at.x}, ${event.at.y})`
-            : `${name(event.crew)} spotted ${name(event.npc)} and stopped at (${event.at.x}, ${event.at.y})`;
+        case 'moveCut': return `${name(event.crew)} ran into ${name(event.npc)} and stopped at (${event.at.x}, ${event.at.y})`;
         case 'phaseStarted': return event.phase === 'crew' ? `Turn ${event.turn}` : `World phase of turn ${event.turn}`;
         case 'carrierStarted': return `${CARRIERS[event.kind].label}: alarm in ${event.countdown}`;
         case 'carrierTicked': return `Alarm in ${event.countdown}`;

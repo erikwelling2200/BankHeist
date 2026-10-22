@@ -867,7 +867,6 @@ test('the safe floor: tints as the sim judges them, a drawn path\'s eye, who and
  * search over the real rules and recorded; the bank and the rules are deterministic, so it plays the same every time.
  */
 const blank = (turns: number): string[] => Array.from({ length: turns }, () => '');
-// Mara's first step stops where the lobby guard comes into view (crew sight 13, decision 39), so she ends it there.
 const M1_OPENING = ['mara:37,31 jun:36,29 mara:34,28 jun:33,26', 'jun:32,25 jun:34,23 mara:33,25 mara:33,23'];
 /** From turn 10: Jun slips through the staff door behind the cleaner (turn 11) and keeps out of sight near the alarm closet. */
 const M1_INSIDE = [
