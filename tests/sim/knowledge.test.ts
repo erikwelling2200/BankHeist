@@ -2,9 +2,9 @@ import { describe, expect, it } from 'vitest';
 import type { GenerateOptions } from '../../src/gen/generate';
 import { cachedBank } from '../bankCache';
 import {
-    bandAt, cameraObserver, clonePlain, commit, crewLook, crewPicture, decodeBits, explain, reaction, safeFloor, unknownWatcher, unknownWatchers, deserialise, encodeBits, fieldOn, fixtureWorld, floorKnowledge, freezeWorld,
-    hashOf, initialState, isKnownNow, isUnknownRisk, noticedUnseen, pathTo, projectPreviewEvents, SaveFormatError, knownBlockers, knownView, makeNoise, markerKind, npcObserver, preview, previewPicture, projectEvents, reachable,
-    serialise, sightMap, tileAt, updateKnowledge, worldFromBank, type Command, type FixtureOptions, type PersonDef, type Pos, type ReadonlyWorld,
+    bandAt, cameraObserver, clonePlain, commit, crewLook, crewPicture, decodeBits, explain, pathSafety, reaction, safeFloor, unknownWatcher, unknownWatchers, deserialise, encodeBits, fieldOn, fixtureWorld, floorKnowledge, freezeWorld,
+    doorStatus, hashOf, initialState, isKnownNow, knownDoorStatus, tileVisibility, isUnknownRisk, noticedUnseen, pathTo, projectPreviewEvents, SaveFormatError, knownBlockers, knownView, makeNoise, markerKind, npcObserver, preview, previewPicture, projectEvents, reachable,
+    serialise, sightMap, tileAt, updateKnowledge, worldFromBank, withLayoutCameras, interruptsOf, type Command, type FixtureOptions, type PersonDef, type Pos, type ReadonlyWorld,
     type SimEvent, type State, type UnknownOptions, type World
 } from '../../src/sim';
 import { OUTCOME_RANK } from '../../src/sim/data/matrix';
@@ -54,7 +54,7 @@ describe('seen tiles and the blueprint', () => {
         const { world, state } = build();
         expect(seenAt(world, state, P(4, 2))).toBe(true);
         expect(seenAt(world, state, P(5, 1))).toBe(false);
-        expect(floorKnowledge(world, state, P(6, 1))).toBe('unscouted');
+        expect(floorKnowledge(world, state, P(6, 1))).toBe('hidden');
         expect(state.knowledge.rooms).toEqual(['lobby']);
         expect(state.knowledge.cameras).toEqual([]);
         const view = knownView(world, state);
@@ -70,7 +70,9 @@ describe('seen tiles and the blueprint', () => {
         const bought = freezeWorld({ ...(clonePlain(world) as World), intel: { blueprints: true } });
         const state = initialState(bought, { seed: 1, crew: [{ id: 'jun', pos: P(0, 1) }] });
         expect(knownView(bought, state).blueprint.outlines).toEqual([]);
-        expect(floorKnowledge(bought, state, P(6, 1))).toBe('unscouted');
+        // Nothing is hidden: the staff room is stale, where someone unseen could stand (decision 44).
+        expect(tileVisibility(bought, state, P(6, 1))).toBe('stale');
+        expect(floorKnowledge(bought, state, P(6, 1))).toBe('unknownRisk');
     });
 
     it('reveals what lies behind a door, the room, its camera and the CCTV feeds: a final move', () => {
@@ -380,6 +382,236 @@ describe('moving in unknown space', () => {
     });
 });
 
+describe('tile visibility (decision 44)', () => {
+    // A lobby, a wall with a door, a staff room behind it the blueprint only outlines; the lobby runs on out of sight.
+    const build = (intel?: World['intel']): { world: ReadonlyWorld; state: State } => {
+        const map = ['.....sss' + '.'.repeat(20), '.....sss' + '.'.repeat(20)];
+        const walls: FixtureOptions['walls'] = [{ between: [P(4, 0), P(5, 0)] }, { between: [P(4, 1), P(5, 1)], door: { id: 'd' } }];
+        const base = fixtureWorld(map, { walls, rooms: ['.....SSS' + '.'.repeat(20), '.....SSS' + '.'.repeat(20)] });
+        const world = intel ? freezeWorld({ ...(clonePlain(base) as World), intel }) : base;
+        return { world, state: initialState(world, { seed: 1, crew: [{ id: 'jun', pos: P(0, 1) }] }) };
+    };
+    const all = (world: ReadonlyWorld, state: State): Set<string> => {
+        const out = new Set<string>();
+        for (let y = 0; y < world.height; y++) for (let x = 0; x < world.width; x++) out.add(tileVisibility(world, state, P(x, y)));
+        return out;
+    };
+
+    it('never hides public floor: never seen, it is stale', () => {
+        const { world, state } = build();
+        expect(tileVisibility(world, state, P(2, 1))).toBe('seen');
+        expect(seenAt(world, state, P(27, 0))).toBe(false);
+        expect(tileVisibility(world, state, P(27, 0))).toBe('stale');
+        expect(floorKnowledge(world, state, P(27, 0))).not.toBe('hidden');
+    });
+
+    it('hides a room the blueprint only outlines until it is seen, then it is seen, and stale after the world phase', () => {
+        const { world, state } = build();
+        expect(tileVisibility(world, state, P(6, 1))).toBe('hidden');
+        expect(floorKnowledge(world, state, P(6, 1))).toBe('hidden');
+        const inside = step(world, state, { type: 'move', crew: 'jun', path: [P(1, 1), P(2, 1), P(3, 1), P(4, 1), P(5, 1)] }).state;
+        expect(tileVisibility(world, inside, P(6, 1))).toBe('seen');
+        // Back out, the door swings shut behind them: the room is no longer seen, but never hidden again.
+        const out = step(world, patch(inside, s => { s.crew[0]!.pos = P(0, 0); }), { type: 'endTurn' }).state;
+        expect(tileVisibility(world, out, P(6, 1))).toBe('stale');
+        expect(knownView(world, out).visibility[1 * world.width + 6]).toBe(1);
+    });
+
+    it('greys the safe floor on hidden tiles only', () => {
+        // Beside the door: the staff room behind it is hidden, the lobby seen.
+        const { world } = build();
+        const beside = initialState(world, { seed: 1, crew: [{ id: 'jun', pos: P(4, 1) }] });
+        const floor = safeFloor(world, beside, 'jun');
+        let hidden = 0;
+        for (const t of floor.tiles) {
+            const v = tileVisibility(world, beside, t.pos);
+            expect(t.knowledge === 'hidden', `(${t.pos.x}, ${t.pos.y})`).toBe(v === 'hidden');
+            if (t.tint.kind === 'grey') expect(v).toBe('hidden');
+            if (v === 'hidden') hidden++;
+        }
+        expect(hidden).toBeGreaterThan(0);
+        // Public floor round a corner nobody has seen: stale, judged, never grey.
+        const corner = fixtureWorld(['.'.repeat(10), ...Array.from({ length: 4 }, () => '.'.repeat(10))], {
+            walls: [
+                ...Array.from({ length: 9 }, (_, x) => ({ between: [P(x, 0), P(x, 1)] as [Pos, Pos] })),
+                ...Array.from({ length: 4 }, (_, i) => ({ between: [P(8, i + 1), P(9, i + 1)] as [Pos, Pos] }))
+            ]
+        });
+        const s = initialState(corner, { seed: 1, crew: [{ id: 'jun', pos: P(0, 0) }] });
+        const round = safeFloor(corner, s, 'jun').tiles.filter(t => !seenAt(corner, s, t.pos));
+        expect(round.length).toBeGreaterThan(0);
+        for (const t of round) {
+            expect(t.knowledge).not.toBe('hidden');
+            expect(t.tint.kind).not.toBe('grey');
+        }
+    });
+
+    it('hides nothing with Blueprints', () => {
+        const { world, state } = build({ blueprints: true });
+        expect(all(world, state).has('hidden')).toBe(false);
+        expect(tileVisibility(world, state, P(6, 1))).toBe('stale');
+    });
+});
+
+describe('doors not seen this turn (decision 44)', () => {
+    // An L: a corridor along row 0, turning down column 9, walled off from the rest; the door across the column at
+    // (9, 3)|(9, 4) is out of sight from the corner (8, 0).
+    const build = (lock: 'none' | 'mechanical'): { world: ReadonlyWorld; state: State } => {
+        const walls: FixtureOptions['walls'] = [
+            ...Array.from({ length: 9 }, (_, x) => ({ between: [P(x, 0), P(x, 1)] as [Pos, Pos] })),
+            ...Array.from({ length: 9 }, (_, i) => ({ between: [P(8, i + 1), P(9, i + 1)] as [Pos, Pos] })),
+            { between: [P(9, 3), P(9, 4)], door: { id: 'd', lock, start: lock === 'none' ? 'closed' as const : 'locked' as const } }
+        ];
+        const world = fixtureWorld(Array.from({ length: 10 }, () => '.'.repeat(10)), { walls });
+        // Seen open from beside it, then the crew goes round the corner and the world phase shuts it out of sight.
+        const opened = patch(initialState(world, { seed: 1, crew: [{ id: 'jun', pos: P(9, 2) }] }), s => { s.doors.d = { status: 'open' }; });
+        const seen = step(world, opened, { type: 'wait', crew: 'jun' }).state;
+        expect(seen.knowledge.doors.d).toBe('open');
+        return { world, state: step(world, patch(seen, s => { s.crew[0]!.pos = P(8, 0); }), { type: 'endTurn' }).state };
+    };
+    const path = [P(9, 0), P(9, 1), P(9, 2), P(9, 3), P(9, 4)];
+
+    it('is pictured as last seen, never as it is', () => {
+        const { world, state } = build('mechanical');
+        expect(doorStatus(world, state, 'd')).toBe('locked');
+        expect(knownView(world, state).doors).toEqual([{ id: 'd', status: 'open', inView: false, fresh: false }]);
+        expect(knownDoorStatus(world, state, 'd')).toBe('open');
+        expect(crewPicture(world, state).doors.d!.status).toBe('open');
+        // Never seen: plain closed, whatever it is.
+        const fresh = initialState(world, { seed: 1, crew: [{ id: 'jun', pos: P(0, 0) }] });
+        expect(fresh.knowledge.doors.d).toBeUndefined();
+        expect(knownDoorStatus(world, fresh, 'd')).toBe('closed');
+    });
+
+    it('stops a move before a door found locked: the action spent, final, the preview showing the drawn path', () => {
+        const { world, state } = build('mechanical');
+        const r = step(world, state, { type: 'move', crew: 'jun', path });
+        expect(r.state.crew[0]!.pos).toEqual(P(9, 3));
+        expect(r.state.crew[0]!.actionsLeft).toBe(state.crew[0]!.actionsLeft - 1);
+        expect(r.events).toContainEqual({ type: 'moveCut', crew: 'jun', reason: 'door', door: 'd', status: 'locked', at: P(9, 3), planned: path });
+        expect(r.events.some(e => e.type === 'doorOpened')).toBe(false);
+        expect(r.undoable).toBe(false);
+        expect(interruptsOf(world, state, r).find(i => i.kind === 'moveCut')?.text).toBe('jun found a door locked');
+        // Found: now it is known as it is.
+        expect(knownView(world, r.state).doors[0]).toMatchObject({ status: 'locked', inView: true, fresh: true });
+        expect(projectEvents(world, r.state, r.events, state)).toContainEqual(expect.objectContaining({ type: 'moveCut', reason: 'door' }));
+        const shown = projectPreviewEvents(world, state, preview(world, state, { type: 'move', crew: 'jun', path }));
+        expect(shown.find(e => e.type === 'moved')).toMatchObject({ to: P(9, 4), path });
+        expect(shown.some(e => e.type === 'moveCut')).toBe(false);
+    });
+
+    it('walks through a door found closed, opening it', () => {
+        const { world, state } = build('none');
+        expect(doorStatus(world, state, 'd')).toBe('closed');
+        const r = step(world, state, { type: 'move', crew: 'jun', path });
+        expect(r.state.crew[0]!.pos).toEqual(P(9, 4));
+        expect(r.events.some(e => e.type === 'moveCut')).toBe(false);
+        expect(r.events).toContainEqual({ type: 'doorOpened', door: 'd', by: 'jun' });
+    });
+
+    it('hatches every tile reached through a door that could be locked, and only those', () => {
+        const locked = build('mechanical');
+        const tile = safeFloor(locked.world, locked.state, 'jun').at(P(9, 4))!;
+        expect(tile.path).toEqual(path);
+        expect(tile.unknownPath).toBe(true);
+        expect(tile.tint.kind).toBe('unknownRisk');
+        // The tile before the door isn't reached through it.
+        expect(safeFloor(locked.world, locked.state, 'jun').at(P(9, 3))!.unknownPath).toBe(false);
+        const drawn = pathSafety(locked.world, locked.state, 'jun', path);
+        if (!drawn.ok) throw new Error(drawn.reason);
+        expect(drawn.steps[3]!.stop!.unknownPath).toBe(false);
+        expect(drawn.end.unknownPath).toBe(true);
+        expect(explain(locked.world, locked.state, 'jun', P(9, 4)).map(l => l.text)).toContain('On the way: a door not seen this turn could be locked');
+        // A door with no lock opens whichever way it stands: nothing to hatch for it.
+        const plain = build('none');
+        expect(safeFloor(plain.world, plain.state, 'jun').at(P(9, 4))!.unknownPath).toBe(false);
+    });
+
+    it('pictures a door never seen as closed, and hatches a way through it when it could be locked', () => {
+        // Two rooms at x 0..9 split by a wall at 4|5 with a door at row 1, walled off from a public hall at x 10..29
+        // where jun starts (seeing x >= 16); then jun stands at (3, 1) beside the door, nothing new seen.
+        const build = (lock: 'none' | 'mechanical', zone: '.' | 's'): { world: ReadonlyWorld; state: State } => {
+            const walls: FixtureOptions['walls'] = [0, 1, 2].flatMap(y => [
+                { between: [P(9, y), P(10, y)] as [Pos, Pos] },
+                { between: [P(4, y), P(5, y)] as [Pos, Pos], ...(y === 1 ? { door: { id: 'd', lock, start: lock === 'none' ? 'closed' as const : 'locked' as const } } : {}) }
+            ]);
+            const row = zone.repeat(10) + '.'.repeat(20);
+            const world = fixtureWorld([row, row, row], { walls, rooms: Array.from({ length: 3 }, () => (zone === 's' ? 'aaaaabbbbb' : '.'.repeat(10)) + '.'.repeat(20)) });
+            const start = initialState(world, { seed: 1, crew: [{ id: 'jun', pos: P(29, 1) }] });
+            return { world, state: patch(start, s => { s.crew[0]!.pos = P(3, 1); }) };
+        };
+        const reached = (x: { world: ReadonlyWorld; state: State }) => safeFloor(x.world, x.state, 'jun').at(P(6, 1))!;
+        // On the layout: whether it locks is known; how it stands isn't.
+        const locked = build('mechanical', '.');
+        expect(knownDoorStatus(locked.world, locked.state, 'd')).toBe('closed');
+        expect(crewPicture(locked.world, locked.state).doors.d!.status).toBe('closed');
+        expect(reached(locked).unknownPath).toBe(true);
+        expect(step(locked.world, locked.state, { type: 'move', crew: 'jun', path: reached(locked).path }).events)
+            .toContainEqual(expect.objectContaining({ type: 'moveCut', reason: 'door', status: 'locked' }));
+        expect(reached(build('none', '.')).unknownPath).toBe(false);
+        // Between hidden tiles only, even whether it locks is unknown.
+        const hidden = build('none', 's');
+        expect(tileVisibility(hidden.world, hidden.state, P(4, 1))).toBe('hidden');
+        expect(reached(hidden).unknownPath).toBe(true);
+    });
+
+    // A corridor split by a wall at 20|21 with a door at row 1 (no lock, built closed, never seen). The rota predicts two
+    // guards: one at (24, 1) looking west down row 1 through the doorway, one at (10, 1) looking east. Masked jun saw up to
+    // x = 19 from (6, 1) at the end of the world phase and now stands at (16, 1): neither side of the door is fresh.
+    const doorway = (door: 'open' | 'closed', seen = false): { world: ReadonlyWorld; state: State } => {
+        const walls: FixtureOptions['walls'] = [0, 1, 2].map(y => ({
+            between: [P(20, y), P(21, y)] as [Pos, Pos], ...(y === 1 ? { door: { id: 'd', start: 'closed' as const } } : {})
+        }));
+        const people = [
+            clerk(P(24, 1), { id: 'guard', role: 'guard', observer: 'enforcer' }),
+            clerk(P(10, 1), { id: 'near', role: 'guard', observer: 'enforcer', facing: 'e', schedule: [{ from: 1, activity: 'post', label: 'post', room: '', at: P(10, 1), facing: 'e' }] })
+        ];
+        const world = freezeWorld({ ...(clonePlain(fixtureWorld(Array.from({ length: 3 }, () => '.'.repeat(26)), { walls, people })) as World), intel: { guardRota: true } });
+        const start = initialState(world, { seed: 1, crew: [{ id: 'jun', pos: P(6, 1), masked: true }] });
+        let state = patch(start, s => {
+            s.crew[0]!.pos = P(16, 1);
+            s.doors.d = { status: door };
+        });
+        // What jun sees from there, as after a step.
+        if (seen) state = patch(state, s => updateKnowledge(world, s, () => {}));
+        return { world, state };
+    };
+
+    it('hatches a tile a known NPC could see only through a door not seen this turn, however the door stands', () => {
+        const open = doorway('open'), shut = doorway('closed');
+        expect(markerKind(open.world, open.state, 'guard')).toBe('predicted');
+        expect(knownDoorStatus(open.world, open.state, 'd')).toBe('closed');
+        const a = safeFloor(open.world, open.state, 'jun'), b = safeFloor(shut.world, shut.state, 'jun');
+        // The floor never tells how the door stands.
+        expect(JSON.stringify(a.tiles)).toBe(JSON.stringify(b.tiles));
+        const through = a.at(P(19, 1))!;
+        expect(through.doorRisk).toBe(true);
+        expect(through.tint.kind).toBe('unknownRisk');
+        expect(explain(open.world, open.state, 'jun', P(19, 1)).map(l => l.text)).toContain('A door not seen this turn could change who sees you');
+        // A tile the far guard can't see through the door (out of reach) keeps its verdict: the near guard's eye.
+        const aside = a.at(P(13, 1))!;
+        expect(aside.doorRisk).toBe(false);
+        expect(aside.tint.kind).toBe('red');
+        // The truth, either way: the far guard sees jun on (19, 1) through the open door, not through the shut one.
+        const move: Command = { type: 'move', crew: 'jun', path: through.path };
+        const byGuard = (events: readonly SimEvent[]): boolean => events.some(e => e.type === 'exposed' && e.npc === 'guard');
+        expect(byGuard(step(open.world, open.state, move).events)).toBe(true);
+        expect(byGuard(step(shut.world, shut.state, move).events)).toBe(false);
+        // Nor does the move's preview: the far guard counts as unknown for it.
+        const shown = (x: { world: ReadonlyWorld; state: State }): SimEvent[] => projectPreviewEvents(x.world, x.state, preview(x.world, x.state, move));
+        expect(shown(open)).toEqual(shown(shut));
+        expect(byGuard(shown(open))).toBe(false);
+    });
+
+    it('judges by the door as it is once it is seen this turn', () => {
+        const { world, state } = doorway('open', true);
+        expect(knownDoorStatus(world, state, 'd')).toBe('open');
+        const tile = safeFloor(world, state, 'jun').at(P(19, 1))!;
+        expect(tile.doorRisk).toBe(false);
+        expect(tile.tint.kind).toBe('red');
+    });
+});
+
 describe('doors and other names in events', () => {
     // Two rooms: the crew's, and a closed one behind a wall with a door on its far side the crew can't see.
     const world = fixtureWorld(['....s....', '....s....'], {
@@ -399,7 +631,7 @@ describe('doors and other names in events', () => {
         expect(knownView(world, state).doors).toEqual([]);
         const near = patch(state, s => { s.crew[0]!.pos = P(6, 0); });
         const seen = step(world, near, { type: 'wait', crew: 'jun' }).state;
-        expect(knownView(world, seen).doors).toEqual([{ id: 'far', status: 'closed', inView: true }]);
+        expect(knownView(world, seen).doors).toEqual([{ id: 'far', status: 'closed', inView: true, fresh: true }]);
         expect(projectEvents(world, seen, [{ type: 'doorClosed', door: 'far' }])).toEqual([{ type: 'doorClosed', door: 'far' }]);
     });
 });
@@ -448,7 +680,8 @@ describe('unknown risk', () => {
         // Walking back makes them fresh again.
         s = step(world, patch(s, x => { x.crew[0]!.pos = P(0, 0); }), { type: 'wait', crew: 'jun' }).state;
         expect(floorKnowledge(world, s, P(2, 0))).toBe('scouted');
-        expect(floorKnowledge(world, s, P(35, 0))).toBe('unscouted');
+        // Public floor nobody has seen is stale, never hidden (decision 44): someone unseen could stand on it.
+        expect(floorKnowledge(world, s, P(35, 0))).toBe('unknownRisk');
     });
 
     it('is never green where an NPC the crew doesn’t see or predict could watch, through a played heist', () => {
@@ -496,7 +729,7 @@ describe('unknown risk', () => {
                 }
             }
             for (let y = 0; y < world.height; y++) for (let x = 0; x < world.width; x++) {
-                if (!seenAt(world, state, P(x, y))) expect(isUnknownRisk(world, state, P(x, y))).toBe(false);
+                if (tileVisibility(world, state, P(x, y)) === 'hidden') expect(isUnknownRisk(world, state, P(x, y))).toBe(false);
             }
         }
         expect(checked).toBeGreaterThan(0);
@@ -580,9 +813,13 @@ describe('unknown risk for a crew member (decision 24)', () => {
 
     it('keeps grey grey, whatever the crew member carries', () => {
         for (const items of [[], ['assaultRifle']]) {
-            const { world, state } = build({ items });
-            expect(at(world, state, P(20, 0))).toBe('unscouted');
-            expect(unknownWatcher(world, state, 'jun', P(20, 0))).toBeNull();
+            const { world } = build({ items });
+            // A staff room the blueprint only outlines, nobody has seen into: hidden.
+            const roomed = freezeWorld({ ...(clonePlain(world) as World), tiles: world.tiles.map((t, i) => ({ ...t, room: i % 40 >= 20 ? 'back' : null, zone: i % 40 >= 20 ? 'staff' as const : t.zone })) });
+            const s = initialState(roomed, { seed: 1, crew: [{ id: 'jun', pos: P(0, 0), items }] });
+            expect(at(roomed, s, P(20, 0))).toBe('hidden');
+            expect(unknownWatcher(roomed, s, 'jun', P(20, 0))).toBeNull();
+            expect(unknownWatchers(roomed, s, 'jun', P(20, 0))).toEqual([]);
         }
     });
 });
@@ -727,6 +964,10 @@ describe('every tile an unknown observer could react from', () => {
         expect(picture.cameras['public']!.live).toBe(true);
         expect(picture.cameras['staff']!.live).toBe(false);
         expect(knownView(world, state).cameras.map(c => [c.id, c.status])).toEqual([['public', 'unknown']]);
+        // A heist saved before layout cameras were known from the start resumes knowing them, the staff one still not.
+        const old = patch(state, s => { s.knowledge.cameras = []; });
+        expect(withLayoutCameras(world, old).knowledge.cameras).toEqual(['public']);
+        expect(withLayoutCameras(world, state)).toBe(state);
     });
 
     it('agrees with the worst on fixture worlds', () => {

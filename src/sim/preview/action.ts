@@ -6,7 +6,7 @@ import type { NoiseKind } from '../data/noise';
 import { inRing, soundRing } from '../geo/sound';
 import { carrierPreview, projectCarriers, type CarrierPreview } from '../rules/carriers';
 import { hearing } from '../rules/evidence';
-import { projectPreviewEvents } from '../rules/knowledge';
+import { projectPreviewEvents, withPicturedDoors } from '../rules/knowledge';
 import { pathSafety, type PathSafety } from './floor';
 import { previewPicture } from './picture';
 
@@ -14,11 +14,13 @@ import { previewPicture } from './picture';
  * The preview of any command (§8.8, §8.9, §20.2 step 3), as the player may see it. The command is previewed on the
  * truth (`preview`: the same reducer on a copy) and everything shown is projected through what the crew knows
  * (`projectPreviewEvents`, `projectCarriers`): events naming NPCs or cameras it doesn't know are dropped, a carrier's
- * unknown holder is redacted, a move cut short by someone unseen shows along the drawn path.
+ * unknown holder is redacted, a move cut short by someone unseen or by a door found locked shows along the drawn path.
+ * An NPC or camera the crew knows whose seeing or hearing of the crew a door it can't vouch for could decide (decision
+ * 44) counts as unknown for the command, so a preview never tells how such a door really stands.
  *
- * - **Noise** (§8.9): every noise's ring (exactly the tiles it reaches) and an ear per NPC the crew knows inside it,
- *   labelled with what it will do (`hearing`, the function the noise hook applies, judged among the NPCs the crew
- *   knows; `still` for one face down).
+ * - **Noise** (§8.9): every noise's ring (the tiles it reaches, through the doors as pictured) and an ear per NPC the
+ *   crew knows inside it, labelled with what it will do (`hearing`, the function the noise hook applies, judged among
+ *   the NPCs the crew knows; `still` for one face down).
  * - **Witnesses**: who would notice (Exposed, pips, a challenge, a camera report, or seeing it at all).
  * - **Carriers** (§9.1): those the command starts or stops at once, and those the coming world phase would start
  *   because of it (`carrierPreview`).
@@ -96,7 +98,8 @@ function noisesOf(world: ReadonlyWorld, before: State, result: PreviewResult, sh
         if (e.type !== 'noise') continue;
         // The truth's event for the same noise: who could hear it then (a knocked-out victim no longer can).
         const truth = result.events.find(t => t.type === 'noise' && t.cause === e.cause) as Extract<SimEvent, { type: 'noise' }> | undefined;
-        const ring = soundRing(world, result.state, e.sources, e.radius);
+        // Drawn through the doors as the crew pictures them: the doors it can't vouch for never show through the ring.
+        const ring = soundRing(world, withPicturedDoors(world, before, result.state), e.sources, e.radius);
         const able = new Set(truth?.heard ?? e.heard);
         const listeners: State = { ...picture, npcs: picture.npcs.filter(n => !inRing(ring, n.pos) || able.has(n.id)) };
         const react = new Map(hearing(world, listeners, ring, e.kind, e.cause).map(h => [h.npc, h]));

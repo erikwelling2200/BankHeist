@@ -87,7 +87,8 @@ export class BankScene extends Phaser.Scene {
 
         const floor = this.timed('floor', () => addFloor(baker, level, props.filter(({ box }) => box.h === 0)));
         this.timed('walls', () => this.walls.build(baker));
-        const { occluders, casters } = this.timed('props', () => addProps(this, baker, this.walls, props.filter(({ box }) => box.h > 0), heights));
+        const { occluders, casters, shown } = this.timed('props', () => addProps(this, baker, this.walls, props.filter(({ box }) => box.h > 0), heights));
+        knowledge.trackProps(shown);
         this.timed('people', () => this.people.build(this.bank.people, play ? play.session.state.crew.map((c, i) => ({
             look: M1_CREW.find(m => m.id === c.id)?.look ?? 'crewSol', tx: c.pos.x, ty: c.pos.y, facing: 'back' as const, ring: CREW_COLOURS[i % CREW_COLOURS.length]!
         })) : []));
@@ -101,7 +102,7 @@ export class BankScene extends Phaser.Scene {
         });
         if (play?.setupMs !== undefined) this.timings.heist = play.setupMs;
         if (play) this.timed('play', () => {
-            this.play = new PlayMode(this, { ...play, people: this.people, walls: this.walls, camera: this.camera });
+            this.play = new PlayMode(this, { ...play, people: this.people, walls: this.walls, camera: this.camera, knowledge });
             this.camera.prepareZoomIn();
             // Play mode opens on the crew: the walls stand as that view asks from the first frame.
             this.walls.update(0, this.cameras.main.midPoint.y, this.camera.onMap);

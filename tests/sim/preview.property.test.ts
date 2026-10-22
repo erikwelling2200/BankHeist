@@ -4,10 +4,10 @@ import { cachedBank } from '../bankCache';
 import { PLOTS, TIERS } from '../../src/gen/model';
 import { Rng } from '../../src/gen/rng';
 import {
-    actionPreview, carriersStarted, DEAF_STATUSES, clonePlain, commit, crewBudget, crewMoveOptions, effectOf, encodeBits, explain, FACINGS, hearing, isKnownNow, fixtureWorld, initialState,
+    actionPreview, carriersStarted, DEAF_STATUSES, clonePlain, commit, crewBudget, crewMoveOptions, doorDoubt, effectOf, encodeBits, explain, FACINGS, hearing, isKnownNow, fixtureWorld, initialState,
     hashOf, legalActions, noiseRadius, npcsInside, onFloor, pathSafety, pendingCarriers, planningState, previewPicture, projectCarriers, projectPreviewEvents, safeFloor, safeFloorJob, soundRing,
     validatePath, worldFromBank, type CameraDef, type Command, type CrewStart, type Effect, type FixtureWall, type FloorTile, type ObserverClass,
-    type PersonDef, type Pos, type ReadonlyWorld, type ScheduleBlock, type SimEvent, type State, type WorldObject
+    type PersonDef, type Pos, type ReadonlyWorld, type SafeFloor, type ScheduleBlock, type SimEvent, type State, type WorldObject
 } from '../../src/sim';
 import { dashRing, judgeFor } from '../../src/sim/preview/floor';
 
@@ -30,6 +30,11 @@ import { dashRing, judgeFor } from '../../src/sim/preview/floor';
  * 3. **Never green but spotted** (decision 24, the fresh-tile rule): a tile shown green never gets the crew member
  *    spotted by anyone, known or not, during the move; in the world phase only the known NPCs' walks are promised, so
  *    unknown NPCs walking in are counted, not failed.
+ * 4. **Doors not seen this turn** (decision 44): the safe floor is the same whatever such a door really is (each
+ *    floor is judged again with every doubted door flipped); a move cut at a door found locked (`door` cuts, made
+ *    likely by lockable doors that NPCs walk through and that relock unseen, and by a scenario of its own) is one the
+ *    floor hatched as reached through it (`unknownPath`); a difference on a tile hatched for a door (`doorRisk`) is put
+ *    down to it.
  *
  * Before every end of the turn, each crew member's own tile (`stay`) is checked the same way: so every action is
  * followed by a world phase the overlay foresaw. Action previews are checked against their commits (projected events,
@@ -44,6 +49,7 @@ const SCALE = Number(process.env.PREVIEW_PROBE_SCALE ?? 1);
 const SEED = Number(process.env.PREVIEW_PROBE_SEED ?? 20261015);
 const VERBOSE = !!process.env.PREVIEW_PROBE_VERBOSE;
 const FIXTURES = Math.round(40 * SCALE);
+const DOOR_RUNS = Math.round(12 * SCALE);
 const BANK_SEEDS = Number(process.env.PREVIEW_PROBE_BANKS ?? Math.max(1, Math.round(SCALE)));
 const FIXTURE_TURNS = 4, BANK_TURNS = Math.round(6 * Math.min(SCALE, 2));
 /**
@@ -93,8 +99,10 @@ function fixture(rng: Rng): { world: ReadonlyWorld; free: Pos[] } {
         const doorY = rng.int(0, H - 1), glassY = rng.int(0, H - 1);
         for (let y = 0; y < H; y++) {
             const between: [Pos, Pos] = [{ x: wx, y }, { x: wx + 1, y }];
-            if (y === doorY) walls.push({ between, door: { id: `d${wx}`, start: rng.pick(['closed', 'open', 'closed'] as const) } });
-            else if (y === glassY) walls.push({ between, material: 'glass' });
+            if (y === doorY) {
+                const lock = rng.pick(['none', 'none', 'mechanical'] as const);
+                walls.push({ between, door: { id: `d${wx}`, lock, start: rng.pick(lock === 'none' ? ['closed', 'open', 'closed'] as const : ['locked', 'open', 'locked'] as const) } });
+            } else if (y === glassY) walls.push({ between, material: 'glass' });
             else if (rng.chance(0.85)) walls.push({ between });
         }
     }
@@ -195,11 +203,15 @@ function checkMove(run: Run, state: State, crew: string, cmd: Extract<Command, {
     // 2. The truth, as the crew perceives it.
     const r = commit(world, state, cmd);
     const tNowAll = effectOf(r.events, crew, state), tNow = known(tNowAll, npcs, cameras);
-    const cut = r.events.some(e => e.type === 'moveCut');
-    if (cut) probe.bump('truth: move cut by someone unseen');
+    const cutBy = r.events.find((e): e is Extract<SimEvent, { type: 'moveCut' }> => e.type === 'moveCut'), cut = !!cutBy;
+    if (cutBy?.reason === 'door') {
+        // M2: the floor never vouches for a path through a door that could be locked.
+        probe.bump('truth: move cut by a door');
+        if (!tile.unknownPath) probe.fail(`${at}: cut at door ${cutBy.door} (${cutBy.status}), but the path wasn't hatched`);
+    } else if (cut) probe.bump('truth: move cut by someone unseen');
     else if (show(tNow) !== show(tile.now)) {
         const runs: Runs = { truth: { before: state, after: r.state, events: r.events }, picture: { before: picture, after: o1.state, events: o1.events } };
-        const why = classify(run, state, crew, tile.now, tNow, tNowAll, npcs, cameras, runs);
+        const why = classify(run, state, crew, tile.now, tNow, tNowAll, npcs, cameras, runs, tile);
         if (why) probe.bump(`truth now differs: ${why}`);
         else probe.fail(`${at}: now ${show(tile.now)}, the truth ${show(tNow)} (all ${show(tNowAll)})`);
     } else probe.bump('truth now equal');
@@ -227,7 +239,7 @@ function checkWorldPhase(
     if (tile.next) {
         if (show(seen) !== show(tile.next)) {
             const runs: Runs = { truth: { before, after: truth.state, events: truth.events }, picture };
-            const why = classify(run, judged, crew, tile.next, seen, all, npcs, cameras, runs);
+            const why = classify(run, judged, crew, tile.next, seen, all, npcs, cameras, runs, tile);
             if (why) probe.bump(`truth next differs: ${why}`);
             else probe.fail(`${at}: next ${show(tile.next)}, the truth ${show(seen)} (all ${show(all)})`);
         } else probe.bump('truth next equal');
@@ -239,7 +251,7 @@ function checkWorldPhase(
             probe.bump(byUnknown ? 'green but spotted next: by someone the crew does not know' : 'green but spotted next: by a known NPC');
             if (!byUnknown && show(seen) !== show(tile.next)) {
                 const runs: Runs = { truth: { before, after: truth.state, events: truth.events }, picture };
-                if (!classify(run, judged, crew, tile.next, seen, all, npcs, cameras, runs)) probe.fail(`${at}: green, but the world phase got them spotted by someone known: ${show(all)}`);
+                if (!classify(run, judged, crew, tile.next, seen, all, npcs, cameras, runs, tile)) probe.fail(`${at}: green, but the world phase got them spotted by someone known: ${show(all)}`);
             }
         }
     }
@@ -261,7 +273,11 @@ interface Runs { truth: { before: State; after: State; events: readonly SimEvent
  * is put down to NPCs the crew doesn't know only when they acted on the crew member themselves, told a known NPC, or
  * left a known NPC walking or standing otherwise than on the picture.
  */
-function classify(run: Run, state: State, crew: string, predicted: Effect, seen: Effect, all: Effect, npcs: ReadonlySet<string>, cameras: ReadonlySet<string>, runs: Runs): string | null {
+function classify(
+    run: Run, state: State, crew: string, predicted: Effect, seen: Effect, all: Effect, npcs: ReadonlySet<string>, cameras: ReadonlySet<string>, runs: Runs,
+    tile?: FloorTile
+): string | null {
+    if (tile?.doorRisk && doorDoubt(run.world, state)) return 'a door not seen this turn decides it (hatched)';
     if (run.omniscient) return null;
     const camerasOnly = show({ ...predicted, cameras: [] }) === show({ ...seen, cameras: [] });
     if (camerasOnly && predicted.cameras.every(id => seen.cameras.includes(id) || !state.knowledge.cctv)) return 'a camera of unknown feed status is off';
@@ -284,6 +300,7 @@ function playOne(run: Run, state: State, timing: boolean): State {
         const t0 = performance.now();
         const floor = safeFloor(world, state, member.id);
         if (timing) (probe.floorMs[run.tier] ??= []).push(performance.now() - t0);
+        checkFlipped(run, state, member.id, floor);
         const moves = floor.tiles.filter(t => t.band !== 'stay');
         if (!moves.length) return state;
         // Interesting tiles first now and then: every tint gets played.
@@ -390,6 +407,27 @@ function endTurn(run: Run, state: State): State {
     return r.state;
 }
 
+/**
+ * The safe floor never tells how a door the crew can't vouch for stands (decision 44): judged again with every such
+ * door flipped (open to shut, shut to open), it reads the same.
+ */
+function checkFlipped(run: Run, state: State, crew: string, floor: SafeFloor): void {
+    const doubt = doorDoubt(run.world, state);
+    if (!doubt) return;
+    const flipped = clonePlain(state);
+    for (const id of doubt.doors) {
+        const was = flipped.doors[id]?.status ?? run.world.doors[id]!.start;
+        flipped.doors[id] = { ...flipped.doors[id], status: was === 'open' ? (run.world.doors[id]!.lock === 'none' ? 'closed' : 'locked') : 'open' };
+    }
+    const other = safeFloor(run.world, flipped, crew);
+    if (JSON.stringify(other.tiles) !== JSON.stringify(floor.tiles)) {
+        const i = floor.tiles.findIndex((t, k) => JSON.stringify(t) !== JSON.stringify(other.tiles[k]));
+        run.probe.fail(`${run.label} t${state.turn}: the floor of ${crew} changes with doors ${[...doubt.doors].join(' ')} flipped, at ${JSON.stringify(floor.tiles[i]?.pos)}`);
+    }
+    run.probe.bump('floors checked with doubted doors flipped');
+    if (floor.tiles.some(t => t.doorRisk)) run.probe.bump('floors with door risk');
+}
+
 /** The eye sits on the first step with a `!`, or on the end when the end isn't safe; nothing before it acts. */
 function checkEye(run: Run, ps: Extract<ReturnType<typeof pathSafety>, { ok: true }>, path: readonly Pos[]): void {
     const firstBang = ps.steps.findIndex((s, i) => i < path.length - 1 && s.sightings.length > 0);
@@ -417,7 +455,7 @@ function checkExplain(run: Run, state: State, crew: string, tile: FloorTile): vo
         if (l.by === 'npc' && !isKnownNow(world, state, l.observer)) probe.fail(`${run.label}: explain names ${l.observer}, unknown to the crew`);
         if (l.by === 'camera' && !state.knowledge.cameras.includes(l.observer)) probe.fail(`${run.label}: explain names camera ${l.observer}, unknown to the crew`);
     }
-    const vouched = tile.knowledge === 'scouted' && !tile.unknownPath;
+    const vouched = tile.knowledge === 'scouted' && !tile.unknownPath && !tile.doorRisk;
     if (vouched !== !lines.some(l => l.observer === null)) probe.fail(`${run.label}: explain's knowledge line at ${JSON.stringify(tile.pos)} (${tile.knowledge})`);
     if (lines.length) probe.bump('explanations');
 }
@@ -506,6 +544,59 @@ function playBank(probe: Probe, tier: (typeof TIERS)[number], archetype: string,
     play(run, state, turns, true);
 }
 
+/**
+ * Moves through a lockable door the crew saw open and walked away from (decision 44): a corridor and a room behind a
+ * wall with a mechanical door at a random row, NPCs of every class on both sides. The crew sees the door open, is
+ * far out of sight of it while the world phase relocks it, and is put back near it (nothing new seen); then each crew
+ * member moves to a floor tile reached through it, checked as any move (cut there unless it stood open), and the game
+ * plays on.
+ */
+function playDoorCuts(probe: Probe, rng: Rng, n: number): void {
+    const WIDTH = 26, HEIGHT = 6;
+    const doorY = rng.int(1, HEIGHT - 2);
+    const walls: FixtureWall[] = Array.from({ length: HEIGHT }, (_, y) => ({
+        between: [{ x: 7, y }, { x: 8, y }] as [Pos, Pos], ...(y === doorY ? { door: { id: 'gate', lock: 'mechanical' as const, start: 'locked' as const } } : {})
+    }));
+    const free: Pos[] = [];
+    for (let y = 0; y < HEIGHT; y++) for (let x = 0; x < WIDTH; x++) free.push({ x, y });
+    // Keep the doorway and the crew's corners clear.
+    const keep = new Set([`7,${doorY}`, `8,${doorY}`, `5,${doorY}`, `4,${doorY}`, '25,0', '25,1']);
+    const pool = free.filter(p => !keep.has(`${p.x},${p.y}`));
+    const take = (): Pos => pool.splice(rng.int(0, pool.length - 1), 1)[0]!;
+    const people: PersonDef[] = [];
+    for (let i = 0, count = rng.int(1, 4); i < count; i++) {
+        const observer = rng.pick(['civilian', 'staff', 'enforcer'] as ObserverClass[]);
+        const role = observer === 'civilian' ? 'customer' : observer === 'staff' ? 'teller' : 'guard';
+        const at = take();
+        people.push({ id: `n${i}`, name: `n${i}`, role, observer, pos: at, facing: rng.pick(FACINGS), schedule: randomSchedule(rng, free) });
+    }
+    const world = fixtureWorld(Array.from({ length: HEIGHT }, () => '.'.repeat(WIDTH)), { walls, people, rules: { checkInPeriod: 2, dispatchCheckInPeriod: 2, dispatchSilence: 2 } });
+    const crew = crewFor(rng, 2, () => ({ x: 7, y: doorY }), true).map((c, i) => ({ ...c, pos: i ? { x: 6, y: doorY } : { x: 7, y: doorY } }));
+    let state = initialState(world, { seed: n, crew });
+    // Seen open from beside it; then the crew is in the far corner while the world phase shuts and relocks it.
+    const put = (s: State, a: Pos, b: Pos): State => {
+        const out = clonePlain(s);
+        out.crew[0]!.pos = a;
+        out.crew[1]!.pos = b;
+        return out;
+    };
+    state = commit(world, (() => { const s = clonePlain(state); s.doors.gate = { status: 'open' }; return s; })(), { type: 'wait', crew: 'c0' }).state;
+    state = commit(world, put(state, { x: 25, y: 0 }, { x: 25, y: 1 }), { type: 'endTurn' }).state;
+    state = put(state, { x: 5, y: doorY }, { x: 4, y: doorY });
+    const run: Run = { world, rng, omniscient: false, label: `door cuts ${n}`, tier: 'fixture', probe, stealth: true };
+    for (const member of state.crew) {
+        if (state.bank.alarm) break;
+        const floor = safeFloor(world, state, member.id);
+        checkFlipped(run, state, member.id, floor);
+        const through = floor.tiles.filter(t => t.band !== 'stay' && t.path.some(p => p.x >= 8));
+        if (!through.length) continue;
+        const tile = rng.pick(through);
+        probe.bump('door scenario moves');
+        state = checkMove(run, state, member.id, { type: tile.band === 'dash' ? 'dash' : 'move', crew: member.id, path: tile.path }, tile, false);
+    }
+    play(run, state, 2, false);
+}
+
 describe('previews (property, §8.8)', () => {
     it('show what happens: the safe floor, drawn paths, "who and why" and action previews', () => {
         const probe = new Probe();
@@ -522,6 +613,7 @@ describe('previews (property, §8.8)', () => {
             const run: Run = { world, rng, omniscient: w % 2 === 0, label: `fixture ${w}`, tier: 'fixture', probe };
             play(run, state, FIXTURE_TURNS, true);
         }
+        for (let n = 0; n < DOOR_RUNS; n++, seeds++) playDoorCuts(probe, rng, n);
         let combo = 0;
         for (let s = 0; s < BANK_SEEDS; s++) for (const tier of TIERS) for (const archetype of archetypesFor(tier)) {
             if (BANK_SKIP && (combo + s) % BANK_SKIP === BANK_SKIP - 1) {
@@ -546,6 +638,7 @@ describe('previews (property, §8.8)', () => {
         }
         expect((st['tint amber hatched'] ?? 0) + (st['tint red hatched'] ?? 0) + (st['tint trespass hatched'] ?? 0), 'hatched').toBeGreaterThan(0);
         expect((st['tint trespass'] ?? 0) + (st['tint trespass hatched'] ?? 0), 'trespass').toBeGreaterThan(0);
+        for (const k of ['truth: move cut by a door', 'floors checked with doubted doors flipped', 'floors with door risk']) expect(st[k] ?? 0, k).toBeGreaterThan(0);
         for (const type of ['door', 'knockout', 'drag', 'interact']) expect(st[`command ${type}`] ?? 0, type).toBeGreaterThan(0);
     }, 600_000);
     // Long games (the reviewer's harness): a quiet crew (no weapons, no knockouts, mostly calm tiles) plays on while

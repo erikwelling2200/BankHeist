@@ -34,8 +34,10 @@ interface PersonSprite {
     top: number;
     /** Off the map (an NPC gone home or out): not drawn. */
     away?: boolean;
-    /** A crew member's ground ring in their colour (UI.md "Crew"), under them. */
+    /** A crew member's ground ring in their colour (UI.md "Crew"), under them. Crew are never hidden. */
     ring?: Phaser.GameObjects.Image;
+    /** Their index, as `move` takes it. */
+    index: number;
     /** A walk along a line of waypoints (pixels) and back: the leg being walked, how far along it, which way. */
     patrol?: { points: [number, number][]; leg: number; t: number; dir: 1 | -1; wait: number };
 }
@@ -44,10 +46,13 @@ interface PersonSprite {
  * The people in the bank. They stand in the middle of their tile: the sprite's soles on the front edge of their box,
  * centred across it. They move, so they cast nothing into the baked maps (no sun shadow, no gap in a shaft), only their
  * drop shadow, and each has a texture of their own that `move` relights wherever they stand. Someone where `hidden`
- * says (a room the blueprint only outlines) is out of sight.
+ * says (a room the blueprint only outlines), or where play mode's rule says (`alsoHide`: tile visibility), is out of
+ * sight; the crew never are.
  */
 export class People {
     private readonly sprites: PersonSprite[] = [];
+    private hiddenToo?: (index: number, x: number, y: number) => boolean;
+    private aboveToo?: (index: number, x: number, y: number) => boolean;
 
     constructor(
         private readonly scene: Phaser.Scene, private readonly baker: Baker, private readonly hidden: (x: number, y: number) => boolean,
@@ -88,7 +93,7 @@ export class People {
             if (!texture) throw new Error(`Failed to create texture '${key}'`);
             const x = (p.tx + 0.5) * TILE, y = (p.ty + 0.5) * TILE;
             this.sprites.push({
-                person: p, views, texture, x, y, facing: p.facing, light: 0, left: 0, top: 0,
+                person: p, views, texture, x, y, facing: p.facing, light: 0, left: 0, top: 0, index: i,
                 image: add.image(0, 0, key).setOrigin(0, 0),
                 shadow: add.image(0, 0, p.pose ? KEY.lyingShadow : KEY.shadow).setDepth(DEPTH.shadows).setAlpha(0.55),
                 patrol: patrolOf(p, x, y),
@@ -130,8 +135,10 @@ export class People {
         const tx = Math.floor(p.x / TILE), ty = Math.floor(p.y / TILE), lift = this.heights?.lift(tx, ty) ?? 0;
         const raised = (this.heights?.region(tx, ty) ?? -1) >= 0, floorDepth = DEPTH.standing + ty * TILE + RAISED_DEPTH;
         const x = Math.round(p.x - PERSON_SIZE.w / 2) + PERSON_SIZE.w / 2, y = Math.round(p.y - PERSON_SIZE.d / 2) + PERSON_SIZE.d / 2 - lift;
-        p.image.setPosition(p.left, p.top - lift).setDepth(DEPTH.standing + Math.round(p.y - PERSON_SIZE.d / 2) + PERSON_SIZE.d);
-        p.shadow.setPosition(x, y - (p.person.pose ? LYING_SHADOW_RISE : 0)).setDepth(raised ? floorDepth + 0.001 : DEPTH.shadows);
+        // A marker over a hidden tile's block (`alsoAbove`) is drawn over the knowledge layer, its shadow with it.
+        const above = !p.ring && !!this.aboveToo?.(p.index, p.x, p.y) ? DEPTH.knowledge + 1 : 0;
+        p.image.setPosition(p.left, p.top - lift).setDepth(DEPTH.standing + Math.round(p.y - PERSON_SIZE.d / 2) + PERSON_SIZE.d + above);
+        p.shadow.setPosition(x, y - (p.person.pose ? LYING_SHADOW_RISE : 0)).setDepth(above ? above - 0.5 : raised ? floorDepth + 0.001 : DEPTH.shadows);
         p.ring?.setPosition(x, y).setDepth(raised ? floorDepth + 0.002 : DEPTH.shadows + 0.5);
     }
 
@@ -211,9 +218,24 @@ export class People {
         this.sprites[index]?.ring?.setAlpha(on ? 1 : 0.55);
     }
 
-    /** Shows or hides everyone by where they stand, after what `hidden` says has changed. */
+    /** Also hides person `index` standing at map point (x, y) where `rule` says (play mode: by tile visibility). */
+    alsoHide(rule: (index: number, x: number, y: number) => boolean): void {
+        this.hiddenToo = rule;
+        this.reveal();
+    }
+
+    /** Draws a bank person over the knowledge layer where `rule` says (play: a marker on a hidden tile's block). */
+    alsoAbove(rule: (index: number, x: number, y: number) => boolean): void {
+        this.aboveToo = rule;
+        this.reveal();
+    }
+
+    /** Shows or hides everyone by where they stand, after what `hidden` or `alsoHide`'s rule says has changed. */
     reveal(): void {
-        for (const p of this.sprites) this.showIfSeen(p);
+        for (const p of this.sprites) {
+            this.showIfSeen(p);
+            if (this.aboveToo) this.place(p);
+        }
     }
 
     /** Each person, where they stand, how brightly they are lit and how far a raised floor lifts them, for tests. */
@@ -254,9 +276,9 @@ export class People {
         if (x !== p.x || y !== p.y || facing !== p.facing) this.move(this.sprites.indexOf(p), x, y, facing);
     }
 
-    /** Hides a person standing where `hidden` says; called whenever they move. */
+    /** Hides a person standing where `hidden` or `alsoHide`'s rule says (never a crew member); called whenever they move. */
     private showIfSeen(p: PersonSprite): void {
-        const hidden = !!p.away || this.hidden(p.x, p.y);
+        const hidden = !!p.away || (!p.ring && (this.hidden(p.x, p.y) || !!this.hiddenToo?.(p.index, p.x, p.y)));
         p.image.setVisible(!hidden);
         p.shadow.setVisible(!hidden);
         p.ring?.setVisible(!hidden);

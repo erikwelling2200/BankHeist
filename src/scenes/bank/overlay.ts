@@ -13,7 +13,8 @@ import type { Pos } from '../../sim';
  * colour; every state also has a shape or a pattern, and the colour-blind preset swaps the palette (UI.md "Signal
  * palette"). It takes no input: taps go through to the map. Drawn, bottom to top:
  *
- * - **Floor:** unscouted tiles grey; sound pings; the selected crew member's movement range, XCOM style, with the
+ * - **Floor:** a grey veil on tiles not seen this turn (hidden ones are the scene's opaque blocks); sound pings; the
+ *   selected crew member's movement range, XCOM style, with the
  *   safe floor (§8.8) in it: each tile filled with its tint (scanlines on Move's tiles, a sparser dotted fill on those
  *   only a Dash reaches; hatched when the coming world phase does it) and a glyph for what it warns of (pips, a hand,
  *   an eye, a camera, `?`), and the band edges over them (Move's solid steel blue, Dash's dashed gold), so both read
@@ -70,8 +71,8 @@ export interface OverlayContent {
     routeDrag?: boolean;
     /** The NPCs' committed walks for the next world phase: a dotted line and a pin where each ends. */
     intents?: { from: Pos; path: Pos[]; predicted?: boolean }[];
-    /** Which tiles the crew has seen (row-major, 1 = seen); the rest are unscouted, drawn grey (§8.15). */
-    seen?: { width: number; bits: Uint8Array };
+    /** Each tile's visibility code (row-major, `VISIBILITY`, decision 44): a stale tile (1) is veiled grey. */
+    visibility?: { width: number; codes: Uint8Array };
     /** Ghosts: where an NPC was last seen, and how long ago. */
     ghosts?: { pos: Pos; seenAgo: number }[];
     /** Loud noises the crew heard (§8.15). */
@@ -128,7 +129,8 @@ const INK = 'rgba(13, 12, 20, 0.85)';
 const CREAM = '#f2e6c8';
 const INTENT = 'rgba(242, 230, 200, 0.7)';
 const INTENT_PREDICTED = 'rgba(242, 230, 200, 0.4)';
-const UNSCOUTED = 'rgba(96, 98, 110, 0.45)';
+/** The veil on a tile not seen this turn. */
+const STALE_VEIL = 'rgba(96, 98, 110, 0.45)';
 /** The safe floor's grey: no data, or unknown risk. */
 const GREY = '#8a8894';
 /** Where someone unknown could watch from (long-press on unknown risk): the grey, lightened. */
@@ -222,13 +224,13 @@ export class WorldOverlay {
         const mid = (p: Pos): [number, number] => [left(p) + S / 2, top(p) + S / 2];
         const pal = PALETTES[c.colourBlind ? 'colourBlind' : 'default'];
 
-        if (c.seen) {
-            // Unscouted: a grey veil over every tile in view the crew hasn't seen.
-            const { width, bits } = c.seen, height = bits.length / width;
-            ctx.fillStyle = UNSCOUTED;
+        if (c.visibility) {
+            // A grey veil over every tile in view not seen this turn.
+            const { width, codes } = c.visibility, height = codes.length / width;
+            ctx.fillStyle = STALE_VEIL;
             const x0 = Math.max(0, Math.floor(vx / TILE)), y0 = Math.max(0, Math.floor(vy / TILE));
             const x1 = Math.min(width - 1, Math.floor((vx + w / UI_SCALE) / TILE)), y1 = Math.min(height - 1, Math.floor((vy + h / UI_SCALE) / TILE));
-            for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) if (!bits[y * width + x]) ctx.fillRect(left({ x, y }), top({ x, y }), S, S);
+            for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) if (codes[y * width + x] === 1) ctx.fillRect(left({ x, y }), top({ x, y }), S, S);
         }
 
         for (const p of c.pings ?? []) {

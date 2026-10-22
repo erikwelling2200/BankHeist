@@ -540,8 +540,8 @@ When a crew member is selected, every reachable tile is tinted:
 | **Red** (eye icon) | Someone Exposes this crew member. |
 | **Hatched** version of amber or red | The same outcome, but it happens during the coming world phase as NPCs walk their committed paths. |
 | **Red with a camera icon** | A camera would see a `!` and start the operator's verify carrier. Cameras whose feed status is unknown (CCTV room not scouted) count as live. |
-| **Grey** | No data: unscouted area. **Never drawn as safe.** |
-| **Hatched grey** | Unknown risk: someone the crew doesn't know about could be watching the tile (§8.15), and could react to this crew member there (judged at its worst: Alerted, any role; a camera as live): an NPC from a tile a person can stand on (not furniture) that the crew hasn't seen since the last world phase, or a camera from a tile whose layout the player can't see (unscouted, in a room the blueprint only outlines). A camera on the blueprint's layout is known from the start. |
+| **Grey** | No data: a hidden tile (§8.15), neither on the blueprint's layout nor ever seen. **Never drawn as safe.** Public floor is never grey. |
+| **Hatched grey** | Unknown risk: someone the crew doesn't know about could be watching the tile (§8.15), and could react to this crew member there (judged at its worst: Alerted, any role; a camera as live): an NPC from a tile a person can stand on (not furniture) that the crew hasn't seen since the last world phase (stale or hidden), or a camera from a hidden tile, looking through any door not seen this turn as if open. A camera anywhere else is known. Also any tile whose outcome a door not seen this turn could change (doors move unseen), and any tile reached through such a door that could be locked against the crew member. |
 
 Rules:
 
@@ -683,6 +683,13 @@ The player sees the bank through the crew's eyes. This holds in stealth and in a
   stops and it becomes a ghost.
 - **Unknown NPCs** are not shown at all. Tiles that an unknown NPC or camera could see get the hatched "unknown risk"
   pattern in the overlay (§8.8).
+- **Three tile states:** *hidden* (neither on the blueprint's layout nor ever seen: without the Blueprints asset, the
+  Staff and Secure rooms until someone looks in) is drawn dark grey and can't be seen through: nothing in it shows.
+  *Seen this turn* (seen by a crew member since the last world phase) is drawn in normal colour, people included.
+  Every other tile is *not seen this turn*, under a grey veil; public floor starts there, never hidden. Under the veil
+  what doesn't move (furniture, cameras) is known; what moves isn't: NPCs show there only as predicted markers or
+  ghosts, and doors as the crew last saw them. A move through a door that turns out locked stops in front of it, the
+  action spent, as a bump into an unseen NPC does.
 - **Cameras:** with the CCTV room under control (operator neutralised and a crew member at the console), the player
   also sees what every live camera sees. Looped feeds show nothing.
 - **Sound pings:** loud noises within a crew member's hearing (gunfire, breaching, a scream, police running in) show

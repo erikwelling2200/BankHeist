@@ -1,6 +1,6 @@
 import Phaser from 'phaser';
 import {
-    cameraViews, explainView, floorTiles, npcBadges, npcCone, pathView, previewHearers, previewNoise, previewWitnesses, type CameraVM, type ExplainVM, type FloorTileVM,
+    cameraViews, explainView, floorTiles, npcBadges, npcCone, npcDrawnOn, npcSprites, pathView, unhiddenRuns, previewHearers, previewNoise, previewWitnesses, type CameraVM, type ExplainVM, type FloorTileVM,
     type PathVM
 } from '../../game/worldUi';
 import {
@@ -11,8 +11,8 @@ import type { GeneratedBank } from '../../gen/model';
 import { TILE } from '../../level/constants';
 import type { PersonFacing, PersonPose } from '../../level/plan';
 import {
-    COMBAT_STATUSES, crewPicture, dashRefusal, IllegalCommand, knownView, doorStatus, planRoute, routeBreak, soundRing, type ActionPreview,
-    type AutoStop, type Command, type CrewState, type KnownView, type MarkerKind, type State, type Facing, type Pos, type SimEvent
+    COMBAT_STATUSES, crewPicture, dashRefusal, IllegalCommand, knownDoorStatus, knownView, planRoute, VISIBILITY, routeBreak, soundRing, type ActionPreview,
+    type AutoStop, type Command, type CrewState, type KnownView, type MarkerKind, type State, type TileVisibility, type Facing, type Pos, type SimEvent
 } from '../../sim';
 import { mountAutoBar, type AutoBarHandle } from '../../ui/hud/autoBar';
 import { iconUrl, portraitUrl } from '../../ui/hud/icons';
@@ -21,12 +21,17 @@ import { CREW_COLOURS, type HudHandle, type OverlayId } from '../../ui/hud/viewM
 import type { BankCamera } from './camera';
 import { MapInput } from './input';
 import { WorldOverlay, type OverlayContent } from './overlay';
+import type { Knowledge } from './knowledge';
 import type { People } from './people';
 import type { Walls } from './walls';
 
 /*
- * Play mode (the game on `/`, implementation plan §2.5, M1-13): the bank scene driven by a Session. The people stand where the
- * state says (no real-time patrols), the crew with their rings; doors show open or closed; taps and drags on the map
+ * Play mode (the game on `/`, implementation plan §2.5, M1-13): the bank scene driven by a Session. What the crew knows
+ * decides what is drawn (decision 44): hidden tiles are opaque blocks (`Knowledge.showHidden`, the props on them
+ * undrawn) and tiles not seen this turn are veiled (the overlay); the NPCs stand as the crew knows them (no real-time
+ * patrols), the NPC as it is only on a tile seen this turn (`npcDrawnOn`), a predicted or remembered one over a hidden
+ * tile's block too (its cone and walk only over tiles that aren't hidden); the crew with their rings; doors as the crew
+ * last saw them (`knownDoorStatus`); taps and drags on the map
  * become previews and commands (UI.md "Touch grammar"); the HUD (src/ui/hud) shows the Session's view models and
  * reports back; and the events of each commit and world phase play back (§20.5) at 1×, 2× or instantly.
  */
@@ -94,6 +99,7 @@ export interface PlayParts {
     people: People;
     walls: Walls;
     camera: BankCamera;
+    knowledge: Knowledge;
     /** The heist was resumed: show the recap card first (§20.6). */
     resumed: boolean;
 }
@@ -103,11 +109,15 @@ export class PlayMode {
     private readonly people: People;
     private readonly walls: Walls;
     private readonly camera: BankCamera;
+    private readonly knowledge: Knowledge;
     private readonly hud: HudHandle;
     private readonly overlay: WorldOverlay;
     private readonly input: MapInput;
-    /** Each NPC's and crew member's sprite index, by id. */
+    /** Each NPC's and crew member's sprite index, by id, and each NPC's id by sprite index. */
     private readonly sprite = new Map<string, number>();
+    private readonly npcOf = new Map<number, string>();
+    /** The marker each NPC is drawn as, by id (`syncAll`; one a cut move found is live). */
+    private readonly drawnAs = new Map<string, MarkerKind>();
     private readonly unsubscribe: () => void;
     private readonly chrome: HTMLElement[] = [];
     private mapOn = false;
@@ -136,6 +146,8 @@ export class PlayMode {
     private posed = new Map<string, PersonPose | undefined>();
     private knownFor?: State;
     private knownCache?: KnownView;
+    /** The knowledge the people were last shown or hidden for. */
+    private shownFor?: KnownView;
     /** The NPC whose cones a long-press shows, until the next tap. */
     private coneOf: string | null = null;
     /** The colour-blind preset: `&cb` in the address, or the B key (remembered). */
@@ -173,15 +185,22 @@ export class PlayMode {
     };
 
     constructor(private readonly scene: Phaser.Scene, parts: PlayParts) {
-        const { session, bank, people, walls, camera } = parts;
+        const { session, bank, people, walls, camera, knowledge } = parts;
         this.session = session;
         this.people = people;
         this.walls = walls;
         this.camera = camera;
+        this.knowledge = knowledge;
         this.recap = parts.resumed && session.recent.length > 0;
         this.lastStop = session.ui.autoStop ?? null;
-        bank.people.forEach((p, i) => this.sprite.set(p.id, i));
+        bank.people.forEach((p, i) => {
+            this.sprite.set(p.id, i);
+            this.npcOf.set(i, p.id);
+        });
         session.state.crew.forEach((c, i) => this.sprite.set(c.id, bank.people.length + i));
+        people.alsoHide((index, x, y) => this.hidesNpc(index, x, y));
+        // A predicted or remembered NPC on a hidden tile is drawn over the block (decision 44).
+        people.alsoAbove((index, x, y) => this.npcOf.has(index) && this.visibilityAt(x, y) === 'hidden');
         document.body.classList.add('play');
 
         this.overlay = new WorldOverlay(scene, (tx, ty) => walls.liftAt((tx + 0.5) * TILE, (ty + 0.5) * TILE));
@@ -265,10 +284,13 @@ export class PlayMode {
             floorDim: this.overlay.state.floorDim,
             /** The path's tints and its eye (`pathSafety`), and a long-pressed tile's "who and why". */
             pathSafety: this.overlay.state.pathSafety, explain: this.explained,
-            /** The NPC markers the crew knows of (§8.15), in the order of `state.npcs`; null for one it doesn't. */
+            /**
+             * The NPC markers the crew knows of (§8.15), in the order of `state.npcs`, with the visibility of the tile
+             * each is on (decision 44); null for one it doesn't.
+             */
             npcs: this.session.state.npcs.map(n => {
-                const m = this.known().npcs.find(k => k.id === n.id);
-                return m ? { id: m.id, kind: m.kind, pos: m.pos } : null;
+                const view = this.known(), m = view.npcs.find(k => k.id === n.id);
+                return m ? { id: m.id, kind: m.kind, pos: m.pos, tile: VISIBILITY[view.visibility[m.pos.y * view.width + m.pos.x]!] } : null;
             }),
             doorsOpen: [...this.shownDoors].filter(([, open]) => open).map(([id]) => id),
             /** Auto-advance (§6.5): running, the last stop, the routes and how they split into turns. */
@@ -531,17 +553,41 @@ export class PlayMode {
 
     /**
      * A crew move cut short (§8.15): it has already stopped where the walk ended; the NPC who stopped it shows where they
-     * stand, and the crew member barks.
+     * stand, or the door found locked shows as it is, and the crew member barks.
      */
     private showCut(e: Extract<SimEvent, { type: 'moveCut' }>): void {
-        const npc = this.session.state.npcs.find(n => n.id === e.npc), index = this.sprite.get(e.npc);
+        const { state } = this.session;
+        if (e.reason === 'door') {
+            this.showDoor(e.door, e.status === 'open' || e.status === 'breached');
+            this.bark(e.at, `It's ${e.status}!`);
+            return;
+        }
+        const npc = state.npcs.find(n => n.id === e.npc), index = this.sprite.get(e.npc);
         if (npc && index !== undefined) {
             const [x, y] = centre(npc.pos), now = this.people.at(index);
+            this.drawnAs.set(npc.id, 'live');
             this.people.setAway(index, false);
             this.people.setAlpha(index, 1);
             this.people.move(index, x, y, drawnFacing(npc.facing, now.facing));
         }
         this.bark(e.at, "Someone's there!");
+    }
+
+    /**
+     * Whether NPC sprite `index` standing at map point (x, y) goes undrawn (decision 44): by the tile's visibility and
+     * the marker it is drawn as (`npcDrawnOn`), so an NPC walking out of the crew's sight in a world phase goes as it
+     * leaves the tiles seen. Not an NPC's sprite: never.
+     */
+    private hidesNpc(index: number, x: number, y: number): boolean {
+        const id = this.npcOf.get(index);
+        if (id === undefined) return false;
+        return !npcDrawnOn(this.drawnAs.get(id) ?? 'live', this.visibilityAt(x, y));
+    }
+
+    /** The visibility of the tile under map point (x, y); off the map: hidden. */
+    private visibilityAt(x: number, y: number): TileVisibility {
+        const view = this.known(), tx = Math.floor(x / TILE), ty = Math.floor(y / TILE);
+        return VISIBILITY[tx >= 0 && ty >= 0 && tx < view.width && ty < view.height ? view.visibility[ty * view.width + tx]! : 0]!;
     }
 
     /**
@@ -628,8 +674,11 @@ export class PlayMode {
         this.walk = undefined;
         const { state, world } = this.session;
         // The crew where they are; the NPCs as the crew knows them (§8.15): live ones where they stand, predicted ones
-        // where their routine puts them (translucent), ghosts where they were last seen (faded), the rest not at all.
-        const markers = new Map(this.known().npcs.map(m => [m.id, m]));
+        // where their routine puts them (translucent), ghosts where they were last seen (faded), the rest not at all;
+        // a live one only on a tile seen this turn, a marker on a hidden one over its block (decision 44, `npcSprites`).
+        const markers = new Map(npcSprites(this.known()).map(m => [m.id, m]));
+        this.drawnAs.clear();
+        for (const m of markers.values()) this.drawnAs.set(m.id, m.kind);
         const place = (index: number, pos: Pos, f: Facing) => {
             const [x, y] = centre(pos), now = this.people.at(index), facing = drawnFacing(f, now.facing);
             if (now.x !== x || now.y !== y || now.facing !== facing) this.people.move(index, x, y, facing);
@@ -651,10 +700,24 @@ export class PlayMode {
             // The crew has hold of a dragged body: it is never a guess.
             this.people.setAlpha(index, dragger ? 1 : MARKER_ALPHA[m.kind]);
         }
+        // Doors as the crew last saw them (decision 44): one not seen this turn may have moved since.
         for (const id of Object.keys(world.doors)) {
-            const status = doorStatus(world, state, id);
+            const status = knownDoorStatus(world, state, id);
             this.showDoor(id, status === 'open' || status === 'breached');
         }
+        this.showKnown(true);
+    }
+
+    /**
+     * The hidden tiles' blocks for what the crew knows now, and whoever that hides or shows (decision 44); once per
+     * state, unless the markers drawn changed (`again`).
+     */
+    private showKnown(again = false): void {
+        const view = this.known();
+        if (this.shownFor === view && !again) return;
+        this.shownFor = view;
+        this.knowledge.showHidden(view.visibility, view.width);
+        this.people.reveal();
     }
 
     /**
@@ -1065,6 +1128,7 @@ export class PlayMode {
         const speed = this.chrome[0];
         if (speed) speed.textContent = SPEED_LABEL[session.playback.speed];
         document.body.classList.toggle('play-cb', this.colourBlind);
+        this.showKnown();
         this.overlay.set(this.overlayContent());
     }
 
@@ -1202,7 +1266,8 @@ export class PlayMode {
         return this.known().npcs.flatMap(m => {
             const index = this.sprite.get(m.id);
             if (index === undefined || !this.people.shown(index) || m.kind === 'ghost' || m.status === 'hostile' || !m.intent?.path.length) return [];
-            return [{ from: m.pos, path: m.intent.path.map(p => ({ x: p.x, y: p.y })), predicted: m.kind === 'predicted' }];
+            // Only over tiles that aren't hidden (decision 44).
+            return unhiddenRuns(this.known(), m.pos, m.intent.path).map(r => ({ ...r, predicted: m.kind === 'predicted' }));
         });
     }
 
@@ -1216,14 +1281,14 @@ export class PlayMode {
         return this.knownCache!;
     }
 
-    /** The overlay's knowledge layer: unscouted tiles, ghosts' "seen N turns ago", the sound pings. */
-    private knowledgeLayer(): Pick<OverlayContent, 'seen' | 'ghosts' | 'pings' | 'badges' | 'crewColours' | 'cones' | 'predicted' | 'colourBlind' | 'cameras' | 'flashes'> {
+    /** The overlay's knowledge layer: the veil on tiles not seen this turn, ghosts' "seen N turns ago", the sound pings. */
+    private knowledgeLayer(): Pick<OverlayContent, 'visibility' | 'ghosts' | 'pings' | 'badges' | 'crewColours' | 'cones' | 'predicted' | 'colourBlind' | 'cameras' | 'flashes'> {
         const view = this.known(), { world, state } = this.session, busy = this.busy;
         const shown = (id: string) => this.people.shown(this.sprite.get(id) ?? -1);
         // Cones: the one long-pressed, or every NPC's the crew knows of from the overlay drawer (§20.4).
         const coneIds = this.overlays.cones ? view.npcs.filter(m => m.kind !== 'ghost' && shown(m.id)).map(m => m.id) : this.coneOf ? [this.coneOf] : [];
         return {
-            seen: { width: view.width, bits: view.seen },
+            visibility: { width: view.width, codes: view.visibility },
             ghosts: view.npcs.filter(m => m.kind === 'ghost' && shown(m.id)).map(m => ({ pos: m.pos, seenAgo: m.seenAgo })),
             pings: view.pings.map(p => ({ at: p.at })),
             colourBlind: this.colourBlind,

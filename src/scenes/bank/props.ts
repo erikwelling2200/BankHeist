@@ -40,13 +40,18 @@ export function bankLamps(bank: BankData, props: PlacedProp[]): Lamp[] {
     ];
 }
 
+/** A prop on screen: the tile under the middle of its box, and its images. */
+export interface ShownProp { tx: number; ty: number; images: Phaser.GameObjects.Image[] }
+
 /**
  * Places every standing prop, drawn in order of its box's front edge (one on another prop's top just after that prop),
  * lit by the lamps that reach its footprint and exposed for where it stands; dressing on a wall is hung on it. Returns
- * the floor footprints that shade and block the sun, and the props that cast sun shadows.
+ * the floor footprints that shade and block the sun, the props that cast sun shadows, and each prop's images.
  */
-export function addProps(scene: Phaser.Scene, baker: Baker, walls: Walls, props: PlacedProp[], heights?: Heights): { occluders: Occluder[]; casters: Caster[] } {
-    const occluders: Occluder[] = [], casters: Caster[] = [];
+export function addProps(
+    scene: Phaser.Scene, baker: Baker, walls: Walls, props: PlacedProp[], heights?: Heights
+): { occluders: Occluder[]; casters: Caster[]; shown: ShownProp[] } {
+    const occluders: Occluder[] = [], casters: Caster[] = [], shown: ShownProp[] = [];
     // What stands on a raised floor is drawn lifted with it, and goes up and down with it as it is cut.
     const lifted: { images: Phaser.GameObjects.Image[]; top: number; tx: number; ty: number; region: number }[] = [];
     const lift = (l: (typeof lifted)[number]) => { for (const image of l.images) image.setY(l.top - heights!.lift(l.tx, l.ty)); };
@@ -68,10 +73,11 @@ export function addProps(scene: Phaser.Scene, baker: Baker, walls: Walls, props:
             lifted.push({ images, top, tx, ty, region });
             lift(lifted.at(-1)!);
         }
+        shown.push({ tx, ty, images });
         if (box.z === 0) occluders.push(floorOccluder(box));
         if (box.z > 0 && !isOnTop(p.kind) && !ALWAYS_SHOWN.includes(p.kind)) walls.hang(box, images);
     });
-    return { occluders, casters };
+    return { occluders, casters, shown };
 }
 
 /**

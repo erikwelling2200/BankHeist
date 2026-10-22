@@ -136,7 +136,9 @@ export {
 } from './rules/npc/behaviour';
 export { committedEnd, reconsider } from './rules/npc/intent';
 export {
-    blueprint, crewPicture, floorKnowledge, registerLookout, type Lookout, isKnownNow, isUnknownRisk, knownBlockers, knownNpcIds, knownView, markerKind, noticedUnseen, onRoutine,
+    blueprint, crewPicture, floorKnowledge, registerLookout, type Lookout, isKnownNow, isUnknownRisk, knownBlockers, knownDoorStatus, knownNpcIds, knownView, markerKind, noticedUnseen, onRoutine,
+    tileVisibility, visibilityMap, VISIBILITY, type TileVisibility, doorDoubt, doorMayRefuse, sightDoubted, viewDoubted, withLayoutCameras, withPicturedDoors,
+    type DoorDoubt,
     projectEvents, projectPreviewEvents, unknownReach, unknownWatcher, unknownWatchers, updateKnowledge, type UnknownOptions, type UnknownWatcher, type Blueprint, type FloorKnowledge, type Intel, type Knowledge, type KnownCamera,
     type KnownDoor, type KnownView, type MarkerKind, type NpcKnowledge, type NpcMarker, type Ping, type ProjectOptions, type UpdateOptions
 } from './rules/knowledge';

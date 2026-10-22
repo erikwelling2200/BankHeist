@@ -1,7 +1,7 @@
 import type { GlyphName } from '../art/ui/glyphs';
 import {
     crewPicture, LYING_STATUSES, neutralised, profilesOf, npcObserver, seenTiles, bandAt, type ActionPreview, type CarrierKind, type Explanation,
-    type KnownCamera, type KnownView, type NpcMarker, type PathSafety, type Pos, type ReadonlyWorld, type SafeFloor, type State, type Tint, type TintKind, type Witness
+    type KnownCamera, type KnownView, type MarkerKind, type NpcMarker, type PathSafety, type TileVisibility, VISIBILITY, type Pos, type ReadonlyWorld, type SafeFloor, type State, type Tint, type TintKind, type Witness
 } from '../sim';
 import { rolePortrait } from './views';
 
@@ -59,6 +59,36 @@ function statusPlate(status: string | undefined): PlateVM | undefined {
         case 'tied': return { glyph: 'knot', signal: 'cream' };
         default: return undefined;
     }
+}
+
+/**
+ * Whether an NPC drawn as a marker of `kind` may be drawn on a tile of this visibility (decision 44): the NPC as it is
+ * (a live marker) only on one seen this turn; a predicted or ghost marker (what the crew knows or remembers) anywhere,
+ * over a hidden tile's block too (its cone and walk clipped to what isn't hidden: `npcCone`, `unhiddenRuns`).
+ */
+export const npcDrawnOn = (kind: MarkerKind, visibility: TileVisibility): boolean => visibility === 'seen' || kind !== 'live';
+
+const hiddenAt = (known: KnownView, p: Pos): boolean =>
+    p.x < 0 || p.y < 0 || p.x >= known.width || p.y >= known.height || VISIBILITY[known.visibility[p.y * known.width + p.x] ?? 0] === 'hidden';
+
+/**
+ * A walk from `from` along `path` as it may be drawn (decision 44): only its runs over tiles that aren't hidden, each as
+ * a walk from its first tile, so a walk through a hidden room never draws its layout.
+ */
+export function unhiddenRuns(known: KnownView, from: Pos, path: readonly Pos[]): { from: Pos; path: Pos[] }[] {
+    const out: { from: Pos; path: Pos[] }[] = [];
+    let run: { from: Pos; path: Pos[] } | null = null;
+    for (const p of [from, ...path]) {
+        if (hiddenAt(known, p)) { run = null; continue; }
+        if (run) run.path.push({ x: p.x, y: p.y });
+        else out.push(run = { from: { x: p.x, y: p.y }, path: [] });
+    }
+    return out.filter(r => r.path.length);
+}
+
+/** The NPC markers the scene draws a person for (`npcDrawnOn` where each stands), in the order of `known.npcs`. */
+export function npcSprites(known: KnownView): NpcMarker[] {
+    return known.npcs.filter(m => npcDrawnOn(m.kind, VISIBILITY[known.visibility[m.pos.y * known.width + m.pos.x] ?? 0]!));
 }
 
 /** Every badge over the people and carriers the crew knows of, in the order of `known.npcs`, then object carriers. */
@@ -208,8 +238,8 @@ export function pathView(safety: PathSafety): PathVM | undefined {
     const last = safety.steps.length - 1;
     const steps = safety.steps.map((s, i): PathStepVM => {
         if (i === last) return { pos: { ...s.pos }, kind: safety.end.tint.kind, hatched: safety.end.tint.hatched };
-        const kind: TintKind = s.sightings.length ? (s.sightings.every(x => x.by === 'camera') ? 'camera' : 'red')
-            : s.passing === 'unscouted' ? 'grey' : s.passing === 'unknownRisk' ? 'unknownRisk' : 'safe';
+        const kind: TintKind = s.doubted ? 'unknownRisk' : s.sightings.length ? (s.sightings.every(x => x.by === 'camera') ? 'camera' : 'red')
+            : s.passing === 'hidden' ? 'grey' : s.passing === 'unknownRisk' ? 'unknownRisk' : 'safe';
         return { pos: { ...s.pos }, kind, hatched: false };
     });
     return { steps, eyeAt: safety.firstUnsafe, end: tintVM(safety.end.pos, safety.mode, safety.end.tint) };
@@ -256,7 +286,8 @@ export function npcCone(world: ReadonlyWorld, state: State, known: KnownView, id
     if (!observer) return undefined;
     const field = seenTiles(world, crewPicture(world, state), observer), core: Pos[] = [], peripheral: Pos[] = [];
     for (const t of field.tiles) {
-        if (t.x === m.pos.x && t.y === m.pos.y) continue;
+        // Not over hidden tiles: walls and furniture clip a cone, and would draw the hidden layout (decision 44).
+        if ((t.x === m.pos.x && t.y === m.pos.y) || hiddenAt(known, t)) continue;
         (bandAt(field, t) === 'core' ? core : peripheral).push({ x: t.x, y: t.y });
     }
     return { id, from: m.pos, core, peripheral, alerted: npc.alerted };

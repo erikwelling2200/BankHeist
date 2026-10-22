@@ -1,6 +1,6 @@
 import type { Pos, ReadonlyWorld, State } from '../core/types';
 import type { Outcome } from '../data/matrix';
-import { floorKnowledge, unknownWatcher, unknownWatchers, type FloorKnowledge, type UnknownWatcher } from '../rules/knowledge';
+import { doorDoubt, doorMayRefuse, floorKnowledge, unknownWatcher, unknownWatchers, type FloorKnowledge, type UnknownWatcher } from '../rules/knowledge';
 import type { Sighting, Why } from '../rules/perceive';
 import { pipsOf } from '../rules/suspicion';
 import type { MoveMode } from '../crew/movement';
@@ -14,8 +14,11 @@ import { previewPicture } from './picture';
  * from the very sightings the tint was judged from, on the crew's picture, so it never names someone the crew doesn't
  * know. Tiles the crew can't vouch for (grey, unknown risk, or reached through such) also say why, after any lines:
  * unknown risk names the worst an unseen observer could do there (`unknownWatcher`, decision 24), and every tile one
- * could stand on to do anything (`unknownWatchers`).
+ * could stand on to do anything (`unknownWatchers`); a door not seen this turn says it could change who sees them
+ * (`doorRisk`), or that it could be locked on the way (decision 44).
  */
+
+const DOOR_RISK = 'A door not seen this turn could change who sees you';
 
 export interface Explanation {
     /** Who: an NPC's or a camera's id (the portrait), or null for what the crew doesn't know. */
@@ -85,7 +88,7 @@ export function sightingText(world: ReadonlyWorld, state: State, s: Sighting, cr
     return `${who}: sees you`;
 }
 
-const UNSCOUTED = 'No data: nobody has scouted here';
+const HIDDEN = 'No data: nobody has scouted here';
 
 const UNSEEN: Record<string, string> = { enforcer: 'guard', staff: 'member of staff', civilian: 'customer' };
 
@@ -140,20 +143,23 @@ export function explain(
     const picture = previewPicture(world, state);
     const member = state.crew.find(c => c.id === crewId);
     if (!member) return [];
-    let judged: Judged, knowledge: FloorKnowledge, unknownPath: boolean, walked: readonly Pos[] = [];
+    let judged: Judged, knowledge: FloorKnowledge, unknownPath: boolean, doorRisk: boolean, walked: readonly Pos[] = [], path: readonly Pos[] = [];
     const who = { crew: crewId, ...(options.look ? { look: options.look } : {}) };
     if (!options.path && member.pos.x === tile.x && member.pos.y === tile.y) {
         judged = judgeStay(world, state, crewId, options);
         knowledge = floorKnowledge(world, state, tile, who);
         unknownPath = false;
+        doorRisk = judged.doubt;
     } else {
-        const path = options.path ?? safeFloor(world, state, crewId, options).at(tile)?.path;
-        if (!path?.length) return [];
+        const drawn = options.path ?? safeFloor(world, state, crewId, options).at(tile)?.path;
+        if (!drawn?.length) return [];
+        path = drawn;
         const along = judgePath(world, state, crewId, path, { ...options, stops: false });
         if (!along.ok) return [];
         judged = along.judged;
         knowledge = along.end.knowledge;
         unknownPath = along.end.unknownPath;
+        doorRisk = along.end.doorRisk;
         walked = along.steps.slice(0, -1).map(s => s.pos);
     }
     const out = entries(world, picture, crewId, judged);
@@ -176,16 +182,23 @@ export function explain(
         if (first > 0) list.unshift(...list.splice(first, 1));
         return list;
     };
-    if (knowledge === 'unscouted') unknown(UNSCOUTED, tile);
+    if (doorRisk) unknown(DOOR_RISK, tile);
+    if (knowledge === 'hidden') unknown(HIDDEN, tile);
     else if (knowledge === 'unknownRisk') {
         const w = unknownWatcher(world, state, crewId, tile, who);
         if (w) unknown(unknownText(w), tile, watchersOf([tile], false, w.from));
     }
     if (unknownPath) {
-        // The first tile on the way that the crew can't vouch for: grey (no watchers: nobody is placed on no data), or an
-        // unknown `!` mid-move, with the watchers of every tile passed.
-        for (const p of walked) {
-            if (floorKnowledge(world, state, p) === 'unscouted') { unknown('On the way: no data, nobody has scouted there', p); break; }
+        // The first tile on the way that the crew can't vouch for: a door into it that could be locked (said on the tile
+        // the move would stop on), grey (no watchers: nobody is placed on no data), or an unknown `!` mid-move, with the
+        // watchers of every tile passed.
+        const doubt = doorDoubt(world, state);
+        let prev: Pos = member.pos;
+        for (const [i, p] of path.entries()) {
+            if (doorMayRefuse(world, doubt, member, prev, p)) { unknown('On the way: a door not seen this turn could be locked', prev); break; }
+            prev = p;
+            if (i === path.length - 1) break;
+            if (floorKnowledge(world, state, p) === 'hidden') { unknown('On the way: no data, nobody has scouted there', p); break; }
             const w = unknownWatcher(world, state, crewId, p, { ...who, step: true });
             if (w) { unknown(unknownText(w, true), p, watchersOf(walked, true, w.from)); break; }
         }

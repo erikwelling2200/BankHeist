@@ -226,12 +226,15 @@ test('plays the NPCs\' world phase: people on screen stand where the state says'
     const after = await npcs();
     expect((await sim(page)).turn).toBe(4);
     expect(after.some((n: any, i: number) => n.pos.x !== before[i].pos.x || n.pos.y !== before[i].pos.y || n.status !== before[i].status)).toBe(true);
-    // On screen, each NPC is drawn as the crew knows it (§8.15): where its marker is, or not at all.
+    // On screen, each NPC is drawn as the crew knows it (§8.15): where its marker is, or not at all; never on a hidden
+    // tile, and as it is (live) only on a tile seen this turn (decision 44).
     const shown = await scene(page);
     after.forEach((n: any, i: number) => {
         const marker = shown.play.npcs[i], person = shown.people[i];
+        if (person.visible) expect(marker?.tile, n.id).not.toBe('hidden');
+        if (person.visible && marker.kind === 'live') expect(marker.tile, n.id).toBe('seen');
         if (!marker || n.status === 'away') expect(person.visible, n.id).toBe(false);
-        else {
+        else if (person.visible) {
             expect([person.x, person.y], n.id).toEqual([(marker.pos.x + 0.5) * 16, (marker.pos.y + 0.5) * 16]);
             if (marker.kind === 'live') expect(marker.pos, n.id).toEqual(n.pos);
         }

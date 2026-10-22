@@ -2,7 +2,7 @@ import {
     actionPreview, assertPlainJson, autoStep, clonePlain, explain, pathSafety, safeFloor, safeFloorJob, type ActionPreview, type CarrierChanges, type Explanation, type FloorBand, type FloorJob,
     type PathSafety, type SafeFloor, commit, deepFreeze, hashOf, noticedUnseen, popUndo, preview, projectEvents, projectPreviewEvents, RECENT_EVENTS, recordUndo, SaveFormatError, stableJson,
     type AutoOptions, type AutoStepResult, type AutoStop, type Command, type CommitResult, type Pos, type PreviewResult, type ReadonlyWorld, type Routes, type SimEvent, type State,
-    type UndoStack
+    type UndoStack, withLayoutCameras
 } from '../sim';
 import { deserialiseHeist, deserialiseUi, heistWorldId, serialiseHeist, serialiseUi, serialiseWorld } from './persist';
 import { PlaybackQueue, type PlaybackItem } from './playback';
@@ -239,7 +239,9 @@ export class Session {
             if (hashOf(saved.world) !== worldId) throw new SaveFormatError(`The saved world isn't the world '${worldId}' the heist was played in`);
             const ui = checkUi(deserialiseUi<UiState>(storage.get(UI_KEY), saved.seq) ?? saved.ui, saved.state);
             return new Session({
-                world: saved.world, worldId, genVersion: saved.genVersion, storage, state: saved.state, undo: saved.undo,
+                // A heist saved before the layout's cameras were known from the start knows them now.
+                world: saved.world, worldId, genVersion: saved.genVersion, storage, state: withLayoutCameras(saved.world, saved.state),
+                undo: saved.undo.map(s => withLayoutCameras(saved.world, s)),
                 undoExtra: saved.undoRecent.map((recent, i) => ({ recent, recentTurns: turnsOrNow(saved.undoRecentTurns?.[i], recent, saved.state.turn), seqs: [] })),
                 recent: saved.recent, recentTurns: turnsOrNow(saved.recentTurns, saved.recent, saved.state.turn), ui, worldSaved: true,
                 seq: saved.seq, options

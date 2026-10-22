@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { explainView, floorTiles, npcBadges, npcCone, pathView, previewHearers, previewNoise, previewWitnesses } from '../../src/game/worldUi';
-import { actionPreview, clonePlain, explain, fixtureWorld, initialState, knownView, pathSafety, safeFloor, safeFloorJob, type Facing, type ObserverClass, type PersonDef, type Pos, type State } from '../../src/sim';
+import { explainView, floorTiles, npcBadges, npcCone, npcDrawnOn, npcSprites, pathView, previewHearers, previewNoise, previewWitnesses, unhiddenRuns } from '../../src/game/worldUi';
+import { actionPreview, clonePlain, commit, explain, fixtureWorld, initialState, knownView, pathSafety, safeFloor, safeFloorJob, type Facing, type MarkerKind, type NpcMarker, type ObserverClass, type PersonDef, type Pos, type State, VISIBILITY } from '../../src/sim';
 import { scouted } from '../sim/helpers';
 
 const P = (x: number, y: number): Pos => ({ x, y });
@@ -87,5 +87,54 @@ describe('the world UI over heads', () => {
         // Witnesses of a knockout are only NPCs the crew knows of, where it knows them.
         const witnesses = previewWitnesses(world, knownView(world, state), actionPreview(world, state, { type: 'knockout', crew: 'jun', npc: 'ann' }));
         expect(witnesses.every(w => w.id !== 'cy')).toBe(true);
+    });
+});
+
+describe('the NPCs drawn (decision 44)', () => {
+    it('draws an NPC as it is only on a tile seen this turn, and a predicted or remembered one anywhere, hidden tiles too', () => {
+        const { world, state } = scene();
+        const view = knownView(world, state), at = (p: Pos) => p.y * view.width + p.x;
+        const ann = view.npcs.find(m => m.id === 'ann')!;
+        const marker = (id: string, kind: MarkerKind, pos: Pos): NpcMarker => ({ ...ann, id, kind, pos });
+        const npcs = [
+            marker('seen', 'live', P(1, 1)), marker('liveStale', 'live', P(2, 1)), marker('predicted', 'predicted', P(3, 1)),
+            marker('ghost', 'ghost', P(4, 1)), marker('ghostHidden', 'ghost', P(5, 1)), marker('predictedHidden', 'predicted', P(6, 1)),
+            marker('liveHidden', 'live', P(7, 1))
+        ];
+        const visibility = new Uint8Array(view.visibility.length).fill(2);
+        for (const p of [P(2, 1), P(3, 1), P(4, 1)]) visibility[at(p)] = 1;
+        for (const p of [P(5, 1), P(6, 1), P(7, 1)]) visibility[at(p)] = 0;
+        expect(npcSprites({ ...view, npcs, visibility }).map(m => m.id)).toEqual(['seen', 'predicted', 'ghost', 'ghostHidden', 'predictedHidden']);
+        expect(npcDrawnOn('live', 'stale')).toBe(false);
+        expect(npcDrawnOn('live', 'hidden')).toBe(false);
+        expect(npcDrawnOn('ghost', 'hidden')).toBe(true);
+    });
+
+    it('draws a cone and a walk only over tiles that are not hidden', () => {
+        const { world, state } = scene();
+        const view = knownView(world, state), ann = view.npcs.find(m => m.id === 'ann')!;
+        const full = npcCone(world, state, view, 'ann')!;
+        const tiles = [...full.core, ...full.peripheral];
+        expect(tiles.length).toBeGreaterThan(1);
+        // Hide every other tile of the cone, and the NPC's own: the marker stays, the cone keeps only the rest.
+        const visibility = view.visibility.slice(), hide = tiles.filter((_, i) => i % 2 === 0);
+        for (const p of [...hide, ann.pos]) visibility[p.y * view.width + p.x] = 0;
+        const clipped = npcCone(world, state, { ...view, visibility }, 'ann')!;
+        const key = (p: Pos) => `${p.x},${p.y}`, hidden = new Set(hide.map(key));
+        expect([...clipped.core, ...clipped.peripheral].map(key).sort()).toEqual(tiles.filter(p => !hidden.has(key(p))).map(key).sort());
+        expect(npcSprites({ ...view, visibility }).some(m => m.id === 'ann')).toBe(ann.kind !== 'live');
+        // A walk through a hidden tile is drawn as the runs either side of it.
+        const walk = unhiddenRuns({ ...view, visibility: (() => { const v = view.visibility.slice().fill(2); v[P(3, 1).y * view.width + 3] = 0; return v; })() },
+            P(0, 1), [P(1, 1), P(2, 1), P(3, 1), P(4, 1), P(5, 1)]);
+        expect(walk).toEqual([{ from: P(0, 1), path: [P(1, 1), P(2, 1)] }, { from: P(4, 1), path: [P(5, 1)] }]);
+    });
+
+    it('never draws an NPC as it is off the tiles seen this turn, through a world phase', () => {
+        const { world, state } = scene();
+        const after = commit(world, state, { type: 'endTurn' }).state, view = knownView(world, after);
+        for (const m of npcSprites(view)) {
+            const v = VISIBILITY[view.visibility[m.pos.y * view.width + m.pos.x]!];
+            if (m.kind === 'live') expect(v).toBe('seen');
+        }
     });
 });

@@ -1,5 +1,5 @@
 import {
-    effectOf, safeFloor, type ActionPreview, type AutoStop, type Effect, type SimEvent, type WaitOption, type WaitTarget, type Explanation, type FloorBand, type PathSafety, type SafeFloor, crewBudget, crewMoveOptions, crewPicture, isKnownNow, pathTo, whyNot, reachable, type Command, type CommitResult, type Pos, type PreviewResult, type ReadonlyWorld, type State
+    effectOf, safeFloor, type ActionPreview, type AutoStop, type Effect, type SimEvent, type WaitOption, type WaitTarget, type Explanation, type FloorBand, type PathSafety, type SafeFloor, crewBudget, crewMoveOptions, crewPicture, isKnownNow, pathTo, whyNot, reachable, updateKnowledge, type Command, type CommitResult, type Pos, type PreviewResult, type ReadonlyWorld, type State
 } from '../sim';
 import { AutoRun, waitMenu } from './autoAdvance';
 import { Session, UI_KEY, type PlayerPreview } from './session';
@@ -64,7 +64,8 @@ export interface SimHandle {
     knows(id: string, state?: State): boolean;
     /**
      * For scripted e2e setups: starts a heist from `state` in this one's bank and save slot, replacing the one in
-     * progress; reloading the game (`/`) then resumes it.
+     * progress; reloading the game (`/`) then resumes it. The crew sees from where `state` stands them: what they see
+     * there is added to what they know, as after a command.
      */
     restart(state: State): void;
 }
@@ -103,6 +104,7 @@ export function installDebugHandle(session: Session, target: { sim?: SimHandle }
         },
         effect: (events, crew, before) => effectOf(events, crew, before),
         restart: state => {
+            updateKnowledge(session.world, state, () => {});
             session.retire();
             // The old heist's UI (camera, selection, preview) mustn't be resumed with the new one.
             session.storage.remove(UI_KEY);

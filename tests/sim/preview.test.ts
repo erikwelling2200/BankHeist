@@ -42,10 +42,10 @@ describe('safe floor', () => {
         expect(drawn.find(t => t.pos.x === staff!.pos.x && t.pos.y === staff!.pos.y)?.state).toBe('challenge');
     });
 
-    it('never shows unscouted floor as safe', () => {
+    it('never shows hidden floor as safe', () => {
         const { world, state } = smallBank();
         const floor = safeFloor(world, state, 'mara');
-        for (const t of floor.tiles) if (t.knowledge === 'unscouted') expect(['grey', 'red', 'amber', 'trespass', 'camera']).toContain(t.tint.kind);
+        for (const t of floor.tiles) if (t.knowledge === 'hidden') expect(['grey', 'red', 'amber', 'trespass', 'camera']).toContain(t.tint.kind);
         expect(floor.tiles.some(t => t.tint.kind === 'grey' || t.tint.kind === 'unknownRisk')).toBe(true);
     });
 

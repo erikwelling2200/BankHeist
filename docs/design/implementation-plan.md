@@ -505,7 +505,8 @@ Each package lists its goal, the design sections it covers, the files, what it d
     - **Unknown risk** (`isUnknownRisk`, `floorKnowledge`): a seen tile that isn't fresh, or that a tile that isn't
       fresh sees within `unknownReach` (8, the longest NPC or camera arc, from the rules; halved on a dark tile); for a crew member (`floorKnowledge(…, { crew })`,
       `unknownWatcher`), only where such an unknown observer, at its worst, would react to them (decision 24). Worked out per tile on demand, cached per sight
-      map and fresh set. The blueprint (`blueprint(world)`) is layout, not scouting: an unseen tile is `unscouted`.
+      map and fresh set. A tile is `hidden` (grey, never safe) only when it is neither seen nor on the blueprint's
+      layout (`tileVisibility`, decision 44).
     - **Measured** (4 crew): one update after a move 0.32 ms mean on a city bank, 0.13–0.60 ms on HQ banks; one more
       step of a move ~0.1 ms; unknown risk over a move's reach 1.5 ms (city) to 4.7 ms (HQ atrium) cold.
     - **Projection and call sites.** `projectEvents(world, after, events, before, { mode })` drops events naming an
@@ -516,8 +517,8 @@ Each package lists its goal, the design sections it covers, the files, what it d
       src/game/session.ts must switch to `projectPreviewEvents(world, before, result)` (its current call is the
       playback form); world-phase playback and committed actions keep `projectEvents(world, after, events, before)`.
       Reach, tap snapping and drag validation use `crewPicture`; the overlay and HUD draw `knownView` (markers,
-      seen / fresh / in-view tiles, doors as known, blueprint, cameras, pings, `unknownRisk(p)`); the safe floor
-      (M1-09) reads `floorKnowledge` per tile: `unscouted` → grey, `unknownRisk` → hatched grey where the known NPCs
+      seen / fresh / in-view tiles and each tile's visibility, doors as known, blueprint, cameras, pings,
+      `unknownRisk(p)`); the safe floor (M1-09) reads `floorKnowledge` per tile: `hidden` → grey, `unknownRisk` → hatched grey where the known NPCs
       leave it green.
 - [x] **M1-11 Auto-advance and Wait for.**
   - **Covers:** §6.5.
@@ -944,6 +945,28 @@ Later milestones: within each milestone, the `∥` notes in §3 apply. UI packag
     blueprint's layout is known from the start, and one elsewhere once its tile has been seen: from then on it is a
     known camera (feed status unknown counts as live) and never unknown risk. Each kind has its own reach (an Alerted
     NPC's 8; a camera's 7, none on a dark tile for cameras blind in the dark), and frisk range only matters for NPCs.
+44. **Three tile states: hidden, not seen this turn, seen this turn (§8.8, §8.15, §17.8; `tileVisibility`).** Hidden
+    is a tile neither on the blueprint's layout nor ever seen (without Blueprints, the Staff and Secure rooms until
+    looked into): an opaque dark block, nothing of the room drawn (props, cameras, the floor, doors, people as they
+    are), grey in the safe floor. Seen this turn is a fresh tile: drawn as it is, people included. Every other tile is
+    not seen this turn (stale, the grey veil); public floor starts there, never hidden. On a stale tile what doesn't
+    move is known (the layout, furniture, cameras, whether a door locks); what moves isn't: an NPC is drawn there only
+    as a predicted or ghost marker, never as it is, and a door shows as last seen, plain closed if never seen.
+    Predicted and ghost markers show over hidden tiles too (above the block), their cones and walks drawn only over
+    tiles that aren't hidden. A door whose status the crew can't vouch for (`doorDoubt`: no tile beside it seen this
+    turn, and a status something unseen could change; not breached, jammed, or an open one that never swings shut)
+    never shows through a preview: the safe floor judges on the picture (`previewPicture`, doors as pictured) and
+    hatches any tile such a door could change (`doorRisk`: a known observer's sight of a tile passed or ended on, a
+    dash's reach at an NPC, a known NPC's sight from its walk or a walk it could be locked out of), so every tint
+    that isn't hatched is what happens however those doors stand; an action preview counts a known observer whose
+    sight or hearing of the crew such a door could decide as unknown; unknown observers look through every such door
+    as if open. The crew plans on that picture (`crewPicture`): a move through a door pictured open or closed walks
+    on, opening a closed one; one found locked or jammed stops the move on the tile before it, the action spent and
+    the move final (`moveCut`, reason `door`, with the status found: "It's locked!"), as a bump does, and the preview
+    shows the drawn path. A path through such a door that could refuse the crew member (it has a lock they hold no key
+    to, or only hidden tiles beside it, so whether it locks is unknown) is hatched from there on (`unknownPath`).
+    Unknown NPCs may stand on stale or hidden tiles; unknown cameras only on hidden ones. Why: a clear visual of what
+    is and isn't known; immobile is known, mobile is unknown when not seen this turn.
 
 ### Critical files for implementation
 

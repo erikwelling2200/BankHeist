@@ -107,6 +107,20 @@ pips that crew member causes, so a pip says who it is about.
 | Dex | `#9684e0` violet | Skull bandana |
 | Sol | `#dac8a2` sand | Respirator |
 
+### What the crew knows (§8.15, §17.8)
+
+Every tile is in one of three states (implementation plan decision 44):
+
+- **Hidden:** opaque dark grey (`#1b1d27`), outlined in pale khaki where it meets known floor, with a pixel `?` in a
+  room nobody has looked into yet. Nothing of the room is drawn: floor, furniture, cameras, doors, people as they
+  are. Predicted markers and ghosts (what the crew knows or remembers) are drawn over the block, their cones and
+  intent paths only where they cross tiles that aren't hidden. Only tiles neither on the blueprint's layout nor ever
+  seen are hidden: without the Blueprints asset, the Staff and Secure rooms.
+- **Not seen this turn:** a grey veil (`rgba(96, 98, 110, 0.45)`). Furniture and cameras show under it; NPCs only as
+  predicted markers or ghosts, and doors as last seen, closed if never seen. Public floor nobody has seen yet starts
+  here.
+- **Seen this turn:** normal colour, people as they are.
+
 ### Safe floor (§8.8)
 
 Shown for the selected crew member when nothing else is previewed, and along the path while one is. The tile states
@@ -118,10 +132,13 @@ are:
 - **Exposed:** red with an eye.
 - **+1 next phase** and **exposed next phase:** the same states hatched.
 - **Camera:** a camera glyph.
-- **Unscouted:** grey.
+- **Hidden:** grey.
 - **Unknown risk:** grey, hatched (no glyph): someone the crew hasn't seen could react to this crew member there: an
-  NPC from a tile a person can stand on that the crew hasn't seen since the last world phase, or a camera from a tile in
-  a room the blueprint only outlines that nobody has seen.
+  NPC from a tile a person can stand on that the crew hasn't seen since the last world phase, or a camera from a hidden
+  tile, either looking through any door not seen this turn as if open. Also hatched, whatever the known NPCs would
+  do: a tile whose outcome a door not seen this turn could change (someone known could see or hear the crew member
+  through it, or walk differently), and every tile reached through such a door that could turn out locked. A step of
+  a drawn path that a door not seen this turn could expose is hatched too. "Who and why" says which.
 
 The path's eye icon sits on the **first** unsafe tile, and long-pressing that tile answers who and why: the NPC's
 position next phase is ghosted, with its cone and a sightline to the tile. Long-pressing an unknown-risk tile outlines

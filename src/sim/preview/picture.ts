@@ -1,5 +1,5 @@
 import type { CameraState, NpcState, ReadonlyWorld, State } from '../core/types';
-import { isKnownNow } from '../rules/knowledge';
+import { isKnownNow, withPicturedDoors } from '../rules/knowledge';
 import { draggedBy } from '../rules/place';
 
 /*
@@ -11,9 +11,12 @@ import { draggedBy } from '../rules/place';
  *   doorways, as `crewPicture` leaves it out, while the world phase's other rules (check-ins, carriers) still find
  *   the record they expect, so the whole engine can run on the picture (the property test's oracle does). A body being
  *   dragged stays with its dragger.
- * - Cameras: one whose tile the crew has never seen isn't there (`live: false`). Until the CCTV room is scouted the
- *   crew can't tell a looped or dead feed from a live one, so every camera it knows counts as live (§8.8 "cameras whose
- *   feed status is unknown count as live"); once it is scouted, cameras are as they are.
+ * - Cameras: one the crew doesn't know isn't there (`live: false`). Until the CCTV room is scouted the crew can't tell
+ *   a looped or dead feed from a live one, so every camera it knows counts as live (§8.8 "cameras whose feed status is
+ *   unknown count as live"); once it is scouted, cameras are as they are.
+ * - Doors: one no tile beside which is seen this turn is as last seen (`withPicturedDoors`, decision 44), as moves are
+ *   planned (`crewPicture`). A verdict that a door the crew can't vouch for could change is the judge's to hatch
+ *   (floor.ts, `doorDoubt`).
  *
  * It is a shallow copy (the truth itself when nothing differs): never change it. Cached per state object.
  */
@@ -28,7 +31,7 @@ export function previewPicture(world: ReadonlyWorld, state: State): State {
         if (isKnownNow(world, state, n.id) || n.status === 'away' || draggedBy(state, n.id)) return;
         (npcs ??= [...state.npcs])[i] = { ...n, status: 'away', intent: { path: [] } };
     });
-    const base: State = npcs ? { ...state, npcs } : state;
+    const base: State = withPicturedDoors(world, state, npcs ? { ...state, npcs } : state);
     const k = state.knowledge;
     let cameras: Record<string, CameraState> | null = null;
     for (const def of world.cameras) {

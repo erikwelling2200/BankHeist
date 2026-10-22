@@ -4,7 +4,7 @@ import { moveRange } from '../../src/game/movement';
 import type { UiState } from '../../src/game/session';
 import { actionsView, barkText, confirmView, crewCards, describeEvent, doorName } from '../../src/game/views';
 import {
-    commit, crewPicture, dashRefusal, fixtureWorld, initialState, preview, type Facing, type ObserverClass, type PersonDef, type Pos, type ReadonlyWorld, type State,
+    commit, crewPicture, dashRefusal, fixtureWorld, initialState, preview, type Facing, type ObserverClass, type PersonDef, type Pos, type ReadonlyWorld, type SimEvent, type State,
     type WorldObject
 } from '../../src/sim';
 import { scouted } from '../sim/helpers';
@@ -60,6 +60,14 @@ describe('the action grid', () => {
         const done = commit(world, s, stash.command);
         expect(done.state.npcs[0]!.stashed).toBe('dumpster-0');
         expect(describeEvent(world, done.state, done.events.find(e => e.type === 'bodyStashed')!)).toBe('jun hid clerk in the dumpster');
+    });
+
+    it('tells a door cut by the status found then, not as the door stands now', () => {
+        const { world, state } = scene();
+        const cut: SimEvent = { type: 'moveCut', crew: 'jun', reason: 'door', door: 'd', status: 'locked', at: P(4, 4), planned: [P(5, 4)] };
+        // The door has since been opened: the line still says what jun found.
+        const now = { ...state, doors: { ...state.doors, d: { status: 'open' as const } } };
+        expect(describeEvent(world, now, cut)).toBe(`jun found ${doorName(world, 'd')} locked and stopped at (4, 4)`);
     });
 
     it('costs each entry from its preview, and Confirm warns of an illegal act', () => {

@@ -66,6 +66,22 @@ const LONE_NPC = `(() => { ${PAGE_HELPERS}
     return null;
 })()`;
 
+/** Mara on a free tile beside a guard, the crew knowing the guard is there. */
+const BESIDE_GUARD = `(() => { ${PAGE_HELPERS} ${ALARM_HELPERS}
+    const base = clone(sim.state), guard = npcOf(base, r => /guard|chief/i.test(r));
+    if (!guard) return null;
+    // Side by side first, where neither stands in front of the other.
+    for (const d of [{ x: 1, y: 0 }, { x: -1, y: 0 }, ...NEAR]) {
+        const st = clone(base), p = { x: guard.pos.x + d.x, y: guard.pos.y + d.y };
+        if (!free(st, p)) continue;
+        st.crew[0].pos = p;
+        know(st, st.npcs.find(n => n.id === guard.id));
+        if (!sim.knows(guard.id, st)) continue;
+        return { state: st, info: { guard: guard.id, at: p } };
+    }
+    return null;
+})()`;
+
 export const SETUPS: Record<string, Setup> = {
     'mara-selected': {
         about: 'Mara selected at the van as the heist starts (nothing shows: Clean in Public)',
@@ -88,20 +104,7 @@ export const SETUPS: Record<string, Setup> = {
     },
     'beside-guard': {
         about: 'Mara selected on a tile beside a guard the crew sees, unnoticed',
-        script: `(() => { ${PAGE_HELPERS} ${ALARM_HELPERS}
-            const base = clone(sim.state), guard = npcOf(base, r => /guard|chief/i.test(r));
-            if (!guard) return null;
-            // Side by side first, where neither stands in front of the other.
-            for (const d of [{ x: 1, y: 0 }, { x: -1, y: 0 }, ...NEAR]) {
-                const st = clone(base), p = { x: guard.pos.x + d.x, y: guard.pos.y + d.y };
-                if (!free(st, p)) continue;
-                st.crew[0].pos = p;
-                know(st, st.npcs.find(n => n.id === guard.id));
-                if (!sim.knows(guard.id, st)) continue;
-                return { state: st, info: { guard: guard.id, at: p } };
-            }
-            return null;
-        })()`,
+        script: BESIDE_GUARD,
         then: selectMara
     },
     'alarm-countdown': {
@@ -145,6 +148,16 @@ export const SETUPS: Record<string, Setup> = {
                 sim.commit({ type: 'knockout', crew: 'mara', npc });
                 sim.commit({ type: 'drag', crew: 'mara', npc });
             }, info.npc);
+            await selectMara(page);
+            await lookAtMara(page);
+        }
+    },
+    'visibility': {
+        about: 'Mara beside a guard after a world phase: what she sees in colour, the street veiled, the rooms behind hidden',
+        script: BESIDE_GUARD,
+        then: async page => {
+            await page.evaluate(() => (window as any).sim.endTurn());
+            await page.waitForFunction(() => !(window as any).game.scene.getScene('bank').debugState.play?.playing);
             await selectMara(page);
             await lookAtMara(page);
         }

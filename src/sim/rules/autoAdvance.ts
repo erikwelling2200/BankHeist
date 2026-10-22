@@ -283,10 +283,8 @@ export function interruptsOf(world: ReadonlyWorld, before: State, result: Pick<C
             case 'exposed': add({ kind: 'exposed', text: `${who(e.npc)} made ${crew(e.crew)}`, npc: e.npc, crew: e.crew, ...at(e.npc) }); break;
             case 'challenged': add({ kind: 'challenge', text: `${who(e.npc)} challenged ${crew(e.crew)}`, npc: e.npc, crew: e.crew, ...at(e.npc) }); break;
             case 'moveCut':
-                add({
-                    kind: 'moveCut', npc: e.npc, crew: e.crew, at: { x: e.at.x, y: e.at.y },
-                    text: e.reason === 'bump' ? `${crew(e.crew)} ran into ${who(e.npc)}` : `${crew(e.crew)} spotted ${who(e.npc)}`
-                });
+                if (e.reason === 'bump') add({ kind: 'moveCut', npc: e.npc, crew: e.crew, at: { x: e.at.x, y: e.at.y }, text: `${crew(e.crew)} ran into ${who(e.npc)}` });
+                else add({ kind: 'moveCut', crew: e.crew, at: { x: e.at.x, y: e.at.y }, text: `${crew(e.crew)} found a door ${e.status}` });
                 break;
             case 'suspicionRaised': add({ kind: 'suspicion', text: `${who(e.npc)} grew suspicious of ${crew(e.crew)}`, npc: e.npc, crew: e.crew, ...at(e.npc) }); break;
             case 'cameraSaw': add({ kind: 'suspicion', text: `a camera saw ${crew(e.crew)}`, crew: e.crew, at: { x: e.tile.x, y: e.tile.y } }); break;

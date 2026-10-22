@@ -5,7 +5,7 @@ import type { CrewState, DeepReadonly, DoorDef, DoorStatus, Pos, ReadonlyWorld, 
 import { registerEvents } from '../core/undo';
 import { DASH_ACTIONS, MOVE_ACTIONS } from '../data/movement';
 import {
-    ABSENT_STATUSES, dashBudget, doorBetween, doorStatus, inHeavyArmour, moveBudget, occupancy, validatePath, type MoveOptions
+    ABSENT_STATUSES, dashBudget, doorBetween, doorStatus, inHeavyArmour, moveBudget, occupancy, stepCost, validatePath, type MoveOptions
 } from '../geo/move';
 import { makeNoise } from '../geo/sound';
 import { onFloor } from '../rules/place';
@@ -20,9 +20,11 @@ import { onFloor } from '../rules/place';
  * the events those emit block undo; so does anyone hearing the dash (`heard`).
  *
  * **Moving in unknown space (§8.15).** A path is planned and checked against the bank as the crew pictures it
- * (`registerPlanView`: rules/knowledge.ts shows only the NPCs the crew sees or predicts), so a tile an unseen NPC stands
- * on reads as open. The move then finds out: it stops on the step before an NPC standing in its way, or before ending
- * on anyone (`bump`), and limits (`registerMoveLimit`) can stop it earlier. Someone new coming into view doesn't
+ * (`registerPlanView`: rules/knowledge.ts shows only the NPCs the crew sees or predicts, and doors not seen this turn as
+ * last seen), so a tile an unseen NPC stands on reads as open, and a door last seen open stays open. The move then finds
+ * out: it stops on the step before an NPC standing in its way, or before ending on anyone (`bump`), and on the tile
+ * before a door it can't pass after all, one found locked (`door`, decision 44; one found closed it opens on the way);
+ * limits (`registerMoveLimit`) can stop it earlier. Someone new coming into view doesn't
  * (decision 40). The stop is always a tile of the drawn path, worked out before the
  * first step, so perception judges exactly the tiles walked; the action is spent and a `moveCut` event says why. A
  * preview (the truth) shows the stop; what the player is shown of it is the projection's business (projectEvents in
@@ -39,9 +41,9 @@ declare module '../core/types' {
         doorOpened: { door: string; by: string };
         /**
          * A crew move stopped short of the drawn path (`planned`) at `at`: it bumped into an NPC the crew didn't know
-         * stood there (`bump`), or an NPC it had never seen came into view (`spotted`).
+         * stood there (`bump`), or found a door it pictured passable locked or jammed (`door`, with the status found).
          */
-        moveCut: { crew: string; npc: string; reason: 'bump'; at: Pos; planned: Pos[] };
+        moveCut: { crew: string; at: Pos; planned: Pos[] } & ({ reason: 'bump'; npc: string } | { reason: 'door'; door: string; status: DoorStatus });
     }
 }
 
@@ -130,15 +132,15 @@ export function registerPlanView(view: PlanView): void {
 /** The state a crew move is planned and checked against. */
 export const planningState = (world: ReadonlyWorld, state: State): State => planView(world, state);
 
-/** Why a move stops short: how many steps of the path it keeps, the NPC and the reason. */
-export interface MoveCut { keep: number; npc: string; reason: 'bump' }
+/** Why a move stops short: how many steps of the path it keeps, the reason and the NPC or door. */
+export type MoveCut = { keep: number } & ({ reason: 'bump'; npc: string } | { reason: 'door'; door: string; status: DoorStatus });
 
 /** Says where a move stops short, if it does (`path` already cut by the limits before it). */
 export type MoveLimit = (ctx: Ctx, member: CrewState, path: readonly Pos[], mode: MoveMode) => MoveCut | undefined;
 
 const MOVE_LIMITS = new Map<string, MoveLimit>();
 
-/** Adds a named limit to every crew move; limits run by name after the bump. */
+/** Adds a named limit to every crew move; limits run by name after the bump and the locked door. */
 export function registerMoveLimit(name: string, limit: MoveLimit, options: { replace?: boolean } = {}): void {
     if (MOVE_LIMITS.has(name) && !options.replace) throw new Error(`Move limit '${name}' already exists; pass replace: true to change it`);
     MOVE_LIMITS.set(name, limit);
@@ -157,10 +159,25 @@ const bump: MoveLimit = (ctx, member, path) => {
     return undefined;
 };
 
+/**
+ * A door the crew pictured passable but can't pass (rules/knowledge.ts `crewPicture`: a door not seen this turn is as last
+ * seen): the tile before the first step the truth doesn't allow. A door found closed instead of open is opened on the way.
+ */
+const lockedDoor: MoveLimit = (ctx, member, path) => {
+    const { world } = ctx, state = onFloor(ctx.state), options = crewMoveOptions(member);
+    let prev: Pos = member.pos;
+    for (let i = 0; i < path.length; i++) {
+        const p = path[i]!, door = Math.abs(p.x - prev.x) + Math.abs(p.y - prev.y) === 1 ? doorBetween(world, prev, p) : undefined;
+        if (door && stepCost(world, state, prev, p, options) === undefined) return { keep: i, reason: 'door', door: door.id, status: doorStatus(world, state, door.id) };
+        prev = p;
+    }
+    return undefined;
+};
+
 /** The part of the path the move walks, and why it stops short (see the header). */
 function cutPath(ctx: Ctx, member: CrewState, path: readonly Pos[], mode: MoveMode): { walked: Pos[]; cut: MoveCut | undefined } {
     let keep = path.length, cut: MoveCut | undefined;
-    for (const limit of [bump, ...[...MOVE_LIMITS.keys()].sort().map(k => MOVE_LIMITS.get(k)!)]) {
+    for (const limit of [bump, lockedDoor, ...[...MOVE_LIMITS.keys()].sort().map(k => MOVE_LIMITS.get(k)!)]) {
         const found = limit(ctx, member, path.slice(0, keep), mode);
         if (found && found.keep < keep) { keep = found.keep; cut = found; }
     }
@@ -208,10 +225,8 @@ function walk(ctx: Ctx, member: CrewState, planned: readonly Pos[], mode: MoveMo
     const copy = path.map(p => ({ x: p.x, y: p.y }));
     if (copy.length) ctx.emit({ type: 'moved', crew: member.id, from, to: { x: member.pos.x, y: member.pos.y }, path: copy });
     if (cut) {
-        ctx.emit({
-            type: 'moveCut', crew: member.id, npc: cut.npc, reason: cut.reason, at: { x: member.pos.x, y: member.pos.y },
-            planned: planned.map(p => ({ x: p.x, y: p.y }))
-        });
+        const { keep: _keep, ...why } = cut;
+        ctx.emit({ type: 'moveCut', crew: member.id, ...why, at: { x: member.pos.x, y: member.pos.y }, planned: planned.map(p => ({ x: p.x, y: p.y })) });
     }
     if (mode === 'dash' && copy.length) makeNoise(ctx, 'dash', copy, `dash ${member.id}`);
     for (const h of hooks()) h.end?.(ctx, member, path, mode);
