@@ -17,7 +17,10 @@ concurrency:
 
 jobs:
   test:
-    runs-on: ubuntu-24.04  # Playwright 1.56.1 (pinned for the sandbox browser) cannot install Chromium on ubuntu-latest (26.04)
+    runs-on: ubuntu-latest
+    # Playwright is pinned to 1.56.1 to match the sandbox's browser; its own image brings the matching Chromium and
+    # system libraries, so the job doesn't depend on the runner's OS (1.56.1 can't install them on ubuntu 26.04).
+    container: mcr.microsoft.com/playwright:v1.56.1-noble
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -27,7 +30,6 @@ jobs:
       - run: npm ci
       - run: npm run typecheck
       - run: npm test
-      - run: npx playwright install --with-deps chromium
       - run: npm run test:e2e
       - uses: actions/upload-artifact@v4
         if: always()
@@ -39,7 +41,7 @@ jobs:
   deploy:
     needs: test
     if: github.ref == 'refs/heads/main'
-    runs-on: ubuntu-24.04  # Playwright 1.56.1 (pinned for the sandbox browser) cannot install Chromium on ubuntu-latest (26.04)
+    runs-on: ubuntu-latest
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
