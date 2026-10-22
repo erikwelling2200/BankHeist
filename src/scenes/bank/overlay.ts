@@ -131,6 +131,8 @@ const INTENT_PREDICTED = 'rgba(242, 230, 200, 0.4)';
 const UNSCOUTED = 'rgba(96, 98, 110, 0.45)';
 /** The safe floor's grey: no data, or unknown risk. */
 const GREY = '#8a8894';
+/** Where someone unknown could watch from (long-press on unknown risk): the grey, lightened. */
+const WATCHER = '#d0ced8';
 const PING = 'rgba(226, 162, 64, 0.8)';
 
 export class WorldOverlay {
@@ -495,6 +497,9 @@ export class WorldOverlay {
      */
     private drawExplain(e: ExplainVM, left: (p: Pos) => number, top: (p: Pos) => number, mid: (p: Pos) => [number, number], S: number, pal: Record<Signal, string>): void {
         const ctx = this.ctx;
+        // Each watcher tile once: the held tile's line comes first, so a tile watching it too stays bright.
+        const marked = new Set<string>();
+        for (const line of e.lines) if (line.watchers) this.drawWatchers(line.watchers, e.tile, marked, left, top, mid, S);
         for (const line of e.lines) {
             if (!line.from) continue;
             const colour = line.outcome === '!' ? pal.red : line.outcome === '-' ? CREAM : pal.amber, next = line.phase === 'next';
@@ -525,6 +530,40 @@ export class WorldOverlay {
             ctx.fillStyle = style;
             for (const [bx, by] of [[0, 0], [S - 8, 0], [0, S - 2], [S - 8, S - 2]]) ctx.fillRect(x + bx!, y + by! + dy, 8, 2);
             for (const [bx, by] of [[0, 0], [S - 2, 0], [0, S - 8], [S - 2, S - 8]]) ctx.fillRect(x + bx!, y + by! + dy, 2, 8);
+        }
+    }
+
+    /**
+     * Where someone unknown could watch the long-pressed tile from (unknown risk): each such tile outlined in pale grey
+     * (the unknown-risk grey, lightened to read over its hatch) with a dot, over an ink shadow, fainter for those
+     * watching a tile passed on the way; a faint dotted sightline from the worst.
+     */
+    private drawWatchers(watchers: readonly { from: Pos; to: Pos }[], tile: Pos, marked: Set<string>, left: (p: Pos) => number, top: (p: Pos) => number, mid: (p: Pos) => [number, number], S: number): void {
+        const ctx = this.ctx, worst = watchers[0];
+        if (worst) {
+            const [ax, ay] = mid(worst.from), [bx, by] = mid(worst.to);
+            ctx.lineWidth = 1;
+            ctx.setLineDash([2, 3]);
+            for (const [style, dy] of [[INK, 1], [alpha(WATCHER, 0.7), 0]] as const) {
+                ctx.strokeStyle = style;
+                ctx.beginPath();
+                ctx.moveTo(ax, ay + dy);
+                ctx.lineTo(bx, by + dy);
+                ctx.stroke();
+            }
+            ctx.setLineDash([]);
+        }
+        for (const w of watchers) {
+            const key = `${w.from.x},${w.from.y}`;
+            if (marked.has(key)) continue;
+            marked.add(key);
+            const x = left(w.from), y = top(w.from), passed = w.to.x !== tile.x || w.to.y !== tile.y;
+            for (const [style, d] of [[INK, 1], [alpha(WATCHER, passed ? 0.55 : 0.95), 0]] as const) {
+                ctx.strokeStyle = style;
+                ctx.fillStyle = style;
+                ctx.strokeRect(x + 4.5 + d, y + 4.5 + d, S - 9, S - 9);
+                ctx.fillRect(x + S / 2 - 1 + d, y + S / 2 - 1 + d, 2, 2);
+            }
         }
     }
 

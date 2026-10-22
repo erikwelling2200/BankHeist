@@ -1,6 +1,6 @@
 import type { Pos, ReadonlyWorld, State } from '../core/types';
 import type { Outcome } from '../data/matrix';
-import { floorKnowledge, unknownWatcher, type FloorKnowledge, type UnknownWatcher } from '../rules/knowledge';
+import { floorKnowledge, unknownWatcher, unknownWatchers, type FloorKnowledge, type UnknownWatcher } from '../rules/knowledge';
 import type { Sighting, Why } from '../rules/perceive';
 import { pipsOf } from '../rules/suspicion';
 import type { MoveMode } from '../crew/movement';
@@ -13,7 +13,8 @@ import { previewPicture } from './picture';
  * crew member there and why: the NPC's or camera's portrait, the sightline, and a line like "Guard: sees Armed". Built
  * from the very sightings the tint was judged from, on the crew's picture, so it never names someone the crew doesn't
  * know. Tiles the crew can't vouch for (grey, unknown risk, or reached through such) also say why, after any lines:
- * unknown risk names the worst an unseen observer could do there (`unknownWatcher`, decision 24).
+ * unknown risk names the worst an unseen observer could do there (`unknownWatcher`, decision 24), and every tile one
+ * could stand on to do anything (`unknownWatchers`).
  */
 
 export interface Explanation {
@@ -31,6 +32,11 @@ export interface Explanation {
     known: boolean;
     why: Why[];
     text: string;
+    /**
+     * Unknown risk: every tile someone unknown could stand on and react from (`from`), and the tile they would see
+     * (`to`: this line's tile, or for the way there a tile passed, judged as mid-move), the worst first.
+     */
+    watchers?: { from: Pos; to: Pos }[];
 }
 
 const capital = (s: string): string => s.charAt(0).toUpperCase() + s.slice(1);
@@ -153,20 +159,35 @@ export function explain(
     const out = entries(world, picture, crewId, judged);
     // Whatever the known NPCs do there, the crew can't vouch for the rest: say why on grey and unknown-risk tiles alike.
     // No sightline: nobody is known to stand there (`from` null, outcome '-' as for every line of knowledge).
-    const unknown = (text: string, to: Pos): void => {
-        out.push({ observer: null, by: 'unknown', phase: 'now', from: null, to: { x: to.x, y: to.y }, outcome: '-', known: false, why: [], text });
+    const unknown = (text: string, to: Pos, watchers?: { from: Pos; to: Pos }[]): void => {
+        out.push({
+            observer: null, by: 'unknown', phase: 'now', from: null, to: { x: to.x, y: to.y }, outcome: '-', known: false, why: [], text,
+            ...(watchers?.length ? { watchers } : {})
+        });
+    };
+    // Where someone unknown could watch `to` from, the worst (`unknownWatcher`'s) first, each once.
+    const watchersOf = (to: readonly Pos[], step: boolean, worst?: Pos): { from: Pos; to: Pos }[] => {
+        const found = new Map<string, { from: Pos; to: Pos }>();
+        for (const t of to) for (const w of unknownWatchers(world, state, crewId, t, { ...who, step })) {
+            const key = `${w.from.x},${w.from.y}`;
+            if (!found.has(key)) found.set(key, { from: { ...w.from }, to: { x: t.x, y: t.y } });
+        }
+        const list = [...found.values()], first = worst ? list.findIndex(w => w.from.x === worst.x && w.from.y === worst.y) : -1;
+        if (first > 0) list.unshift(...list.splice(first, 1));
+        return list;
     };
     if (knowledge === 'unscouted') unknown(UNSCOUTED, tile);
     else if (knowledge === 'unknownRisk') {
         const w = unknownWatcher(world, state, crewId, tile, who);
-        if (w) unknown(unknownText(w), tile);
+        if (w) unknown(unknownText(w), tile, watchersOf([tile], false, w.from));
     }
     if (unknownPath) {
-        // The first tile on the way that the crew can't vouch for: grey, or an unknown `!` mid-move.
+        // The first tile on the way that the crew can't vouch for: grey (no watchers: nobody is placed on no data), or an
+        // unknown `!` mid-move, with the watchers of every tile passed.
         for (const p of walked) {
             if (floorKnowledge(world, state, p) === 'unscouted') { unknown('On the way: no data, nobody has scouted there', p); break; }
             const w = unknownWatcher(world, state, crewId, p, { ...who, step: true });
-            if (w) { unknown(unknownText(w, true), p); break; }
+            if (w) { unknown(unknownText(w, true), p, watchersOf(walked, true, w.from)); break; }
         }
     }
     return out;

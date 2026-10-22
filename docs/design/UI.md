@@ -122,7 +122,9 @@ are:
 - **Unknown risk:** grey, hatched (no glyph): someone the crew hasn't seen could react to this crew member there.
 
 The path's eye icon sits on the **first** unsafe tile, and long-pressing that tile answers who and why: the NPC's
-position next phase is ghosted, with its cone and a sightline to the tile.
+position next phase is ghosted, with its cone and a sightline to the tile. Long-pressing an unknown-risk tile outlines
+in pale grey, each with a dot, every tile from which someone unseen could react there (fainter for those watching a
+tile passed on the way), with a faint dotted sightline from the worst.
 
 ### Over heads
 

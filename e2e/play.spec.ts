@@ -890,6 +890,51 @@ test('the safe floor: tints as the sim judges them, a drawn path\'s eye, who and
     expect(errors).toEqual([]);
 });
 
+/** Jun armed with a rifle, the bank scouted 5 tiles round him and nothing beyond: unknown risk all round his Move band. */
+const HATCHED_SETUP = `(() => { ${PAGE_HELPERS}
+    const ABC = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/', st = clone(sim.state), at = st.crew[1].pos;
+    st.crew[1].loadout.items.push('assaultRifle');
+    let s = '';
+    for (let i = 0; i < w.width * w.height; i += 6) {
+        let v = 0;
+        for (let j = 0; j < 6 && i + j < w.width * w.height; j++) {
+            const x = (i + j) % w.width, y = Math.floor((i + j) / w.width);
+            if (Math.max(Math.abs(x - at.x), Math.abs(y - at.y)) <= 5) v |= 1 << j;
+        }
+        s += ABC[v];
+    }
+    st.knowledge.seen = st.knowledge.fresh = s;
+    return { state: st, info: { at } };
+})()`;
+
+test('holding a hatched tile marks where someone unknown could watch it from', async ({ page }) => {
+    const errors = await boot(page);
+    expect(await restartWith(page, HATCHED_SETUP)).not.toBeNull();
+    await page.locator('.sh-rail .sh-crew').nth(1).click();
+    await expect.poll(async () => (await play(page)).floorDash).toBe(true);
+    await expect.poll(async () => { const a = await scene(page); await page.waitForTimeout(150); const b = await scene(page); return a.midX === b.midX && a.midY === b.midY && a.zoom === b.zoom; }).toBe(true);
+    const tile = await page.evaluate(() => {
+        const floor = (window as any).sim.safeFloor('jun').tiles.filter((t: any) => t.band === 'move' && t.tint.kind === 'unknownRisk' && t.knowledge === 'unknownRisk');
+        // Clear of Jun's drawing, where a press would start a path.
+        return floor.filter((t: any) => t.path.length >= 3).sort((a: any, b: any) => a.path.length - b.path.length)[0]?.pos as Pos | undefined;
+    });
+    expect(tile).toBeDefined();
+    const at = await onPage(page, tile!);
+    await page.mouse.move(at.x, at.y + 5);
+    await page.mouse.down();
+    await page.waitForTimeout(700);
+    await page.mouse.up();
+    const why = (await play(page)).explain;
+    const lines = await page.evaluate(([t]) => (window as any).sim.explain('jun', t), [tile!]);
+    const watchers = lines.find((l: any) => l.to.x === tile!.x && l.to.y === tile!.y && l.watchers)?.watchers;
+    expect(watchers?.length).toBeGreaterThan(0);
+    expect(why.lines.flatMap((l: any) => l.watchers ?? [])).toEqual(lines.flatMap((l: any) => l.watchers ?? []));
+    await page.screenshot({ path: 'screenshots/play-explain-watchers.png' });
+    await tapTile(page, (await member(page, 'jun')).pos);
+    expect((await play(page)).explain).toBeNull();
+    expect(errors).toEqual([]);
+});
+
 /**
  * The M1 run (implementation plan M1-16) in the pinned bank, played through `window.sim`'s commands alone: one string
  * per turn, each move `crew:x,y` (a Move to that tile, along the path the safe floor judged), then End turn. Found by a

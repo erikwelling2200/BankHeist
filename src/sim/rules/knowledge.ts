@@ -640,30 +640,62 @@ export function unknownWatcher(world: ReadonlyWorld, state: State, crewId: strin
     if (!inBounds(world, p)) return null;
     const c = riskCache(world, state), far = nearestUnknown(world, c, p, false);
     if (far < 0) return null;
+    const close = nearestUnknown(world, c, p, true), worst = worstFrom(world, state, crewId, p, options);
+    let best: UnknownWatcher | null = null;
+    for (const q of close >= 0 && close !== far ? [far, close] : [far]) {
+        const w = worst({ x: q % world.width, y: Math.floor(q / world.width) });
+        if (w && (!best || OUTCOME_RANK[w.reaction.outcome] > OUTCOME_RANK[best.reaction.outcome])) best = w;
+    }
+    return best;
+}
+
+/**
+ * Every tile someone unknown could react to this crew member on `p` from, each with the worst there, nearest first:
+ * `unknownWatcher`'s search without stopping at the nearest (unknown space within reach of `p`, halved when it is
+ * dark, in sight of it, `p` itself included), judged by the same worst case. Non-empty exactly when `unknownWatcher`
+ * finds someone, whose `from` is among them. On demand: for the one tile held (§8.8 "who and why").
+ */
+export function unknownWatchers(world: ReadonlyWorld, state: State, crewId: string, p: Pos, options: UnknownOptions = {}): UnknownWatcher[] {
+    if (!inBounds(world, p)) return [];
+    const c = riskCache(world, state), w = world.width;
+    if (!c.seen[p.y * w + p.x]) return [];
+    const offsets = offsetsWithin(rangeOn(unknownReach(world), world.tiles[p.y * w + p.x]!.lit)), worst = worstFrom(world, state, crewId, p, options);
+    const out: UnknownWatcher[] = [];
+    for (let k = 0; k < offsets.length; k += 2) {
+        const dx = offsets[k]!, dy = offsets[k + 1]!, x = p.x + dx, y = p.y + dy;
+        if (x < 0 || y < 0 || x >= w || y >= world.height || c.fresh[y * w + x]) continue;
+        // Someone could stand on a stale tile itself.
+        if ((dx || dy) && !lineOfSight(c.sight, { x, y }, p)) continue;
+        const found = worst({ x, y });
+        if (found) out.push(found);
+    }
+    return out;
+}
+
+/** The worst an unknown observer on a given tile could do to this crew member on `p`, or null (`unknownWatcher`). */
+function worstFrom(world: ReadonlyWorld, state: State, crewId: string, p: Pos, options: UnknownOptions): (from: Pos) => UnknownWatcher | null {
     const member = crewMember(state, crewId), look = options.look ?? crewLook(member), rules = world.rules;
     const tile = world.tiles[p.y * world.width + p.x]!, profiles = profilesOf(world);
     const camera = world.cameras.some(cam => cam.seesInDark) ? profiles.darkCamera : profiles.camera;
     const warnedByAny = isWarned(state, crewId);
-    let best: UnknownWatcher | null = null;
-    const consider = (from: Pos, by: 'npc' | 'camera', observer: ObserverClass, role: string | null, facing: Facing, chebyshev: number): void => {
-        const dx = p.x - from.x, dy = p.y - from.y;
-        const band = bandOf(by === 'npc' ? profiles.alerted : camera, facing, dx, dy, tile.lit);
-        if (!band) return;
-        const r = reaction(rules, {
-            look, notoriety: member.notoriety, observer, role, camera: by === 'camera', alerted: by === 'npc', band, zone: tile.zone, chebyshev,
-            warnedByThis: false, warnedByAny
-        });
-        if (options.step ? r.outcome !== '!' : r.outcome === '-') return;
-        if (!best || OUTCOME_RANK[r.outcome] > OUTCOME_RANK[best.reaction.outcome]) best = { by, observer, role, from, reaction: r, profile: look.profile };
-    };
-    const close = nearestUnknown(world, c, p, true);
-    for (const q of close >= 0 && close !== far ? [far, close] : [far]) {
-        const from = { x: q % world.width, y: Math.floor(q / world.width) };
+    return from => {
+        let best: UnknownWatcher | null = null;
         const facing = facingToward(from, p) ?? 'n', chebyshev = Math.max(Math.abs(p.x - from.x), Math.abs(p.y - from.y));
-        for (const n of unknownNpcs(world)) consider(from, 'npc', n.observer, n.role, facing, chebyshev);
-        consider(from, 'camera', 'enforcer', null, facing, chebyshev);
-    }
-    return best;
+        const dx = p.x - from.x, dy = p.y - from.y;
+        const consider = (by: 'npc' | 'camera', observer: ObserverClass, role: string | null): void => {
+            const band = bandOf(by === 'npc' ? profiles.alerted : camera, facing, dx, dy, tile.lit);
+            if (!band) return;
+            const r = reaction(rules, {
+                look, notoriety: member.notoriety, observer, role, camera: by === 'camera', alerted: by === 'npc', band, zone: tile.zone, chebyshev,
+                warnedByThis: false, warnedByAny
+            });
+            if (options.step ? r.outcome !== '!' : r.outcome === '-') return;
+            if (!best || OUTCOME_RANK[r.outcome] > OUTCOME_RANK[best.reaction.outcome]) best = { by, observer, role, from, reaction: r, profile: look.profile };
+        };
+        for (const n of unknownNpcs(world)) consider('npc', n.observer, n.role);
+        consider('camera', 'enforcer', null);
+        return best;
+    };
 }
 
 /**

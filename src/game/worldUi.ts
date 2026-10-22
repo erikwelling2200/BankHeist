@@ -218,7 +218,12 @@ export function pathView(safety: PathSafety): PathVM | undefined {
 /** "Who and why" (§8.8): a tag on a long-pressed tile, one line per observer, and their sightlines drawn on the map. */
 export interface ExplainVM {
     tile: Pos;
-    lines: { observer: string | null; by: Explanation['by']; portrait?: string; icon?: 'camera' | 'unknown'; text: string; phase: 'now' | 'next'; outcome: Explanation['outcome']; from: Pos | null; to: Pos }[];
+    lines: {
+        observer: string | null; by: Explanation['by']; portrait?: string; icon?: 'camera' | 'unknown'; text: string; phase: 'now' | 'next'; outcome: Explanation['outcome'];
+        from: Pos | null; to: Pos;
+        /** Unknown risk: where someone unknown could watch from, the worst first, and the tile each would see. */
+        watchers?: { from: Pos; to: Pos }[];
+    }[];
 }
 
 /** The explanation of a tile; `inFloor` says the tile is one the crew member can reach (a quiet line when nobody notices). */
@@ -228,7 +233,8 @@ export function explainView(world: ReadonlyWorld, tile: Pos, entries: readonly E
         const person = e.by === 'npc' ? world.people.find(p => p.id === e.observer) : undefined, portrait = person && rolePortrait(person.role);
         return {
             observer: e.observer, by: e.by, ...(portrait ? { portrait } : {}), ...(e.by === 'camera' ? { icon: 'camera' as const } : e.by === 'unknown' ? { icon: 'unknown' as const } : {}),
-            text: e.phase === 'next' ? `Next phase: ${e.text}` : e.text, phase: e.phase, outcome: e.outcome, from: e.from ? { ...e.from } : null, to: { ...e.to }
+            text: e.phase === 'next' ? `Next phase: ${e.text}` : e.text, phase: e.phase, outcome: e.outcome, from: e.from ? { ...e.from } : null, to: { ...e.to },
+            ...(e.watchers ? { watchers: e.watchers.map(w => ({ from: { ...w.from }, to: { ...w.to } })) } : {})
         };
     });
     if (!lines.length) lines.push({ observer: null, by: 'unknown', text: 'Nobody the crew knows of would notice, now or next phase', phase: 'now', outcome: '-', from: null, to: { ...tile } });

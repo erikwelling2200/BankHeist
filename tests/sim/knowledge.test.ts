@@ -2,11 +2,12 @@ import { describe, expect, it } from 'vitest';
 import type { GenerateOptions } from '../../src/gen/generate';
 import { cachedBank } from '../bankCache';
 import {
-    bandAt, cameraObserver, clonePlain, commit, crewLook, crewPicture, decodeBits, explain, reaction, safeFloor, unknownWatcher, deserialise, encodeBits, fieldOn, fixtureWorld, floorKnowledge, freezeWorld,
+    bandAt, cameraObserver, clonePlain, commit, crewLook, crewPicture, decodeBits, explain, reaction, safeFloor, unknownWatcher, unknownWatchers, deserialise, encodeBits, fieldOn, fixtureWorld, floorKnowledge, freezeWorld,
     hashOf, initialState, isKnownNow, isUnknownRisk, noticedUnseen, pathTo, projectPreviewEvents, SaveFormatError, knownBlockers, knownView, makeNoise, markerKind, npcObserver, preview, projectEvents, reachable,
     serialise, sightMap, tileAt, updateKnowledge, worldFromBank, type Command, type FixtureOptions, type PersonDef, type Pos, type ReadonlyWorld,
-    type SimEvent, type State, type World
+    type SimEvent, type State, type UnknownOptions, type World
 } from '../../src/sim';
+import { OUTCOME_RANK } from '../../src/sim/data/matrix';
 import { registerTestCommand, scouted, step } from './helpers';
 
 /*
@@ -583,6 +584,121 @@ describe('unknown risk for a crew member (decision 24)', () => {
             expect(at(world, state, P(20, 0))).toBe('unscouted');
             expect(unknownWatcher(world, state, 'jun', P(20, 0))).toBeNull();
         }
+    });
+});
+
+/**
+ * `unknownWatchers` agrees with `unknownWatcher` on `p`: someone iff anyone, the worst's tile among them, and nothing
+ * worse than the worst anywhere. Returns how many it found.
+ */
+function watchersAgree(world: ReadonlyWorld, state: State, crew: string, p: Pos, options: UnknownOptions = {}): number {
+    const w = unknownWatcher(world, state, crew, p, options), all = unknownWatchers(world, state, crew, p, options);
+    const where = `${crew} at (${p.x}, ${p.y})${options.step ? ' mid-move' : ''}`;
+    expect(all.length > 0, where).toBe(!!w);
+    if (w) {
+        expect(all.some(a => a.from.x === w.from.x && a.from.y === w.from.y), where).toBe(true);
+        expect(Math.max(...all.map(a => OUTCOME_RANK[a.reaction.outcome])), where).toBe(OUTCOME_RANK[w.reaction.outcome]);
+    }
+    return all.length;
+}
+
+describe('every tile an unknown observer could react from', () => {
+    const xs = (list: readonly { from: Pos }[]): number[] => list.map(w => w.from.x);
+
+    it('finds the stale tiles in reach and sight, halved on a dark tile, stopped by a wall', () => {
+        // jun on (6, 0) sees the dark (7, 0) beside it, then walks to (17, 0): after the world phase only 4..30 (lit) is
+        // fresh, so 0..3 and the dark tile are stale. Armed in Public: `!` to an Alerted guard from any of them.
+        const world = fixtureWorld(['.'.repeat(40)], { dark: [P(7, 0)] });
+        let s = initialState(world, { seed: 1, crew: [{ id: 'jun', pos: P(6, 0), items: ['assaultRifle'] }] });
+        s = step(world, patch(s, x => { x.crew[0]!.pos = P(17, 0); }), { type: 'wait', crew: 'jun' }).state;
+        s = step(world, s, { type: 'endTurn' }).state;
+        expect(xs(unknownWatchers(world, s, 'jun', P(8, 0)))).toEqual([7, 3, 2, 1, 0]);
+        expect(xs(unknownWatchers(world, s, 'jun', P(9, 0)))).toEqual([7, 3, 2, 1]);
+        // On the dark tile the reach halves to 4, and the tile itself counts.
+        expect(xs(unknownWatchers(world, s, 'jun', P(7, 0)))).toEqual([7, 3]);
+        expect(unknownWatchers(world, s, 'jun', P(16, 0))).toEqual([]);
+        // A wall between 14 and 15: only 14 sees past it, of the unseen street east of jun's 13 tiles.
+        const walled = fixtureWorld(['.'.repeat(40)], { walls: [{ between: [P(14, 0), P(15, 0)] }] });
+        const w = initialState(walled, { seed: 1, crew: [{ id: 'jun', pos: P(0, 0), items: ['assaultRifle'] }] });
+        expect(xs(unknownWatchers(walled, w, 'jun', P(10, 0)))).toEqual([14]);
+        const open = fixtureWorld(['.'.repeat(40)]);
+        expect(xs(unknownWatchers(open, initialState(open, { seed: 1, crew: [{ id: 'jun', pos: P(0, 0), items: ['assaultRifle'] }] }), 'jun', P(10, 0))))
+            .toEqual([14, 15, 16, 17, 18]);
+        for (const x of [7, 8, 9, 10, 16]) watchersAgree(world, s, 'jun', P(x, 0));
+    });
+
+    it('keeps only the tiles a reaction comes from: Clean in Public, within frisk range', () => {
+        const world = fixtureWorld(['.'.repeat(40)]);
+        const state = initialState(world, { seed: 1, crew: [{ id: 'jun', pos: P(0, 0) }] });
+        const near = unknownWatchers(world, state, 'jun', P(12, 0));
+        expect(near.length).toBeGreaterThan(0);
+        expect(near.every(w => Math.abs(w.from.x - 12) <= world.rules.friskRange && w.reaction.outcome === '+1')).toBe(true);
+        expect(unknownWatchers(world, state, 'jun', P(7, 0))).toEqual([]);
+        // Mid-move only `!` counts, and a pip isn't one.
+        expect(unknownWatchers(world, state, 'jun', P(12, 0), { step: true })).toEqual([]);
+    });
+
+    it('picks the worst on a tie as before: an NPC over a camera, the nearest over the nearest within frisk range', () => {
+        // Frisk range 3: the nearest stale tile to (4, 4) is (8, 4), 4 away (Chebyshev 4); the nearest within frisk
+        // range is (7, 7), 4.2 away (Chebyshev 3). Armed in Public: `!` from both, to a guard and a camera alike.
+        const world = fixtureWorld(Array.from({ length: 12 }, () => '.'.repeat(12)), { rules: { friskRange: 3 } });
+        const n = world.width * world.height, fresh = new Uint8Array(n).fill(1);
+        fresh[4 * 12 + 8] = fresh[7 * 12 + 7] = 0;
+        const state = patch(initialState(world, { seed: 1, crew: [{ id: 'jun', pos: P(0, 0), items: ['assaultRifle'] }] }), x => {
+            x.knowledge.seen = encodeBits(new Uint8Array(n).fill(1));
+            x.knowledge.fresh = encodeBits(fresh);
+        });
+        const all = unknownWatchers(world, state, 'jun', P(4, 4));
+        expect(all.map(w => [w.from, w.reaction.outcome])).toEqual([[P(8, 4), '!'], [P(7, 7), '!']]);
+        // A camera there would see `!` too (in its core, 4 away): the guard, judged first, keeps the tie.
+        expect(world.rules.cameraRange).toBeGreaterThanOrEqual(4);
+        const camera = reaction(world.rules, {
+            look: crewLook(state.crew[0]!), notoriety: 0, observer: 'enforcer', role: null, camera: true, alerted: false, band: 'core', zone: 'public',
+            chebyshev: 4, warnedByThis: false, warnedByAny: false
+        });
+        expect(camera.outcome).toBe('!');
+        expect(unknownWatcher(world, state, 'jun', P(4, 4))).toMatchObject({ by: 'npc', observer: 'enforcer', from: P(8, 4) });
+    });
+
+    it('agrees with the worst on fixture worlds', () => {
+        let found = 0;
+        for (const start of [{}, { items: ['pistol'] }, { items: ['assaultRifle'] }, { notoriety: 2 }, { uniform: 'staff' }]) {
+            const world = fixtureWorld(['.'.repeat(40), '.'.repeat(40)], { zones: ['.'.repeat(40), '.....sss' + '.'.repeat(32)], dark: [P(9, 1)] });
+            const state = patch(initialState(world, { seed: 1, crew: [{ id: 'jun', pos: P(0, 0), items: start.items ?? [] }] }), x => {
+                x.crew[0]!.notoriety = start.notoriety ?? 0;
+                if (start.uniform) x.crew[0]!.loadout.uniform = start.uniform as never;
+            });
+            for (let y = 0; y < 2; y++) for (let x = 0; x < 40; x++) for (const step of [false, true]) found += watchersAgree(world, state, 'jun', P(x, y), { step });
+        }
+        expect(found).toBeGreaterThan(0);
+    });
+
+    it('agrees with the worst on a generated bank, through a played turn', () => {
+        let { world, state } = generatedHeist({ tier: 'city', archetype: 'atrium', layout: 2000, population: 1 }, 2);
+        let found = 0;
+        for (let turn = 0; turn < 2; turn++) {
+            for (const c of state.crew) {
+                const reach = reachable(world, crewPicture(world, state), c.pos, 10, { mover: c.id });
+                for (const t of reach.tiles) for (const step of [false, true]) found += watchersAgree(world, state, c.id, t.pos, { step });
+                const to = reach.tiles.filter(t => t.canEnd).sort((a, b) => a.pos.y - b.pos.y || a.cost - b.cost)[0];
+                const path = to && pathTo(reach, to.pos);
+                if (path?.length) state = commit(world, state, { type: 'move', crew: c.id, path }).state;
+            }
+            state = commit(world, state, { type: 'endTurn' }).state;
+        }
+        expect(found).toBeGreaterThan(0);
+    });
+
+    it('names every watcher of a hatched tile in its explanation, the worst first', () => {
+        const world = fixtureWorld(['.'.repeat(40)]);
+        const state = initialState(world, { seed: 1, crew: [{ id: 'jun', pos: P(0, 0), items: ['assaultRifle'] }] });
+        const lines = explain(world, state, 'jun', P(7, 0));
+        expect(lines[0]!.watchers).toEqual([{ from: P(14, 0), to: P(7, 0) }, { from: P(15, 0), to: P(7, 0) }]);
+        // The way there passes tiles an unseen guard could also see: their watchers, each with the tile it would see.
+        const way = lines[1]!.watchers!;
+        expect(way.length).toBeGreaterThan(0);
+        expect(way[0]!.from).toEqual(unknownWatcher(world, state, 'jun', lines[1]!.to, { step: true })!.from);
+        expect(way.every(w => w.to.x < 7 && w.from.x >= 14)).toBe(true);
     });
 });
 
