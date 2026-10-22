@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { actionMenu, menuIsLegal, targetsOf } from '../../src/game/actions';
 import { moveRange } from '../../src/game/movement';
 import type { UiState } from '../../src/game/session';
-import { actionsView, barkText, confirmView, describeEvent, doorName } from '../../src/game/views';
+import { actionsView, barkText, confirmView, crewCards, describeEvent, doorName } from '../../src/game/views';
 import {
     commit, crewPicture, dashRefusal, fixtureWorld, initialState, preview, type Facing, type ObserverClass, type PersonDef, type Pos, type ReadonlyWorld, type State,
     type WorldObject
@@ -43,7 +43,10 @@ describe('the action grid', () => {
         const { world, state } = scene();
         let s = commit(world, state, { type: 'knockout', crew: 'jun', npc: 'clerk' }).state;
         expect(ids(world, s, 'clerk')).toContain('drag');
+        expect(crewCards(world, s, 'jun')[0]!.profile).toBe('clean');
         s = commit(world, s, { type: 'drag', crew: 'jun', npc: 'clerk' }).state;
+        // Dragging a body reads Armed on the crew card (§7.4), the moment it starts.
+        expect(crewCards(world, s, 'jun')[0]!.profile).toBe('armed');
         s = commit(world, s, { type: 'endTurn' }).state;
         expect(ids(world, s)).toEqual(['door:open', 'door:lock', 'drop', 'stash', 'wait']);
         const jun = s.crew[0]!, range = moveRange(world, crewPicture(world, s), jun, dashRefusal(world, s, 'jun') === null);

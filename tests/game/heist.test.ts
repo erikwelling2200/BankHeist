@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { BANK_KEY, bankAddress, crewOrigin, M1_CREW, newHeist, playPlan, savedHeist, startHeist } from '../../src/game/heist';
-import { MemoryStorage, Session } from '../../src/game';
+import { crewCards, MemoryStorage, Session } from '../../src/game';
 import { cachedBank } from '../bankCache';
 import { reachable, tileAt } from '../../src/sim';
 
@@ -22,6 +22,19 @@ describe('a heist in a generated bank', () => {
         expect(a!.pos).not.toEqual(b!.pos);
         expect(reachable(world, state, a!.pos, 40, { mover: a!.id }).byIndex.has(b!.pos.y * world.width + b!.pos.x)).toBe(true);
         expect(state.npcs).toHaveLength(bank.people.length);
+    });
+
+    it('walks Mara in Clean and Jun Concealed with the hacking kit and the jammer (§3), as the crew cards show', () => {
+        const { world, state } = newHeist(bank);
+        const [mara, jun] = state.crew;
+        expect(mara!.loadout.items).toEqual(['zipTies']);
+        expect(jun!.loadout.items).toEqual(expect.arrayContaining(['pistol', 'hackingKit', 'jammer']));
+        expect(crewCards(world, state, null).map(c => [c.id, c.profile, c.portrait])).toEqual([['mara', 'clean', 'mara'], ['jun', 'concealed', 'jun']]);
+        // The cards follow the loadout: a mask (Heavy, the masked portrait), a loot bag (Armed, the bag badge).
+        const changed = structuredClone(state);
+        changed.crew[0]!.loadout.masked = true;
+        changed.crew[1]!.loadout.carrying = 'lootBag';
+        expect(crewCards(world, changed, null).map(c => [c.profile, c.portrait, c.carrying])).toEqual([['heavy', 'mara-m', null], ['armed', 'jun', 'loot']]);
     });
 
     it('starts with what the crew sees fresh (decision 24), and resumes with the same fresh tiles', () => {

@@ -353,7 +353,7 @@ export function mountHud(root: HTMLElement, callbacks: HudCallbacks, options: Hu
     }
 
     function hpBar(hp: CrewVM['hp']): HTMLElement {
-        if (!hp) return h('span.sh-hp.unknown', { title: 'HP unknown' }, 'HP ?');
+        if (!hp) return h('span.sh-hp.unknown', { title: 'HP unknown' }, '—');
         const bar = h(hp.now < hp.max ? 'span.sh-hp.hurt' : 'span.sh-hp');
         for (let k = 0; k < hp.max; k++) bar.append(h(k < hp.now ? 'i' : 'i.off'));
         return bar;

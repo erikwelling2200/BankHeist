@@ -363,7 +363,7 @@ describe('the HUD view models', () => {
         const hud = session.hud();
         expect(hud.turn).toBe(1);
         expect(hud.selected).toBe('jun');
-        expect(hud.crew[0]).toEqual({ id: 'jun', name: 'jun', colour: CREW_COLOURS[0], portrait: 'jun', actionsLeft: 1, actionsMax: 2, selected: true, profile: 'unknown', exposedTo: [], hp: null });
+        expect(hud.crew[0]).toEqual({ id: 'jun', name: 'jun', colour: CREW_COLOURS[0], portrait: 'jun', actionsLeft: 1, actionsMax: 2, selected: true, profile: 'clean', exposedTo: [], hp: null, carrying: null });
         expect(hud.crew[1]!.selected).toBe(false);
         expect(hud.crew[1]!.colour).toBe(CREW_COLOURS[1]);
         expect(hud.undoEnabled).toBe(true);

@@ -17,12 +17,12 @@ export const GEN_VERSION = 'gen-1';
 
 /**
  * The M1 crew: two, with placeholder loadouts until the planning screen, as GAME_DESIGN §3 has them: Mara (Smooth
- * Talker) has the zip-ties and the jammer (§12.2), no gun; Jun (Steady Hands) carries the hacking kit (the alarm
- * panel, a looped feed, §9.1) and a pistol under his jacket.
+ * Talker) has the zip-ties and nothing that shows, so she walks in Clean; Jun (Steady Hands) carries the hacking kit
+ * (the alarm panel, a looped feed, §9.1), the jammer (§12.2) and a pistol under his jacket: Concealed, two gadgets.
  */
 export const M1_CREW: readonly { id: string; name: string; look: string; items: string[]; traits: string[] }[] = [
-    { id: 'mara', name: 'Mara', look: 'crewMara', items: ['zipTies', 'jammer'], traits: ['smoothTalker'] },
-    { id: 'jun', name: 'Jun', look: 'crewJun', items: ['pistol', 'duffel', 'hackingKit'], traits: ['steadyHands'] }
+    { id: 'mara', name: 'Mara', look: 'crewMara', items: ['zipTies'], traits: ['smoothTalker'] },
+    { id: 'jun', name: 'Jun', look: 'crewJun', items: ['pistol', 'duffel', 'hackingKit', 'jammer'], traits: ['steadyHands'] }
 ];
 
 /** The tile the crew starts beside: the crew van at the curb, or else the first getaway spot, or else the lobby's door. */

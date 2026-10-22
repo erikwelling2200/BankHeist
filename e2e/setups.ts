@@ -38,6 +38,11 @@ const selectMara = async (page: Page): Promise<void> => {
     await page.locator('.sh-rail .sh-crew').nth(0).click();
 };
 
+/** Selects the second crew member (Jun) on the HUD's rail. */
+const selectJun = async (page: Page): Promise<void> => {
+    await page.locator('.sh-rail .sh-crew').nth(1).click();
+};
+
 /** Centres the camera on Mara. */
 const lookAtMara = (page: Page): Promise<void> => page.evaluate(() => {
     const p = (window as any).sim.state.crew[0].pos;
@@ -63,18 +68,14 @@ const LONE_NPC = `(() => { ${PAGE_HELPERS}
 
 export const SETUPS: Record<string, Setup> = {
     'mara-selected': {
-        about: 'Mara selected at the van as the heist starts (her jammer shows: Concealed in Public)',
+        about: 'Mara selected at the van as the heist starts (nothing shows: Clean in Public)',
         script: `(() => { ${PAGE_HELPERS} return { state: clone(sim.state), info: {} }; })()`,
         then: selectMara
     },
-    'mara-clean': {
-        about: 'Mara selected at the van with nothing showing (her jammer left behind: Clean in Public)',
-        script: `(() => { ${PAGE_HELPERS}
-            const st = clone(sim.state);
-            st.crew[0].loadout.items = st.crew[0].loadout.items.filter(id => id !== 'jammer');
-            return { state: st, info: {} };
-        })()`,
-        then: selectMara
+    'jun-selected': {
+        about: 'Jun selected at the van as the heist starts (his pistol and jammer show: Concealed in Public)',
+        script: `(() => { ${PAGE_HELPERS} return { state: clone(sim.state), info: {} }; })()`,
+        then: selectJun
     },
     'mara-armed': {
         about: 'Mara selected at the van with a rifle in hand (Armed in Public: unknown risk wherever unseen space sees)',

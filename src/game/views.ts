@@ -1,5 +1,5 @@
 import {
-    CARRIERS, DASH_ACTIONS, knownCarriers, markerKind, walkingToAlarm, MOVE_ACTIONS, nextDriveBy, type CarrierChanges, type CarrierPreview, type Command, type ReadonlyWorld, type SimEvent, type State
+    CARRIERS, crewLook, DASH_ACTIONS, knownCarriers, markerKind, walkingToAlarm, MOVE_ACTIONS, nextDriveBy, type CarrierChanges, type CarrierPreview, type Command, type ReadonlyWorld, type SimEvent, type State
 } from '../sim';
 import {
     CREW_COLOURS, OVERLAY_IDS, type ActionVM, type BankStatus, type CommitKind, type ConfirmVM, type HudIcon, type BankStatusVM, type CrewVM, type HudViewModel, MAX_ACTIONS, type OverlayId, type RecapEventVM,
@@ -11,7 +11,7 @@ import type { UiState } from './session';
 /*
  * View models for the HUD (implementation plan §2.5): plain objects made from the state, so the HUD never reads
  * `State` itself and a rule can change the state's shape without touching the HUD. The types are the HUD's contract
- * (src/ui/hud/viewModels.ts); fields the later packages fill in (profile, HP, heat, actions) are placeholders for now.
+ * (src/ui/hud/viewModels.ts); fields the later packages fill in (HP until M3) are placeholders for now.
  */
 
 /** The portrait an NPC's role wears in the ledger (src/ui/hud/img); roles without one show their initial. */
@@ -128,7 +128,12 @@ const crewColour = (index: number): string => CREW_COLOURS[index % CREW_COLOURS.
 
 /** The crew members with a portrait of their own (src/ui/hud/img), by id; the rest show their initial. */
 const PORTRAITS: ReadonlySet<string> = new Set(['mara', 'jun', 'dex', 'sol']);
-const portraitOf = (id: string): { portrait?: string } => (PORTRAITS.has(id) ? { portrait: id } : {});
+/** A crew member's portrait: their own, masked (`-m`) while the mask is on (§6.3). */
+const portraitOf = (c: State['crew'][number]): { portrait?: string } =>
+    (PORTRAITS.has(c.id) ? { portrait: c.loadout.masked ? `${c.id}-m` : c.id } : {});
+
+/** What the crew card shows carried: a loot bag (a body only raises the profile, §7.4). */
+const carriedOf = (c: State['crew'][number]): CrewVM['carrying'] => (c.loadout.carrying === 'lootBag' ? 'loot' : null);
 
 const exposedTo = (state: State, crew: string): string[] => state.npcs.filter(n => n.exposedTo.includes(crew)).map(n => n.id);
 
@@ -137,13 +142,15 @@ export function crewCards(world: ReadonlyWorld, state: State, selected: string |
         id: c.id,
         name: c.name,
         colour: crewColour(i),
-        ...portraitOf(c.id),
+        ...portraitOf(c),
         actionsLeft: c.actionsLeft,
         actionsMax: world.rules.actionsPerTurn,
-        profile: 'unknown',
+        // The profile from what shows (§7.4), before any observer's reading; the same look the safe floor reads.
+        profile: crewLook(c).profile,
         exposedTo: exposedTo(state, c.id),
         hp: null,
-        selected: c.id === selected
+        selected: c.id === selected,
+        carrying: carriedOf(c)
     }));
 }
 
@@ -270,7 +277,7 @@ export function recapView(world: ReadonlyWorld, state: State, recent: readonly S
         bank: bankView(state),
         events,
         crew: state.crew.map((c, i) => ({
-            id: c.id, name: c.name, colour: crewColour(i), ...portraitOf(c.id),
+            id: c.id, name: c.name, colour: crewColour(i), ...portraitOf(c),
             status: c.actionsLeft > 0 ? 'ready' : 'done',
             actionsLeft: c.actionsLeft,
             exposed: exposedTo(state, c.id).length > 0,

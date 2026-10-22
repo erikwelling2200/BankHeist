@@ -582,8 +582,8 @@ Each package lists its goal, the design sections it covers, the files, what it d
       swinging shut (a door stays open while someone stands beside it); the staff corridors have corners near the
       alarm closet where nobody looks for 50 turns; and after closing (turn 44) the lone guard's closing sweep takes him
       just inside the alarm closet on turn 70, with his back to the door.
-    - **The crew** (GAME_DESIGN §3): Mara (Smooth Talker) has the zip-ties and the jammer, no gun; Jun (Steady
-      Hands) carries the hacking kit, a duffel and a concealed pistol.
+    - **The crew** (GAME_DESIGN §3): Mara (Smooth Talker) has the zip-ties, no gun, and walks in Clean; Jun (Steady
+      Hands) carries the hacking kit, the jammer, a duffel and a concealed pistol (Concealed, two gadgets).
     - **The scripted run** (`e2e/play.spec.ts`, "the M1 heist", @smoke, ~30 s), through `window.sim`'s commands
       only (`safeFloor` + `commit`, `waitOptions` + `waitFor`, `endTurn`): Mara and Jun walk in from the van to the
       lobby; "Wait for…" the known schedule events until turn 10; Jun slips through the staff door behind the cleaner
