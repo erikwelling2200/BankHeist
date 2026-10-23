@@ -3,7 +3,7 @@ import type { PendingOdds } from '../core/rng';
 import type { CarrierKind, Command, Pos, ReadonlyWorld, SimEvent, State } from '../core/types';
 import { eventClass } from '../core/undo';
 import type { NoiseKind } from '../data/noise';
-import { inRing, soundRing, type Ring } from '../geo/sound';
+import { DEAF_STATUSES, inRing, soundRing, type Ring } from '../geo/sound';
 import { carrierPreview, projectCarriers, type CarrierPreview } from '../rules/carriers';
 import { hearing } from '../rules/evidence';
 import { doorDoubt, doubtStates, narrowDoubt, previewCertain, projectPreviewEvents } from '../rules/knowledge';
@@ -116,7 +116,8 @@ function noisesOf(world: ReadonlyWorld, before: State, result: PreviewResult, sh
         let unsure = false;
         if (states) {
             const open = soundRing(world, states.open, e.sources, e.radius), shut = soundRing(world, states.shut, e.sources, e.radius);
-            unsure = picture.npcs.some(n => loudness(open, n.pos) !== loudness(shut, n.pos));
+            // Only those who could hear count: the picture keeps the unknown at their real tiles, marked 'away'.
+            unsure = picture.npcs.some(n => !DEAF_STATUSES.has(n.status) && loudness(open, n.pos) !== loudness(shut, n.pos));
         }
         const ears = e.heard.map((npc): Ear => {
             const h = react.get(npc);

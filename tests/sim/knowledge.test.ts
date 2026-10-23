@@ -709,6 +709,62 @@ describe('doors not seen this turn (decision 44)', () => {
         }
     });
 
+    it('previews a move through a door that could be locked as stopped before it, the drawn path aside', () => {
+        // The doorway with a lock on the door: built closed, never seen. Through it, the far guard sees masked jun on (21, 1).
+        const walls: FixtureOptions['walls'] = [0, 1, 2].map(y => ({
+            between: [P(20, y), P(21, y)] as [Pos, Pos], ...(y === 1 ? { door: { id: 'd', lock: 'mechanical' as const, start: 'closed' as const } } : {})
+        }));
+        const people = [clerk(P(24, 1), { id: 'guard', role: 'guard', observer: 'enforcer' })];
+        const world = freezeWorld({ ...(clonePlain(fixtureWorld(Array.from({ length: 3 }, () => '.'.repeat(26)), { walls, people })) as World), intel: { guardRota: true } });
+        const state = patch(initialState(world, { seed: 1, crew: [{ id: 'jun', pos: P(6, 1), masked: true }] }), s => { s.crew[0]!.pos = P(16, 1); });
+        expect(markerKind(world, state, 'guard')).toBe('predicted');
+        const path = [P(17, 1), P(18, 1), P(19, 1), P(20, 1), P(21, 1)];
+        for (const type of ['move', 'dash'] as const) {
+            const cmd: Command = { type, crew: 'jun', path };
+            // The truth with the door closed: jun walks through it and the guard is alerted.
+            expect(step(world, state, cmd).events).toContainEqual(expect.objectContaining({ type: 'alerted', npc: 'guard' }));
+            const r = previewCertain(world, state, cmd), shown = projectPreviewEvents(world, state, r);
+            // Nothing of what only the steps beyond the door would cause: no witness, no alert, no noise from (21, 1).
+            expect(shown.some(e => 'npc' in e && e.npc === 'guard')).toBe(false);
+            expect(shown.find(e => e.type === 'moved')).toMatchObject({ to: P(21, 1), path });
+            expect(shown.some(e => e.type === 'moveCut' || e.type === 'doorOpened')).toBe(false);
+            if (type === 'dash') expect(shown.find(e => e.type === 'noise')).toMatchObject({ sources: path.slice(0, 4) });
+            expect(r.state.crew[0]!.pos).toEqual(P(20, 1));
+            expect(r.state.doors.d!.status).toBe('closed');
+            expect(r.state.knowledge.doors.d).toBeUndefined();
+            const a = actionPreview(world, state, cmd);
+            if (!a.ok) throw new Error(a.reason);
+            expect(a).toMatchObject({ witnesses: [], undoable: true, carriers: { starts: [], worldPhase: [] } });
+        }
+    });
+
+    it('marks who is sent to look whoever unknown stands behind a door not seen this turn', () => {
+        // The doorway with one guard predicted at (18, 2) and, or not, an unknown clerk just behind the door at (21, 1).
+        const build = (behind: boolean): { world: ReadonlyWorld; state: State } => {
+            const walls: FixtureOptions['walls'] = [0, 1, 2].map(y => ({
+                between: [P(20, y), P(21, y)] as [Pos, Pos], ...(y === 1 ? { door: { id: 'd', start: 'closed' as const } } : {})
+            }));
+            const people = [
+                clerk(P(18, 2), { id: 'guard', role: 'guard', observer: 'enforcer', schedule: [{ from: 1, activity: 'post', label: 'post', room: '', at: P(18, 2), facing: 'w' }] }),
+                ...(behind ? [clerk(P(21, 1), { facing: 'e', schedule: [{ from: 1, activity: 'post', label: 'post', room: '', at: P(21, 1), facing: 'e' }] })] : [])
+            ];
+            const world = freezeWorld({ ...(clonePlain(fixtureWorld(Array.from({ length: 3 }, () => '.'.repeat(26)), { walls, people })) as World), intel: { guardRota: true } });
+            const state = patch(initialState(world, { seed: 1, crew: [{ id: 'jun', pos: P(6, 1), masked: true }] }), s => { s.crew[0]!.pos = P(16, 1); });
+            return { world, state };
+        };
+        const ears = [false, true].map(behind => {
+            const { world, state } = build(behind);
+            expect(doorDoubt(world, state)?.doors.has('d')).toBe(true);
+            expect(markerKind(world, state, 'guard')).not.toBeNull();
+            if (behind) expect(markerKind(world, state, 'clerk')).toBeNull();
+            const shown = actionPreview(world, state, { type: 'dash', crew: 'jun', path: [P(17, 1), P(18, 1), P(19, 1)] });
+            if (!shown.ok) throw new Error(shown.reason);
+            return shown.noises.map(n => ({ ears: n.ears, unsure: !!n.sentUnsure }));
+        });
+        expect(ears[0]).toEqual([{ ears: [expect.objectContaining({ npc: 'guard', sent: true })], unsure: false }]);
+        expect(ears[1]).toEqual(ears[0]);
+    });
+
     it('judges by the door as it is once it is seen this turn', () => {
         const { world, state } = doorway('open', true);
         expect(knownDoorStatus(world, state, 'd')).toBe('open');
@@ -1277,5 +1333,24 @@ describe('nothing shown comes from what stands on a hidden tile (decision 44)', 
         expect(found[1]).toEqual(found[0]);
         // The desk's own tile is among them: nobody knows it is there.
         expect(found[1]![0]!.split(' ')).toContain('12,1');
+    });
+});
+
+describe('who a noise sends to look', () => {
+    it('marks sent the one NPC the commit sends, whoever is already investigating', () => {
+        // Guard a is sent by jun's dash; mara's dash is heard by a and by b, nearer: b is sent, a goes back to looking.
+        const guard = (id: string, pos: Pos): PersonDef => clerk(pos, {
+            id, role: 'guard', observer: 'enforcer', facing: 's', schedule: [{ from: 1, activity: 'post', label: 'post', room: '', at: pos, facing: 's' }]
+        });
+        const world = fixtureWorld(Array.from({ length: 3 }, () => '.'.repeat(30)), { people: [guard('a', P(12, 0)), guard('b', P(15, 1))] });
+        const start = initialState(world, { seed: 1, crew: [{ id: 'jun', pos: P(8, 0) }, { id: 'mara', pos: P(16, 2) }] });
+        const state = step(world, start, { type: 'dash', crew: 'jun', path: [P(9, 0), P(10, 0), P(11, 0)] }).state;
+        expect(state.npcs.find(n => n.id === 'a')!.status).toBe('investigating');
+        const dash: Command = { type: 'dash', crew: 'mara', path: [P(15, 2), P(14, 2), P(13, 2)] };
+        const shown = actionPreview(world, state, dash);
+        if (!shown.ok) throw new Error(shown.reason);
+        expect(shown.noises.map(n => n.ears)).toEqual([[{ npc: 'a', status: 'curious', sent: false }, { npc: 'b', status: 'investigating', sent: true }]]);
+        const after = step(world, state, dash).state;
+        expect(after.npcs.map(n => [n.id, n.status, n.goal.kind])).toEqual([['a', 'curious', 'look'], ['b', 'investigating', 'inspect']]);
     });
 });

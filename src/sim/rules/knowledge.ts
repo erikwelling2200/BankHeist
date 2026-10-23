@@ -1,6 +1,6 @@
 import { preview, registerCommandHook, type CommitResult, type PreviewResult } from '../core/engine';
 import { facingToward, inBounds } from '../core/grid';
-import { sortedIds } from '../core/json';
+import { samePlain, sortedIds } from '../core/json';
 import { registerStateCheck } from '../core/save';
 import { crewMember, registerRuleDefaults, registerStateInit } from '../core/state';
 import type {
@@ -1311,49 +1311,42 @@ function crossedWithin(
     return false;
 }
 
-/** Events of someone noticing a crew member (`Witness` in preview/action.ts). */
-const WITNESS_EVENTS: ReadonlySet<string> = new Set(['perceptionCheck', 'suspicionRaised', 'exposed', 'challenged', 'cameraSaw']);
-
-/** The NPC or camera that noticed, of a witness event. */
-const witnessOf = (e: SimEvent): string | undefined => (e as { npc?: string; camera?: string }).npc ?? (e as { camera?: string }).camera;
-
 /**
  * A command previewed for the player (§8.8): on the truth with every door the crew can't vouch for shut
  * (`withDoubtedShut`), so all it sees and hears happens however those doors really stand, and nothing of how they stand
- * shows (decision 44). A move or dash through such a door that could refuse the mover (`doorMayRefuse`) walks on in it,
- * but would stop before that door if it refused: of who notices the mover, only what the path up to that door shows
- * too is kept (as the path up to it shows it), as the safe floor hatches the steps beyond. Project its events with
- * `projectPreviewEvents`.
+ * shows (decision 44). A move or dash through such a door that could refuse the mover (`doorMayRefuse`) is previewed
+ * with that door refusing: every event and the state are those of the move stopped before it, the certain part
+ * whichever way it goes, as the safe floor hatches the steps beyond. The `moved` event still shows the drawn path, and
+ * neither the cut nor the door's status found shows. Project its events with `projectPreviewEvents`.
  */
 export function previewCertain(world: ReadonlyWorld, state: State, cmd: Command): PreviewResult {
     const shut = withDoubtedShut(world, state), result = preview(world, shut, cmd);
     if (cmd.type !== 'move' && cmd.type !== 'dash') return result;
     const member = state.crew.find(c => c.id === cmd.crew), d = doorDoubt(world, state);
     if (!member || !d) return result;
-    let prev: DeepReadonly<Pos> = member.pos, refuse = -1;
-    for (let i = 0; i < cmd.path.length && refuse < 0; i++) {
-        if (doorMayRefuse(world, d, member, prev, cmd.path[i]!)) refuse = i;
+    let prev: DeepReadonly<Pos> = member.pos, door: string | undefined;
+    for (let i = 0; i < cmd.path.length && !door; i++) {
+        if (doorMayRefuse(world, d, member, prev, cmd.path[i]!)) door = doorBetween(world, { x: prev.x, y: prev.y }, cmd.path[i]!)!.id;
         prev = cmd.path[i]!;
     }
-    if (refuse < 0) return result;
-    let part: readonly SimEvent[] = [];
-    if (refuse > 0) {
-        try {
-            part = preview(world, shut, { ...cmd, path: cmd.path.slice(0, refuse) }).events;
-        } catch {
-            part = [];
-        }
+    if (!door) return result;
+    const was = Object.hasOwn(shut.doors, door) ? shut.doors[door]! : { status: doorStatus(world, shut, door) };
+    const refused = preview(world, { ...shut, doors: { ...shut.doors, [door]: { ...was, status: 'locked' } } }, cmd);
+    // The door as shut and as known before: the preview never tells how it stands.
+    refused.state.doors[door] = { ...was };
+    if (Object.hasOwn(state.knowledge.doors, door)) refused.state.knowledge.doors[door] = state.knowledge.doors[door]!;
+    else delete refused.state.knowledge.doors[door];
+    const drawn = result.events.find(e => e.type === 'moved' && e.crew === member.id);
+    const events: SimEvent[] = [];
+    for (const e of refused.events) {
+        if (e.type === 'moveCut' && e.crew === member.id && e.reason === 'door' && e.door === door) continue;
+        events.push(e.type === 'moved' && e.crew === member.id && drawn ? drawn : e);
     }
-    const events: SimEvent[] = [], used = new Set<SimEvent>();
-    for (const e of result.events) {
-        if (!WITNESS_EVENTS.has(e.type) || (e as { crew?: string }).crew !== member.id) { events.push(e); continue; }
-        const same = part.find(f => !used.has(f) && f.type === e.type && witnessOf(f) === witnessOf(e)
-            && (f as { crew?: string }).crew === member.id);
-        if (!same) continue;
-        used.add(same);
-        events.push(same);
-    }
-    return { ...result, events };
+    if (drawn && !events.includes(drawn)) events.unshift(drawn);
+    // As the engine judges it (core/engine.ts `run`), without the cut that never shows.
+    const undoable = !refused.pending && !refused.rolls.length && !events.some(e => eventClass(e.type).undoBlocking)
+        && samePlain(refused.state.npcs, shut.npcs) && samePlain(refused.state.carriers, shut.carriers) && samePlain(refused.state.bank, shut.bank);
+    return { ...refused, events, undoable };
 }
 
 /**
