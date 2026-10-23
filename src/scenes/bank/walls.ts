@@ -168,6 +168,11 @@ export class Walls {
         return this.heights.liftAt(x, y);
     }
 
+    /** The step every raised floor is cut to now, as one string (`Heights.steps`). */
+    get raisedSteps(): string {
+        return this.heights.steps;
+    }
+
     /** Dressing hung on the face of an east-west wall goes out of view while that wall is cut below its top. */
     hang(box: Box, images: Phaser.GameObjects.Image[]): void {
         const wall = this.sprites.find(w => w.wall.run === 'eastWest' && w.base === box.y && w.image.x < box.x + box.w && w.image.x + TILE > box.x);

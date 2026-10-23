@@ -1,7 +1,7 @@
 import { clonePlain, samePlain } from '../core/json';
 import { crewMember } from '../core/state';
 import type { CrewState, DeepReadonly, Intent, NpcState, Pos, ReadonlyWorld, State } from '../core/types';
-import { crewBudget, crewMoveOptions, dashRefusal, planningState, type MoveMode } from '../crew/movement';
+import { crewBudget, dashRefusal, planMoveOptions, planningState, type MoveMode } from '../crew/movement';
 import { npcObserver, cameraObserver, type Observer } from '../geo/cones';
 import { MOVE_ACTIONS } from '../data/movement';
 import { NOISES } from '../data/noise';
@@ -656,7 +656,7 @@ function jobFor(world: ReadonlyWorld, state: State, crewId: string, options: Flo
     const moveBudget = member.actionsLeft >= MOVE_ACTIONS ? crewBudget(world, member, 'move') : 0;
     const dash = (options.dash ?? true) && !dashRefusal(world, state, crewId);
     const budget = dash ? Math.max(moveBudget, crewBudget(world, member, 'dash')) : moveBudget;
-    const reach = reachable(world, onFloor(planningState(world, state)), member.pos, budget, crewMoveOptions(member)).tiles;
+    const reach = reachable(world, onFloor(planningState(world, state)), member.pos, budget, planMoveOptions(world, state, member)).tiles;
     const width = world.width, index = (p: Pos): number => p.y * width + p.x;
     const nodes = new Map<number, FloorNode>(), tiles: FloorTile[] = [];
     const bandOf = (t: ReachTile): FloorBand => (t.parent ? (t.cost <= moveBudget ? 'move' : 'dash') : 'stay');
@@ -798,7 +798,7 @@ export function judgePath(
 ): { ok: false; reason: string; at: number } | { ok: true; mode: MoveMode; steps: PathStep[]; firstUnsafe: number | null; end: FloorTile; judged: Judged } {
     const judge = judgeFor(world, state, crewId, options.look);
     const member = crewMember(state, crewId);
-    const plan = onFloor(planningState(world, state)), moves = crewMoveOptions(member);
+    const plan = onFloor(planningState(world, state)), moves = planMoveOptions(world, state, member);
     const moveBudget = crewBudget(world, member, 'move'), dashBudget = crewBudget(world, member, 'dash');
     const people = occupancy(world, plan, moves);
     const free = (p: Pos): boolean => (people.get(p.y * world.width + p.x) ?? 'none') === 'none';

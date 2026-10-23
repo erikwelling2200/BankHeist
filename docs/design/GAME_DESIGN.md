@@ -540,8 +540,8 @@ When a crew member is selected, every reachable tile is tinted:
 | **Red** (eye icon) | Someone Exposes this crew member. |
 | **Hatched** version of amber or red | The same outcome, but it happens during the coming world phase as NPCs walk their committed paths. |
 | **Red with a camera icon** | A camera would see a `!` and start the operator's verify carrier. Cameras whose feed status is unknown (CCTV room not scouted) count as live. |
-| **Grey** | No data: a hidden tile (§8.15), neither on the blueprint's layout nor ever seen. **Never drawn as safe.** Public floor is never grey. |
-| **Hatched grey** | Unknown risk: someone the crew doesn't know about could be watching the tile (§8.15), and could react to this crew member there (judged at its worst: Alerted, any role; a camera as live): an NPC from a tile a person can stand on (not furniture) that the crew hasn't seen since the last world phase (stale or hidden), or a camera from a hidden tile, looking through any door not seen this turn as if open. A camera anywhere else is known. Also any tile reached through a door not seen this turn that could be locked against the crew member. A door not seen this turn (doors move unseen) is judged shut, so every tint shows what happens however it stands: certain danger always shows (red, the eye, a hand, pips). Where such a door could make it worse, the tint is hatched grey over (a tile that is green for certain becomes hatched grey); a red tile can't get worse and isn't. |
+| **Grey** | No data: a hidden tile (§8.15), neither on the blueprint's layout nor ever seen. **Never drawn as safe**, and no move is planned into it: the safe floor stops at its edge. Public floor is never grey. |
+| **Hatched grey** | Unknown risk: someone the crew doesn't know about could be watching the tile (§8.15), and could react to this crew member there (judged at its worst: Alerted, any role; a camera as live): an NPC from a tile the crew hasn't seen since the last world phase (anywhere on a hidden tile; on a stale one, not on furniture), or a camera from a hidden tile, looking through any door not seen this turn as if open and across whatever a hidden room holds (only its outline, as drawn, stops them). A camera anywhere else is known. Also any tile reached through a door not seen this turn that could be locked against the crew member. A door not seen this turn (doors move unseen) is judged shut, so every tint shows what happens however it stands: certain danger always shows (red, the eye, a hand, pips). Where such a door could make it worse, the tint is hatched grey over (a tile that is green for certain becomes hatched grey); a red tile can't get worse and isn't. |
 
 Rules:
 
@@ -689,7 +689,9 @@ The player sees the bank through the crew's eyes. This holds in stealth and in a
   Every other tile is *not seen this turn*, under a grey veil; public floor starts there, never hidden. Under the veil
   what doesn't move (furniture, cameras) is known; what moves isn't: NPCs show there only as predicted markers or
   ghosts, and doors as the crew last saw them. A move through a door that turns out locked stops in front of it, the
-  action spent, as a bump into an unseen NPC does.
+  action spent, as a bump into an unseen NPC does. No move is planned into or through a hidden tile: a room is entered
+  once its tiles have been seen (from its doorway, say). Unknown observers may be anywhere in a hidden room, and see
+  across what it holds: nothing the player is shown is drawn from what is on a hidden tile.
 - **Cameras:** with the CCTV room under control (operator neutralised and a crew member at the console), the player
   also sees what every live camera sees. Looped feeds show nothing.
 - **Sound pings:** loud noises within a crew member's hearing (gunfire, breaching, a scream, police running in) show

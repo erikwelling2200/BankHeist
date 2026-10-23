@@ -3,7 +3,7 @@ import type { GenerateOptions } from '../../src/gen/generate';
 import { cachedBank } from '../bankCache';
 import {
     bandAt, cameraObserver, clonePlain, commit, crewLook, crewPicture, decodeBits, explain, pathSafety, reaction, safeFloor, unknownWatcher, unknownWatchers, deserialise, encodeBits, fieldOn, fixtureWorld, floorKnowledge, freezeWorld,
-    doorStatus, hashOf, initialState, isKnownNow, knownDoorStatus, tileVisibility, isUnknownRisk, noticedUnseen, pathTo, previewCertain, projectPreviewEvents, SaveFormatError, knownBlockers, knownView, makeNoise, markerKind, npcObserver, preview, previewPicture, projectEvents, reachable,
+    doorStatus, hashOf, initialState, isKnownNow, knownDoorStatus, tileVisibility, isUnknownRisk, noticedUnseen, pathTo, previewCertain, projectPreviewEvents, SaveFormatError, knownBlockers, knownView, makeNoise, markerKind, npcObserver, planMoveOptions, planRoute, preview, previewPicture, projectEvents, reachable,
     serialise, sightMap, tileAt, updateKnowledge, worldFromBank, withLayoutCameras, interruptsOf, actionPreview, doorDoubt, overlayTiles, previewDanger, safeLeg, sightDoubted, type Command, type FixtureOptions, type PersonDef, type Pos, type ReadonlyWorld,
     type SimEvent, type State, type UnknownOptions, type World
 } from '../../src/sim';
@@ -76,21 +76,30 @@ describe('seen tiles and the blueprint', () => {
         expect(floorKnowledge(bought, state, P(6, 1))).toBe('unknownRisk');
     });
 
-    it('reveals what lies behind a door, the room, its camera and the CCTV feeds: a final move', () => {
+    it('reveals what lies behind a door, the room, its camera and the CCTV feeds: a final action', () => {
         const { world, state } = build();
         const inside = step(world, state, { type: 'move', crew: 'jun', path: [P(1, 1), P(2, 1)] });
         expect(revealed(inside.events)).toEqual([]);
         expect(inside.undoable).toBe(true);
-        const through = step(world, inside.state, { type: 'move', crew: 'jun', path: [P(3, 1), P(4, 1), P(5, 1)] });
-        expect(revealed(through.events)).toEqual(['tiles 9', 'room staff', 'camera cam', 'cctv desk']);
+        // No move is planned into the hidden room: its door is opened first.
+        expect(() => commit(world, inside.state, { type: 'move', crew: 'jun', path: [P(3, 1), P(4, 1), P(5, 1)] })).toThrow(/Can't step from \(4, 1\) to \(5, 1\)/);
+        const atDoor = step(world, inside.state, { type: 'move', crew: 'jun', path: [P(3, 1), P(4, 1)] });
+        expect(revealed(atDoor.events)).toEqual([]);
+        const open: Command = { type: 'door', crew: 'jun', door: 'd', action: 'open' };
+        const next = step(world, atDoor.state, { type: 'endTurn' }).state;
+        const through = step(world, next, open);
+        // From the doorway the corners beside the door stay hidden.
+        expect(revealed(through.events)).toEqual(['tiles 7', 'room staff', 'camera cam', 'cctv desk']);
         expect(through.undoable).toBe(false);
         expect(knownView(world, through.state).cameras).toEqual([{ id: 'cam', pos: P(7, 0), facings: ['s'], status: 'live', monitored: false }]);
+        // Seen from the doorway, the room can be walked into.
+        expect(step(world, through.state, { type: 'move', crew: 'jun', path: [P(5, 1), P(6, 1)] }).state.crew[0]!.pos).toEqual(P(6, 1));
         // Before the CCTV room is scouted, a known camera's status is unknown (it counts as live, §8.8).
         const noDesk = freezeWorld({ ...(clonePlain(world) as World), objects: [] });
-        const s2 = step(noDesk, initialState(noDesk, { seed: 1, crew: [{ id: 'jun', pos: P(4, 1) }] }), { type: 'move', crew: 'jun', path: [P(5, 1)] }).state;
+        const s2 = step(noDesk, initialState(noDesk, { seed: 1, crew: [{ id: 'jun', pos: P(4, 1) }] }), open).state;
         expect(knownView(noDesk, s2).cameras[0]!.status).toBe('unknown');
         // Preview and commit agree on it.
-        expect(preview(world, inside.state, { type: 'move', crew: 'jun', path: [P(3, 1), P(4, 1), P(5, 1)] }).undoable).toBe(false);
+        expect(preview(world, next, open).undoable).toBe(false);
     });
 
     it('stores the tiles compactly and reads them back', () => {
@@ -410,7 +419,8 @@ describe('tile visibility (decision 44)', () => {
         const { world, state } = build();
         expect(tileVisibility(world, state, P(6, 1))).toBe('hidden');
         expect(floorKnowledge(world, state, P(6, 1))).toBe('hidden');
-        const inside = step(world, state, { type: 'move', crew: 'jun', path: [P(1, 1), P(2, 1), P(3, 1), P(4, 1), P(5, 1)] }).state;
+        const opened = step(world, patch(state, s => { s.crew[0]!.pos = P(4, 1); }), { type: 'door', crew: 'jun', door: 'd', action: 'open' }).state;
+        const inside = step(world, opened, { type: 'move', crew: 'jun', path: [P(5, 1)] }).state;
         expect(tileVisibility(world, inside, P(6, 1))).toBe('seen');
         // Back out, the door swings shut behind them: the room is no longer seen, but never hidden again.
         const out = step(world, patch(inside, s => { s.crew[0]!.pos = P(0, 0); }), { type: 'endTurn' }).state;
@@ -418,19 +428,19 @@ describe('tile visibility (decision 44)', () => {
         expect(knownView(world, out).visibility[1 * world.width + 6]).toBe(1);
     });
 
-    it('greys the safe floor on hidden tiles only', () => {
+    it('leaves hidden tiles out of the safe floor: no move is planned into them', () => {
         // Beside the door: the staff room behind it is hidden, the lobby seen.
         const { world } = build();
         const beside = initialState(world, { seed: 1, crew: [{ id: 'jun', pos: P(4, 1) }] });
         const floor = safeFloor(world, beside, 'jun');
-        let hidden = 0;
+        expect(floor.tiles.length).toBeGreaterThan(1);
         for (const t of floor.tiles) {
-            const v = tileVisibility(world, beside, t.pos);
-            expect(t.knowledge === 'hidden', `(${t.pos.x}, ${t.pos.y})`).toBe(v === 'hidden');
-            if (t.tint.kind === 'grey') expect(v).toBe('hidden');
-            if (v === 'hidden') hidden++;
+            expect(tileVisibility(world, beside, t.pos), `(${t.pos.x}, ${t.pos.y})`).not.toBe('hidden');
+            expect(t.knowledge).not.toBe('hidden');
+            expect(t.tint.kind).not.toBe('grey');
         }
-        expect(hidden).toBeGreaterThan(0);
+        expect(floor.at(P(5, 1))).toBeUndefined();
+        expect(pathSafety(world, beside, 'jun', [P(5, 1)]).ok).toBe(false);
         // Public floor round a corner nobody has seen: stale, judged, never grey.
         const corner = fixtureWorld(['.'.repeat(10), ...Array.from({ length: 4 }, () => '.'.repeat(10))], {
             walls: [
@@ -528,6 +538,17 @@ describe('doors not seen this turn (decision 44)', () => {
         expect(safeFloor(plain.world, plain.state, 'jun').at(P(9, 4))!.unknownPath).toBe(false);
     });
 
+    it('marks the unsafe tiles of a route the same however the door really stands', () => {
+        // Leg 1 runs up to the door and through it: a locked one would cut it in the truth, which the marks never show.
+        const route = [P(9, 0), ...Array.from({ length: 9 }, (_, i) => P(9, i + 1))];
+        const plans = (['none', 'mechanical'] as const).map(lock => {
+            const { world, state } = build(lock);
+            const plan = planRoute(world, state, 'jun', route, { safety: true });
+            return { legs: plan.legs.map(l => `${l.turn}:${l.path.length}`), unsafe: plan.unsafe };
+        });
+        expect(plans[1]).toEqual(plans[0]);
+    });
+
     it('pictures a door never seen as closed, and hatches a way through it when it could be locked', () => {
         // Two rooms at x 0..9 split by a wall at 4|5 with a door at row 1, walled off from a public hall at x 10..29
         // where jun starts (seeing x >= 16); then jun stands at (3, 1) beside the door, nothing new seen.
@@ -550,10 +571,11 @@ describe('doors not seen this turn (decision 44)', () => {
         expect(step(locked.world, locked.state, { type: 'move', crew: 'jun', path: reached(locked).path }).events)
             .toContainEqual(expect.objectContaining({ type: 'moveCut', reason: 'door', status: 'locked' }));
         expect(reached(build('none', '.')).unknownPath).toBe(false);
-        // Between hidden tiles only, even whether it locks is unknown.
+        // Between hidden tiles only, even whether it locks is unknown; nothing is planned into them either.
         const hidden = build('none', 's');
         expect(tileVisibility(hidden.world, hidden.state, P(4, 1))).toBe('hidden');
-        expect(reached(hidden).unknownPath).toBe(true);
+        expect(doorDoubt(hidden.world, hidden.state)?.unknownLock.has('d')).toBe(true);
+        expect(safeFloor(hidden.world, hidden.state, 'jun').at(P(6, 1))).toBeUndefined();
     });
 
     // A corridor split by a wall at 20|21 with a door at row 1 (no lock, built closed, never seen). The rota predicts two
@@ -921,11 +943,11 @@ function watchersAgree(world: ReadonlyWorld, state: State, crew: string, p: Pos,
         expect(Math.max(...all.map(a => OUTCOME_RANK[a.reaction.outcome])), where).toBe(OUTCOME_RANK[w.reaction.outcome]);
         expect(isUnknownRisk(world, state, p), where).toBe(true);
     }
-    // An NPC only where a person can stand on a tile not fresh; a camera only on a tile never seen.
+    // An NPC only on a tile not fresh, off known furniture (anywhere hidden); a camera only on a tile never seen.
     const n = world.width * world.height, seen = decodeBits(state.knowledge.seen, n), fresh = decodeBits(state.knowledge.fresh, n);
     for (const a of all) {
-        const j = a.from.y * world.width + a.from.x;
-        if (a.by === 'npc') expect(!fresh[j] && !world.tiles[j]!.blocksMove, `${where} from (${a.from.x}, ${a.from.y})`).toBe(true);
+        const j = a.from.y * world.width + a.from.x, hidden = tileVisibility(world, state, a.from) === 'hidden';
+        if (a.by === 'npc') expect(!fresh[j] && (hidden || !world.tiles[j]!.blocksMove), `${where} from (${a.from.x}, ${a.from.y})`).toBe(true);
         else expect(seen[j], `${where} from (${a.from.x}, ${a.from.y})`).toBe(0);
     }
     return all.length;
@@ -1005,7 +1027,7 @@ describe('every tile an unknown observer could react from', () => {
         expect(unknownWatcher(world, state, 'jun', P(4, 4))).toMatchObject({ by: 'npc', observer: 'enforcer', from: P(8, 4) });
     });
 
-    it('puts nobody on furniture, and a camera only where the player can\'t see the layout', () => {
+    it('puts nobody on known furniture, anyone anywhere hidden, and a camera only where the player can\'t see the layout', () => {
         // From (4, 4) in Public: (8, 4) is 4 away, within an NPC's reach (8) and a camera's (7); (4, 11) is 7 away,
         // (11, 7) 7.6, (11, 8) 8.1, all in the staff room the blueprint outlines; (2, 4) is 2 away, on the blueprint.
         const at = (spec: Parameters<typeof staged>[0]) => {
@@ -1020,17 +1042,19 @@ describe('every tile an unknown observer could react from', () => {
         expect(at({ stale: [P(8, 4)], furniture: [P(8, 4)] })).toEqual({ risk: false, w: null, all: [] });
         const { world, state } = staged({ stale: [P(8, 4)], furniture: [P(8, 4)] });
         for (const p of [P(7, 4), P(8, 5), P(9, 3)]) expect(floorKnowledge(world, state, p, { crew: 'jun' }), `(${p.x}, ${p.y})`).toBe('scouted');
-        // A desk never seen in the outlined room: a camera could hang there (mounted, so furniture doesn't stop one).
-        expect(at({ unseen: [P(8, 4)], furniture: [P(8, 4)] }).w).toMatchObject({ by: 'camera', from: P(8, 4) });
+        // A desk never seen in the outlined room isn't known: someone could stand there (judged before a camera, which
+        // could hang there too: mounted, so furniture doesn't stop one).
+        expect(at({ unseen: [P(8, 4)], furniture: [P(8, 4)] }).w).toMatchObject({ by: 'npc', from: P(8, 4) });
         // A desk never seen on the blueprint's public floor: a camera there would be in plain view, nobody stands on it.
         expect(at({ unseen: [P(2, 4)], furniture: [P(2, 4)] })).toEqual({ risk: false, w: null, all: [] });
         // ...but an NPC could stand on an unseen floor tile there.
         expect(at({ unseen: [P(2, 4)] }).w).toMatchObject({ by: 'npc', from: P(2, 4) });
-        // Each kind has its own reach: a camera's 7 reaches (4, 11); 8.1 is past both.
-        expect(at({ unseen: [P(4, 11)], furniture: [P(4, 11)] }).w).toMatchObject({ by: 'camera', from: P(4, 11) });
+        // Each kind has its own reach: an NPC's 8 reaches (4, 11) and (11, 7), a camera's 7 only (4, 11); 8.1 is past both.
+        expect(at({ unseen: [P(4, 11)], furniture: [P(4, 11)] }).w).toMatchObject({ by: 'npc', from: P(4, 11) });
         expect(at({ unseen: [P(11, 8)] }).risk).toBe(false);
         expect(at({ stale: [P(11, 7)] }).w).toMatchObject({ by: 'npc', from: P(11, 7) });
-        expect(at({ unseen: [P(11, 7)], furniture: [P(11, 7)] }).w).toBeNull();
+        expect(at({ unseen: [P(11, 7)], furniture: [P(11, 7)] }).w).toMatchObject({ by: 'npc', from: P(11, 7) });
+        expect(at({ stale: [P(11, 7)], furniture: [P(11, 7)] }).w).toBeNull();
     });
 
     it('knows a camera on the blueprint\'s layout from the start, and one in an outlined room once seen', () => {
@@ -1195,5 +1219,63 @@ describe('on a generated bank', () => {
         // Compact: the seen set is one short string.
         expect(typeof a.knowledge.seen).toBe('string');
         expect(a.knowledge.seen.length).toBe(Math.ceil(world.width * world.height / 6));
+    });
+});
+
+describe('nothing shown comes from what stands on a hidden tile (decision 44)', () => {
+    // Staff rooms a|b (x 0..9) behind a wall from a public hall; jun stands at (3, 1) in room a, room b behind the
+    // closed door d hidden; a desk at (7, 1) in room b, or not.
+    const rooms = (desk: boolean): { world: ReadonlyWorld; state: State } => {
+        const walls: FixtureOptions['walls'] = [0, 1, 2].flatMap(y => [
+            { between: [P(9, y), P(10, y)] as [Pos, Pos] },
+            { between: [P(4, y), P(5, y)] as [Pos, Pos], ...(y === 1 ? { door: { id: 'd', start: 'closed' as const } } : {}) }
+        ]);
+        const row = (y: number) => (desk && y === 1 ? 'sssssss#ss' : 'ssssssssss') + '.'.repeat(20);
+        const zone = 's'.repeat(10) + '.'.repeat(20);
+        const world = fixtureWorld([row(0), row(1), row(2)], { walls, zones: [zone, zone, zone], rooms: Array.from({ length: 3 }, () => 'aaaaabbbbb' + '.'.repeat(20)) });
+        const start = initialState(world, { seed: 1, crew: [{ id: 'jun', pos: P(29, 1) }] });
+        return { world, state: patch(start, s => { s.crew[0]!.pos = P(3, 1); }) };
+    };
+
+    it('plans no move into hidden tiles, so the safe floor never outlines their furniture', () => {
+        const shapes = [false, true].map(desk => {
+            const { world, state } = rooms(desk);
+            expect(tileVisibility(world, state, P(7, 1))).toBe('hidden');
+            const tiles = floorTiles(safeFloor(world, state, 'jun'));
+            expect(tiles.filter(t => tileVisibility(world, state, t.pos) === 'hidden')).toEqual([]);
+            expect(pathTo(reachable(world, crewPicture(world, state), P(3, 1), 40, planMoveOptions(world, state, state.crew[0]!)), P(6, 1))).toBeUndefined();
+            return tiles.map(t => `${t.pos.x},${t.pos.y}`).sort().join(' ');
+        });
+        expect(shapes[1]).toBe(shapes[0]);
+    });
+
+    // A public hall (x 0..9) seen by jun, a closed doorway at (9, 1)|(10, 1) never seen into a hidden staff room
+    // (x 10..19); a desk at (12, 1), or not. The hall's last column is stale, so the door can't be vouched for.
+    const hall = (desk: boolean): { world: ReadonlyWorld; state: State } => {
+        const walls: FixtureOptions['walls'] = [0, 1, 2].map(y => ({ between: [P(9, y), P(10, y)] as [Pos, Pos], ...(y === 1 ? { door: { id: 'd', start: 'closed' as const } } : {}) }));
+        const row = (y: number) => '.'.repeat(10) + (desk && y === 1 ? 'ss#sssssss' : 'ssssssssss');
+        const zone = 's'.repeat(20);
+        const world = fixtureWorld([row(0), row(1), row(2)], { walls, zones: [zone, zone, zone], rooms: Array.from({ length: 3 }, () => '.'.repeat(10) + 'b'.repeat(10)) });
+        const start = initialState(world, { seed: 1, crew: [{ id: 'jun', pos: P(0, 1) }] });
+        return {
+            world, state: patch(start, s => {
+                const f = decodeBits(s.knowledge.fresh, world.width * world.height);
+                for (const y of [0, 1, 2]) f[y * world.width + 9] = 0;
+                s.knowledge.fresh = encodeBits(f);
+            })
+        };
+    };
+
+    it('puts unknown observers anywhere on a hidden tile and sees across what stands there', () => {
+        const found = [false, true].map(desk => {
+            const { world, state } = hall(desk);
+            expect(tileVisibility(world, state, P(12, 1))).toBe('hidden');
+            expect(doorDoubt(world, state)?.doors.has('d')).toBe(true);
+            watchersAgree(world, state, 'jun', P(8, 1));
+            return [P(8, 1), P(8, 0)].map(p => unknownWatchers(world, state, 'jun', p).map(w => `${w.from.x},${w.from.y}`).sort().join(' '));
+        });
+        expect(found[1]).toEqual(found[0]);
+        // The desk's own tile is among them: nobody knows it is there.
+        expect(found[1]![0]!.split(' ')).toContain('12,1');
     });
 });

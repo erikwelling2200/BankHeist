@@ -204,7 +204,7 @@ export class PlayMode {
         document.body.classList.add('play');
 
         const plot = { width: bank.level.tiles[0]!.length * TILE, height: bank.level.tiles.length * TILE };
-        this.overlay = new WorldOverlay(scene, (tx, ty) => walls.liftAt((tx + 0.5) * TILE, (ty + 0.5) * TILE), plot);
+        this.overlay = new WorldOverlay(scene, (tx, ty) => walls.liftAt((tx + 0.5) * TILE, (ty + 0.5) * TILE), plot, () => walls.raisedSteps);
         this.input = new MapInput(scene, {
             tap: (x, y) => this.tap(x, y),
             claim: (x, y) => this.claim(x, y),
@@ -905,7 +905,8 @@ export class PlayMode {
 
     /**
      * The state as the crew pictures it (§8.15): only the NPCs it sees or predicts stand anywhere. Reach, snapping and
-     * drags are planned on it, so a tile an unseen NPC stands on reads as open; the commit, on the truth, may refuse.
+     * drags are planned on it (never into a hidden tile: `planMoveOptions`), so a tile an unseen NPC stands on reads as
+     * open; the commit, on the truth, may refuse.
      */
     private picture(): State {
         return crewPicture(this.session.world, this.session.state);

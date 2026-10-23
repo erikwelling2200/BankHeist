@@ -141,6 +141,11 @@ export class Heights {
         return this.regions.every(r => r.step === r.target);
     }
 
+    /** Every region's step now, as one string: equal while nothing raised has been cut or raised. */
+    get steps(): string {
+        return this.regions.map(r => r.step).join(',');
+    }
+
     /** Each region's north edge and the storey height it is drawn at, for tests. */
     get state(): { north: number; storey: number }[] {
         return this.regions.map(r => ({ north: r.north / TILE, storey: STOREY_STEPS[r.step]! }));

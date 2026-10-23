@@ -17,7 +17,7 @@ import { DIAGONAL_COST, HALF_STEPS_PER_TILE, HEAVY_ARMOUR_ITEM, ORTHOGONAL_COST 
  *   that blocks movement, nor a door frame, open or not (a breached door has no frame left). Furniture doesn't stop a
  *   diagonal: §6.3 names only walls, and a desk is smaller than its tile. Nor do people: a diagonal may squeeze between
  *   two NPCs standing on the corner's other two tiles (they stand in the middle of their tiles).
- * - Tiles that block movement (desks, columns) are never entered.
+ * - Tiles that block movement (desks, columns) are never entered, nor are those a plan has off limits (`offLimits`).
  * - Raised tiles (§14.7) are reached only by stairs or ladders: a climb tile is ground floor and leads one way, to the
  *   raised tile on its `climb.to` side. A step between tiles of different height must be that one step, either way.
  * - People: a mover may pass through their own side (crew through crew, NPCs through NPCs) and through anyone lying
@@ -43,6 +43,8 @@ export interface MoveOptions {
     canPassDoor?: (door: DeepReadonly<DoorDef>, status: DoorStatus) => boolean;
     /** Plan as if nobody stood anywhere (an NPC's route before people are placed, the overlay of an empty bank). */
     ignorePeople?: boolean;
+    /** Per tile, row-major: 1 for a tile the mover may not enter (a crew plan's hidden tiles, crew/movement.ts). */
+    offLimits?: Uint8Array;
 }
 
 /** NPC statuses in which they lie on the floor: they can be stepped over, but not stood on. */
@@ -105,7 +107,7 @@ export function stepCost(world: ReadonlyWorld, state: State, a: Pos, b: Pos, opt
     const dx = b.x - a.x, dy = b.y - a.y, adx = Math.abs(dx), ady = Math.abs(dy);
     if (adx > 1 || ady > 1 || adx + ady === 0) return undefined;
     const from = tileAt(world, a), to = tileAt(world, b);
-    if (!from || !to || to.blocksMove) return undefined;
+    if (!from || !to || to.blocksMove || options.offLimits?.[b.y * world.width + b.x]) return undefined;
     if (from.raised !== to.raised && !leadsTo(from, a, b) && !leadsTo(to, b, a)) return undefined;
     if (adx + ady === 1) return edgeStops(world, state, a, b, options) ? undefined : ORTHOGONAL_COST;
     for (const edge of cornerEdges(a, b)) {

@@ -939,7 +939,10 @@ Later milestones: within each milestone, the `∥` notes in §3 apply. UI packag
     action grid, as at the start of a heist. Before, a tap on their tile did nothing and their card or key only
     refreshed. A drag that starts on them still draws a path. The camera stays where it is.
 43. **Unknown observers only where one could be (§8.8, refines 24).** An unknown NPC stands only on a tile that isn't
-    fresh and that a person can stand on (not furniture: `blocksMove`, what the Move and Dash bands go round). An
+    fresh: anywhere on a hidden one (what stands there isn't known), and on a stale one only where a person can stand
+    (not known furniture: `blocksMove`, what the Move and Dash bands go round). Sight from unknown space runs on the
+    layout as the player knows it (`knownSight`): what stands on hidden tiles and the walls between two hidden tiles
+    let it through; the outline where hidden tiles meet known ones stops it. An
     unknown camera hangs only where the player can't see the layout: a tile never seen in a room the blueprint shows
     only as an outline (nowhere, with Blueprints); furniture doesn't stop one. Cameras don't move, so a camera on the
     blueprint's layout is known from the start, and one elsewhere once its tile has been seen: from then on it is a
@@ -948,7 +951,12 @@ Later milestones: within each milestone, the `∥` notes in §3 apply. UI packag
 44. **Three tile states: hidden, not seen this turn, seen this turn (§8.8, §8.15, §17.8; `tileVisibility`).** Hidden is
     a tile neither on the blueprint's layout nor ever seen (without Blueprints, the Staff and Secure rooms until looked
     into): an opaque dark block, nothing of the room drawn (props, cameras, the floor, doors, people as they are; flat,
-    a raised floor under it not lifted), grey in the safe floor. Seen this turn is a fresh tile: drawn as it is, people
+    a raised floor under it not lifted). No move is planned into or through one (`planMoveOptions`: off limits to
+    reach, the safe floor, drag snapping, path checks, routes and the move command's check), so nothing drawn traces
+    what stands there; a room is entered once its tiles are seen (from the doorway). The truth (how a move walks) is
+    unchanged. A route's unsafe marks preview each Move from where the player's preview of the one before leaves it
+    (`previewCertain`, the crew's knowledge as before the route), and stop once that can't be told (a known NPC in the
+    way, a door that could refuse, a look into hidden tiles). Seen this turn is a fresh tile: drawn as it is, people
     included. Every other tile is not seen this turn (stale, the grey veil); public floor starts there, never hidden. On
     a stale tile what doesn't move is known (the layout, furniture, cameras, whether a door locks); what moves isn't: an
     NPC is drawn there only as a predicted or ghost marker, never as it is, and a door shows as last seen, plain closed
@@ -960,12 +968,15 @@ Later milestones: within each milestone, the `∥` notes in §3 apply. UI packag
     `previewPicture`, and `previewCertain` for action previews and auto-advance), and sight and hearing only grow as
     doors open, so all they show happens however those doors stand: the certain lower bound, never hidden. The world
     phase's walks don't grow that way, so an NPC that reacts to something such a door decides counts none of its
-    world-phase sightings, and one whose walk such a door could stop counts only its steps before it (`CertainWalks`). A
+    world-phase sightings, and one whose walk such a door could stop counts only its steps before it (`CertainWalks`;
+    a previewed world phase shows only those steps of its walk, and nothing else of it when its sighting of the crew
+    could change with the door). A
     tile such a door could make worse than that (`doorRisk`: a known observer's sight of a tile passed (a `!`) or ended
     on, a dash's reach at an NPC, a known NPC's or camera's world-phase sight through one or from beyond one that could
     stop it) is hatched over its certain tint; a red one can't get worse; green with it is unknown risk. An action
     preview shows every sighting and hearing that happens with them shut, so a certain one is never dropped for another
-    observer's doubted line; a known NPC whose previewed walk one could stop counts as unknown. Unknown observers look
+    observer's doubted line; of a move through one that could refuse the mover, only who notices them on the way up to
+    it shows. A noise whose hearers one could change names nobody as sent to look. Unknown observers look
     through every such door as if open. The crew plans on that picture (`crewPicture`): a move through a door pictured
     open or closed walks on, opening a closed one; one found locked or jammed stops the move on the tile before it, the
     action spent and the move final (`moveCut`, reason `door`, with the status found: "It's locked!"), as a bump does,

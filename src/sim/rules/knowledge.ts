@@ -12,11 +12,11 @@ import type { Profile } from '../data/items';
 import { OUTCOME_RANK, UNIFORMS, type Uniform } from '../data/matrix';
 import type { NoiseKind } from '../data/noise';
 import { bandAt, bandOf, fieldOn, profilesOf, rangeOn, seesOn, type Observer, type SightField, type VisionProfile } from '../geo/cones';
-import { buildSightMap, lineOfSight, sightInputs, sightMap, type SightMap } from '../geo/los';
+import { buildSightMap, CLEAR, lineOfSight, sightInputs, sightMap, type SightMap } from '../geo/los';
 import { doorBetween, doorStatus, LYING_STATUSES } from '../geo/move';
 import { inRing, registerNoiseHook } from '../geo/sound';
 import { liveFeeds } from './cctv';
-import { reaction, type Reaction } from './perceive';
+import { reaction, sightingsAlong, type Reaction } from './perceive';
 import { crewLook, type CrewLook } from './profile';
 import { isWarned } from './trespass';
 import { isPresent, npcCanPass, personOf } from './npc/walk';
@@ -54,8 +54,9 @@ import { bitsCount, decodeBits, encodeBits } from './knowledgeBits';
  *   predicted, then go. NPCs the crew hasn't seen are not shown at all.
  * - **Unknown risk** (hatched grey, §8.8, decisions 24, 43 and 44): a tile that isn't hidden that someone the crew
  *   doesn't know about could see, each from where it could be (`isUnknownRisk`, cached per sight map and tile sets): an
- *   NPC, within its reach, from a tile a person can stand on that isn't fresh (stale or hidden); a camera, within a
- *   camera's reach, from a hidden tile; either looking through every door the crew can't vouch for as if open. There,
+ *   NPC, within its reach, from a tile that isn't fresh (anywhere hidden; stale, off known furniture); a camera, within
+ *   a camera's reach, from a hidden tile; either looking through every door the crew can't vouch for as if open, and
+ *   across what is unknown on hidden tiles (`knownSight`: only the outline walls round them stop it). There,
  *   at its worst (any class, Alerted, a camera taken as live), it would react to the crew member by the reaction rules
  *   (`unknownWatcher`). Green therefore means nobody, known or not, would do anything about them there.
  * - **Doors**: the status of each door last seen (a tile beside it in view). Doors move: one with no fresh tile beside
@@ -74,8 +75,9 @@ import { bitsCount, decodeBits, encodeBits } from './knowledgeBits';
  *
  * **Moving in unknown space.** Moves are planned on `crewPicture` (`registerPlanView`): an unseen NPC's tile reads as
  * open, and the move bumps into it; a door not seen this turn is as the crew last saw it, and a move through one found
- * locked stops before it (crew/movement.ts). Someone new coming into view doesn't stop a move (decision 40): the move
- * walks on, and reveals them.
+ * locked stops before it (crew/movement.ts). No move is planned into or through a hidden tile (`planMoveOptions`): a
+ * room is entered once its tiles have been seen (from its doorway, say). Someone new coming into view doesn't stop a
+ * move (decision 40): the move walks on, and reveals them.
  *
  * **Undo (§6.6).** Whenever something new becomes known (a tile, an NPC in view or out of hiding, a room, a camera, the
  * CCTV feeds, a routine) a `revealed` event is emitted, which blocks undo: a move through known space with nobody new
@@ -239,8 +241,13 @@ export type TileVisibility = 'hidden' | 'stale' | 'seen';
 export const VISIBILITY: readonly TileVisibility[] = ['hidden', 'stale', 'seen'];
 const HIDDEN = 0, STALE = 1, SEEN = 2;
 
-/** The crew's tile sets decoded, and each tile's visibility code, for the knowledge they were decoded from. */
-interface TileSets { seenKey: string; freshKey: string; seen: Uint8Array; fresh: Uint8Array; visibility: Uint8Array }
+/**
+ * The crew's tile sets decoded, each tile's visibility code, and the hidden tiles (1 = hidden: off limits to a crew plan;
+ * null when none is), for the knowledge they were decoded from.
+ */
+interface TileSets {
+    seenKey: string; freshKey: string; seen: Uint8Array; fresh: Uint8Array; visibility: Uint8Array; hidden: Uint8Array | null;
+}
 
 const TILE_SETS = new WeakMap<ReadonlyWorld, TileSets>();
 
@@ -249,9 +256,15 @@ function tileSets(world: ReadonlyWorld, state: State): TileSets {
     const k = state.knowledge, cached = TILE_SETS.get(world);
     if (cached && cached.seenKey === k.seen && cached.freshKey === k.fresh) return cached;
     const n = tilesOf(world), seen = decodeBits(k.seen, n), fresh = decodeBits(k.fresh, n), layout = sharedBlueprint(world).known;
-    const visibility = new Uint8Array(n);
-    for (let i = 0; i < n; i++) visibility[i] = fresh[i] ? SEEN : seen[i] || layout[i] ? STALE : HIDDEN;
-    const sets = { seenKey: k.seen, freshKey: k.fresh, seen, fresh, visibility };
+    const visibility = new Uint8Array(n), mask = new Uint8Array(n);
+    let any = false;
+    for (let i = 0; i < n; i++) {
+        visibility[i] = fresh[i] ? SEEN : seen[i] || layout[i] ? STALE : HIDDEN;
+        if (visibility[i] !== HIDDEN) continue;
+        mask[i] = 1;
+        any = true;
+    }
+    const sets = { seenKey: k.seen, freshKey: k.fresh, seen, fresh, visibility, hidden: any ? mask : null };
     TILE_SETS.set(world, sets);
     return sets;
 }
@@ -768,8 +781,8 @@ registerMoveHook('knowledge', {
     }
 });
 
-// Moves are planned on the crew's picture.
-registerPlanView((world, state) => crewPicture(world, state));
+// Moves are planned on the crew's picture, never into a hidden tile (nothing of what is there is known).
+registerPlanView((world, state) => crewPicture(world, state), (world, state) => tileSets(world, state).hidden);
 
 // Loud noises reaching any crew member are heard wherever they come from (§8.15).
 registerNoiseHook('knowledge', (ctx, ring, kind, cause) => {
@@ -784,10 +797,9 @@ registerNoiseHook('knowledge', (ctx, ring, kind, cause) => {
     ctx.state.knowledge.pings.push({ at: { x: at.x, y: at.y }, turn: ctx.state.turn, kind, cause });
 });
 
-// A loaded state's knowledge must be readable: its tile sets the size of the world, its records whole.
 /**
- * `state` with every camera on the blueprint's layout known (a copy; `state` itself when all are): a heist saved before
- * they were known from the start resumes knowing them. Nothing is revealed: they were in plain view all along.
+ * `state` with every camera on the blueprint's layout known (a copy; `state` itself when all are), as they are from the
+ * start. Nothing is revealed: they were in plain view all along.
  */
 export function withLayoutCameras(world: ReadonlyWorld, state: State): State {
     const k = state.knowledge, layout = sharedBlueprint(world).known;
@@ -796,6 +808,7 @@ export function withLayoutCameras(world: ReadonlyWorld, state: State): State {
     return { ...state, knowledge: { ...k, cameras: [...k.cameras, ...missing.map(c => c.id)].sort() } };
 }
 
+// A loaded state's knowledge must be readable: its tile sets the size of the world, its records whole.
 registerStateCheck('knowledge', (state, world) => {
     const k = state.knowledge as Partial<Knowledge> | undefined;
     if (!k || typeof k !== 'object') return 'no knowledge';
@@ -846,7 +859,9 @@ function unknownCamera(world: ReadonlyWorld): VisionProfile {
  * rebuild the key each time. All crew-independent: what a crew member makes of them is `unknownWatcher`.
  */
 interface RiskCache {
-    key: string; far: Int32Array; close: Int32Array; camera: Int32Array; fresh: Uint8Array; sight: SightMap;
+    key: string; far: Int32Array; close: Int32Array; camera: Int32Array; fresh: Uint8Array;
+    /** Sight with the doubted doors open, on the layout as the player knows it (`knownSight`). */
+    sight: SightMap;
     /** Each tile's visibility code (`visibilityMap`). */
     visibility: Uint8Array;
 }
@@ -867,13 +882,34 @@ function riskCache(world: ReadonlyWorld, state: State): RiskCache {
         const n = tilesOf(world), sets = tileSets(world, state);
         cache = {
             key, far: new Int32Array(n).fill(-2), close: new Int32Array(n).fill(-2), camera: new Int32Array(n).fill(-2), fresh: sets.fresh,
-            sight: sightMap(world, seenAs), visibility: sets.visibility
+            sight: knownSight(world, sets, sightMap(world, seenAs)), visibility: sets.visibility
         };
         list.unshift(cache);
         if (list.length > RISK_KEEP) list.length = RISK_KEEP;
     }
     RISK_BY_STATE.set(state, { world, cache });
     return cache;
+}
+
+/**
+ * `sight` with the layout as the player knows it (decision 44): what stands on a hidden tile (furniture, a raised floor)
+ * and the walls between two hidden tiles aren't known, so they let sight through; the walls where hidden tiles meet
+ * known ones (the outline drawn round them) stay. `sight` itself when nothing is hidden.
+ */
+function knownSight(world: ReadonlyWorld, sets: TileSets, sight: SightMap): SightMap {
+    const hidden = sets.hidden;
+    if (!hidden) return sight;
+    const w = world.width, h = world.height, tiles = sight.tiles.slice(), raised = sight.raised.slice();
+    const northSouth = sight.northSouth.slice(), eastWest = sight.eastWest.slice();
+    for (let i = 0; i < hidden.length; i++) {
+        if (!hidden[i]) continue;
+        tiles[i] = CLEAR;
+        raised[i] = 0;
+        const x = i % w, y = (i - x) / w;
+        if (x > 0 && hidden[i - 1]) northSouth[y * (w + 1) + x] = CLEAR;
+        if (y > 0 && hidden[i - w]) eastWest[y * w + x] = CLEAR;
+    }
+    return { width: w, height: h, tiles, raised, lit: sight.lit, northSouth, eastWest };
 }
 
 /** The offsets within a radius, nearest first (ties in row order): the order unknown space is searched in. */
@@ -890,12 +926,12 @@ function offsetsWithin(r: number): Int32Array {
 }
 
 /**
- * Where someone the crew doesn't know about could be (decisions 43 and 44): an NPC on a tile that isn't fresh (stale or
- * hidden) and that a person can stand on (not furniture: what movement can't enter, `blocksMove`); a camera on a hidden
- * tile (a camera anywhere else would be known, and cameras don't move).
+ * Where someone the crew doesn't know about could be (decisions 43 and 44): an NPC on a tile that isn't fresh: a hidden
+ * one, whatever stands there (it isn't known), or a stale one a person can stand on (not known furniture: what movement
+ * can't enter, `blocksMove`); a camera on a hidden tile (a camera anywhere else would be known, and cameras don't move).
  */
 function unknownNpcAt(world: ReadonlyWorld, c: RiskCache, j: number): boolean {
-    return !c.fresh[j] && !world.tiles[j]!.blocksMove;
+    return !c.fresh[j] && (c.visibility[j] === HIDDEN || !world.tiles[j]!.blocksMove);
 }
 
 const unknownCameraAt = (c: RiskCache, j: number): boolean => c.visibility[j] === HIDDEN;
@@ -922,6 +958,17 @@ function nearestUnknown(world: ReadonlyWorld, c: RiskCache, p: Pos, kind: 'far' 
     }
     memo[i] = found;
     return found;
+}
+
+/**
+ * Whether a crew member on any of `tiles` could see a hidden tile: on the layout as the player knows it, the doors the
+ * crew can't vouch for open (`knownSight`), so whether something new would come into view there isn't known.
+ */
+export function mayLookIntoHidden(world: ReadonlyWorld, state: State, tiles: readonly Pos[]): boolean {
+    const hidden = tileSets(world, state).hidden;
+    if (!hidden) return false;
+    const sight = riskCache(world, state).sight, w = world.width;
+    return tiles.some(p => inBounds(world, p) && lookout(world, sight, { pos: p }).tiles.some(q => hidden[q.y * w + q.x] === 1));
 }
 
 /**
@@ -1219,31 +1266,94 @@ function doorInView(world: ReadonlyWorld, state: State, door: string): boolean {
 
 /**
  * The NPCs the crew knows in `before` whose walk in a world phase a door it can't vouch for could stop (`doubtStops`:
- * one that locks, or might, and that the NPC holds no key to). Where such an NPC gets to, and so what it sees and does
- * there, isn't certain: for a previewed world phase it is as unknown.
+ * one that locks, or might, and that the NPC holds no key to), each with how many steps of its walk it surely takes (the
+ * steps before that door, as `CertainWalks` counts them). Where it gets to beyond them isn't certain; `unsure` when what
+ * it sees of the crew could change with it (its sighting of a crew member along those steps isn't the one along its
+ * whole walk), so nothing it does in a previewed world phase is certain either.
  */
-function doubtedWalkers(world: ReadonlyWorld, before: State, events: readonly SimEvent[]): Set<string> {
-    const out = new Set<string>(), d = doorDoubt(world, before);
+function doubtedWalkers(world: ReadonlyWorld, before: State, events: readonly SimEvent[]): Map<string, { steps: number; unsure: boolean }> {
+    const out = new Map<string, { steps: number; unsure: boolean }>(), d = doorDoubt(world, before);
     if (!d || !events.some(e => e.type === 'npcWalked')) return out;
+    let sight: SightMap | null = null;
     for (const npc of before.npcs) {
         if (!isPresent(npc) || !isKnownNow(world, before, npc.id)) continue;
         const pass = npcCanPass(personOf(world, npc.id));
-        let prev: DeepReadonly<Pos> = npc.pos;
-        for (const p of npc.intent.path) {
-            if (doubtStops(world, d, prev, p, pass)) { out.add(npc.id); break; }
+        let prev: DeepReadonly<Pos> = npc.pos, steps = -1;
+        for (let i = 0; i < npc.intent.path.length && steps < 0; i++) {
+            const p = npc.intent.path[i]!;
+            if (doubtStops(world, d, prev, p, pass)) steps = i;
             prev = p;
         }
+        if (steps < 0) continue;
+        sight ??= sightMap(world, d.base);
+        const cut = { path: npc.intent.path.slice(0, steps) };
+        const unsure = d.base.crew.some(c => {
+            const tile = { x: c.pos.x, y: c.pos.y };
+            const whole = sightingsAlong(world, d.base, sight!, npc.id, c.id, tile);
+            const part = sightingsAlong(world, d.base, sight!, npc.id, c.id, tile, { intent: cut });
+            return (whole?.outcome ?? null) !== (part?.outcome ?? null);
+        });
+        out.set(npc.id, { steps, unsure });
     }
     return out;
 }
 
+/** Whether a door stands between two consecutive tiles of `path` within its first `steps` steps from `from`. */
+function crossedWithin(
+    world: ReadonlyWorld, from: DeepReadonly<Pos>, path: readonly DeepReadonly<Pos>[], steps: number, door: string
+): boolean {
+    let prev = from;
+    for (let i = 0; i < steps && i < path.length; i++) {
+        const p = path[i]!, a = { x: prev.x, y: prev.y }, b = { x: p.x, y: p.y };
+        if (Math.abs(b.x - a.x) + Math.abs(b.y - a.y) === 1 && doorBetween(world, a, b)?.id === door) return true;
+        prev = p;
+    }
+    return false;
+}
+
+/** Events of someone noticing a crew member (`Witness` in preview/action.ts). */
+const WITNESS_EVENTS: ReadonlySet<string> = new Set(['perceptionCheck', 'suspicionRaised', 'exposed', 'challenged', 'cameraSaw']);
+
+/** The NPC or camera that noticed, of a witness event. */
+const witnessOf = (e: SimEvent): string | undefined => (e as { npc?: string; camera?: string }).npc ?? (e as { camera?: string }).camera;
+
 /**
  * A command previewed for the player (§8.8): on the truth with every door the crew can't vouch for shut
  * (`withDoubtedShut`), so all it sees and hears happens however those doors really stand, and nothing of how they stand
- * shows (decision 44). Project its events with `projectPreviewEvents`.
+ * shows (decision 44). A move or dash through such a door that could refuse the mover (`doorMayRefuse`) walks on in it,
+ * but would stop before that door if it refused: of who notices the mover, only what the path up to that door shows
+ * too is kept (as the path up to it shows it), as the safe floor hatches the steps beyond. Project its events with
+ * `projectPreviewEvents`.
  */
 export function previewCertain(world: ReadonlyWorld, state: State, cmd: Command): PreviewResult {
-    return preview(world, withDoubtedShut(world, state), cmd);
+    const shut = withDoubtedShut(world, state), result = preview(world, shut, cmd);
+    if (cmd.type !== 'move' && cmd.type !== 'dash') return result;
+    const member = state.crew.find(c => c.id === cmd.crew), d = doorDoubt(world, state);
+    if (!member || !d) return result;
+    let prev: DeepReadonly<Pos> = member.pos, refuse = -1;
+    for (let i = 0; i < cmd.path.length && refuse < 0; i++) {
+        if (doorMayRefuse(world, d, member, prev, cmd.path[i]!)) refuse = i;
+        prev = cmd.path[i]!;
+    }
+    if (refuse < 0) return result;
+    let part: readonly SimEvent[] = [];
+    if (refuse > 0) {
+        try {
+            part = preview(world, shut, { ...cmd, path: cmd.path.slice(0, refuse) }).events;
+        } catch {
+            part = [];
+        }
+    }
+    const events: SimEvent[] = [], used = new Set<SimEvent>();
+    for (const e of result.events) {
+        if (!WITNESS_EVENTS.has(e.type) || (e as { crew?: string }).crew !== member.id) { events.push(e); continue; }
+        const same = part.find(f => !used.has(f) && f.type === e.type && witnessOf(f) === witnessOf(e)
+            && (f as { crew?: string }).crew === member.id);
+        if (!same) continue;
+        used.add(same);
+        events.push(same);
+    }
+    return { ...result, events };
 }
 
 /**
@@ -1257,13 +1367,14 @@ export function projectEvents(world: ReadonlyWorld, state: State, events: readon
     const npcIds = new Set(state.npcs.map(n => n.id)), crewIds = new Set(state.crew.map(c => c.id));
     const seenDuring = (id: string): boolean => !!before && Object.hasOwn(state.knowledge.npcs, id) && state.knowledge.npcs[id]!.tick > before.knowledge.tick;
     // A previewed world phase can't tell where a known NPC gets to when a door the crew can't vouch for could stop its
-    // walk: for this command it is as unknown (decision 44). What doubted doors decide otherwise never happens in a
-    // preview (`previewCertain` shuts them).
-    const doubted = preview ? doubtedWalkers(world, base, events) : null;
+    // walk: it shows walking only the steps before that door, and when what it sees could change with the door, the rest
+    // of what it does is as unknown (decision 44). What doubted doors decide otherwise never happens in a preview
+    // (`previewCertain` shuts them).
+    const doubted = preview ? doubtedWalkers(world, base, events) : new Map<string, { steps: number; unsure: boolean }>();
     const known = (id: string): boolean => preview
-        ? isKnownNow(world, base, id) && !doubted!.has(id)
+        ? isKnownNow(world, base, id) && !doubted.get(id)?.unsure
         : isKnownNow(world, state, id) || (!!before && isKnownNow(world, before, id)) || seenDuring(id);
-    const cameras = new Set(preview ? base.knowledge.cameras.filter(id => !doubted!.has(id)) : [...state.knowledge.cameras, ...(before?.knowledge.cameras ?? [])]);
+    const cameras = new Set(preview ? base.knowledge.cameras : [...state.knowledge.cameras, ...(before?.knowledge.cameras ?? [])]);
     const doorSeen = new Map<string, boolean>();
     const seesDoor = (door: string): boolean => {
         let v = doorSeen.get(door);
@@ -1281,6 +1392,20 @@ export function projectEvents(world: ReadonlyWorld, state: State, events: readon
         : [];
     for (const e of events) {
         if (preview && e.type === 'revealed') continue;
+        // A walk a doubted door could stop: only its steps before that door.
+        const named = (e as { npc?: unknown }).npc, cut = typeof named === 'string' ? doubted.get(named) : undefined;
+        if (cut && known(named as string)) {
+            if (e.type === 'npcWalked') {
+                if (cut.steps) out.push({ ...e, path: e.path.slice(0, cut.steps).map(p => ({ ...p })) });
+                continue;
+            }
+            if (e.type === 'npcBlocked' || e.type === 'npcLeft' || e.type === 'npcEntered') continue;
+        }
+        const opener = e.type === 'doorOpened' ? doubted.get(e.by) : undefined;
+        if (opener && e.type === 'doorOpened') {
+            const npc = base.npcs.find(n => n.id === e.by)!;
+            if (!crossedWithin(world, npc.pos, npc.intent.path, opener.steps, e.door)) continue;
+        }
         // Every carrier is shown (§9.1), but not who holds it or where when the crew doesn't know them.
         if (e.type === 'carrierStarted') {
             out.push(e.holder !== null && npcIds.has(e.holder) && !known(e.holder) ? { ...e, holder: null, pos: null } : e);
@@ -1334,8 +1459,9 @@ export function knownBlockers(world: ReadonlyWorld, state: State): Pos[] {
 /**
  * The state as the crew pictures it: only the NPCs it sees or predicts are on the map, and each door not seen this
  * turn is as last seen (`knownDoorStatus`; a shallow copy, don't change it). Moves are planned and checked on it
- * (crew/movement.ts), and so should reach, tap snapping and drag validation be; a tile an unseen NPC stands on reads as
- * open, and the move bumps into whoever is there; a door pictured open or closed but locked stops the move before it.
+ * (crew/movement.ts), and so should reach, tap snapping and drag validation be, with `planMoveOptions` (hidden tiles
+ * off limits); a tile an unseen NPC stands on reads as open, and the move bumps into whoever is there; a door pictured
+ * open or closed but locked stops the move before it.
  */
 export function crewPicture(world: ReadonlyWorld, state: State): State {
     // Dragged bodies are with their draggers, not on the floor.

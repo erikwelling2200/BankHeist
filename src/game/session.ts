@@ -72,9 +72,10 @@ type Cached = { result: PreviewResult } | { error: unknown };
 export type PlayerPreview = PreviewResult;
 
 /**
- * What of a preview the player sees (§8.15): its events projected through the crew's knowledge (`projectEvents`), so
- * nothing about an NPC the crew neither sees nor predicts shows (an unseen listener doesn't turn Confirm amber). The
- * state is the engine's, for the session's own checks; the HUD and overlays read only the events.
+ * What of a preview the player sees (§8.15): `result` from `previewCertain` (the doors the crew can't vouch for shut),
+ * its events projected through the crew's knowledge (`projectPreviewEvents`), so nothing about an NPC the crew neither
+ * sees nor predicts shows (an unseen listener doesn't turn Confirm amber). The state is that certain preview's; the HUD
+ * and overlays read only the events.
  */
 export function projectPreview(result: PreviewResult, before: State, world: ReadonlyWorld): PlayerPreview {
     return { ...result, events: projectPreviewEvents(world, before, result) };
@@ -239,7 +240,7 @@ export class Session {
             if (hashOf(saved.world) !== worldId) throw new SaveFormatError(`The saved world isn't the world '${worldId}' the heist was played in`);
             const ui = checkUi(deserialiseUi<UiState>(storage.get(UI_KEY), saved.seq) ?? saved.ui, saved.state);
             return new Session({
-                // A heist saved before the layout's cameras were known from the start knows them now.
+                // Every camera on the blueprint's layout is known (`withLayoutCameras`), in the state and its undo steps.
                 world: saved.world, worldId, genVersion: saved.genVersion, storage, state: withLayoutCameras(saved.world, saved.state),
                 undo: saved.undo.map(s => withLayoutCameras(saved.world, s)),
                 undoExtra: saved.undoRecent.map((recent, i) => ({ recent, recentTurns: turnsOrNow(saved.undoRecentTurns?.[i], recent, saved.state.turn), seqs: [] })),
@@ -423,12 +424,11 @@ export class Session {
     }
 
     /**
-     * The preview the HUD and overlays may show: `preview` with the events of `previewCertain` (the doors the crew can't
-     * vouch for shut) projected to what the crew can know.
+     * The preview the HUD and overlays may show (`projectPreview`): `previewCertain` (the doors the crew can't vouch for
+     * shut), its state and its events projected to what the crew can know. Throws what the engine throws.
      */
     playerPreview(cmd: Command): PlayerPreview {
-        const truth = this.preview(cmd);
-        return { ...truth, events: projectPreviewEvents(this.world, this._state, previewCertain(this.world, this._state, cmd)) };
+        return projectPreview(previewCertain(this.world, this._state, cmd), this._state, this.world);
     }
 
     /**

@@ -1,5 +1,5 @@
 import {
-    effectOf, safeFloor, type ActionPreview, type AutoStop, type Effect, type SimEvent, type WaitOption, type WaitTarget, type Explanation, type FloorBand, type PathSafety, type SafeFloor, crewBudget, crewMoveOptions, crewPicture, isKnownNow, pathTo, whyNot, reachable, updateKnowledge, type Command, type CommitResult, type Pos, type PreviewResult, type ReadonlyWorld, type State
+    effectOf, safeFloor, type ActionPreview, type AutoStop, type Effect, type SimEvent, type WaitOption, type WaitTarget, type Explanation, type FloorBand, type PathSafety, type SafeFloor, crewBudget, planMoveOptions, crewPicture, isKnownNow, pathTo, whyNot, reachable, updateKnowledge, type Command, type CommitResult, type Pos, type PreviewResult, type ReadonlyWorld, type State
 } from '../sim';
 import { AutoRun, waitMenu } from './autoAdvance';
 import { Session, UI_KEY, type PlayerPreview } from './session';
@@ -113,12 +113,12 @@ export function installDebugHandle(session: Session, target: { sim?: SimHandle }
         routePath: (crew, to) => {
             const member = session.state.crew.find(c => c.id === crew);
             if (!member) return undefined;
-            return pathTo(reachable(session.world, crewPicture(session.world, session.state), member.pos, ROUTE_BUDGET, crewMoveOptions(member)), to);
+            return pathTo(reachable(session.world, crewPicture(session.world, session.state), member.pos, ROUTE_BUDGET, planMoveOptions(session.world, session.state, member)), to);
         },
         routeReach: crew => {
             const member = session.state.crew.find(c => c.id === crew);
             if (!member) return [];
-            const reach = reachable(session.world, crewPicture(session.world, session.state), member.pos, ROUTE_BUDGET, crewMoveOptions(member));
+            const reach = reachable(session.world, crewPicture(session.world, session.state), member.pos, ROUTE_BUDGET, planMoveOptions(session.world, session.state, member));
             return reach.tiles.filter(t => t.canEnd).map(t => ({ pos: { x: t.pos.x, y: t.pos.y }, cost: t.cost }));
         },
         path: (crew, to, mode = 'move') => {
@@ -126,7 +126,7 @@ export function installDebugHandle(session: Session, target: { sim?: SimHandle }
             if (!member) return undefined;
             const budget = crewBudget(session.world, member, mode);
             // Planned on the crew's picture, as a tap is: a tile an unseen NPC stands on reads as open (§8.15).
-            return pathTo(reachable(session.world, crewPicture(session.world, session.state), member.pos, budget, crewMoveOptions(member)), to);
+            return pathTo(reachable(session.world, crewPicture(session.world, session.state), member.pos, budget, planMoveOptions(session.world, session.state, member)), to);
         }
     };
     target.sim = handle;

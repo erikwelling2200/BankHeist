@@ -21,7 +21,8 @@ import { onFloor } from '../rules/place';
  *
  * **Moving in unknown space (§8.15).** A path is planned and checked against the bank as the crew pictures it
  * (`registerPlanView`: rules/knowledge.ts shows only the NPCs the crew sees or predicts, and doors not seen this turn as
- * last seen), so a tile an unseen NPC stands on reads as open, and a door last seen open stays open. The move then finds
+ * last seen; hidden tiles are off limits, `planMoveOptions`), so a tile an unseen NPC stands on reads as open, and a door
+ * last seen open stays open. The move then finds
  * out: it stops on the step before an NPC standing in its way, or before ending on anyone (`bump`), and on the tile
  * before a door it can't pass after all, one found locked (`door`, decision 44; one found closed it opens on the way);
  * limits (`registerMoveLimit`) can stop it earlier. Someone new coming into view doesn't
@@ -122,15 +123,29 @@ export function dashRefusal(_world: ReadonlyWorld, state: State, crewId: string)
 /** The bank as the crew plans a move against (rules/knowledge.ts: only the NPCs it sees or predicts). Default: the truth. */
 export type PlanView = (world: ReadonlyWorld, state: State) => State;
 
-let planView: PlanView = (_world, state) => state;
+/** The tiles a crew plan may not enter (rules/knowledge.ts: the hidden ones), per tile, or null for none. */
+export type PlanOffLimits = (world: ReadonlyWorld, state: State) => Uint8Array | null;
 
-/** Sets the view moves are planned and checked against (one only; knowledge registers it). */
-export function registerPlanView(view: PlanView): void {
+let planView: PlanView = (_world, state) => state;
+let planOffLimits: PlanOffLimits = () => null;
+
+/** Sets the view moves are planned and checked against, and the tiles they can't enter (one only; knowledge registers it). */
+export function registerPlanView(view: PlanView, offLimits?: PlanOffLimits): void {
     planView = view;
+    planOffLimits = offLimits ?? (() => null);
 }
 
 /** The state a crew move is planned and checked against. */
 export const planningState = (world: ReadonlyWorld, state: State): State => planView(world, state);
+
+/**
+ * The move options a crew member's planned moves use (`crewMoveOptions` and the tiles off limits as `state`'s crew knows
+ * them): every reach, path check and route of a crew plan, and the move command's own check, so they all agree.
+ */
+export function planMoveOptions(world: ReadonlyWorld, state: State, member: DeepReadonly<CrewState>): MoveOptions {
+    const offLimits = planOffLimits(world, state);
+    return offLimits ? { ...crewMoveOptions(member), offLimits } : crewMoveOptions(member);
+}
 
 /** Why a move stops short: how many steps of the path it keeps, the reason and the NPC or door. */
 export type MoveCut = { keep: number } & ({ reason: 'bump'; npc: string } | { reason: 'door'; door: string; status: DoorStatus });
@@ -233,7 +248,7 @@ function walk(ctx: Ctx, member: CrewState, planned: readonly Pos[], mode: MoveMo
 }
 
 function check(ctx: Ctx, member: CrewState, path: readonly Pos[], budget: number): void {
-    const result = validatePath(ctx.world, onFloor(planningState(ctx.world, ctx.state)), member.pos, path, budget, crewMoveOptions(member));
+    const result = validatePath(ctx.world, onFloor(planningState(ctx.world, ctx.state)), member.pos, path, budget, planMoveOptions(ctx.world, ctx.state, member));
     if (!result.ok) throw new IllegalCommand(result.reason);
 }
 

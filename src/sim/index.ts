@@ -79,7 +79,7 @@ export {
 export { freezeWorld } from './world/freeze';
 export { fixtureWorld, type FixtureOptions, type FixtureWall } from './world/fixture';
 export {
-    crewBudget, crewHasKey, crewMoveOptions, dashRefusal, planningState, registerBudgetModifier, registerDashCheck, registerMoveHook, registerMoveLimit, registerPlanView, type DashCheck,
+    crewBudget, crewHasKey, crewMoveOptions, dashRefusal, planMoveOptions, planningState, registerBudgetModifier, registerDashCheck, registerMoveHook, registerMoveLimit, registerPlanView, type DashCheck,
     type BudgetModifier, type MoveCut, type MoveHook, type MoveLimit, type MoveMode, type PlanView
 } from './crew/movement';
 export {
@@ -137,7 +137,7 @@ export {
 export { committedEnd, reconsider } from './rules/npc/intent';
 export {
     blueprint, crewPicture, floorKnowledge, registerLookout, type Lookout, isKnownNow, isUnknownRisk, knownBlockers, knownDoorStatus, knownNpcIds, knownView, markerKind, noticedUnseen, onRoutine,
-    tileVisibility, visibilityMap, VISIBILITY, type TileVisibility, doorDoubt, doorMayRefuse, narrowDoubt, previewCertain, sightDoubted, viewDoubted, withDoubtedShut, withLayoutCameras, withPicturedDoors,
+    tileVisibility, visibilityMap, VISIBILITY, type TileVisibility, doorDoubt, doorMayRefuse, mayLookIntoHidden, narrowDoubt, previewCertain, sightDoubted, viewDoubted, withDoubtedShut, withLayoutCameras, withPicturedDoors,
     type DoorDoubt,
     projectEvents, projectPreviewEvents, unknownReach, unknownWatcher, unknownWatchers, updateKnowledge, type UnknownOptions, type UnknownWatcher, type Blueprint, type FloorKnowledge, type Intel, type Knowledge, type KnownCamera,
     type KnownDoor, type KnownView, type MarkerKind, type NpcKnowledge, type NpcMarker, type Ping, type ProjectOptions, type UpdateOptions

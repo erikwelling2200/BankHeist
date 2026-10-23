@@ -165,10 +165,16 @@ export class WorldOverlay {
     private readonly onRender = () => this.draw();
 
     /**
-     * `lift` says how many art pixels up the screen tile (tx, ty) is drawn now (a raised floor; 0 on the ground); `plot`
-     * is the map's size in art pixels, past which there is nothing to draw.
+     * `lift` says how many art pixels up the screen tile (tx, ty) is drawn now (a raised floor; 0 on the ground), and
+     * `steps` the step every raised floor is cut to now, as a string that changes whenever a lift does; `plot` is the
+     * map's size in art pixels, past which there is nothing to draw.
      */
-    constructor(private readonly scene: Phaser.Scene, private readonly lift: (tx: number, ty: number) => number = () => 0, private readonly plot?: { width: number; height: number }) {
+    constructor(
+        private readonly scene: Phaser.Scene,
+        private readonly lift: (tx: number, ty: number) => number = () => 0,
+        private readonly plot?: { width: number; height: number },
+        private readonly steps: () => string = () => ''
+    ) {
         this.frame = document.createElement('div');
         Object.assign(this.frame.style, { position: 'fixed', overflow: 'hidden', pointerEvents: 'none', zIndex: '2' });
         this.canvas = document.createElement('canvas');
@@ -246,11 +252,8 @@ export class WorldOverlay {
         const vw = cam.width, vh = cam.height, vx = Math.round(cam.worldView.x), vy = Math.round(cam.worldView.y);
         const step = { x: vx - this.lastView.x, y: vy - this.lastView.y };
         this.lastView = { x: vx, y: vy };
-        // A raised floor rises and drops as it is cut: what is drawn on it follows (the lifts are part of the key).
-        const c0 = this.content;
-        let lifts = 0;
-        for (const p of [...(c0?.reach?.move ?? []), ...(c0?.reach?.dash ?? []), ...(c0?.path ?? [])]) lifts += this.lift(p.x, p.y);
-        const key = `${vw}x${vh}:${box.left},${box.top},${box.width},${box.height}:${lifts}`;
+        // A raised floor rises and drops as it is cut: everything drawn on it follows (the cut steps are part of the key).
+        const key = `${vw}x${vh}:${box.left},${box.top},${box.width},${box.height}:${this.steps()}`;
         const { canvas, ctx, frame } = this;
         const place = () => (canvas.style.transform = `translate(${(this.area.x - vx) * kx}px, ${(this.area.y - vy) * ky}px)`);
         if (key === this.drawn && this.covers(vx, vy, vw, vh) && this.covers(vx + 2 * step.x, vy + 2 * step.y, vw, vh)) {

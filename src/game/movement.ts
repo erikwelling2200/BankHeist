@@ -1,5 +1,5 @@
 import {
-    crewBudget, crewMoveOptions, DASH_ACTIONS, MOVE_ACTIONS, pathTo, reachable, reachAt, validatePath, type Command, type Pos, type Reach, type ReadonlyWorld,
+    crewBudget, DASH_ACTIONS, MOVE_ACTIONS, pathTo, planMoveOptions, reachable, reachAt, validatePath, type Command, type Pos, type Reach, type ReadonlyWorld,
     type State
 } from '../sim';
 
@@ -32,7 +32,7 @@ export interface MoveRange {
 export function moveRange(world: ReadonlyWorld, picture: State, member: Member, canDash: boolean): MoveRange {
     const move = member.actionsLeft >= MOVE_ACTIONS ? crewBudget(world, member, 'move') : null;
     const dash = canDash && member.actionsLeft >= DASH_ACTIONS ? crewBudget(world, member, 'dash') : null;
-    const reach = reachable(world, picture, member.pos, Math.max(move ?? 0, dash ?? 0), crewMoveOptions(member));
+    const reach = reachable(world, picture, member.pos, Math.max(move ?? 0, dash ?? 0), planMoveOptions(world, picture, member));
     const walk: Pos[] = [], run: Pos[] = [];
     for (const t of reach.tiles) {
         if (!t.canEnd || t.cost === 0) continue;
@@ -62,7 +62,7 @@ export function moveTo(range: MoveRange, member: Member, to: Pos): Command | und
 export function moveAlong(world: ReadonlyWorld, picture: State, member: Member, range: Pick<MoveRange, 'move' | 'dash'>, path: readonly Pos[]):
     { command: Command; badFrom?: undefined } | { command?: undefined; badFrom: number } {
     const budget = Math.max(range.move ?? 0, range.dash ?? 0);
-    const check = validatePath(world, picture, member.pos, path, budget, crewMoveOptions(member));
+    const check = validatePath(world, picture, member.pos, path, budget, planMoveOptions(world, picture, member));
     if (!check.ok) return { badFrom: check.at };
     const type = moveKind(range, check.cost);
     return type ? { command: { type, crew: member.id, path: path.map(p => ({ x: p.x, y: p.y })) } } : { badFrom: 0 };

@@ -1,12 +1,14 @@
-import { commit, IllegalCommand, preview, type CommitResult } from '../core/engine';
+import { commit, IllegalCommand, type CommitResult, type PreviewResult } from '../core/engine';
 import { samePos } from '../core/grid';
 import { clonePlain, sortedIds } from '../core/json';
 import { PreviewRollError } from '../core/rng';
 import type { Command, DeepReadonly, Pos, ReadonlyWorld, SimEvent, State } from '../core/types';
-import { crewBudget, crewMoveOptions, planningState } from '../crew/movement';
+import { crewBudget, planMoveOptions, planningState } from '../crew/movement';
 import { MOVE_ACTIONS } from '../data/movement';
 import { LYING_STATUSES, validatePath } from '../geo/move';
-import { isKnownNow, knownView, markerKind, previewCertain, projectEvents, projectPreviewEvents } from './knowledge';
+import {
+    doorDoubt, doorMayRefuse, isKnownNow, knownView, markerKind, mayLookIntoHidden, previewCertain, projectEvents, projectPreviewEvents
+} from './knowledge';
 import { blockIndexAt } from './npc/schedule';
 import { isPresent, personOf } from './npc/walk';
 import { onFloor } from './place';
@@ -122,7 +124,7 @@ export function routeLeg(world: ReadonlyWorld, state: State, crewId: string, rou
     const member = state.crew.find(c => c.id === crewId);
     if (!member || !route.length) return { path: [], reason: member ? 'No route' : `No crew member '${crewId}'` };
     const picture = onFloor(planningState(world, state)), start = from ?? member.pos;
-    const budget = crewBudget(world, member, 'move'), options = crewMoveOptions(member);
+    const budget = crewBudget(world, member, 'move'), options = planMoveOptions(world, state, member);
     let best = 0, reason: string | undefined;
     for (let n = 1; n <= route.length; n++) {
         const check = validatePath(world, picture, start, route.slice(0, n), budget, options);
@@ -192,7 +194,8 @@ export function planRoute(world: ReadonlyWorld, state: State, crewId: string, ro
     if (!member) return { legs, walkable: 0, unsafe };
     let at: Pos = member.pos, left = route.map(p => ({ x: p.x, y: p.y })), walked = 0;
     let turn = state.turn, actions = member.actionsLeft;
-    // This turn's Moves can be previewed (the next turns' can't: the NPCs will have moved): their unsafe tiles are marked.
+    // This turn's Moves can be previewed (the next turns' can't: the NPCs will have moved): their unsafe tiles are marked,
+    // each Move from where the player's preview of the one before leaves it (`nextLegState`), until that can't be told.
     let previewState: State | null = options.safety ? state : null;
     for (let guard = 0; left.length && guard < AUTO_TURN_CAP * world.rules.actionsPerTurn + 2; guard++) {
         if (actions < MOVE_ACTIONS) {
@@ -208,13 +211,7 @@ export function planRoute(world: ReadonlyWorld, state: State, crewId: string, ro
             if (safe.unsafeAt) {
                 unsafe.push(...leg.path.slice(safe.path.length));
                 previewState = null;
-            } else {
-                try {
-                    previewState = preview(world, previewState, { type: 'move', crew: crewId, path: leg.path }).state;
-                } catch {
-                    previewState = null;
-                }
-            }
+            } else previewState = nextLegState(world, state, previewState, crewId, leg.path);
         } else if (turn !== state.turn) previewState = null;
         walked += leg.path.length;
         at = leg.path.at(-1)!;
@@ -224,6 +221,36 @@ export function planRoute(world: ReadonlyWorld, state: State, crewId: string, ro
     return { legs, walkable: walked, unsafe };
 }
 
+/**
+ * The state the Move after `leg` is previewed from, as the player's preview of `leg` pictures it (decision 44): its
+ * certain preview (`previewCertain`), with what the crew knew before the route (`start`'s knowledge: what the walk would
+ * show isn't known yet) and the mover on the leg's last tile (a move cut short by someone unknown shows along its drawn
+ * path). Null when what comes after can't be told: the preview shows the move cut short (a known NPC in the way), a door
+ * the crew can't vouch for could refuse it (`doorMayRefuse`), or it could look into hidden tiles (something new could
+ * come into view, `mayLookIntoHidden`).
+ */
+function nextLegState(world: ReadonlyWorld, start: State, from: State, crewId: string, leg: readonly Pos[]): State | null {
+    const member = from.crew.find(c => c.id === crewId), doubt = doorDoubt(world, from);
+    if (!member || !leg.length || mayLookIntoHidden(world, start, leg)) return null;
+    let prev: Pos = member.pos;
+    for (const p of leg) {
+        if (doorMayRefuse(world, doubt, member, prev, p)) return null;
+        prev = p;
+    }
+    const cmd: Command = { type: 'move', crew: crewId, path: leg.map(p => ({ x: p.x, y: p.y })) };
+    let result: PreviewResult;
+    try {
+        result = previewCertain(world, from, cmd);
+    } catch (e) {
+        if (e instanceof IllegalCommand || e instanceof PreviewRollError) return null;
+        throw e;
+    }
+    if (projectPreviewEvents(world, from, result).some(e => e.type === 'moveCut')) return null;
+    const end = leg.at(-1)!;
+    const crew = result.state.crew.map(c => (c.id === crewId && !samePos(c.pos, end) ? { ...c, pos: { x: end.x, y: end.y } } : c));
+    return { ...result.state, crew, knowledge: start.knowledge };
+}
+
 /** The first step of `path` that can't be part of a route at all (a wall, a locked door, off the map), or -1. */
 export function routeBreak(world: ReadonlyWorld, state: State, crewId: string, path: readonly Pos[]): number {
     const member = state.crew.find(c => c.id === crewId);
@@ -231,7 +258,7 @@ export function routeBreak(world: ReadonlyWorld, state: State, crewId: string, p
     // Only the crew's tile counts as somewhere to step from; the budget is the whole route's.
     // NPCs move every turn: only the bank itself (walls, locked doors, furniture) breaks a route.
     const picture = { ...onFloor(planningState(world, state)), npcs: [] };
-    const check = validatePath(world, picture, member.pos, path, Number.MAX_SAFE_INTEGER, crewMoveOptions(member));
+    const check = validatePath(world, picture, member.pos, path, Number.MAX_SAFE_INTEGER, planMoveOptions(world, state, member));
     if (check.ok) return -1;
     return /already on/.test(check.reason) ? -1 : check.at;
 }

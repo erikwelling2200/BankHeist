@@ -3,10 +3,10 @@ import type { PendingOdds } from '../core/rng';
 import type { CarrierKind, Command, Pos, ReadonlyWorld, SimEvent, State } from '../core/types';
 import { eventClass } from '../core/undo';
 import type { NoiseKind } from '../data/noise';
-import { inRing, soundRing } from '../geo/sound';
+import { inRing, soundRing, type Ring } from '../geo/sound';
 import { carrierPreview, projectCarriers, type CarrierPreview } from '../rules/carriers';
 import { hearing } from '../rules/evidence';
-import { previewCertain, projectPreviewEvents } from '../rules/knowledge';
+import { doorDoubt, doubtStates, narrowDoubt, previewCertain, projectPreviewEvents } from '../rules/knowledge';
 import { pathSafety, type PathSafety } from './floor';
 import { previewPicture } from './picture';
 
@@ -22,7 +22,8 @@ import { previewPicture } from './picture';
  *
  * - **Noise** (§8.9): every noise's ring (the tiles it reaches, the doors the crew can't vouch for shut) and an ear per
  *   NPC the crew knows inside it, labelled with what it will do (`hearing`, the function the noise hook applies, judged among
- *   the NPCs the crew knows; `still` for one face down).
+ *   the NPCs the crew knows; `still` for one face down). When a door the crew can't vouch for could change who of them
+ *   hears it, or how loud, who is sent isn't certain: no ear is marked sent (`sentUnsure`).
  * - **Witnesses**: who would notice (Exposed, pips, a challenge, a camera report, or seeing it at all).
  * - **Carriers** (§9.1): those the command starts or stops at once, and those the coming world phase would start
  *   because of it (`carrierPreview`).
@@ -47,6 +48,8 @@ export interface NoisePreview {
     /** Every tile the sound reaches (the ring as drawn). */
     tiles: Pos[];
     ears: Ear[];
+    /** Who is sent could change with a door the crew can't vouch for: none of `ears` is marked sent. */
+    sentUnsure?: boolean;
 }
 
 export interface Witness {
@@ -93,8 +96,13 @@ function witnessesOf(events: readonly SimEvent[]): Witness[] {
     return out;
 }
 
+/** How loud a ring is at `p` (-1: not heard). */
+const loudness = (ring: Ring, p: Pos): number => (inRing(ring, p) ? ring.byIndex.get(p.y * ring.width + p.x)!.remaining : -1);
+
 function noisesOf(world: ReadonlyWorld, before: State, result: PreviewResult, shown: readonly SimEvent[]): NoisePreview[] {
-    const picture = previewPicture(world, before);
+    const picture = previewPicture(world, before), doubt = doorDoubt(world, before);
+    // The doubted doors still shut after the command, open and shut: a sound reaches no further than the one, no less than the other.
+    const left = doubt && narrowDoubt(world, doubt, result.state), states = left ? doubtStates(world, result.state, left) : null;
     const out: NoisePreview[] = [];
     for (const e of shown) {
         if (e.type !== 'noise') continue;
@@ -105,11 +113,19 @@ function noisesOf(world: ReadonlyWorld, before: State, result: PreviewResult, sh
         const able = new Set(truth?.heard ?? e.heard);
         const listeners: State = { ...picture, npcs: picture.npcs.filter(n => !inRing(ring, n.pos) || able.has(n.id)) };
         const react = new Map(hearing(world, listeners, ring, e.kind, e.cause).map(h => [h.npc, h]));
+        let unsure = false;
+        if (states) {
+            const open = soundRing(world, states.open, e.sources, e.radius), shut = soundRing(world, states.shut, e.sources, e.radius);
+            unsure = picture.npcs.some(n => loudness(open, n.pos) !== loudness(shut, n.pos));
+        }
         const ears = e.heard.map((npc): Ear => {
             const h = react.get(npc);
-            return h ? { npc, status: h.status, sent: h.sent } : { npc, status: 'still', sent: false };
+            return h ? { npc, status: h.status, sent: h.sent && !unsure } : { npc, status: 'still', sent: false };
         });
-        out.push({ kind: e.kind, cause: e.cause, radius: e.radius, sources: e.sources.map(p => ({ ...p })), tiles: ring.tiles.map(t => ({ x: t.pos.x, y: t.pos.y })), ears });
+        out.push({
+            kind: e.kind, cause: e.cause, radius: e.radius, sources: e.sources.map(p => ({ ...p })), tiles: ring.tiles.map(t => ({ x: t.pos.x, y: t.pos.y })), ears,
+            ...(unsure ? { sentUnsure: true } : {})
+        });
     }
     return out;
 }

@@ -115,7 +115,8 @@ Every tile is in one of three states (implementation plan decision 44):
   room nobody has looked into yet. Nothing of the room is drawn: floor, furniture, cameras, doors, people as they
   are. Predicted markers and ghosts (what the crew knows or remembers) are drawn over the block, their cones and
   intent paths only where they cross tiles that aren't hidden. Only tiles neither on the blueprint's layout nor ever
-  seen are hidden: without the Blueprints asset, the Staff and Secure rooms.
+  seen are hidden: without the Blueprints asset, the Staff and Secure rooms. No move is planned into or through a
+  hidden tile (the range, the safe floor, a drag and a route stop at its edge): look in first, from the doorway.
 - **Not seen this turn:** a grey veil (`rgba(96, 98, 110, 0.45)`). Furniture and cameras show under it; NPCs only as
   predicted markers or ghosts, and doors as last seen, closed if never seen. Public floor nobody has seen yet starts
   here.
@@ -132,10 +133,11 @@ are:
 - **Exposed:** red with an eye.
 - **+1 next phase** and **exposed next phase:** the same states hatched.
 - **Camera:** a camera glyph.
-- **Hidden:** grey.
+- **Hidden:** not part of the safe floor: no move is planned there.
 - **Unknown risk:** grey, hatched (no glyph): someone the crew hasn't seen could react to this crew member there: an
-  NPC from a tile a person can stand on that the crew hasn't seen since the last world phase, or a camera from a hidden
-  tile, either looking through any door not seen this turn as if open. Also hatched: every tile reached through such
+  NPC from a tile that the crew hasn't seen since the last world phase (anywhere in a hidden room; elsewhere, off
+  known furniture), or a camera from a hidden tile, either looking through any door not seen this turn as if open,
+  and across what stands in a hidden room (only its outline stops them). Also hatched: every tile reached through such
   a door that could turn out locked, and a tile whose outcome such a door could make worse (someone known could see or
   hear the crew member through it, or walk differently). Doors not seen this turn are judged shut, so the tint under
   the hatch is what happens however they stand: certain danger always shows, the grey hatch drawn over a warning's
