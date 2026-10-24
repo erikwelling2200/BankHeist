@@ -29,7 +29,7 @@ const ids = (world: ReadonlyWorld, state: State, target?: string) => actionMenu(
 describe('the action grid', () => {
     it('offers what the sim allows where the crew member stands, for the tapped target', () => {
         const { world, state } = scene();
-        expect(targetsOf(world, state, 'jun')).toEqual({ doors: ['d'], npcs: ['clerk'], objects: ['dumpster-0'], cameras: [] });
+        expect(targetsOf(world, state, 'jun')).toEqual({ doors: ['d'], npcs: ['clerk'], objects: ['dumpster-0'], cameras: [], loot: [] });
         expect(ids(world, state)).toEqual(['door:open', 'door:lock', 'knockout', 'wait', 'command', 'mask', 'go']);
         expect(menuIsLegal(world, state, 'jun', actionMenu(world, state, 'jun'))).toBe(true);
         // Locked: Unlock shows, refused with the sim's own reason.
@@ -37,6 +37,27 @@ describe('the action grid', () => {
         const menu = actionMenu(world, locked, 'jun');
         expect(menu.find(e => e.id === 'door:unlock')?.reason).toMatch(/no key/);
         expect(menu.find(e => e.id === 'door:open')?.reason).toMatch(/locked/);
+    });
+
+    it('takes a bag, throws it to a teammate in range, who passes it on (M2-04)', () => {
+        const bag: WorldObject = { id: 'loot-0', kind: 'loot', pos: P(2, 1), facing: 's', name: 'Cash bag', loot: { value: 40000, weight: 'heavy' } };
+        const cash: WorldObject = { id: 'loot-1', kind: 'loot', pos: P(1, 2), facing: 's', name: 'Cash drawer', loot: { value: 5000, weight: 'light' } };
+        const world = fixtureWorld(Array.from({ length: 6 }, () => '........'), { objects: [bag, cash] });
+        let s = scouted(world, initialState(world, { seed: 7, crew: [{ id: 'jun', pos: P(2, 2) }, { id: 'mara', pos: P(4, 2) }, { id: 'dex', pos: P(5, 2) }] }));
+        expect(targetsOf(world, s, 'jun').loot).toEqual(['loot-0', 'loot-1']);
+        expect(actionMenu(world, s, 'jun', 'loot-1').find(e => e.id === 'take')).toMatchObject({ label: 'Take cash', command: { type: 'takeLoot', crew: 'jun', loot: 'loot-1' } });
+        s = commit(world, s, actionMenu(world, s, 'jun').find(e => e.id === 'take')!.command).state;
+        expect(crewCards(world, s, 'jun')[0]!.carrying).toBe('loot');
+        const menu = actionMenu(world, s, 'jun');
+        expect(menuIsLegal(world, s, 'jun', menu)).toBe(true);
+        expect(menu.map(e => e.id)).toEqual(expect.arrayContaining(['putDown', 'throw']));
+        const thrown = menu.find(e => e.id === 'throw')!;
+        expect(thrown).toMatchObject({ label: 'Throw to mara', command: { type: 'throwLoot', crew: 'jun', to: P(4, 2) } });
+        s = commit(world, s, thrown.command).state;
+        expect(s.loot['loot-0']!.holder).toBe('mara');
+        const pass = actionMenu(world, s, 'mara').find(e => e.id === 'pass')!;
+        expect(pass).toMatchObject({ label: 'Pass to dex', command: { type: 'pass', crew: 'mara', to: 'dex' } });
+        expect(describeEvent(world, s, { type: 'lootThrown', crew: 'jun', loot: 'loot-0', from: P(2, 2), to: P(4, 2), caughtBy: 'mara' })).toBe('jun threw the bag to mara');
     });
 
     it('knocks out, then drags (half reach, no dash band) and stashes in the dumpster', () => {

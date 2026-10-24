@@ -651,6 +651,55 @@ test('the takeover: GO masks up and gives a third action, a command puts the NPC
     expect(errors).toEqual([]);
 });
 
+test('loot: Mara takes a bag through the grid and throws it to Jun, who catches it (M2-04)', async ({ page }) => {
+    const errors = await boot(page);
+    // Mara beside a Heavy loot, Jun where the bag would reach him once she has it.
+    const setup = await restartWith<{ loot: string; jun: Pos }>(page, `(() => { ${PAGE_HELPERS}
+        const NEAR = [...AROUND, { x: 1, y: 1 }, { x: -1, y: 1 }, { x: 1, y: -1 }, { x: -1, y: -1 }, { x: 2, y: 0 }, { x: -2, y: 0 }, { x: 0, y: 2 }, { x: 0, y: -2 }];
+        for (const id of Object.keys(sim.state.loot).sort()) {
+            if (w.objects.find(o => o.id === id).loot.weight !== 'heavy') continue;
+            const at = sim.state.loot[id].pos;
+            for (const d of NEAR.slice(0, 8)) {
+                const p = { x: at.x + d.x, y: at.y + d.y }, st = clone(sim.state);
+                if (!free(st, p)) continue;
+                st.crew[0].pos = p;
+                if (sim.whyNot({ type: 'takeLoot', crew: 'mara', loot: id }, st)) continue;
+                const held = clone(st);
+                held.loot[id].holder = 'mara';
+                held.crew[0].loadout.carrying = 'lootBag';
+                // Two tiles away first: the arc shows.
+                for (const e of [...NEAR.slice(8), ...NEAR.slice(0, 8)]) {
+                    const q = { x: p.x + e.x, y: p.y + e.y };
+                    if (!free(st, q)) continue;
+                    held.crew[1].pos = q;
+                    if (sim.whyNot({ type: 'throwLoot', crew: 'mara', to: q }, held)) continue;
+                    st.crew[1].pos = q;
+                    return { state: st, info: { loot: id, jun: q } };
+                }
+            }
+        }
+        return null;
+    })()`);
+    expect(setup).not.toBeNull();
+    await page.locator('.sh-rail .sh-crew').nth(0).click();
+    await page.waitForTimeout(600);
+    await page.locator('.sh-actions button[data-action="take"]').click();
+    await page.locator('.sh-confirm').click();
+    await idle(page);
+    expect(await page.evaluate(id => (window as any).sim.state.loot[id].holder, setup!.loot)).toBe('mara');
+    await page.locator('.sh-actions button[data-action="throw"]').click();
+    await expect(page.locator('.sh-confirm')).toContainText('THROW');
+    // The bag's arc, previewed.
+    await page.waitForTimeout(300);
+    await page.screenshot({ path: 'screenshots/play-throw.png' });
+    await page.locator('.sh-confirm').click();
+    await idle(page);
+    const after = await page.evaluate(id => ({ loot: (window as any).sim.state.loot[id], jun: (window as any).sim.state.crew[1] }), setup!.loot);
+    expect(after.loot.holder).toBe('jun');
+    expect(after.jun.loadout.carrying).toBe('lootBag');
+    expect(errors).toEqual([]);
+});
+
 test('a carrier counts down in the ledger with the check-ins, then the Alarm: "ALARM: police in N"', SMOKE, async ({ page }) => {
     // Three world phases and a reload on the sandbox's software renderer.
     test.setTimeout(60000);

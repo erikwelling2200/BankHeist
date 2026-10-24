@@ -105,8 +105,32 @@ export const UNARMED_THREAT = 1;
 /** Wearing a mask sets the profile to Heavy (§6.3, §7.4). */
 export const MASK_PROFILE: Profile = 'heavy';
 
-/** Things carried in the hands that show (§7.4): a loot bag, a body. Augmented by the carrying package (M2-04). */
+/** Things carried in the hands that show (§7.4): a loot bag, a loot crate, a body. */
 export const CARRIED: Readonly<Record<string, Profile>> = {
     lootBag: 'armed',
+    lootCrate: 'armed',
     body: 'armed'
 };
+
+/** How heavy loot is to carry (§15.1): Light is pocketed, Heavy and Very heavy are carried in the hands. */
+export type CarryWeight = 'light' | 'heavy' | 'very heavy';
+
+/** How heavy each thing carried in the hands is (§15.1): a bag Heavy, a crate or a body Very heavy. */
+export const CARRY_WEIGHT: Readonly<Record<string, Exclude<CarryWeight, 'light'>>> = {
+    lootBag: 'heavy',
+    lootCrate: 'very heavy',
+    body: 'very heavy'
+};
+
+/** What the hands carry for loot of each weight (`Loadout.carrying`). */
+export const LOOT_CARRY: Readonly<Record<Exclude<CarryWeight, 'light'>, string>> = { heavy: 'lootBag', 'very heavy': 'lootCrate' };
+
+/** Light loot a crew member can pocket (§15.1: up to 2 stacks). */
+export const POCKETS = 2;
+
+/** Tiles of movement a Heavy carry costs per Move (§15.1: −2), and a Bruiser's Very heavy one (§7.2: −1). */
+export const HEAVY_CARRY_PENALTY = 2;
+export const BRUISER_CARRY_PENALTY = 1;
+
+/** How far a Heavy bag is thrown (§15.1: 2 tiles), Euclidean like the command ring (decision 53). */
+export const THROW_RANGE = 2;

@@ -78,7 +78,7 @@ describe('saving', () => {
  * NpcStatusMap, CarrierKindMap or adds a field must also fill it in below, or a change of shape goes unnoticed.
  */
 const SHAPE_HASHES: Record<number, string> = {
-    1: '316d74ac88af5399'
+    1: 'af1b518cc6a483b1'
 };
 
 /** Paths whose objects are records by id, not structs. */
@@ -145,6 +145,7 @@ describe('the save format', () => {
         full.npcs[0]!.evidence = { id: 'body:guard', kind: 'body', major: true, tile: { x: 1, y: 1 }, decided: { turn: 1, phase: 'world' } };
         full.npcs[1]!.intent = { path: [], action: { kind: 'tellEvidence', npc: 'teller', evidence: 'body:guard' } };
         full.crew[1]!.dragging = 'guard';
+        full.loot = { cash: { holder: 'jun', pos: { x: 0, y: 0 }, taken: true, dyePack: true, inspected: false, ruined: false } };
         full.evidence = [{ id: 'blood-7', kind: 'blood', pos: { x: 1, y: 1 } }];
         full.barked = ['body'];
         full.cameraEvidence = [{ camera: 'cam', evidence: 'body:guard', kind: 'body', tile: { x: 1, y: 1 }, turn: 2, handled: true }];
@@ -177,10 +178,11 @@ describe('the save format', () => {
                 intel: { blueprints: true, guardRota: true },
                 patrol: { lane: [{ x: 0, y: 2 }, { x: 1, y: 2 }], turns: [5, 15] },
                 stashRooms: ['closet'],
+                building: ['lobby'],
                 objects: [
                     { id: 'panel', kind: 'alarmPanel', pos: { x: 0, y: 0 }, facing: 's' },
                     { id: 'desk', kind: 'cctvDesk', pos: { x: 0, y: 0 }, facing: 's', name: 'CCTV desk', room: 'lobby', monitors: 4 },
-                    { id: 'cash', kind: 'loot', pos: { x: 0, y: 0 }, facing: 's', loot: { value: 5000, weight: 'light' } }
+                    { id: 'cash', kind: 'loot', pos: { x: 0, y: 0 }, facing: 's', loot: { value: 5000, weight: 'light', dyePack: true } }
                 ],
                 cameras: [{ id: 'cam', pos: { x: 0, y: 0 }, facings: ['s', 'e'], room: 'lobby', seesInDark: true }],
                 people: world.people.map(p => ({

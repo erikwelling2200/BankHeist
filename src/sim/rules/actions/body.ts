@@ -2,7 +2,6 @@ import { tileAt } from '../../core/grid';
 import { registerCrewInit, registerNpcInit } from '../../core/state';
 import type { CrewState, DeepReadonly, NpcState, NpcStatus, Pos, ReadonlyWorld, State } from '../../core/types';
 import { registerEvents } from '../../core/undo';
-import { registerBudgetModifier, registerDashCheck } from '../../crew/movement';
 import { isPresent } from '../npc/walk';
 import { draggedBy } from '../place';
 import { inReach, lacksActions, registerAction } from './act';
@@ -11,9 +10,9 @@ import { inReach, lacksActions, registerAction } from './act';
  * Bodies (§8.10, §6.3): a knocked-out, dead or tied person can be dragged (1 action to take hold), dropped (1 action)
  * and stashed (1 action) in a closet or a dumpster. Stashed bodies are not evidence (rules/evidence.ts).
  *
- * - **Dragging** is a Very Heavy carry: the crew member's Move reaches half as far (`registerBudgetModifier`, in
- *   half-steps, rounded down), they can't Dash, and they show as Armed (`Loadout.carrying` 'body', data/items.ts
- *   `CARRIED`). Dragging is an illegal act (§8.4) for as long as it lasts: taking hold, every tile walked with it,
+ * - **Dragging** is a Very Heavy carry (`Loadout.carrying` 'body', data/items.ts `CARRY_WEIGHT`): the crew member's
+ *   Move reaches half as far (a Bruiser's one tile less), they can't Dash (loot.ts, every carry alike), only a pistol is
+ *   in hand, and they show as Armed (`CARRIED`). A body can be passed to a teammate in reach (loot.ts `pass`). Dragging is an illegal act (§8.4) for as long as it lasts: taking hold, every tile walked with it,
  *   every action ended with it and the stash are `!` for anyone who sees them, Core or Peripheral, in any zone
  *   (`CrewLook.act`, read by perception's `reaction`, so a move's preview and the hatched overlay judge it too).
  * - **Where the body is** while dragged is where its dragger stands (`bodyPos`): `NpcState.pos` keeps the tile it was
@@ -162,10 +161,6 @@ export function releaseBody(_state: State, member: CrewState): void {
     member.dragging = null;
     if (member.loadout.carrying === 'body') member.loadout.carrying = null;
 }
-
-// A Very Heavy carry: half the reach, and no Dash (§6.3, §8.10).
-registerBudgetModifier('dragging', (_world, member, _mode, budget) => (member.dragging !== null ? Math.floor(budget / 2) : budget));
-registerDashCheck('dragging', m => (m.dragging !== null ? `${m.name} can't dash dragging a body` : undefined));
 
 /** The stash objects and rooms of a world, for the UI's hints. */
 export function stashes(world: ReadonlyWorld): { objects: string[]; rooms: string[] } {

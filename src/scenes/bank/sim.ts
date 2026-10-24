@@ -13,7 +13,7 @@ import { TILE } from '../../level/constants';
 import { headingOf } from '../../art/bank/people';
 import type { PersonPose } from '../../level/plan';
 import {
-    COMBAT_STATUSES, crewPicture, dashRefusal, IllegalCommand, knownDoorStatus, knownView, planRoute, VISIBILITY, routeBreak, soundRing, type ActionPreview,
+    COMBAT_STATUSES, crewPicture, dashRefusal, IllegalCommand, knownDoorStatus, knownView, lootWeight, planRoute, throwPlan, VISIBILITY, routeBreak, soundRing, type ActionPreview,
     type AutoStop, type Command, type CrewState, type KnownView, type MarkerKind, type PathSafety, type State, type TileVisibility, type Facing, type Pos, type SimEvent
 } from '../../sim';
 import { mountAutoBar, type AutoBarHandle } from '../../ui/hud/autoBar';
@@ -855,6 +855,7 @@ export class PlayMode {
             targets.npcs.find(id => same(markers.get(id)?.pos, tile)) ??
             targets.npcs.find(id => this.people.hit(this.sprite.get(id) ?? -1, x, y)) ??
             targets.objects.find(id => same(world.objects.find(o => o.id === id)?.pos, tile)) ??
+            targets.loot.find(id => same(state.loot[id]!.pos, tile)) ??
             targets.cameras.find(id => same(world.cameras.find(c => c.id === id)?.pos, tile));
         if (!hit) return false;
         const pending = this.session.pendingCommand;
@@ -1186,7 +1187,10 @@ export class PlayMode {
         const marks = { ...(targetDoor ? { targetDoor } : {}), ...(targetTile ? { targetTile } : {}) };
         // An action on a thing: its noise ring and who'd hear or see it, without the movement range under them.
         const { reach: _range, safeFloor: _floor, ...rest } = base;
-        if (pending) return { ...rest, ...marks, ...(shown ? this.previewMarks(shown) : {}) };
+        // A throw (§15.1): the bag's arc, as `throwPlan` has it land.
+        const thrown = pending?.type === 'throwLoot' ? throwPlan(this.session.world, this.session.state, pending) : undefined;
+        const arc = thrown && typeof thrown !== 'string' ? { throwArc: { from: thrown.from, to: thrown.to, caught: thrown.catcher !== null } } : {};
+        if (pending) return { ...rest, ...marks, ...arc, ...(shown ? this.previewMarks(shown) : {}) };
         return { ...base, ...marks };
     }
 
@@ -1259,7 +1263,9 @@ export class PlayMode {
 
     /** Where a target NPC (as the crew knows it) or object stands. */
     private targetTile(id: string): Pos | undefined {
-        return this.known().npcs.find(m => m.id === id)?.pos ?? this.session.world.objects.find(o => o.id === id)?.pos;
+        const { state } = this.session;
+        return this.known().npcs.find(m => m.id === id)?.pos ?? state.crew.find(c => c.id === id)?.pos
+            ?? (Object.hasOwn(state.loot, id) ? state.loot[id]!.pos : undefined) ?? this.session.world.objects.find(o => o.id === id)?.pos;
     }
 
     /**
@@ -1286,7 +1292,7 @@ export class PlayMode {
     }
 
     /** The overlay's knowledge layer: the veil on tiles not seen this turn, ghosts' "seen N turns ago", the sound pings. */
-    private knowledgeLayer(): Pick<OverlayContent, 'visibility' | 'ghosts' | 'pings' | 'badges' | 'crewColours' | 'cones' | 'predicted' | 'colourBlind' | 'cameras' | 'flashes' | 'found'> {
+    private knowledgeLayer(): Pick<OverlayContent, 'visibility' | 'ghosts' | 'pings' | 'loot' | 'badges' | 'crewColours' | 'cones' | 'predicted' | 'colourBlind' | 'cameras' | 'flashes' | 'found'> {
         const view = this.known(), { world, state } = this.session, busy = this.busy;
         const shown = (id: string) => this.people.shown(this.sprite.get(id) ?? -1);
         // Cones: the one long-pressed, or every NPC's the crew knows of from the overlay drawer (§20.4); when neither,
@@ -1297,6 +1303,9 @@ export class PlayMode {
             visibility: { width: view.width, codes: view.visibility },
             ghosts: view.npcs.filter(m => m.kind === 'ghost' && shown(m.id)).map(m => ({ pos: m.pos, seenAgo: m.seenAgo })),
             pings: view.pings.map(p => ({ at: p.at })),
+            // The crew's own loot left on the floor (§15.1): it knows where it put it.
+            loot: Object.keys(state.loot).sort().filter(id => state.loot[id]!.taken && state.loot[id]!.holder === null)
+                .map(id => ({ at: state.loot[id]!.pos, crate: lootWeight(world, id) === 'very heavy' })),
             colourBlind: this.colourBlind,
             ...(filter ? { coneFilter: true } : {}),
             cameras: this.cameras(),

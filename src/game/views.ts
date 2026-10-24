@@ -1,5 +1,5 @@
 import {
-    CARRIERS, crewLook, DASH_ACTIONS, knownCarriers, markerKind, walkingToAlarm, MOVE_ACTIONS, nextDriveBy, type CarrierChanges, type CarrierPreview, type Command, type ReadonlyWorld, type SimEvent, type State
+    CARRIERS, crewLook, DASH_ACTIONS, knownCarriers, lootOf, markerKind, walkingToAlarm, MOVE_ACTIONS, nextDriveBy, type CarrierChanges, type CarrierPreview, type Command, type ReadonlyWorld, type SimEvent, type State
 } from '../sim';
 import {
     CREW_COLOURS, OVERLAY_IDS, type ActionVM, type BankStatus, type CommitKind, type ConfirmVM, type HudIcon, type BankStatusVM, type CrewVM, type HudViewModel, MAX_ACTIONS, type OverlayId, type RecapEventVM,
@@ -132,8 +132,9 @@ const PORTRAITS: ReadonlySet<string> = new Set(['mara', 'jun', 'dex', 'sol']);
 const portraitOf = (c: State['crew'][number]): { portrait?: string } =>
     (PORTRAITS.has(c.id) ? { portrait: c.loadout.masked ? `${c.id}-m` : c.id } : {});
 
-/** What the crew card shows carried: a loot bag (a body only raises the profile, §7.4). */
-const carriedOf = (c: State['crew'][number]): CrewVM['carrying'] => (c.loadout.carrying === 'lootBag' ? 'loot' : null);
+/** What the crew card shows carried: loot, in the hands or pocketed (a body only raises the profile, §7.4). */
+const carriedOf = (state: State, c: State['crew'][number]): CrewVM['carrying'] =>
+    (lootOf(state, c.id).length || c.loadout.carrying === 'lootBag' || c.loadout.carrying === 'lootCrate' ? 'loot' : null);
 
 const exposedTo = (state: State, crew: string): string[] => state.npcs.filter(n => n.exposedTo.includes(crew)).map(n => n.id);
 
@@ -151,7 +152,7 @@ export function crewCards(world: ReadonlyWorld, state: State, selected: string |
         exposedTo: exposedTo(state, c.id),
         hp: null,
         selected: c.id === selected,
-        carrying: carriedOf(c)
+        carrying: carriedOf(state, c)
     }));
 }
 
@@ -200,6 +201,11 @@ function describeCommand(cmd: Command, world?: ReadonlyWorld): { label: string; 
         case 'hold': return { label: 'Hold', icon: 'hold', cost: 1 };
         case 'maskUp': return { label: 'Mask up', icon: 'mask', cost: 1 };
         case 'go': return { label: 'GO', icon: 'star', cost: 0 };
+        case 'takeLoot': return { label: 'Take', icon: 'bag', cost: 1 };
+        case 'dropLoot': return { label: 'Put down', icon: 'flip', cost: 1 };
+        case 'throwLoot': return { label: 'Throw', icon: 'throw', cost: 1 };
+        case 'pass': return { label: 'Pass', icon: 'heavy', cost: 1 };
+        case 'inspectLoot': return { label: 'Inspect', icon: 'eye', cost: 1 };
         default: return { label: cmd.type, icon: 'interact', cost: 1 };
     }
 }
@@ -293,6 +299,12 @@ export function recapView(world: ReadonlyWorld, state: State, recent: readonly S
 }
 
 /** A line of text for the event log and the recap. Event types without a line of their own show their type. */
+/** Loot as the recap names it: what the generator calls it, lower-cased ("the cash drawer"). */
+const lootName = (world: ReadonlyWorld, id: string): string => {
+    const o = world.objects.find(x => x.id === id);
+    return o?.name ? `the ${o.name.charAt(0).toLowerCase()}${o.name.slice(1)}` : 'the loot';
+};
+
 export function describeEvent(world: ReadonlyWorld, state: State, event: SimEvent): string {
     const name = (id: string): string => state.crew.find(c => c.id === id)?.name ?? world.people.find(p => p.id === id)?.name ?? id;
     switch (event.type) {
@@ -328,6 +340,13 @@ export function describeEvent(world: ReadonlyWorld, state: State, event: SimEven
         case 'operatorSentGuard': return `${name(event.npc)} sent ${name(event.guard)} to look`;
         case 'footageRecorded': return `${capitalise(cameraName(world, event.camera))} recorded ${name(event.crew)}`;
         case 'recorderTaken': return `${name(event.crew)} took the recorder`;
+        case 'lootTaken': return `${name(event.crew)} took ${lootName(world, event.loot)}`;
+        case 'lootDropped': return `${name(event.crew)} put down ${lootName(world, event.loot)}`;
+        case 'lootThrown': return event.caughtBy ? `${name(event.crew)} threw the bag to ${name(event.caughtBy)}` : `${name(event.crew)} threw the bag`;
+        case 'lootPassed': return `${name(event.crew)} passed ${lootName(world, event.loot)} to ${name(event.to)}`;
+        case 'bodyPassed': return `${name(event.crew)} handed the body to ${name(event.to)}`;
+        case 'dyePackFound': return `${name(event.crew)} found a dye pack in the cash and took it out`;
+        case 'dyePackBurst': return `A dye pack burst in ${name(event.crew)}’s pocket: the cash is ruined`;
         case 'recorderDestroyed': return `${name(event.crew)} smashed the recorder`;
         case 'wentLoud': return `The bank went loud: ${event.cause}`;
         case 'doorOpened': return `${name(event.by)} opened ${doorName(world, event.door)}`;

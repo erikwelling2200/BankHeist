@@ -1,6 +1,6 @@
 import {
-    besideDoor, crewPicture, doorStatus, DRAGGABLE, draggedBy, goBlocked, inReach, interactionVerbs, isKnownNow, JAMMER, legalActions, LOOP_FROM, reachesObject, STASH_KINDS,
-    whyNot, type Command, type Pos, type ReadonlyWorld, type State
+    besideDoor, crewPicture, doorStatus, DRAGGABLE, draggedBy, goBlocked, inHands, inReach, interactionVerbs, isKnownNow, JAMMER, legalActions, LOOP_FROM, lootWeight,
+    pocketed, reachesObject, STASH_KINDS, throwTargets, whyNot, type Command, type Pos, type ReadonlyWorld, type State
 } from '../sim';
 import type { HudIcon as HudIconName } from '../ui/hud/viewModels';
 
@@ -20,6 +20,10 @@ import type { HudIcon as HudIconName } from '../ui/hud/viewModels';
  * - Loop feed (§7.2, §8.12): at the CCTV desk or a server rack, for a camera the crew knows of: the tapped one, else
  *   the first it can loop; tapping the entry again cycles through them (the scene's `nextCamera`).
  * - Jammer (§12.2): while the member carries one.
+ * - Loot (§15.1, M2-04): Take the loot in reach nobody has (the tapped one, else the first); with loot in the hands, Put
+ *   down, Throw (a bag) to a teammate it would reach, and Pass (it, or a body) to a teammate in reach; Inspect a
+ *   pocketed stack of cash not yet looked through. Throwing to a floor tile is `window.sim` only until the throw arc
+ *   (M2-06).
  * - Wait.
  * - The takeover (§9.3, §10.1–10.3, M2-01), after Wait: Command always; Hold while anyone is Commanded; Mask up while
  *   unmasked; GO while it can still be pressed.
@@ -46,12 +50,14 @@ export interface Targets {
     objects: string[];
     /** The cameras the crew knows of, when the member can loop a feed from where they stand. */
     cameras: string[];
+    /** Loot in reach that nobody has (where the bank keeps it, or on the floor). */
+    loot: string[];
 }
 
 /** The doors, NPCs (known to the crew) and stash or handled objects a crew member could act on from where they stand. */
 export function targetsOf(world: ReadonlyWorld, state: State, crewId: string): Targets {
     const member = state.crew.find(c => c.id === crewId);
-    if (!member) return { doors: [], npcs: [], objects: [], cameras: [] };
+    if (!member) return { doors: [], npcs: [], objects: [], cameras: [], loot: [] };
     const doors = Object.keys(world.doors).sort().filter(id => besideDoor(world, world.doors[id]!, member.pos));
     // Only NPCs the crew sees or predicts (§8.15): the grid gives nothing away about anyone else.
     const npcs = crewPicture(world, state).npcs
@@ -61,7 +67,8 @@ export function targetsOf(world: ReadonlyWorld, state: State, crewId: string): T
         .filter(o => (STASH_KINDS.has(o.kind) || interactionVerbs(world, o.id).length) && reachesObject(world, state, member.pos, o))
         .map(o => o.id);
     const atConsole = world.objects.some(o => LOOP_FROM.has(o.kind) && inReach(world, state, member.pos, o.pos));
-    return { doors, npcs, objects, cameras: atConsole ? knownCameras(world, state) : [] };
+    const loot = Object.keys(state.loot).sort().filter(id => state.loot[id]!.holder === null && inReach(world, state, member.pos, state.loot[id]!.pos));
+    return { doors, npcs, objects, cameras: atConsole ? knownCameras(world, state) : [], loot };
 }
 
 /** The cameras the crew knows of (§8.15), in the World's order. */
@@ -113,6 +120,9 @@ export const VERBS: Readonly<Record<string, { label: string; icon: HudIconName }
 };
 
 const DOOR_LABEL = { open: 'Open', close: 'Close', lock: 'Lock', unlock: 'Unlock' } as const;
+
+/** What a Take button names, by weight (§15.1). */
+const LOOT_NAME = { light: 'cash', heavy: 'bag', 'very heavy': 'crate' } as const;
 
 /** The grid's entries (movement is the HUD's own first entry), for `target` when it is one of the member's targets. */
 export function actionMenu(world: ReadonlyWorld, state: State, crewId: string, target?: string | null): ActionEntry[] {
@@ -166,6 +176,23 @@ export function actionMenu(world: ReadonlyWorld, state: State, crewId: string, t
     if (desk && camera) add('loop', 'Loop feed', 'hack', { type: 'loopFeed', crew: crewId, object: desk, camera }, camera);
 
     if (member.loadout.items.includes(JAMMER)) add('jammer', 'Jammer', 'radio', { type: 'placeJammer', crew: crewId });
+
+    const loot = pick(targets.loot);
+    if (loot) add('take', `Take ${LOOT_NAME[lootWeight(world, loot)]}`, 'bag', { type: 'takeLoot', crew: crewId, loot }, loot);
+    const held = inHands(world, state, crewId);
+    if (held) add('putDown', 'Put down', 'flip', { type: 'dropLoot', crew: crewId });
+    const mates = state.crew.filter(c => c.id !== crewId);
+    if (held && lootWeight(world, held) === 'heavy') {
+        const reach = new Set(throwTargets(world, state, crewId).map(p => `${p.x},${p.y}`));
+        const catcher = pick(mates.filter(c => reach.has(`${c.pos.x},${c.pos.y}`)).map(c => c.id));
+        if (catcher) add('throw', `Throw to ${state.crew.find(c => c.id === catcher)!.name}`, 'throw', { type: 'throwLoot', crew: crewId, to: { ...state.crew.find(c => c.id === catcher)!.pos } }, catcher);
+    }
+    if (held || member.dragging !== null) {
+        const to = pick(mates.filter(c => inReach(world, state, member.pos, c.pos)).map(c => c.id));
+        if (to) add('pass', `Pass to ${state.crew.find(c => c.id === to)!.name}`, 'heavy', { type: 'pass', crew: crewId, to }, to);
+    }
+    const stack = pocketed(world, state, crewId).find(id => !state.loot[id]!.inspected && !state.loot[id]!.ruined);
+    if (stack) add('inspect', 'Inspect cash', 'eye', { type: 'inspectLoot', crew: crewId, loot: stack }, stack);
 
 
     add('wait', 'Wait', 'wait', { type: 'wait', crew: crewId });

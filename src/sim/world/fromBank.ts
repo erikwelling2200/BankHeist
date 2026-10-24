@@ -25,7 +25,8 @@ import { DOOR_KINDS, WALL_MATERIALS } from './materials';
  *   lock (§6.9).
  * - objects: the props the rules act on (panels, consoles, hatches, dumpsters; `OBJECT_KINDS`), the CCTV desk's recorder, the
  *   manager's PC, the alarm buttons that start a §9.1 carrier, and the loot.
- * - stash rooms: the cleaner's closet, where a body can be hidden (§8.10).
+ * - stash rooms: the cleaner's closet, where a body can be hidden (§8.10); the building: the bank's rooms under its
+ *   roof, which a dye pack's cash must not leave (§15.1).
  * - people: their role, observer class and schedule (the typed `routine` with its tiles, run by rules/npc); cameras with
  *   their facings, two for a panning one.
  * - the patrol car's lane along the main street and the timeline's drive-by turns (rules/checkins.ts), and the police
@@ -178,7 +179,7 @@ export function worldFromBank(bank: GeneratedBank): ReadonlyWorld {
         add('managerPc', prop.tx, prop.ty, PROP_FACING[prop.facing ?? 'south']);
     }
     for (const a of bank.alarms) if (!NOT_CARRIERS.has(a.name)) add('alarmButton', a.tx, a.ty, 's', { name: a.name });
-    for (const l of bank.loot) add('loot', l.tx, l.ty, 's', { name: l.name, loot: { value: l.value, weight: l.weight } });
+    for (const l of bank.loot) add('loot', l.tx, l.ty, 's', { name: l.name, loot: { value: l.value, weight: l.weight, ...(l.dyePack ? { dyePack: true as const } : {}) } });
 
     const people: PersonDef[] = bank.people.map(p => ({
         id: p.id, name: p.name, role: p.role, observer: p.observer satisfies ObserverClass, pos: { x: p.tx, y: p.ty },
@@ -189,6 +190,8 @@ export function worldFromBank(bank: GeneratedBank): ReadonlyWorld {
     }));
 
     const stashRooms = bank.rooms.filter(r => STASH_ROOMS.includes(r.type)).map(r => r.id).sort();
+    // The bank's building: the rooms of its lot under a roof (a dye pack bursts once its cash leaves them, §15.1).
+    const building = bank.rooms.filter(r => r.bank && r.zone !== 'outdoors').map(r => r.id).sort();
     // The patrol car's lane (§16.3, §16.4): the main street from its west end to its east end, on the street's tiles.
     const west = bank.exits.find(e => e.id === 'street-west'), east = bank.exits.find(e => e.id === 'street-east');
     const lane: { x: number; y: number }[] = [];
@@ -198,5 +201,5 @@ export function worldFromBank(bank: GeneratedBank): ReadonlyWorld {
     const patrol = { lane, turns: bank.timeline.filter(t => t.name === 'Patrol drive-by').map(t => t.turn).sort((a, b) => a - b) };
     // Police in N (§9.2) by the bank's tier.
     const rules = { ...defaultRules(), policeEta: bank.policeEta };
-    return freezeWorld({ width, height, tiles, edges, doors, objects, people, cameras, rules, stashRooms, ...(lane.length ? { patrol } : {}) });
+    return freezeWorld({ width, height, tiles, edges, doors, objects, people, cameras, rules, stashRooms, building, ...(lane.length ? { patrol } : {}) });
 }

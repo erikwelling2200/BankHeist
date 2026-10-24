@@ -5,7 +5,7 @@ import { samePlain, sortedIds } from '../core/json';
 import { registerStateCheck } from '../core/save';
 import { crewMember, registerRuleDefaults, registerStateInit } from '../core/state';
 import type {
-    CameraDef, Command, CrewState, DeepReadonly, DoorDef, DoorState, DoorStatus, Facing, Intent, NpcState, NpcStatus, ObserverClass, Pos, ReadonlyWorld, SimEvent, State
+    CameraDef, Command, CrewState, DeepReadonly, DoorDef, DoorState, DoorStatus, EventType, Facing, Intent, NpcState, NpcStatus, ObserverClass, Pos, ReadonlyWorld, SimEvent, State
 } from '../core/types';
 import { eventClass } from '../core/undo';
 import { crewHasKey, registerMoveHook, registerPlanView } from '../crew/movement';
@@ -1299,6 +1299,14 @@ export function knownView(world: ReadonlyWorld, state: State): KnownView {
 /** Fields of an event that may name an NPC (a door opened `by` one, a guard told, a walk stopped `by` one). */
 const PERSON_FIELDS = ['npc', 'by', 'guard', 'source', 'observer'] as const;
 
+/** Event types a preview never shows: what the player can't know before it happens (a hidden dye pack, §15.1). */
+const PREVIEW_SECRETS = new Set<string>();
+
+/** Keeps an event type out of every preview (`projectEvents` in preview mode); playback still tells it. */
+export function registerPreviewSecret(type: EventType): void {
+    PREVIEW_SECRETS.add(type);
+}
+
 export interface ProjectOptions {
     /**
      * `playback` (default): what the player is told after a command or a world phase; an NPC is known if the crew sees
@@ -1438,7 +1446,7 @@ export function projectEvents(world: ReadonlyWorld, state: State, events: readon
         ? events.filter((e): e is Extract<SimEvent, { type: 'moveCut' }> => e.type === 'moveCut' && (e.reason === 'door' || !known(e.npc)))
         : [];
     for (const e of events) {
-        if (preview && e.type === 'revealed') continue;
+        if (preview && (e.type === 'revealed' || PREVIEW_SECRETS.has(e.type))) continue;
         // A walk a doubted door could stop: only its steps before that door.
         const named = (e as { npc?: unknown }).npc, cut = typeof named === 'string' ? doubted.get(named) : undefined;
         if (cut && known(named as string)) {

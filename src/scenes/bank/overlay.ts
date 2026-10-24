@@ -100,6 +100,10 @@ export interface OverlayContent {
     ghosts?: { pos: Pos; seenAgo: number }[];
     /** Loud noises the crew heard (§8.15). */
     pings?: { at: Pos }[];
+    /** Loot the crew left on the floor (§15.1): a bag, or a crate. */
+    loot?: { at: Pos; crate: boolean }[];
+    /** A previewed throw (§15.1): the bag's arc, to the teammate who catches it or the floor. */
+    throwArc?: { from: Pos; to: Pos; caught: boolean };
     /** The plates and pips over the NPCs and carriers the crew knows of (src/game/worldUi.ts). */
     badges?: BadgeVM[];
     /** The crew's colours by id, for the pips. */
@@ -164,6 +168,8 @@ const GREY = '#8a8894';
 /** Where someone unknown could watch from (long-press on unknown risk): the grey, lightened. */
 const WATCHER = '#d0ced8';
 const PING = 'rgba(226, 162, 64, 0.8)';
+/** Loot's gold. */
+const LOOT = '#e8c04a';
 
 /**
  * How far past the view the overlay is drawn on each side, as a share of the view: while the view moves the drawing is
@@ -336,6 +342,43 @@ export class WorldOverlay {
                 ctx.arc(x, y, r, 0, Math.PI * 2);
                 ctx.stroke();
             }
+        }
+
+        // Loot on the floor: a gold sack (a crate square), outlined in ink.
+        for (const l of c.loot ?? []) {
+            const [x, y] = mid(l.at), r = S * 0.2;
+            ctx.fillStyle = LOOT;
+            ctx.strokeStyle = INK;
+            ctx.lineWidth = 2;
+            ctx.beginPath();
+            if (l.crate) ctx.rect(x - r, y - r, 2 * r, 2 * r);
+            else {
+                ctx.ellipse(x, y + r * 0.3, r, r * 0.9, 0, 0, Math.PI * 2);
+                ctx.moveTo(x - r * 0.4, y - r * 0.7);
+                ctx.lineTo(x + r * 0.4, y - r * 0.7);
+            }
+            ctx.fill();
+            ctx.stroke();
+        }
+
+        if (c.throwArc) {
+            // The bag's flight: a dotted arc rising a tile over the middle, and a ring where it lands.
+            const [x0, y0] = mid(c.throwArc.from), [x1, y1] = mid(c.throwArc.to);
+            ctx.setLineDash([4, 4]);
+            for (const [colour, dy, width] of [[INK, 2, 4], [LOOT, 0, 2]] as const) {
+                ctx.strokeStyle = colour;
+                ctx.lineWidth = width;
+                ctx.beginPath();
+                ctx.moveTo(x0, y0 + dy);
+                ctx.quadraticCurveTo((x0 + x1) / 2, Math.min(y0, y1) - S + dy, x1, y1 + dy);
+                ctx.stroke();
+            }
+            ctx.setLineDash([]);
+            ctx.strokeStyle = c.throwArc.caught ? pal.safe : LOOT;
+            ctx.lineWidth = 2;
+            ctx.beginPath();
+            ctx.arc(x1, y1, S * 0.3, 0, Math.PI * 2);
+            ctx.stroke();
         }
 
         /** Each side of a tile in `tiles` that `inside` doesn't continue past: the set's outline, a side at a time. */

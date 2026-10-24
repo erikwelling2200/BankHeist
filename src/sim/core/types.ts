@@ -128,8 +128,11 @@ export interface WorldObject {
     name?: string;
     /** The room it stands in. */
     room?: string;
-    /** Loot (§15.1): what it is worth and how heavy it is to carry. */
-    loot?: { value: number; weight: 'light' | 'heavy' | 'very heavy' };
+    /**
+     * Loot (§15.1): what it is worth and how heavy it is to carry; `dyePack` when a dye pack hides in it (a teller's
+     * drawer), which the player isn't told.
+     */
+    loot?: { value: number; weight: 'light' | 'heavy' | 'very heavy'; dyePack?: true };
     /** A CCTV desk: how many feeds its operator watches at once (§8.12). */
     monitors?: number;
 }

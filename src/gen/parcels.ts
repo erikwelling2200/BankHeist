@@ -37,7 +37,7 @@ export interface Furnished {
     /** Silent-alarm stations (§9.1): the teller windows, the manager's desk button, the CCTV console's panel. */
     alarms: { tx: number; ty: number; name: string; room: string }[];
     /** Loot by tile (§15.1). */
-    loot: { tx: number; ty: number; name: string; value: number; weight: 'light' | 'heavy' | 'very heavy'; room: string }[];
+    loot: { tx: number; ty: number; name: string; value: number; weight: 'light' | 'heavy' | 'very heavy'; room: string; dyePack?: true }[];
     /** The inside ends of off-map routes and ducts, placed where a parcel has room for them. */
     grates: { tx: number; ty: number; room: string }[];
     vents: { tx: number; ty: number; room: string }[];
@@ -311,7 +311,8 @@ function tellerLine(style: 'backCounters' | 'cabinets' | 'mixed'): ParcelFn {
         for (const x of open) {
             if (p.f.stand(x, row - 1)) p.out.stations.push({ tx: x, ty: row - 1, facing: 'front', role: 'teller', room: room.id });
             p.out.alarms.push({ tx: x, ty: row - 1, name: 'Teller window alarm button', room: room.id });
-            p.out.loot.push({ tx: x, ty: row - 1, name: ctx.dyePacks && x === open[0] ? 'Cash drawer (dye pack)' : 'Cash drawer', value: 5000, weight: 'light', room: room.id });
+            // A dye pack in the first window's drawer (§15.1), unmarked: only inspecting the cash finds it.
+            p.out.loot.push({ tx: x, ty: row - 1, name: 'Cash drawer', value: 5000, weight: 'light', room: room.id, ...(ctx.dyePacks && x === open[0] ? { dyePack: true as const } : {}) });
         }
         p.walks();
         if (style === 'backCounters') p.lineNorth(['backCounter', 'printer', 'backCounter', 'filingCabinet'], 1);

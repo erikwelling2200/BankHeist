@@ -18,6 +18,7 @@ import './rules/actions/body';
 import './rules/actions/door';
 import './rules/actions/interact';
 import './rules/actions/knockout';
+import './rules/actions/loot';
 import './rules/actions/wait';
 import './rules/autoAdvance';
 import './rules/alarms';
@@ -104,6 +105,10 @@ export { inReach, lacksActions, legalActions, registerAction, whyNot, witnessAct
 export { besideDoor, DOOR_ACTIONS, doorActionBlocked, doorSides, innerSide, type DoorAction } from './rules/actions/door';
 export { bodyAway, DRAGGABLE, releaseBody, STASH_KINDS, stashes } from './rules/actions/body';
 export { bodyPos, draggedBy, onFloor, placeCrew } from './rules/place';
+export {
+    carryWeight, crewLoot, handsFree, inBuilding, inHands, lootObject, lootOf, lootWeight, pocketed, throwFlies, throwPlan, throwTargets,
+    type LootState, type ThrowPlan
+} from './rules/actions/loot';
 export { knockoutBlocked, knockoutIneligible, registerKnockoutWindow, type KnockoutWindow } from './rules/actions/knockout';
 export { interactionVerbs, reachesObject, registerInteraction, type InteractionHandler, type InteractionVerb } from './rules/actions/interact';
 export {

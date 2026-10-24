@@ -655,11 +655,41 @@ Each package lists its goal, the design sections it covers, the files, what it d
   - **Covers:** §10.6, §10.7 (keys, drawers), §8.14 (decision Q14).
   - **Depends on:** M2-01. **∥** M2-02, M2-04.
   - **Accept:** a frisk removes hidden weapons and keycards; a disguise changes the matrix cells as §8.14 says.
-- [ ] **M2-04 Loot and carrying.**
+- [x] **M2-04 Loot and carrying.**
   - **Covers:** §15.1, bodies in §8.10 (drag, stash).
   - **Work:** Light, Heavy and Very heavy loot; throwing and catching; chains; dye packs; generator loot wired in.
   - **Depends on:** M1. **∥** M2-02, M2-03.
   - **Accept:** the movement penalties; the throw preview equals its outcome.
+  - **Notes (done):** `rules/actions/loot.ts` (one module: the loot's state, the commands, the carry penalties, dye
+    packs, the floor's loot as evidence), the weights and numbers in `data/items.ts` (`CARRY_WEIGHT`, `LOOT_CARRY`,
+    `POCKETS`, `THROW_RANGE`, the penalties). Decisions 53–58.
+    - **Loot** is the World's `loot` objects worth something (the generator's drawers, bags, crates and drive rack;
+      `fromBank` already made them): `State.loot[id] { holder, pos, taken, dyePack, inspected, ruined }`. The 0-value
+      "loot" (the manager's PC, keys, files) stays an object for M2-05. Light is pocketed (2 stacks), Heavy and Very
+      heavy go in the hands (`Loadout.carrying` 'lootBag' / 'lootCrate', Armed); hands hold one thing, a body included.
+    - **Commands:** `takeLoot { crew, loot }` (in reach; from where the bank keeps it the illegal act 'takeLoot'),
+      `dropLoot { crew }`, `throwLoot { crew, to }` (a bag; `throwPlan` is both the reducer's reading and the preview:
+      where it lands and who catches it), `pass { crew, to }` (what the hands carry, a body too: `bodyPassed`, dragging
+      seen on both tiles), `inspectLoot { crew, loot }` (a pocketed stack). All in `legalActions`.
+    - **Penalties** (`registerBudgetModifier('carrying')`, `registerDashCheck('carrying')`, replacing body.ts's own):
+      Heavy −2 tiles a Move, Very heavy (a crate or a body) half, a Bruiser's −1 tile; neither dashes. A Very heavy carry
+      leaves only sidearms in hand (command.ts `crewThreat`, and "2+ crew aiming").
+    - **Dye packs:** the generator marks the drawer (`Furnished.loot[].dyePack`; the name no longer tells), `fromBank`
+      passes it on and gives `World.building` (the bank's rooms under its roof). The move hook bursts it on the first
+      step outside (`dyePackBurst`, the stack ruined); inspecting finds it (`dyePackFound`). `registerPreviewSecret`
+      (knowledge.ts) keeps both out of every preview.
+    - **For the UI (M2-06):** the grid's Take, Put down, Throw to (a teammate the bag reaches), Pass to and Inspect cash;
+      the crew card's loot badge for pockets too; the overlay draws loot on the floor and a previewed throw's arc
+      (`throwPlan`); `throwTargets(world, state, crew)` for the arc's tiles; `crewLoot` for the counters; recap lines.
+    - **Tests:** `tests/sim/loot.test.ts` (each penalty, pockets and hands, throw range and flight, catching and chains,
+      passing a crate and a body, dye packs and their secrecy, the bag as evidence); the preview property test's loot
+      scenario (`playLoot`: a crew round a heap of loot, the random player loot-first) checks every throw's plan against
+      the commit, the action preview and where the bag ends (`checkThrow`); an e2e test takes and throws through the
+      grid (`screenshots/play-throw.png`). Save shape hash now `af1b518cc6a483b1`.
+    - **Deferred:** loot into the getaway and its counters on the van (M3-08, M2-06); picking a floor tile to throw to
+      in the scene (`window.sim` only until M2-06's arc); dye packs flagged by intel (planning, M6); deposit boxes'
+      Light loot and vault access (M2-05); carrying a downed ally (M3); thermite scorching loot (M4); an emptied drawer
+      or a burst pack as evidence.
 - [ ] **M2-05 Vault access: wiring the key graph into the rules.**
   - **Covers:** §15.2, §15.3, §9.1 sensors, §7.2 kits and traits (Steady Hands).
   - **Work:** turn `KeyLock` into structured keys (`gen/keys.ts`); codes and dual control at the console; the manager's PC; the time-lock window from the timeline; the drill with jams (rolled) and noise; deposit boxes; lockpicking; card readers.
@@ -1086,6 +1116,28 @@ Later milestones: within each milestone, the `∥` notes in §3 apply. UI packag
     they stand through its world phase (they still see and hear; what they decide is committed at its end). A surprised
     civilian is Commanded with 1 pip ("for one phase"), so it lapses after the takeover's world phase unless commanded.
 52. **GO's masks are witnessed** like Mask up (the illegal act 'maskUp'), and GO itself isn't loud: the first shout is.
+
+53. **Throwing (M2-04).** "2 tiles" is Euclidean like the command ring (r² ≤ 4: straight two, or one diagonal). The bag
+    flies as a hand reaches on each hop (`inReach`: no wall, closed door or glass between, one level), over low
+    furniture but not over anything tall, and lands only on a tile one could stand on. A teammate on the landing tile
+    with free hands catches it, free and without an action of theirs, and may throw it on with their own (chains);
+    with full hands it lands at their feet. A throw is neither noisy nor an illegal act (the bag in the hands is already
+    Armed). It never passes a door the crew can't vouch for (decision 44): how such a door stands would decide it.
+54. **Hands and pockets (M2-04).** The hands hold one thing: a bag, a crate or a body. Pockets hold 2 Light stacks
+    besides, which are never dropped, thrown or passed. Anything in the hands can be passed to a teammate in reach with
+    free hands (1 action), a bag too; passing a body is dragging, seen on both tiles (decision 27).
+55. **Taking loot (M2-04)** from where the bank keeps it is the illegal act 'takeLoot'; picking a bag up off the floor
+    isn't. Loot worth nothing (the manager's PC, keys, files) isn't loot: M2-05 gives it its use. A bag or a crate on the
+    floor is an unattended loot bag unless a crew member stands beside it (Chebyshev 1, as M1-07's placed bag).
+56. **Dye packs (M2-04).** Inspecting is 1 action on a pocketed stack: it finds the pack and takes it out. Unfound, the
+    pack bursts on its carrier's first step onto a tile outside the bank's building (its lot's rooms that aren't
+    outdoors), ruining the stack, which stays pocketed. The player isn't told before: previews never show a pack found
+    or bursting (`registerPreviewSecret`), so such a move or an inspection turns out final. The burst isn't evidence.
+57. **Carry penalties (M2-04).** Heavy is −2 tiles off the Move (in half-steps, after heavy armour's 4 tiles); Very
+    heavy halves it rounded down in half-steps (M1's drag), or −1 tile for a Bruiser; bodies are Very heavy too. Only
+    sidearms are in hand with a Very heavy carry: they alone count for Threat and for "2+ crew aiming".
+58. **Hidden in the state (M2-04).** `LootState.dyePack` is the truth, never read by a view model; a pack flagged by
+    intel (a later planning asset) would make it known and then shown.
 
 ### Critical files for implementation
 

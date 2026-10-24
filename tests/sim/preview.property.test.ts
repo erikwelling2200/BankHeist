@@ -6,7 +6,7 @@ import { Rng } from '../../src/gen/rng';
 import {
     actionPreview, commandPlan, commandPreview, addsTo, carriersStarted, DEAF_STATUSES, clonePlain, commit, crewBudget, crewMoveOptions, decodeBits, doorDoubt, effectKind, effectOf, encodeBits, explain, FACINGS, hearing,
     isKnownNow, fixtureWorld, initialState, hashOf, legalActions, noiseRadius, npcsInside, onFloor, pathSafety, pendingCarriers, planningState, previewCertain, previewPicture,
-    projectCarriers, projectEvents, projectPreviewEvents, safeFloor, safeFloorJob, sightDoubted, soundRing, teammateEffects, TINT_RANK, tintOf, validatePath, withDoubtedShut,
+    projectCarriers, projectEvents, projectPreviewEvents, safeFloor, safeFloorJob, sightDoubted, soundRing, teammateEffects, throwPlan, TINT_RANK, tintOf, validatePath, withDoubtedShut,
     worldFromBank,
     type CameraDef, type Command, type CommitResult, type CrewStart, type DoorStatus, type Effect, type TeammateEffect, type FixtureWall, type FloorTile, type ObserverClass, type PersonDef, type Pos, type ReadonlyWorld,
     type SafeFloor, type ScheduleBlock, type SimEvent, type State, type WorldObject
@@ -18,7 +18,8 @@ import { dashRing, judgeFor } from '../../src/sim/preview/floor';
  * show is what happens. Seeded random play on random fixtures and on generated banks (every tier × archetype, the
  * plots in turn); random legal commands (moves and dashes to a tile of the safe floor or along a random drawn path,
  * and every action `legalActions` offers: doors, knockouts, drags, drops, stashes, panel work, looping, answering,
- * jammers, waits). Before each move the tile's tint is taken; after it, compared:
+ * jammers, loot (taking, dropping, throwing, passing, inspecting; a scenario of its own), waits). Before each move the
+ * tile's tint is taken; after it, compared:
  *
  * 1. **Same rules.** The move and then the end of the turn are committed on the crew's picture (`previewPicture`, the
  *    state the safe floor judges): the crew-phase effect on the crew member (Exposed, pips per NPC, a challenge, a
@@ -55,6 +56,7 @@ const VERBOSE = !!process.env.PREVIEW_PROBE_VERBOSE;
 const FIXTURES = Math.round(40 * SCALE);
 const DOOR_RUNS = Math.round(12 * SCALE);
 const DOUBT_RUNS = Math.round(24 * SCALE);
+const LOOT_RUNS = Math.round(16 * SCALE);
 const BANK_SEEDS = Number(process.env.PREVIEW_PROBE_BANKS ?? Math.max(1, Math.round(SCALE)));
 const FIXTURE_TURNS = 4, BANK_TURNS = Math.round(6 * Math.min(SCALE, 2));
 /**
@@ -224,7 +226,10 @@ class Probe {
     fail(msg: string): void { if (this.failures.length < 50) this.failures.push(msg); }
 }
 
-interface Run { world: ReadonlyWorld; rng: Rng; omniscient: boolean; label: string; tier: string; probe: Probe; stealth?: boolean }
+/** `loot`: the loot scenario, which plays actions half the time, loot ones first, and throws to teammates first. */
+interface Run { world: ReadonlyWorld; rng: Rng; omniscient: boolean; label: string; tier: string; probe: Probe; stealth?: boolean; loot?: boolean }
+
+const LOOT_COMMANDS = new Set(['takeLoot', 'dropLoot', 'throwLoot', 'pass', 'inspectLoot']);
 
 /** Checks a tile's prediction (`now`, and `next` when the turn ends right after) against the picture's oracle and the truth. */
 function checkMove(run: Run, state: State, crew: string, cmd: Extract<Command, { type: 'move' | 'dash' }>, tile: FloorTile, endTurn: boolean): State {
@@ -374,7 +379,7 @@ function playOne(run: Run, state: State, timing: boolean): State {
     const ready = state.crew.filter(c => c.actionsLeft > 0);
     if (!ready.length) return state;
     const member = rng.pick(ready);
-    const roll = rng.next();
+    const roll = run.loot && rng.chance(0.5) ? 0.7 : rng.next();
     if (roll < 0.55) {
         const t0 = performance.now();
         const floor = safeFloor(world, state, member.id);
@@ -430,15 +435,18 @@ function playOne(run: Run, state: State, timing: boolean): State {
     const options = legalActions(world, state, member.id).filter(c => (c.type !== 'wait' || rng.chance(0.3)) && !(run.stealth && c.type === 'knockout')
         && (!TAKEOVER.has(c.type) || (run.omniscient && !run.stealth)));
     if (!options.length) return state;
-    const kinds = [...new Set(options.map(c => c.type))];
-    const kind = rng.pick(kinds);
-    const cmd = rng.pick(options.filter(c => c.type === kind));
+    const kinds = [...new Set(options.map(c => c.type))], looting = kinds.filter(k => LOOT_COMMANDS.has(k));
+    const kind = run.loot && looting.length && rng.chance(0.7) ? rng.pick(looting) : rng.pick(kinds);
+    const ofKind = options.filter(c => c.type === kind);
+    const toMates = ofKind.filter(c => c.type === 'throwLoot' && state.crew.some(m => m.pos.x === c.to.x && m.pos.y === c.to.y));
+    const cmd = run.loot && toMates.length && rng.chance(0.5) ? rng.pick(toMates) : rng.pick(ofKind);
     const shown = actionPreview(world, state, cmd);
     const r = commit(world, state, cmd);
     probe.bump('commands');
     probe.bump(`command ${cmd.type}`);
     if (!shown.ok) { probe.fail(`${run.label}: ${cmd.type} refused in preview, committed`); return r.state; }
     if (cmd.type === 'command') checkCommand(run, state, cmd.crew, r);
+    if (cmd.type === 'throwLoot') checkThrow(run, state, cmd, r, shown);
     // A preview that stopped at a roll (a resister's chance) shows the odds, not the rest: `checkCommand` covers it.
     if (shown.odds) {
         probe.bump('previews stopped at a roll');
@@ -511,6 +519,26 @@ function checkCommand(run: Run, state: State, crew: string, r: CommitResult): vo
     const ringed = new Set(plan.targets.filter(t => t.ring === 'command').map(t => t.npc));
     for (const n of r.state.npcs) if (!ringed.has(n.id) && n.status === 'commanded' && was(n.id).status !== 'commanded') probe.fail(`${run.label}: ${n.id} commanded outside the ring`);
     if (r.rolls.some(x => !x.reason.startsWith('resist '))) probe.fail(`${run.label}: a command rolled something besides resisting`);
+}
+
+/**
+ * A throw's preview is its outcome (M2-04, §15.1): `throwPlan` before the commit (where the bag lands and who catches
+ * it) is the thrown event of the commit and of the action's preview, and where the bag is after it.
+ */
+function checkThrow(run: Run, state: State, cmd: Extract<Command, { type: 'throwLoot' }>, r: CommitResult, shown: ReturnType<typeof actionPreview>): void {
+    const { world, probe } = run;
+    const plan = throwPlan(world, state, cmd);
+    if (typeof plan === 'string') { probe.fail(`${run.label}: a throw committed that its plan refuses (${plan})`); return; }
+    const want = JSON.stringify({ type: 'lootThrown', crew: cmd.crew, loot: plan.loot, from: plan.from, to: plan.to, caughtBy: plan.catcher });
+    const thrown = (events: readonly SimEvent[]) => events.filter(e => e.type === 'lootThrown').map(e => JSON.stringify(e));
+    if (JSON.stringify(thrown(r.events)) !== JSON.stringify([want])) probe.fail(`${run.label}: throw planned ${want}, committed ${JSON.stringify(thrown(r.events))}`);
+    if (shown.ok && JSON.stringify(thrown(shown.events)) !== JSON.stringify([want])) probe.fail(`${run.label}: throw shown ${JSON.stringify(thrown(shown.events))}, planned ${want}`);
+    const bag = r.state.loot[plan.loot]!;
+    if (bag.holder !== plan.catcher || (plan.catcher === null && (bag.pos.x !== plan.to.x || bag.pos.y !== plan.to.y))) probe.fail(`${run.label}: the bag ended ${JSON.stringify(bag)}, planned ${want}`);
+    const catcher = plan.catcher && r.state.crew.find(c => c.id === plan.catcher)!;
+    if (catcher && (catcher.loadout.carrying !== 'lootBag' || catcher.actionsLeft !== state.crew.find(c => c.id === plan.catcher)!.actionsLeft)) probe.fail(`${run.label}: ${plan.catcher} caught it wrong`);
+    if (r.state.crew.find(c => c.id === cmd.crew)!.loadout.carrying !== null) probe.fail(`${run.label}: the thrower still carries something`);
+    probe.bump(plan.catcher ? 'throws caught' : 'throws landed');
 }
 
 /** Ends the turn, having checked each crew member's own tile (`stay`): the world phase as the overlay foresaw it. */
@@ -808,6 +836,46 @@ function playBank(
 }
 
 /**
+ * Loot (M2-04, §15.1): the crew of three starts round a heap of loot (two bags, a crate, two drawers' cash, one with a
+ * dye pack) in a bank room south of which lies the street, past a wall with gaps and a door, with NPCs of every class
+ * about; the random player then takes, drops, throws, catches, passes and inspects among its moves, and walks the cash
+ * out.
+ */
+function playLoot(probe: Probe, rng: Rng, n: number): void {
+    const WIDTH = 14, HEIGHT = 9, STREET = 6;
+    const rooms = Array.from({ length: HEIGHT }, (_, y) => (y < STREET ? 'b' : '.').repeat(WIDTH));
+    const map = Array.from({ length: HEIGHT }, (_, y) => Array.from({ length: WIDTH }, (_, x) => (y < STREET - 1 && rng.chance(0.06) && (x < 3 || x > 10) ? rng.pick(['#', 'T']) : '.')).join(''));
+    const walls: FixtureWall[] = [];
+    // Gaps, panes of glass and one door to the street, so a throw can meet a door the crew can't vouch for.
+    const doorX = rng.pick([1, 5, 9]);
+    for (let x = 0; x < WIDTH; x++) {
+        const between: [Pos, Pos] = [{ x, y: STREET - 1 }, { x, y: STREET }];
+        if (x === doorX) walls.push({ between, door: { id: 'street-door', start: rng.pick(['open', 'closed'] as const) } });
+        else if (x % 4 !== 1) walls.push({ between, ...(x % 4 === 2 ? { material: 'glass' as const } : {}) });
+    }
+    const free: Pos[] = [];
+    for (let y = 0; y < HEIGHT; y++) for (let x = 0; x < WIDTH; x++) if (map[y]![x] === '.') free.push({ x, y });
+    const at = (x: number, y: number): Pos => free.splice(free.findIndex(p => p.x === x && p.y === y), 1)[0]!;
+    const cx = rng.int(4, 9), cy = rng.int(1, 3);
+    const heap: [number, number, 'light' | 'heavy' | 'very heavy', number, boolean][] = [
+        [cx - 1, cy - 1, 'heavy', 40000, false], [cx + 1, cy - 1, 'heavy', 20000, false], [cx, cy + 1, 'very heavy', 120000, false],
+        [cx - 1, cy + 1, 'light', 5000, true], [cx + 1, cy + 1, 'light', 5000, false]
+    ];
+    const objects: WorldObject[] = heap.map(([x, y, weight, value, dye], i) => ({ id: `loot-${i}`, kind: 'loot', pos: at(x, y), facing: 's', loot: { value, weight, ...(dye ? { dyePack: true as const } : {}) } }));
+    const crew = [at(cx, cy), at(cx - 1, cy), at(cx + 1, cy)].map((pos, i) => ({ id: `c${i}`, pos, ...(i === 2 && rng.chance(0.5) ? { traits: ['bruiser'] } : {}) }));
+    const take = (): Pos => free.splice(rng.int(0, free.length - 1), 1)[0]!;
+    const people: PersonDef[] = [];
+    for (let i = 0, count = rng.int(1, 3); i < count; i++) {
+        const observer = rng.pick(['civilian', 'staff', 'enforcer'] as ObserverClass[]);
+        const role = observer === 'civilian' ? 'customer' : observer === 'staff' ? 'teller' : 'guard';
+        people.push({ id: `n${i}`, name: `n${i}`, role, observer, pos: take(), facing: rng.pick(FACINGS), schedule: randomSchedule(rng, free) });
+    }
+    const world = fixtureWorld(map, { rooms, walls, people, objects, rules: { checkInPeriod: 2, dispatchCheckInPeriod: 2, dispatchSilence: 2 } });
+    const state = initialState(world, { seed: n, crew });
+    play({ world, rng, omniscient: n % 2 === 0, label: `loot ${n}`, tier: 'fixture', probe, loot: true }, state, FIXTURE_TURNS + 2, false);
+}
+
+/**
  * Moves through a lockable door the crew saw open and walked away from (decision 44): a corridor and a room behind a
  * wall with a mechanical door at a random row, NPCs of every class on both sides. The crew sees the door open, is
  * far out of sight of it while the world phase relocks it, and is put back near it (nothing new seen); then each crew
@@ -951,6 +1019,9 @@ describe('previews (property, §8.8)', () => {
         // Its own stream, so the rest of the sample stays as it was.
         const drng = new Rng(SEED + 4441);
         for (let n = 0; n < DOUBT_RUNS; n++, seeds++) playDoubtedDoors(probe, drng, n);
+        // Its own stream too.
+        const lrng = new Rng(SEED + 7717);
+        for (let n = 0; n < LOOT_RUNS; n++, seeds++) playLoot(probe, lrng, n);
         let combo = 0;
         for (let s = 0; s < BANK_SEEDS; s++) for (const tier of TIERS) for (const archetype of archetypesFor(tier)) {
             if (BANK_SKIP && (combo + s) % BANK_SKIP === BANK_SKIP - 1) {
@@ -981,7 +1052,8 @@ describe('previews (property, §8.8)', () => {
             'moves seen by an NPC they turned', 'hearers whose last tile heard is not the nearest', 'moves that do something to a teammate',
             'moves that make a teammate\'s world phase worse'
         ]) expect(st[k] ?? 0, k).toBeGreaterThan(0);
-        for (const type of ['door', 'knockout', 'drag', 'interact']) expect(st[`command ${type}`] ?? 0, type).toBeGreaterThan(0);
+        for (const type of ['door', 'knockout', 'drag', 'interact', 'takeLoot', 'dropLoot', 'pass', 'inspectLoot']) expect(st[`command ${type}`] ?? 0, type).toBeGreaterThan(0);
+        for (const k of ['throws caught', 'throws landed']) expect(st[k] ?? 0, k).toBeGreaterThan(0);
     }, 600_000);
     // Long games (the reviewer's harness): a quiet crew (no weapons, no knockouts, mostly calm tiles) plays on while
     // routines get known, ghosts come and go and NPCs drift off what the crew saw.
