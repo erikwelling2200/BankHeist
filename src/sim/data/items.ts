@@ -43,6 +43,8 @@ export interface ItemDef {
     holsterable?: boolean;
     /** A weapon's Threat (§12.1): the radius in tiles of a command given with it in hand (§10.1). */
     threat?: number;
+    /** A pistol: the one weapon in hand with a Very heavy carry (§15.1 "pistol only"). */
+    pistol?: true;
 }
 
 /** What a packed item shows as, at most: its case or the duffel (§7.3). */
@@ -54,8 +56,8 @@ export const DUFFEL_ITEM = 'duffel';
 export const ITEMS = {
     // Weapons (§12.1). Unarmed is no item.
     taser: { slot: 'sidearm', profile: 'clean', threat: 2 },
-    pistol: { slot: 'sidearm', profile: 'concealed', holsterable: true, threat: 3 },
-    suppressedPistol: { slot: 'sidearm', profile: 'concealed', holsterable: true, threat: 3 },
+    pistol: { slot: 'sidearm', profile: 'concealed', holsterable: true, threat: 3, pistol: true },
+    suppressedPistol: { slot: 'sidearm', profile: 'concealed', holsterable: true, threat: 3, pistol: true },
     machinePistol: { slot: 'sidearm', profile: 'concealed', threat: 4 },
     smg: { slot: 'primary', profile: 'armed', duffel: 'longGun', threat: 4 },
     shotgun: { slot: 'primary', profile: 'armed', duffel: 'longGun', threat: 5 },

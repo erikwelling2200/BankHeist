@@ -229,9 +229,13 @@ registerEvidenceSource('doors', (world, state) => {
 registerEvidenceSource('cameras', (world, state) => world.cameras.flatMap((c): Evidence[] =>
     (state.cameras[c.id]?.live === false ? [{ id: `camera:${c.id}`, kind: 'cameraDown', tiles: [{ ...c.pos }] }] : [])));
 
+/** Whether a crew member stands by `pos` (Chebyshev 1): a loot bag there is attended, not evidence. */
+export const attended = (state: DeepReadonly<State>, pos: DeepReadonly<Pos>): boolean =>
+    state.crew.some(c => Math.max(Math.abs(c.pos.x - pos.x), Math.abs(c.pos.y - pos.y)) <= 1);
+
 registerEvidenceSource('floor', (_world, state) => state.evidence.flatMap((e): Evidence[] => {
     // A loot bag someone of the crew stands by is attended.
-    if (e.kind === 'lootBag' && state.crew.some(c => Math.max(Math.abs(c.pos.x - e.pos.x), Math.abs(c.pos.y - e.pos.y)) <= 1)) return [];
+    if (e.kind === 'lootBag' && attended(state, e.pos)) return [];
     return [{ id: e.id, kind: e.kind, tiles: [{ ...e.pos }] }];
 }));
 

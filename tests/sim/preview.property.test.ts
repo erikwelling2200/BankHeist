@@ -7,7 +7,7 @@ import {
     actionPreview, CARRY_WEIGHT, commandPlan, commandPreview, hasLineOfSight, holdTargets, ITEMS, reachable, pathTo, addsTo, carriersStarted, DEAF_STATUSES, clonePlain, commit, crewBudget, crewMoveOptions, decodeBits, doorDoubt, effectKind, effectOf, encodeBits, explain, FACINGS, hearing,
     isKnownNow, fixtureWorld, initialState, hashOf, legalActions, noiseRadius, npcsInside, onFloor, pathSafety, pendingCarriers, planningState, previewCertain, previewPicture,
     projectCarriers, projectEvents, projectPreviewEvents, safeFloor, safeFloorJob, sightDoubted, soundRing, teammateEffects, throwPlan, TINT_RANK, tintOf, validatePath, withDoubtedShut,
-    worldFromBank,
+    worldFromBank, cornerEdges, edgeBetween, edgeKey, edgeNow, inBounds, throwTargets, tileAt,
     type CameraDef, type Command, type CommitResult, type CrewStart, type DoorStatus, type Effect, type TeammateEffect, type FixtureWall, type FloorTile, type ObserverClass, type PersonDef, type Pos, type ReadonlyWorld,
     type SafeFloor, type ScheduleBlock, type SimEvent, type State, type WorldObject
 } from '../../src/sim';
@@ -486,12 +486,12 @@ function playOne(run: Run, state: State, timing: boolean): State {
 
 /**
  * A crew member's command radius from the weapon table (§10.1, §12.1), worked out here: the best Threat in hand (only
- * sidearms with a Very heavy carry, §15.1), unarmed 1, ×1.5 rounded down on the takeover turn.
+ * a pistol with a Very heavy carry, §15.1), unarmed 1, ×1.5 rounded down on the takeover turn.
  */
 function tableRadius(state: State, member: State['crew'][number]): number {
-    const carrying = member.loadout.carrying, sidearms = carrying !== null && (CARRY_WEIGHT as Record<string, string>)[carrying] === 'very heavy';
-    const table = ITEMS as Record<string, { threat?: number; slot: string }>;
-    const threat = Math.max(1, ...member.loadout.items.map(id => (!sidearms || table[id]?.slot === 'sidearm' ? table[id]?.threat ?? 0 : 0)));
+    const carrying = member.loadout.carrying, pistolOnly = carrying !== null && (CARRY_WEIGHT as Record<string, string>)[carrying] === 'very heavy';
+    const table = ITEMS as Record<string, { threat?: number; pistol?: true }>;
+    const threat = Math.max(1, ...member.loadout.items.map(id => (!pistolOnly || table[id]?.pistol ? table[id]?.threat ?? 0 : 0)));
     return state.takeover === state.turn ? Math.floor(threat * 1.5) : threat;
 }
 
@@ -557,23 +557,62 @@ function checkCommand(run: Run, state: State, crew: string, r: CommitResult): vo
 }
 
 /**
- * A throw's preview is its outcome (M2-04, §15.1): `throwPlan` before the commit (where the bag lands and who catches
- * it) is the thrown event of the commit and of the action's preview, and where the bag is after it.
+ * Where a bag thrown to `to` lands and who catches it, worked out here from the design (§15.1 and decisions 53, 44), not
+ * from the rules' code: the thrower's hands hold a Heavy bag; `to` is 1 to 2 tiles away (r² ≤ 4) on a tile one could
+ * stand on; each hop of the flight (one step, a diagonal's four corner edges, or two steps in a line over a tile that
+ * isn't tall) crosses no wall, closed door or glass as they stand now and no door the crew can't vouch for, on one
+ * level; a teammate standing on `to` with nothing in the hands catches it. Null: it can't be thrown there.
+ */
+function expectedThrow(world: ReadonlyWorld, state: State, crew: string, to: Pos): { loot: string; catcher: string | null } | null {
+    const member = state.crew.find(c => c.id === crew)!, from = member.pos;
+    const weight = (id: string) => world.objects.find(o => o.id === id)!.loot!.weight;
+    const holds = (id: string) => Object.keys(state.loot).sort().filter(l => state.loot[l]!.holder === id && weight(l) !== 'light');
+    const bag = holds(crew)[0];
+    if (bag === undefined || weight(bag) !== 'heavy' || member.dragging !== null) return null;
+    const dx = to.x - from.x, dy = to.y - from.y, d2 = dx * dx + dy * dy;
+    if (d2 < 1 || d2 > 4 || !inBounds(world, to) || tileAt(world, to)!.blocksMove) return null;
+    const doubt = doorDoubt(world, state);
+    const clear = (key: string) => !edgeNow(world, state, key)?.blocksMove && !(doubt && world.edges[key]?.door && doubt.doors.has(world.edges[key]!.door!));
+    const level = (a: Pos, b: Pos) => tileAt(world, a)!.raised === tileAt(world, b)!.raised;
+    const hop = (a: Pos, b: Pos) => level(a, b) && (a.x !== b.x && a.y !== b.y ? cornerEdges(a, b).map(edgeKey) : [edgeKey(edgeBetween(a, b))]).every(clear);
+    if (d2 === 4) {
+        const mid = { x: from.x + dx / 2, y: from.y + dy / 2 };
+        if (tileAt(world, mid)!.tall || !hop(from, mid) || !hop(mid, to)) return null;
+    } else if (!hop(from, to)) return null;
+    const mate = state.crew.find(c => c.id !== crew && c.pos.x === to.x && c.pos.y === to.y);
+    return { loot: bag, catcher: mate && mate.dragging === null && !holds(mate.id).length ? mate.id : null };
+}
+
+/**
+ * A throw's preview is its outcome (M2-04, §15.1), against the design worked out here (`expectedThrow`): the tiles the
+ * rules let the bag be thrown to are exactly those, and the committed throw and its action preview land it where it
+ * says and give it to whom it says; `throwPlan` (what the scene draws the arc from) says the same.
  */
 function checkThrow(run: Run, state: State, cmd: Extract<Command, { type: 'throwLoot' }>, r: CommitResult, shown: ReturnType<typeof actionPreview>): void {
     const { world, probe } = run;
-    const plan = throwPlan(world, state, cmd);
-    if (typeof plan === 'string') { probe.fail(`${run.label}: a throw committed that its plan refuses (${plan})`); return; }
-    const want = JSON.stringify({ type: 'lootThrown', crew: cmd.crew, loot: plan.loot, from: plan.from, to: plan.to, caughtBy: plan.catcher });
+    const member = state.crew.find(c => c.id === cmd.crew)!;
+    const square: Pos[] = [];
+    for (let dy = -2; dy <= 2; dy++) for (let dx = -2; dx <= 2; dx++) square.push({ x: member.pos.x + dx, y: member.pos.y + dy });
+    const offered = new Set(throwTargets(world, state, cmd.crew).map(p => `${p.x},${p.y}`));
+    for (const p of square) {
+        // Off the map has no tile to judge: the rules must not offer it.
+        const want = inBounds(world, p) ? expectedThrow(world, state, cmd.crew, p) !== null : false;
+        if (want !== offered.has(`${p.x},${p.y}`)) probe.fail(`${run.label}: a throw to ${p.x},${p.y} is ${offered.has(`${p.x},${p.y}`) ? '' : 'not '}offered, the design says ${want ? '' : 'not '}so`);
+    }
+    const expected = expectedThrow(world, state, cmd.crew, cmd.to);
+    if (!expected) { probe.fail(`${run.label}: a throw to ${JSON.stringify(cmd.to)} committed that the design refuses`); return; }
+    const want = JSON.stringify({ type: 'lootThrown', crew: cmd.crew, loot: expected.loot, from: member.pos, to: cmd.to, caughtBy: expected.catcher });
     const thrown = (events: readonly SimEvent[]) => events.filter(e => e.type === 'lootThrown').map(e => JSON.stringify(e));
-    if (JSON.stringify(thrown(r.events)) !== JSON.stringify([want])) probe.fail(`${run.label}: throw planned ${want}, committed ${JSON.stringify(thrown(r.events))}`);
-    if (shown.ok && JSON.stringify(thrown(shown.events)) !== JSON.stringify([want])) probe.fail(`${run.label}: throw shown ${JSON.stringify(thrown(shown.events))}, planned ${want}`);
-    const bag = r.state.loot[plan.loot]!;
-    if (bag.holder !== plan.catcher || (plan.catcher === null && (bag.pos.x !== plan.to.x || bag.pos.y !== plan.to.y))) probe.fail(`${run.label}: the bag ended ${JSON.stringify(bag)}, planned ${want}`);
-    const catcher = plan.catcher && r.state.crew.find(c => c.id === plan.catcher)!;
-    if (catcher && (catcher.loadout.carrying !== 'lootBag' || catcher.actionsLeft !== state.crew.find(c => c.id === plan.catcher)!.actionsLeft)) probe.fail(`${run.label}: ${plan.catcher} caught it wrong`);
+    if (JSON.stringify(thrown(r.events)) !== JSON.stringify([want])) probe.fail(`${run.label}: throw expected ${want}, committed ${JSON.stringify(thrown(r.events))}`);
+    if (shown.ok && JSON.stringify(thrown(shown.events)) !== JSON.stringify([want])) probe.fail(`${run.label}: throw shown ${JSON.stringify(thrown(shown.events))}, expected ${want}`);
+    const plan = throwPlan(world, state, cmd);
+    if (typeof plan === 'string' || plan.catcher !== expected.catcher || plan.loot !== expected.loot) probe.fail(`${run.label}: throwPlan ${JSON.stringify(plan)}, expected ${want}`);
+    const bag = r.state.loot[expected.loot]!;
+    if (bag.holder !== expected.catcher || (expected.catcher === null && (bag.pos.x !== cmd.to.x || bag.pos.y !== cmd.to.y))) probe.fail(`${run.label}: the bag ended ${JSON.stringify(bag)}, expected ${want}`);
+    const catcher = expected.catcher && r.state.crew.find(c => c.id === expected.catcher)!;
+    if (catcher && (catcher.loadout.carrying !== 'lootBag' || catcher.actionsLeft !== state.crew.find(c => c.id === expected.catcher)!.actionsLeft)) probe.fail(`${run.label}: ${expected.catcher} caught it wrong`);
     if (r.state.crew.find(c => c.id === cmd.crew)!.loadout.carrying !== null) probe.fail(`${run.label}: the thrower still carries something`);
-    probe.bump(plan.catcher ? 'throws caught' : 'throws landed');
+    probe.bump(expected.catcher ? 'throws caught' : 'throws landed');
 }
 
 /** Ends the turn, having checked each crew member's own tile (`stay`): the world phase as the overlay foresaw it. */

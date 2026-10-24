@@ -53,7 +53,6 @@ declare module '../core/state' {
         packed?: string[];
         uniform?: Uniform;
         masked?: boolean;
-        carrying?: string;
         notoriety?: number;
     }
 }
@@ -81,7 +80,8 @@ registerCrewInit('profile', (_world, start, member) => {
     member.loadout.packed = [...(start.packed ?? [])];
     member.loadout.uniform = start.uniform ?? null;
     member.loadout.masked = start.masked ?? false;
-    member.loadout.carrying = start.carrying ?? null;
+    // Empty hands: what they carry follows what they take and drag (rules/hands.ts).
+    member.loadout.carrying = null;
     member.notoriety = start.notoriety ?? 0;
     checkLoadout(member);
 });

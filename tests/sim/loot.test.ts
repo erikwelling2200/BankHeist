@@ -1,8 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import {
-    actionPreview, commit, crewBudget, crewLoot, crewThreat, dashRefusal, decodeBits, encodeBits, evidenceOnMap, fixtureWorld, initialState, legalActions, throwPlan, throwTargets,
+    actionPreview, commit, crewBudget, deserialise, serialise, crewLoot, crewThreat, dashRefusal, decodeBits, encodeBits, evidenceOnMap, fixtureWorld, initialState, legalActions, throwPlan, throwTargets,
     whyNot, type CrewStart, type FixtureWall, type PersonDef, type Pos, type ReadonlyWorld, type State, type WorldObject
 } from '../../src/sim';
+import { syncHands } from '../../src/sim/rules/hands';
 import { step } from './helpers';
 
 /*
@@ -37,6 +38,20 @@ const member = (state: State, id: string) => state.crew.find(c => c.id === id)!;
 const run = (world: ReadonlyWorld, state: State, ...cmds: Parameters<typeof commit>[2][]): State => cmds.reduce((s, c) => step(world, s, c).state, state);
 
 describe('the bank\'s loot', () => {
+    it('leaves out what is behind the deposit boxes\' locks until M2-05', () => {
+        const boxes: WorldObject = { id: 'boxes', kind: 'loot', pos: P(6, 1), facing: 's', loot: { value: 30000, weight: 'light', behind: 'depositBoxes' } };
+        const world = fixtureWorld(MAP, { rooms: FLOOR, objects: [...OBJECTS, boxes] });
+        expect(Object.hasOwn(initialState(world, { seed: 1, crew: [] }).loot, 'boxes')).toBe(false);
+    });
+
+    it('shows carried only what the hands hold: a save that says otherwise is refused', () => {
+        const { world, state } = setup([{ id: 'mara', pos: P(5, 2) }]);
+        const s = run(world, state, { type: 'takeLoot', crew: 'mara', loot: 'bag' });
+        expect(deserialise(serialise({ genVersion: 'fixture', world, state: s })).state.crew[0]!.loadout.carrying).toBe('lootBag');
+        const forged = { ...state, crew: state.crew.map(c => ({ ...c, loadout: { ...c.loadout, carrying: 'lootBag' } })) };
+        expect(() => deserialise(serialise({ genVersion: 'fixture', world, state: forged }))).toThrow(/shows carrying 'lootBag' but holds nothing/);
+    });
+
     it('is every loot object worth something, where the bank keeps it; a dye pack goes with its drawer', () => {
         const { state } = setup([{ id: 'mara', pos: P(1, 2) }]);
         expect(Object.keys(state.loot).sort()).toEqual(['bag', 'crate', 'drawer', 'drawer2', 'drawer3']);
@@ -69,14 +84,14 @@ describe('carrying (the movement penalties)', () => {
         expect(() => commit(world, s, { type: 'move', crew: 'mara', path: [P(4, 2), P(3, 2), P(2, 2), P(1, 2)] })).toThrow();
         expect(commit(world, s, { type: 'move', crew: 'mara', path: [P(4, 2), P(3, 2), P(2, 2)] }).state.crew[0]!.pos).toEqual(P(2, 2));
         // Heavy armour and a bag: 4 − 2 tiles.
-        const armoured = { ...s, loot: { ...s.loot, bag: { ...s.loot.bag!, holder: 'dex' } }, crew: s.crew.map(c => (c.id === 'dex' ? { ...c, loadout: { ...c.loadout, carrying: 'lootBag' } } : c)) };
+        const armoured = run(world, s, { type: 'pass', crew: 'mara', to: 'dex' });
         expect(crewBudget(world, member(armoured, 'dex'), 'move')).toBe(4);
     });
 
     it('Very heavy: half a Move (a Bruiser one tile less), no Dash, a pistol only', () => {
         const { world, state } = setup([
             { id: 'mara', pos: P(8, 2), items: ['assaultRifle', 'pistol'] },
-            { id: 'bo', pos: P(7, 2), traits: ['bruiser'] }
+            { id: 'bo', pos: P(7, 2), traits: ['bruiser'], items: ['machinePistol', 'taser'] }
         ]);
         expect(crewThreat(member(state, 'mara'))).toBe(5);
         const s = run(world, state, { type: 'takeLoot', crew: 'mara', loot: 'crate' });
@@ -90,6 +105,9 @@ describe('carrying (the movement penalties)', () => {
         expect(member(passed, 'mara').loadout.carrying).toBeNull();
         expect(crewBudget(world, member(passed, 'bo'), 'move')).toBe(8);
         expect(crewThreat(member(passed, 'mara'))).toBe(5);
+        // "Pistol only" (§15.1): not a machine pistol or a taser.
+        expect(crewThreat(member(state, 'bo'))).toBe(4);
+        expect(crewThreat(member(passed, 'bo'))).toBe(1);
     });
 
     it('hands hold one thing: a bag, a crate or a body', () => {
@@ -159,7 +177,9 @@ describe('throwing and catching', () => {
         s = run(world, s, { type: 'throwLoot', crew: 'jun', to: P(5, 5) });
         expect(s.loot.bag!.holder).toBe('dex');
         // Full hands don't catch: it lands at their feet.
-        const full = { ...s, crew: s.crew.map(c => (c.id === 'mara' ? { ...c, loadout: { ...c.loadout, carrying: 'lootCrate' } } : c)) };
+        const full = { ...s, loot: { ...s.loot, crate: { ...s.loot.crate!, holder: 'mara', taken: true } } };
+        syncHands(world, full, member(full, 'mara'));
+        expect(member(full, 'mara').loadout.carrying).toBe('lootCrate');
         expect(throwPlan(world, full, { crew: 'dex', to: P(5, 3) })).toMatchObject({ catcher: null });
     });
 
@@ -207,14 +227,25 @@ describe('dye packs', () => {
         expect(out.state.loot.drawer).toMatchObject({ ruined: true, dyePack: false });
         expect(crewLoot(world, out.state)).toEqual({ carried: 0, ruined: 5000 });
         expect(out.undoable).toBe(false);
-        // The move's preview doesn't tell.
+        // The move's preview doesn't tell, but it says the cash might be dyed, and that the move is final.
         const shown = actionPreview(world, s, { type: 'move', crew: 'mara', path: [P(1, 3), P(1, 4), P(1, 5)] });
         expect(shown.ok && shown.events.some(e => e.type === 'dyePackBurst')).toBe(false);
+        expect(shown).toMatchObject({ ok: true, undoable: false, mayBeDyed: ['drawer'] });
+        // Clean cash it can't tell from dyed: the same preview, and the commit is final too.
+        const clean2 = run(world, state, { type: 'takeLoot', crew: 'mara', loot: 'drawer2' });
+        const plain = actionPreview(world, clean2, { type: 'move', crew: 'mara', path: [P(1, 3), P(1, 4), P(1, 5)] });
+        expect(plain).toMatchObject({ ok: true, undoable: false, mayBeDyed: ['drawer2'] });
+        expect(commit(world, clean2, { type: 'move', crew: 'mara', path: [P(1, 3), P(1, 4), P(1, 5)] }).undoable).toBe(false);
+        // A ruined stack can be put down, freeing the pocket; cash that isn't can't.
+        expect(whyNot(world, out.state, { type: 'dropLoot', crew: 'mara', loot: 'drawer' })).toBe('mara has 0 of 1 actions left');
+        const rested = { ...out.state, crew: out.state.crew.map(c => ({ ...c, actionsLeft: 2 })) };
+        expect(run(world, rested, { type: 'dropLoot', crew: 'mara', loot: 'drawer' }).loot.drawer).toMatchObject({ holder: null, pos: P(1, 5) });
+        expect(whyNot(world, { ...clean2, crew: clean2.crew.map(c => ({ ...c, actionsLeft: 2 })) }, { type: 'dropLoot', crew: 'mara', loot: 'drawer2' })).toBe('Cash stays in the pocket');
         // Inspected first: found and taken out, and the cash leaves clean.
         const looked = commit(world, s, { type: 'inspectLoot', crew: 'mara', loot: 'drawer' });
         expect(looked.events.map(e => e.type)).toEqual(expect.arrayContaining(['lootInspected', 'dyePackFound']));
         const clean = commit(world, { ...looked.state, crew: looked.state.crew.map(c => ({ ...c, actionsLeft: 2 })) }, { type: 'move', crew: 'mara', path: [P(1, 3), P(1, 4)] });
-        expect(clean.events.some(e => e.type === 'dyePackBurst')).toBe(false);
+        expect(clean.events.some(e => e.type === 'dyePackBurst' || e.type === 'cashOut')).toBe(false);
         expect(crewLoot(world, clean.state)).toEqual({ carried: 5000, ruined: 0 });
         const inspectShown = actionPreview(world, s, { type: 'inspectLoot', crew: 'mara', loot: 'drawer' });
         expect(inspectShown.ok && inspectShown.events.map(e => e.type)).toEqual(['lootInspected']);

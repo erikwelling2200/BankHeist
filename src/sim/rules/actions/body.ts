@@ -3,6 +3,7 @@ import { registerCrewInit, registerNpcInit } from '../../core/state';
 import type { CrewState, DeepReadonly, NpcState, NpcStatus, Pos, ReadonlyWorld, State } from '../../core/types';
 import { registerEvents } from '../../core/undo';
 import { isPresent } from '../npc/walk';
+import { syncHands } from '../hands';
 import { draggedBy } from '../place';
 import { inReach, lacksActions, registerAction } from './act';
 
@@ -108,7 +109,7 @@ registerAction('drag', {
     run(ctx, member, cmd) {
         const npc = ctx.state.npcs.find(n => n.id === cmd.npc)!;
         member.dragging = npc.id;
-        member.loadout.carrying = 'body';
+        syncHands(ctx.world, ctx.state, member);
         ctx.emit({ type: 'bodyLifted', crew: member.id, npc: npc.id });
     }
 });
@@ -122,7 +123,7 @@ registerAction('drop', {
     cost: () => 1,
     run(ctx, member) {
         const id = member.dragging!;
-        releaseBody(ctx.state, member);
+        releaseBody(ctx.world, ctx.state, member);
         ctx.state.npcs.find(n => n.id === id)!.pos = { x: member.pos.x, y: member.pos.y };
         ctx.emit({ type: 'bodyDropped', crew: member.id, npc: id, at: { x: member.pos.x, y: member.pos.y } });
     }
@@ -149,7 +150,7 @@ registerAction('stash', {
     run(ctx, member, cmd) {
         const stash = stashOf(ctx.world, ctx.state, member, cmd.at) as { id: string; pos: Pos | null };
         const npc = ctx.state.npcs.find(n => n.id === member.dragging)!;
-        releaseBody(ctx.state, member);
+        releaseBody(ctx.world, ctx.state, member);
         npc.stashed = stash.id;
         npc.pos = stash.pos ?? { x: member.pos.x, y: member.pos.y };
         ctx.emit({ type: 'bodyStashed', crew: member.id, npc: npc.id, stash: stash.id, at: { x: npc.pos.x, y: npc.pos.y } });
@@ -157,9 +158,9 @@ registerAction('stash', {
 });
 
 /** Lets go of the body a crew member drags (it stays where it lies). */
-export function releaseBody(_state: State, member: CrewState): void {
+export function releaseBody(world: ReadonlyWorld, state: State, member: CrewState): void {
     member.dragging = null;
-    if (member.loadout.carrying === 'body') member.loadout.carrying = null;
+    syncHands(world, state, member);
 }
 
 /** The stash objects and rooms of a world, for the UI's hints. */

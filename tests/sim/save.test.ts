@@ -78,7 +78,7 @@ describe('saving', () => {
  * NpcStatusMap, CarrierKindMap or adds a field must also fill it in below, or a change of shape goes unnoticed.
  */
 const SHAPE_HASHES: Record<number, string> = {
-    1: '99f980cc1950cf4c'
+    1: '117209a95b7c85de'
 };
 
 /** Paths whose objects are records by id, not structs. */
@@ -183,7 +183,7 @@ describe('the save format', () => {
                 objects: [
                     { id: 'panel', kind: 'alarmPanel', pos: { x: 0, y: 0 }, facing: 's' },
                     { id: 'desk', kind: 'cctvDesk', pos: { x: 0, y: 0 }, facing: 's', name: 'CCTV desk', room: 'lobby', monitors: 4 },
-                    { id: 'cash', kind: 'loot', pos: { x: 0, y: 0 }, facing: 's', loot: { value: 5000, weight: 'light', dyePack: true } }
+                    { id: 'cash', kind: 'loot', pos: { x: 0, y: 0 }, facing: 's', loot: { value: 5000, weight: 'light', dyePack: true, behind: 'depositBoxes' } }
                 ],
                 cameras: [{ id: 'cam', pos: { x: 0, y: 0 }, facings: ['s', 'e'], room: 'lobby', seesInDark: true }],
                 people: world.people.map(p => ({

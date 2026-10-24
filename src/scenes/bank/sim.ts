@@ -276,6 +276,8 @@ export class PlayMode {
             /** The grid's entries as shown: id, enabled and reason. */
             actions: this.session.hud({ target: this.target }).actions.map(a => ({ id: a.id, enabled: a.enabled, reason: a.reason, selected: !!a.selected })),
             intents: this.overlay.state.intents,
+            /** Loot drawn on the floor, and a previewed throw's arc (§15.1). */
+            loot: this.overlay.state.loot, throwArc: this.overlay.state.throwArc,
             /** The safe floor drawn (§8.8), whether its Dash band is in yet, and how long each band took to judge (ms). */
             safeFloor: this.overlay.state.safeFloor, floorDash: !!this.floorFor?.dash, floorMs: this.floorFor ? { ...this.floorFor.ms } : null,
             floorDim: this.overlay.state.floorDim,

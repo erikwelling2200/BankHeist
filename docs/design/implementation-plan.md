@@ -695,6 +695,15 @@ Each package lists its goal, the design sections it covers, the files, what it d
       in the scene (`window.sim` only until M2-06's arc); dye packs flagged by intel (planning, M6); deposit boxes'
       Light loot and vault access (M2-05); carrying a downed ally (M3); thermite scorching loot (M4); an emptied drawer
       or a burst pack as evidence.
+    - **Review fixes.** One source for the hands: `rules/hands.ts` derives `Loadout.carrying` from `dragging` and
+      `State.loot` (`syncHands`, its only writer; `CrewStart.carrying` is gone) and refuses a save where they disagree.
+      Uninspected cash stepping out is `cashOut` (shown, final), so a move that could burst a pack is never previewed
+      as undoable; `ActionPreview.mayBeDyed` and `mayBeDyed(world, state, loot)` let the view mark it. A ruined stack
+      can be put down (`dropLoot { crew, loot }`). "Pistol only" is `ItemDef.pistol` (not a machine pistol or a taser).
+      The deposit boxes (`loot.behind`) stay out of `State.loot` until M2-05. The property test's throw check works out
+      landing and catcher from the design itself (`expectedThrow`) and compares every offered target with it; the
+      skipped dash-with-a-bag test in `move.test.ts` is filled in. Save shape hash now `117209a95b7c85de` (updated here,
+      as M2-01 did, rather than by the integrator).
 - [ ] **M2-05 Vault access: wiring the key graph into the rules.**
   - **Covers:** §15.2, §15.3, §9.1 sensors, §7.2 kits and traits (Steady Hands).
   - **Work:** turn `KeyLock` into structured keys (`gen/keys.ts`); codes and dual control at the console; the manager's PC; the time-lock window from the timeline; the drill with jams (rolled) and noise; deposit boxes; lockpicking; card readers.
@@ -1134,18 +1143,22 @@ Later milestones: within each milestone, the `∥` notes in §3 apply. UI packag
     with full hands it lands at their feet. A throw is neither noisy nor an illegal act (the bag in the hands is already
     Armed). It never passes a door the crew can't vouch for (decision 44): how such a door stands would decide it.
 54. **Hands and pockets (M2-04).** The hands hold one thing: a bag, a crate or a body. Pockets hold 2 Light stacks
-    besides, which are never dropped, thrown or passed. Anything in the hands can be passed to a teammate in reach with
+    besides, which are never thrown or passed, and put down only once a dye pack ruined them (freeing the pocket). Anything in the hands can be passed to a teammate in reach with
     free hands (1 action), a bag too; passing a body is dragging, seen on both tiles (decision 27).
 55. **Taking loot (M2-04)** from where the bank keeps it is the illegal act 'takeLoot'; picking a bag up off the floor
-    isn't. Loot worth nothing (the manager's PC, keys, files) isn't loot: M2-05 gives it its use. A bag or a crate on the
+    isn't. Loot worth nothing (the manager's PC, keys, files) isn't loot: M2-05 gives it its use; nor are the deposit
+    boxes, opened box by box in M2-05 (§15.3; §15.1's "deposit-box haul" is Heavy). A bag or a crate on the
     floor is an unattended loot bag unless a crew member stands beside it (Chebyshev 1, as M1-07's placed bag).
 56. **Dye packs (M2-04).** Inspecting is 1 action on a pocketed stack: it finds the pack and takes it out. Unfound, the
     pack bursts on its carrier's first step onto a tile outside the bank's building (its lot's rooms that aren't
     outdoors), ruining the stack, which stays pocketed. The player isn't told before: previews never show a pack found
-    or bursting (`registerPreviewSecret`), so such a move or an inspection turns out final. The burst isn't evidence.
+    or bursting (`registerPreviewSecret`). So that previews stay honest, every step that takes uninspected cash out
+    of the building is `cashOut`, shown and final whether or not a pack bursts; inspecting is final too. The burst
+    isn't evidence.
 57. **Carry penalties (M2-04).** Heavy is −2 tiles off the Move (in half-steps, after heavy armour's 4 tiles); Very
     heavy halves it rounded down in half-steps (M1's drag), or −1 tile for a Bruiser; bodies are Very heavy too. Only
-    sidearms are in hand with a Very heavy carry: they alone count for Threat and for "2+ crew aiming".
+    a pistol is in hand with a Very heavy carry (not a machine pistol or a taser): it alone counts for Threat and for
+    "2+ crew aiming".
 58. **Hidden in the state (M2-04).** `LootState.dyePack` is the truth, never read by a view model; a pack flagged by
     intel (a later planning asset) would make it known and then shown.
 

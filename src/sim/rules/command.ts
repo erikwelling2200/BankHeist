@@ -20,7 +20,7 @@ import { alertNpc, expose, isEyesDown } from './suspicion';
  * Crowd control (§9.3, §10.1–10.5, §6.3 Mask up): the command, its rings, the Commanded state, Hold, lapses and GO.
  *
  * - **Threat** (§12.1) is the highest of the weapons a crew member has in hand (`Loadout.items`; one in the duffel or
- *   its case doesn't count, nor a long gun with a crate or a body in the hands, §15.1), unarmed 1. The **command
+ *   its case doesn't count, nor anything but a pistol with a crate or a body in the hands, §15.1), unarmed 1. The **command
  *   radius** is the Threat, ×1.5 on the takeover turn, rounded down (an LMG's 6 becomes 9, a pistol's 3 becomes 4).
  * - **Command** ("Get down!", `command { crew }`): 1 action, an illegal act, and doesn't end the turn. Its rings
  *   (`commandPlan`, the one reading of them: the reducer applies it, the preview shows it):
@@ -150,12 +150,12 @@ registerStateInit('takeover', (_world, state) => {
 // ---------------------------------------------------------------------------------------------------------- Threat
 
 /**
- * The weapons a crew member has in hand: everything with a Threat they carry, only the sidearms with a Very heavy
- * carry (a crate or a body: "pistol only", §15.1).
+ * The weapons a crew member has in hand: everything with a Threat they carry, only a pistol with a Very heavy carry (a
+ * crate or a body: "pistol only", §15.1; not a machine pistol or a taser).
  */
 function weaponsInHand(member: DeepReadonly<CrewState>): string[] {
-    const sidearmsOnly = member.loadout.carrying !== null && CARRY_WEIGHT[member.loadout.carrying] === 'very heavy';
-    return member.loadout.items.filter(id => itemDef(id).threat !== undefined && (!sidearmsOnly || itemDef(id).slot === 'sidearm'));
+    const pistolOnly = member.loadout.carrying !== null && CARRY_WEIGHT[member.loadout.carrying] === 'very heavy';
+    return member.loadout.items.filter(id => itemDef(id).threat !== undefined && (!pistolOnly || itemDef(id).pistol));
 }
 
 /** A crew member's Threat (§12.1): the highest of the weapons in hand, unarmed 1. */

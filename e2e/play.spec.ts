@@ -689,7 +689,9 @@ test('loot: Mara takes a bag through the grid and throws it to Jun, who catches 
     expect(await page.evaluate(id => (window as any).sim.state.loot[id].holder, setup!.loot)).toBe('mara');
     await page.locator('.sh-actions button[data-action="throw"]').click();
     await expect(page.locator('.sh-confirm')).toContainText('THROW');
-    // The bag's arc, previewed.
+    // The bag's arc, previewed: from Mara to Jun, who catches it.
+    const mara = (await page.evaluate(() => (window as any).sim.state.crew[0].pos)) as Pos;
+    await expect.poll(async () => (await play(page)).throwArc).toEqual({ from: mara, to: setup!.jun, caught: true });
     await page.waitForTimeout(300);
     await page.screenshot({ path: 'screenshots/play-throw.png' });
     await page.locator('.sh-confirm').click();

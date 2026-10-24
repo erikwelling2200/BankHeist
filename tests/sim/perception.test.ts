@@ -222,8 +222,12 @@ describe('the profile', () => {
 
     it('is Heavy with the mask on and Armed carrying a bag or a body', () => {
         expect(look({ masked: true })).toEqual({ profile: 'heavy', shows: 'mask', uniform: null });
-        expect(look({ carrying: 'body' }).profile).toBe('armed');
-        expect(look({ carrying: 'lootBag', uniform: 'staff' })).toEqual({ profile: 'armed', shows: 'carrying:lootBag', uniform: null });
+        const carrying = (start: Partial<CrewStart>, thing: string) => {
+            const m = initialState(world, { seed: 1, crew: [{ id: 'jun', pos: P(0, 0), ...start }] }).crew[0]!;
+            return crewLook({ ...m, loadout: { ...m.loadout, carrying: thing } });
+        };
+        expect(carrying({}, 'body').profile).toBe('armed');
+        expect(carrying({ uniform: 'staff' }, 'lootBag')).toEqual({ profile: 'armed', shows: 'carrying:lootBag', uniform: null });
         expect(look({ items: ['pistol'], uniform: 'staff' }).uniform).toBe('staff');
         expect(() => look({ notoriety: 6 })).toThrow(/Notoriety/);
     });

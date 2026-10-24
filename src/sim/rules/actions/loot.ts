@@ -1,14 +1,13 @@
 import { cornerEdges, edgeBetween, edgeKey, inBounds, tileAt } from '../../core/grid';
 import { sortedIds } from '../../core/json';
 import { registerStateInit } from '../../core/state';
-import type { CrewState, DeepReadonly, Pos, ReadonlyWorld, State, WorldObject } from '../../core/types';
+import type { CrewState, DeepReadonly, Pos, ReadonlyWorld, State } from '../../core/types';
 import { registerEvents } from '../../core/undo';
 import { registerBudgetModifier, registerDashCheck, registerMoveHook } from '../../crew/movement';
-import {
-    BRUISER_CARRY_PENALTY, CARRY_WEIGHT, HEAVY_CARRY_PENALTY, LOOT_CARRY, POCKETS, THROW_RANGE, type CarryWeight
-} from '../../data/items';
+import { BRUISER_CARRY_PENALTY, CARRY_WEIGHT, HEAVY_CARRY_PENALTY, POCKETS, THROW_RANGE, type CarryWeight } from '../../data/items';
 import { HALF_STEPS_PER_TILE } from '../../data/movement';
-import { registerEvidenceSource, type Evidence } from '../evidence';
+import { attended, registerEvidenceSource, type Evidence } from '../evidence';
+import { inHands, lootObject, lootWeight, syncHands } from '../hands';
 import { doorDoubt, registerPreviewSecret } from '../knowledge';
 import { inReach, lacksActions, registerAction } from './act';
 
@@ -17,7 +16,7 @@ import { inReach, lacksActions, registerAction } from './act';
  * crates, the server drive rack: the generator's, `World.objects[].loot`); its live state is `State.loot`, by object id.
  *
  * - **Light** loot (a drawer's cash, jewels) is pocketed, up to `POCKETS` (2) stacks: no penalty, no change of profile,
- *   never thrown or dropped.
+ *   never thrown or passed, and put down only once a dye pack has ruined it.
  * - **Heavy** loot (a cash bag) is carried in the hands (`Loadout.carrying` 'lootBag', so Armed): −2 tiles per Move,
  *   no Dash. It can be thrown up to 2 tiles (1 action); a teammate standing where it lands with free hands catches it
  *   (free), and can throw it on: bags are **chained**.
@@ -28,11 +27,14 @@ import { inReach, lacksActions, registerAction } from './act';
  *   isn't. A bag or a crate on the floor with no crew member beside it is major evidence (an unattended loot bag, §8.10).
  * - **Dye packs** (§15.1): a drawer the generator marks hides one. The player isn't told: unless the cash is inspected
  *   (1 action on a pocketed stack, which finds and removes it) the pack bursts once its carrier steps out of the
- *   building (`World.building`) and ruins that stack. Previews keep both secret (`registerPreviewSecret`): a move's
- *   preview doesn't say it bursts.
+ *   building (`World.building`) and ruins that stack. Previews keep the find and the burst secret
+ *   (`registerPreviewSecret`), but every step that takes uninspected cash out is `cashOut`, shown and final: such a move
+ *   may be final for a reason the player can't know yet, so it is never offered as undoable (`mayBeDyed`).
+ * - What the hands hold is `State.loot` and `CrewState.dragging`; `Loadout.carrying` follows them (rules/hands.ts).
+ * - Loot behind a lock M2-05 opens (the deposit boxes, `loot.behind`) isn't the heist's loot yet.
  * - A throw never passes a door the crew can't vouch for (decision 44), so its preview and its outcome can't differ.
  *
- * Commands: `takeLoot { crew, loot }`, `dropLoot { crew }`, `throwLoot { crew, to }`, `pass { crew, to }` (loot or a
+ * Commands: `takeLoot { crew, loot }`, `dropLoot { crew, loot? }` (the hands, or a ruined stack), `throwLoot { crew, to }`, `pass { crew, to }` (loot or a
  * body), `inspectLoot { crew, loot }`. A throw is decided before anything changes by `throwPlan`, which is also its
  * preview: where it lands and who catches it, nothing hidden and nothing rolled.
  */
@@ -65,8 +67,8 @@ declare module '../../core/types' {
     interface CommandMap {
         /** Take loot in reach, from where the bank keeps it or off the floor (1 action): pocketed if Light, else in the hands. */
         takeLoot: { crew: string; loot: string };
-        /** Put down the loot in the hands where the crew member stands (1 action). */
-        dropLoot: { crew: string };
+        /** Put down the loot in the hands, or the ruined stack `loot`, where the crew member stands (1 action). */
+        dropLoot: { crew: string; loot?: string };
         /** Throw the Heavy bag in the hands to `to`, up to 2 tiles (1 action): a teammate there with free hands catches it. */
         throwLoot: { crew: string; to: Pos };
         /** Hand what the hands carry (loot or a body) to the teammate `to` in reach, whose hands are free (1 action). */
@@ -82,6 +84,11 @@ declare module '../../core/types' {
         lootPassed: { crew: string; to: string; loot: string };
         bodyPassed: { crew: string; to: string; npc: string };
         lootInspected: { crew: string; loot: string };
+        /**
+         * Uninspected cash left the building with its carrier at `at` (§15.1): whether it hid a dye pack is told by a
+         * burst a preview doesn't show, so this, which a preview shows, makes the move final either way.
+         */
+        cashOut: { crew: string; loot: string; at: Pos };
         /** Inspecting found a dye pack and took it out. A preview never shows it. */
         dyePackFound: { crew: string; loot: string };
         /** A dye pack burst as its carrier left the building, ruining the stack. A preview never shows it. */
@@ -92,19 +99,11 @@ declare module '../../core/types' {
 registerStateInit('loot', (world, state) => {
     state.loot = {};
     for (const o of world.objects) {
-        if (o.kind !== 'loot' || !o.loot || o.loot.value <= 0) continue;
+        // Worth nothing (the manager's PC, keys, files) or behind a lock M2-05 opens (the deposit boxes): not loot yet.
+        if (o.kind !== 'loot' || !o.loot || o.loot.value <= 0 || o.loot.behind) continue;
         state.loot[o.id] = { holder: null, pos: { x: o.pos.x, y: o.pos.y }, taken: false, dyePack: !!o.loot.dyePack, inspected: false, ruined: false };
     }
 });
-
-/** The World object of a piece of loot in the state. */
-export function lootObject(world: ReadonlyWorld, id: string): DeepReadonly<WorldObject> & { loot: NonNullable<WorldObject['loot']> } {
-    const o = world.objects.find(x => x.id === id);
-    if (!o?.loot) throw new Error(`No loot '${id}'`);
-    return o as DeepReadonly<WorldObject> & { loot: NonNullable<WorldObject['loot']> };
-}
-
-export const lootWeight = (world: ReadonlyWorld, id: string): CarryWeight => lootObject(world, id).loot.weight;
 
 /** The loot a crew member has, by id: pocketed and in the hands. */
 export const lootOf = (state: DeepReadonly<State>, crewId: string): string[] => sortedIds(state.loot).filter(id => state.loot[id]!.holder === crewId);
@@ -113,19 +112,15 @@ export const lootOf = (state: DeepReadonly<State>, crewId: string): string[] => 
 export const pocketed = (world: ReadonlyWorld, state: DeepReadonly<State>, crewId: string): string[] =>
     lootOf(state, crewId).filter(id => lootWeight(world, id) === 'light');
 
-/** The loot in a crew member's hands (Heavy or Very heavy), if any. */
-export const inHands = (world: ReadonlyWorld, state: DeepReadonly<State>, crewId: string): string | undefined =>
-    lootOf(state, crewId).find(id => lootWeight(world, id) !== 'light');
-
 /** How heavy what a crew member carries in the hands is (a bag, a crate, a body), or null. */
-export const carryWeight = (member: DeepReadonly<CrewState>): Exclude<CarryWeight, 'light'> | null =>
+const carryWeight = (member: DeepReadonly<CrewState>): Exclude<CarryWeight, 'light'> | null =>
     (member.loadout.carrying !== null && Object.hasOwn(CARRY_WEIGHT, member.loadout.carrying) ? CARRY_WEIGHT[member.loadout.carrying]! : null);
 
 /** Whether a crew member's hands are free: nothing carried, no body dragged. */
-export const handsFree = (member: DeepReadonly<CrewState>): boolean => member.loadout.carrying === null && member.dragging === null;
+const handsFree = (member: DeepReadonly<CrewState>): boolean => member.loadout.carrying === null && member.dragging === null;
 
 /** Whether a tile is inside the bank's building (§15.1). */
-export function inBuilding(world: ReadonlyWorld, p: Pos): boolean {
+function inBuilding(world: ReadonlyWorld, p: Pos): boolean {
     const room = tileAt(world, p)?.room ?? null;
     if (room === null) return false;
     return world.building ? world.building.includes(room) : true;
@@ -154,6 +149,7 @@ function takeBlocked(world: ReadonlyWorld, state: State, member: DeepReadonly<Cr
     if (!Object.hasOwn(state.loot, id)) return `There is no loot called '${id}'`;
     const loot = state.loot[id]!;
     if (loot.holder !== null) return loot.holder === member.id ? `${member.name} has it already` : 'A teammate has it';
+    if (loot.ruined) return 'The dye has ruined it';
     if (!inReach(world, state, member.pos, loot.pos)) return `${member.name} can't reach it from here`;
     if (lootWeight(world, id) === 'light') return pocketed(world, state, member.id).length >= POCKETS ? `${member.name}'s pockets are full` : undefined;
     return handsFree(member) ? undefined : `${member.name}'s hands are full`;
@@ -161,32 +157,49 @@ function takeBlocked(world: ReadonlyWorld, state: State, member: DeepReadonly<Cr
 
 registerAction('takeLoot', {
     whyNot: (world, state, cmd) => takeBlocked(world, state, state.crew.find(c => c.id === cmd.crew)!, cmd.loot),
-    candidates: (_world, state, member) => sortedIds(state.loot).filter(id => state.loot[id]!.holder === null).map(id => ({ type: 'takeLoot', crew: member.id, loot: id })),
+    candidates: (_world, state, member) => sortedIds(state.loot).filter(id => state.loot[id]!.holder === null && !state.loot[id]!.ruined).map(id => ({ type: 'takeLoot', crew: member.id, loot: id })),
     cost: () => 1,
     // Taking it from where the bank keeps it is theft; a bag off the floor only shows in the hands.
     illegal: (_world, state, cmd) => (state.loot[cmd.loot]!.taken ? undefined : { act: 'takeLoot' }),
     run(ctx, member, cmd) {
-        const loot = ctx.state.loot[cmd.loot]!, weight = lootWeight(ctx.world, cmd.loot);
+        const loot = ctx.state.loot[cmd.loot]!;
         const from = { x: loot.pos.x, y: loot.pos.y };
         loot.holder = member.id;
         loot.taken = true;
-        if (weight !== 'light') member.loadout.carrying = LOOT_CARRY[weight];
+        syncHands(ctx.world, ctx.state, member);
         ctx.emit({ type: 'lootTaken', crew: member.id, loot: cmd.loot, from });
     }
 });
 
+/** What `dropLoot` puts down: the named ruined stack, else what the hands hold; or why it can't. */
+function dropped(world: ReadonlyWorld, state: State, member: DeepReadonly<CrewState>, id: string | undefined): string | { id: string } {
+    if (id === undefined) {
+        const held = inHands(world, state, member.id);
+        return held === undefined ? `${member.name} has nothing in their hands to put down` : { id: held };
+    }
+    const loot = Object.hasOwn(state.loot, id) ? state.loot[id]! : undefined;
+    if (loot?.holder !== member.id) return `${member.name} doesn't have it`;
+    // Cash stays pocketed (§15.1) unless the dye has ruined it: then it is only a weight.
+    if (lootWeight(world, id) === 'light' && !loot.ruined) return 'Cash stays in the pocket';
+    return { id };
+}
+
 registerAction('dropLoot', {
     whyNot(world, state, cmd) {
         const member = state.crew.find(c => c.id === cmd.crew)!;
-        return lacksActions(member, 1) ?? (inHands(world, state, member.id) === undefined ? `${member.name} has nothing in their hands to put down` : undefined);
+        const what = dropped(world, state, member, cmd.loot);
+        return lacksActions(member, 1) ?? (typeof what === 'string' ? what : undefined);
     },
-    candidates: (world, state, member) => (inHands(world, state, member.id) !== undefined ? [{ type: 'dropLoot', crew: member.id }] : []),
+    candidates: (_world, state, member) => [
+        { type: 'dropLoot' as const, crew: member.id },
+        ...lootOf(state, member.id).filter(id => state.loot[id]!.ruined).map(id => ({ type: 'dropLoot' as const, crew: member.id, loot: id }))
+    ],
     cost: () => 1,
-    run(ctx, member) {
-        const id = inHands(ctx.world, ctx.state, member.id)!, loot = ctx.state.loot[id]!;
+    run(ctx, member, cmd) {
+        const { id } = dropped(ctx.world, ctx.state, member, cmd.loot) as { id: string }, loot = ctx.state.loot[id]!;
         loot.holder = null;
         loot.pos = { x: member.pos.x, y: member.pos.y };
-        member.loadout.carrying = null;
+        syncHands(ctx.world, ctx.state, member);
         ctx.emit({ type: 'lootDropped', crew: member.id, loot: id, at: { x: member.pos.x, y: member.pos.y } });
     }
 });
@@ -207,7 +220,7 @@ export interface ThrowPlan {
  * reaches (no wall, closed door or glass between, on one level, `inReach`), over low furniture but not over anything
  * tall, landing on a tile one could stand on.
  */
-export function throwFlies(world: ReadonlyWorld, state: State, from: DeepReadonly<Pos>, to: DeepReadonly<Pos>): boolean {
+function throwFlies(world: ReadonlyWorld, state: State, from: DeepReadonly<Pos>, to: DeepReadonly<Pos>): boolean {
     const dx = to.x - from.x, dy = to.y - from.y, d2 = dx * dx + dy * dy;
     if (!d2 || d2 > THROW_RANGE * THROW_RANGE || !inBounds(world, to) || tileAt(world, to)!.blocksMove) return false;
     if (Math.max(Math.abs(dx), Math.abs(dy)) === 1) return inReach(world, state, from, to);
@@ -277,10 +290,10 @@ registerAction('throwLoot', {
         const plan = aim(ctx.world, ctx.state, member, cmd.to);
         if (typeof plan === 'string') throw new Error(`A throw checked and paid for failed: ${plan}`);
         const loot = ctx.state.loot[plan.loot]!;
-        member.loadout.carrying = null;
         loot.holder = plan.catcher;
         if (plan.catcher === null) loot.pos = { ...plan.to };
-        else ctx.state.crew.find(c => c.id === plan.catcher)!.loadout.carrying = LOOT_CARRY.heavy;
+        syncHands(ctx.world, ctx.state, member);
+        if (plan.catcher !== null) syncHands(ctx.world, ctx.state, ctx.state.crew.find(c => c.id === plan.catcher)!);
         ctx.emit({ type: 'lootThrown', crew: member.id, loot: plan.loot, from: plan.from, to: plan.to, caughtBy: plan.catcher });
     }
 });
@@ -309,19 +322,14 @@ registerAction('pass', {
         return member.dragging === null ? undefined : { act: 'dragBody', tiles: [member.pos, mate.pos] };
     },
     run(ctx, member, cmd) {
-        const mate = ctx.state.crew.find(c => c.id === cmd.to)!;
-        mate.loadout.carrying = member.loadout.carrying;
-        member.loadout.carrying = null;
-        if (member.dragging !== null) {
-            const npc = member.dragging;
+        const mate = ctx.state.crew.find(c => c.id === cmd.to)!, npc = member.dragging, id = inHands(ctx.world, ctx.state, member.id);
+        if (npc !== null) {
             mate.dragging = npc;
             member.dragging = null;
-            ctx.emit({ type: 'bodyPassed', crew: member.id, to: mate.id, npc });
-            return;
-        }
-        const id = inHands(ctx.world, ctx.state, member.id)!;
-        ctx.state.loot[id]!.holder = mate.id;
-        ctx.emit({ type: 'lootPassed', crew: member.id, to: mate.id, loot: id });
+        } else ctx.state.loot[id!]!.holder = mate.id;
+        syncHands(ctx.world, ctx.state, member);
+        syncHands(ctx.world, ctx.state, mate);
+        ctx.emit(npc !== null ? { type: 'bodyPassed', crew: member.id, to: mate.id, npc } : { type: 'lootPassed', crew: member.id, to: mate.id, loot: id! });
     }
 });
 
@@ -350,12 +358,30 @@ registerAction('inspectLoot', {
     }
 });
 
-// A pack bursts on the first step out of the building, and ruins its stack (§15.1).
+/**
+ * Whether a stack might still hide a dye pack as far as the player can tell (§15.1): taken cash not inspected and not
+ * ruined. Carrying it out of the building makes a move final, burst or not (`cashOut`); the view can mark it.
+ */
+export function mayBeDyed(world: ReadonlyWorld, state: DeepReadonly<State>, id: string): boolean {
+    const loot = state.loot[id]!;
+    return loot.taken && !loot.inspected && !loot.ruined && lootWeight(world, id) === 'light';
+}
+
+/** Where each mover stood before its move's first step, for telling the step that leaves the building. */
+const MOVE_FROM = new WeakMap<CrewState, Pos>();
+
+// Stepping out of the building with uninspected cash: `cashOut` for each such stack, and a hidden pack bursts and
+// ruins it (§15.1).
 registerMoveHook('loot', {
+    start(_ctx, member) {
+        MOVE_FROM.set(member, { x: member.pos.x, y: member.pos.y });
+    },
     step(ctx, member, path, index) {
-        const at = path[index]!;
-        if (inBuilding(ctx.world, at)) return;
+        const at = path[index]!, before = index > 0 ? path[index - 1]! : MOVE_FROM.get(member)!;
+        if (inBuilding(ctx.world, at) || !inBuilding(ctx.world, before)) return;
         for (const id of lootOf(ctx.state, member.id)) {
+            if (!mayBeDyed(ctx.world, ctx.state, id)) continue;
+            ctx.emit({ type: 'cashOut', crew: member.id, loot: id, at: { x: at.x, y: at.y } });
             const loot = ctx.state.loot[id]!;
             if (!loot.dyePack) continue;
             loot.dyePack = false;
@@ -371,11 +397,11 @@ registerPreviewSecret('dyePackBurst');
 
 // ---------------------------------------------------------------------------------------------------------- Evidence
 
-// A bag or a crate on the floor with nobody of the crew beside it is an unattended loot bag (§8.10).
-registerEvidenceSource('loot', (_world, state) => sortedIds(state.loot).flatMap((id): Evidence[] => {
+// A bag or a crate on the floor with nobody of the crew beside it is an unattended loot bag (§8.10); a ruined stack of
+// cash put down is only litter.
+registerEvidenceSource('loot', (world, state) => sortedIds(state.loot).flatMap((id): Evidence[] => {
     const loot = state.loot[id]!;
-    if (loot.holder !== null || !loot.taken) return [];
-    if (state.crew.some(c => Math.max(Math.abs(c.pos.x - loot.pos.x), Math.abs(c.pos.y - loot.pos.y)) <= 1)) return [];
+    if (loot.holder !== null || !loot.taken || lootWeight(world, id) === 'light' || attended(state, loot.pos)) return [];
     return [{ id: `loot:${id}`, kind: 'lootBag', tiles: [{ x: loot.pos.x, y: loot.pos.y }] }];
 }));
 
@@ -402,6 +428,7 @@ registerEvents({
     bodyPassed: { undoBlocking: false },
     // What inspecting finds, or a burst, tells the player something.
     lootInspected: { undoBlocking: true },
+    cashOut: { undoBlocking: true },
     dyePackFound: { undoBlocking: true },
     dyePackBurst: { undoBlocking: true }
 });

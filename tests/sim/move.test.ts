@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { scouted } from './helpers';
 import {
     commit, fixtureWorld, HEAVY_ARMOUR_ITEM, IllegalCommand, initialState, moveBudget, pathTo, preview, reachable, reachAt,
-    stepCost, validatePath, type FixtureWall, type PersonDef, type Pos, type ReadonlyWorld, type State
+    stepCost, validatePath, type FixtureWall, type PersonDef, type Pos, type ReadonlyWorld, type State, type WorldObject
 } from '../../src/sim';
 
 const P = (x: number, y: number): Pos => ({ x, y });
@@ -238,8 +238,18 @@ describe('the move and dash commands', () => {
         expect(result.events.find(e => e.type === 'heard')).toEqual({ type: 'heard', cause: 'dash jun', kind: 'quiet', npcs: ['clerk'] });
     });
 
-    // TODO(M2 carrying): register the 'heavyLoot' dash check (registerDashCheck) and fill this in.
-    it.skip('refuses to dash carrying Heavy loot (§6.3)', () => {});
+    it('refuses to dash carrying Heavy loot (§6.3), and dashes again once it is put down', () => {
+        const bag: WorldObject = { id: 'bag', kind: 'loot', pos: P(1, 0), facing: 's', loot: { value: 40000, weight: 'heavy' } };
+        const world = fixtureWorld(open(10, 2), { objects: [bag] });
+        const state = scouted(world, initialState(world, { seed: 1, crew: [{ id: 'jun', pos: P(0, 0) }] }));
+        const carrying = commit(world, state, { type: 'takeLoot', crew: 'jun', loot: 'bag' }).state;
+        const rested = { ...carrying, crew: carrying.crew.map(c => ({ ...c, actionsLeft: 2 })) };
+        expect(() => commit(world, rested, { type: 'dash', crew: 'jun', path: [P(1, 1), P(2, 1)] })).toThrow("jun can't dash carrying a bag");
+        expect(() => preview(world, rested, { type: 'dash', crew: 'jun', path: [P(1, 1), P(2, 1)] })).toThrow("jun can't dash carrying a bag");
+        const down = commit(world, rested, { type: 'dropLoot', crew: 'jun' }).state;
+        const again = { ...down, crew: down.crew.map(c => ({ ...c, actionsLeft: 2 })) };
+        expect(commit(world, again, { type: 'dash', crew: 'jun', path: [P(1, 1), P(2, 1)] }).state.crew[0]!.pos).toEqual(P(2, 1));
+    });
 });
 
 describe('doors on the way', () => {

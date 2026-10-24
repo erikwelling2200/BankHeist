@@ -74,6 +74,11 @@ export type ActionPreview =
         cost: number;
         /** A roll it stops at (the odds shown, rolled on confirm). */
         odds?: PendingOdds;
+        /**
+         * Uninspected cash it carries out of the building (§15.1): a dye pack in it would burst, which no preview tells,
+         * so the move is final either way (`cashOut`).
+         */
+        mayBeDyed?: string[];
         path?: PathSafety;
     };
 
@@ -156,6 +161,8 @@ export function actionPreview(world: ReadonlyWorld, state: State, cmd: Command):
         cost: before && after ? before.actionsLeft - after.actionsLeft : 0
     };
     if (result.pending) out.odds = result.pending;
+    const dyed = events.flatMap(e => (e.type === 'cashOut' ? [e.loot] : []));
+    if (dyed.length) out.mayBeDyed = dyed;
     if ((cmd.type === 'move' || cmd.type === 'dash') && crew) out.path = pathSafety(world, state, crew, cmd.path, { mode: cmd.type });
     return out;
 }

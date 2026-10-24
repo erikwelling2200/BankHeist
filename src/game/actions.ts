@@ -22,7 +22,7 @@ import type { HudIcon as HudIconName } from '../ui/hud/viewModels';
  * - Jammer (§12.2): while the member carries one.
  * - Loot (§15.1, M2-04): Take the loot in reach nobody has (the tapped one, else the first); with loot in the hands, Put
  *   down, Throw (a bag) to a teammate it would reach, and Pass (it, or a body) to a teammate in reach; Inspect a
- *   pocketed stack of cash not yet looked through. Throwing to a floor tile is `window.sim` only until the throw arc
+ *   pocketed stack of cash not yet looked through; Drop ruined cash a dye pack spoilt. Throwing to a floor tile is `window.sim` only until the throw arc
  *   (M2-06).
  * - Wait.
  * - The takeover (§9.3, §10.1–10.3, M2-01), after Wait: Command always; Hold while anyone is Commanded; Mask up while
@@ -193,6 +193,8 @@ export function actionMenu(world: ReadonlyWorld, state: State, crewId: string, t
     }
     const stack = pocketed(world, state, crewId).find(id => !state.loot[id]!.inspected && !state.loot[id]!.ruined);
     if (stack) add('inspect', 'Inspect cash', 'eye', { type: 'inspectLoot', crew: crewId, loot: stack }, stack);
+    const ruined = pocketed(world, state, crewId).find(id => state.loot[id]!.ruined);
+    if (ruined) add('dropRuined', 'Drop ruined cash', 'flip', { type: 'dropLoot', crew: crewId, loot: ruined }, ruined);
 
 
     add('wait', 'Wait', 'wait', { type: 'wait', crew: crewId });

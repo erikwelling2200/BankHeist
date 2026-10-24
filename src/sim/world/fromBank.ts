@@ -179,7 +179,7 @@ export function worldFromBank(bank: GeneratedBank): ReadonlyWorld {
         add('managerPc', prop.tx, prop.ty, PROP_FACING[prop.facing ?? 'south']);
     }
     for (const a of bank.alarms) if (!NOT_CARRIERS.has(a.name)) add('alarmButton', a.tx, a.ty, 's', { name: a.name });
-    for (const l of bank.loot) add('loot', l.tx, l.ty, 's', { name: l.name, loot: { value: l.value, weight: l.weight, ...(l.dyePack ? { dyePack: true as const } : {}) } });
+    for (const l of bank.loot) add('loot', l.tx, l.ty, 's', { name: l.name, loot: { value: l.value, weight: l.weight, ...(l.dyePack ? { dyePack: true as const } : {}), ...(l.behind ? { behind: l.behind } : {}) } });
 
     const people: PersonDef[] = bank.people.map(p => ({
         id: p.id, name: p.name, role: p.role, observer: p.observer satisfies ObserverClass, pos: { x: p.tx, y: p.ty },

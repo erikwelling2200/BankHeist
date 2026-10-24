@@ -140,7 +140,7 @@ registerWorldHook('devices', 'knockout.wake', (ctx, phase) => {
         npc.outCold = null;
         if (npc.status !== 'unconscious') continue;
         const where = bodyPos(state, npc), dragger = state.crew.find(c => c.dragging === npc.id);
-        if (dragger) releaseBody(state, dragger);
+        if (dragger) releaseBody(world, state, dragger);
         npc.stashed = null;
         npc.pos = wakeTile(world, state, npc.id, where);
         npc.status = 'alerted';

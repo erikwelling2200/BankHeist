@@ -133,8 +133,7 @@ const portraitOf = (c: State['crew'][number]): { portrait?: string } =>
     (PORTRAITS.has(c.id) ? { portrait: c.loadout.masked ? `${c.id}-m` : c.id } : {});
 
 /** What the crew card shows carried: loot, in the hands or pocketed (a body only raises the profile, §7.4). */
-const carriedOf = (state: State, c: State['crew'][number]): CrewVM['carrying'] =>
-    (lootOf(state, c.id).length || c.loadout.carrying === 'lootBag' || c.loadout.carrying === 'lootCrate' ? 'loot' : null);
+const carriedOf = (state: State, c: State['crew'][number]): CrewVM['carrying'] => (lootOf(state, c.id).length ? 'loot' : null);
 
 const exposedTo = (state: State, crew: string): string[] => state.npcs.filter(n => n.exposedTo.includes(crew)).map(n => n.id);
 
@@ -347,6 +346,8 @@ export function describeEvent(world: ReadonlyWorld, state: State, event: SimEven
         case 'lootThrown': return event.caughtBy ? `${name(event.crew)} threw the bag to ${name(event.caughtBy)}` : `${name(event.crew)} threw the bag`;
         case 'lootPassed': return `${name(event.crew)} passed ${lootName(world, event.loot)} to ${name(event.to)}`;
         case 'bodyPassed': return `${name(event.crew)} handed the body to ${name(event.to)}`;
+        case 'lootInspected': return `${name(event.crew)} looked through ${lootName(world, event.loot)}`;
+        case 'cashOut': return `${name(event.crew)} carried uninspected cash out of the building`;
         case 'dyePackFound': return `${name(event.crew)} found a dye pack in the cash and took it out`;
         case 'dyePackBurst': return `A dye pack burst in ${name(event.crew)}’s pocket: the cash is ruined`;
         case 'recorderDestroyed': return `${name(event.crew)} smashed the recorder`;

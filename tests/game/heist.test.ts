@@ -3,6 +3,7 @@ import { BANK_KEY, bankAddress, crewOrigin, M1_CREW, newHeist, playPlan, savedHe
 import { crewCards, MemoryStorage, Session } from '../../src/game';
 import { cachedBank } from '../bankCache';
 import { reachable, tileAt } from '../../src/sim';
+import { syncHands } from '../../src/sim/rules/hands';
 
 const bank = cachedBank({ layout: 31, population: 2, tier: 'small', archetype: 'twoWing' });
 
@@ -33,7 +34,11 @@ describe('a heist in a generated bank', () => {
         // The cards follow the loadout: a mask (Heavy, the masked portrait), a loot bag (Armed, the bag badge).
         const changed = structuredClone(state);
         changed.crew[0]!.loadout.masked = true;
-        changed.crew[1]!.loadout.carrying = 'lootBag';
+        // The bank's cash being counted, in Jun's hands.
+        const bag = Object.keys(changed.loot).find(id => world.objects.find(o => o.id === id)!.loot!.weight === 'heavy')!;
+        changed.loot[bag]!.holder = 'jun';
+        changed.loot[bag]!.taken = true;
+        syncHands(world, changed, changed.crew[1]!);
         expect(crewCards(world, changed, null).map(c => [c.profile, c.portrait, c.carrying])).toEqual([['heavy', 'mara-m', null], ['armed', 'jun', 'loot']]);
     });
 

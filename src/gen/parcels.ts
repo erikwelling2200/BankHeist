@@ -37,7 +37,7 @@ export interface Furnished {
     /** Silent-alarm stations (§9.1): the teller windows, the manager's desk button, the CCTV console's panel. */
     alarms: { tx: number; ty: number; name: string; room: string }[];
     /** Loot by tile (§15.1). */
-    loot: { tx: number; ty: number; name: string; value: number; weight: 'light' | 'heavy' | 'very heavy'; room: string; dyePack?: true }[];
+    loot: { tx: number; ty: number; name: string; value: number; weight: 'light' | 'heavy' | 'very heavy'; room: string; dyePack?: true; behind?: 'depositBoxes' }[];
     /** The inside ends of off-map routes and ducts, placed where a parcel has room for them. */
     grates: { tx: number; ty: number; room: string }[];
     vents: { tx: number; ty: number; room: string }[];
@@ -568,6 +568,8 @@ function depositRoom(style: number): ParcelFn {
         if (style === 2) p.group(accent('chair'));
         p.fillGaps([viewingTable(), storage(['depositBoxes', 'depositBoxes']), accent('plant')]);
         p.loot('Deposit boxes (jewels, one holds intel)', 30000, 'light', 0, 0);
+        // Each box is opened on its own (§15.2, §15.3: M2-05), not taken off the wall.
+        p.out.loot.at(-1)!.behind = 'depositBoxes';
         p.dense(['depositBoxes', 'plant'], 8);
         p.cameraCorners();
     };
