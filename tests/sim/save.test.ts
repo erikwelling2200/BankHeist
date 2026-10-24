@@ -78,7 +78,7 @@ describe('saving', () => {
  * NpcStatusMap, CarrierKindMap or adds a field must also fill it in below, or a change of shape goes unnoticed.
  */
 const SHAPE_HASHES: Record<number, string> = {
-    1: '7969acd49fe7390f'
+    1: '4f27ec447216ea4c'
 };
 
 /** Paths whose objects are records by id, not structs. */
@@ -135,6 +135,7 @@ describe('the save format', () => {
         full.npcs[0]!.reported = ['mara'];
         full.npcs[0]!.stashed = 'dumpster-0';
         full.npcs[0]!.outCold = 4;
+        full.npcs[0]!.glancedFrom = 'n';
         full.npcs[0]!.noticed = ['body:guard'];
         full.npcs[0]!.evidence = { id: 'body:guard', kind: 'body', major: true, tile: { x: 1, y: 1 }, decided: { turn: 1, phase: 'world' } };
         full.npcs[1]!.intent = { path: [], action: { kind: 'tellEvidence', npc: 'teller', evidence: 'body:guard' } };

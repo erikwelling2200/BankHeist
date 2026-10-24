@@ -15,5 +15,5 @@
     "noEmit": true,
     "allowImportingTsExtensions": true
   },
-  "include": ["src", "tests", "e2e", "scripts/shot.ts", "vite.config.ts", "playwright.config.ts"]
+  "include": ["src", "tests", "e2e", "scripts/shot.ts", "scripts/m1search.test.ts", "scripts/vitest.m1search.config.ts", "vite.config.ts", "playwright.config.ts"]
 }

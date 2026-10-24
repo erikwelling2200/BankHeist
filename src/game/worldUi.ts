@@ -214,7 +214,7 @@ export interface FloorTileVM {
     pos: Pos;
     band: 'move' | 'dash';
     kind: TintKind;
-    /** It happens in the coming world phase (hatched). */
+    /** It happens in the coming world phase (the corner marker, `next`). */
     hatched: boolean;
     /** Pips added, all NPCs together (amber: drawn as that many squares, at most 3). */
     pips: number;
@@ -248,7 +248,8 @@ const tileVM = (t: DeepReadonly<FloorTile>, band: 'move' | 'dash'): FloorTileVM 
         const e = effectKind(m.effect);
         return TINT_RANK[e] > TINT_RANK[k] ? e : k;
     }, effectKind(t.now));
-    const quiet: TintKind = t.knowledge === 'hidden' ? 'grey' : t.knowledge === 'unknownRisk' || t.unknownPath ? 'unknownRisk' : 'safe';
+    // A door not seen this turn could make it worse: unknown risk, as the same tile without a next verdict reads.
+    const quiet: TintKind = t.knowledge === 'hidden' ? 'grey' : t.knowledge === 'unknownRisk' || t.unknownPath || tint.doorRisk ? 'unknownRisk' : 'safe';
     const nowPips = pipsOf(t.now) + t.teammates.reduce((n, m) => n + pipsOf(m.effect), 0);
     return { ...base, now: { kind: moved === 'safe' ? quiet : moved, pips: nowPips }, next: { kind: tint.kind, pips: pipsOf(t.next) } };
 };
@@ -317,7 +318,7 @@ function seenKind(sightings: readonly Sighting[]): TintKind | null {
  * Each step passed is tinted by who would react to the crew member there for certain, as if the move ended there
  * (decision 46): red for a `!` or someone who knows them, a camera's `!` the camera's, a challenge the hand, pips amber;
  * else unknown risk where a door the crew can't vouch for could let someone known react (`doubted`), else what the crew
- * knows of it; the end is tinted as the safe floor tints it (hatched when the world phase does it). A certain warning
+ * knows of it; the end is tinted as the safe floor tints it (the corner marker when the world phase does it). A certain warning
  * short of red that a door could make worse is `doorRisk`.
  */
 export function pathView(safety: PathSafety): PathVM | undefined {

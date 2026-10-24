@@ -16,8 +16,8 @@ import { cachedBank } from '../bankCache';
  *
  * - **Never unwarned**: evidence the crew knows of that the world phase notices (any NPC or camera, known or not) is
  *   always shown, certain or uncertain.
- * - **Certain is certain**: every certain finder notices it on the picture (the same rules), and on the truth too (a
- *   camera only once the CCTV room is scouted: an unknown feed counts as live).
+ * - **Certain is certain**: every certain finder notices it on the picture (the same rules), and on the truth too; the
+ *   patrol car (driving past on most fixture turns) stops at the first thing it sees, so it sees something.
  *
  * EVIDENCE_PROBE_SCALE=10 runs ten times as much.
  */
@@ -27,7 +27,7 @@ const SEED = Number(process.env.EVIDENCE_PROBE_SEED ?? 20261024);
 const FIXTURES = Math.round(30 * SCALE), BANKS = Math.max(1, Math.round(2 * SCALE)), TURNS = 4;
 const W = 16, H = 10;
 
-interface Tally { checks: number; certain: number; uncertain: number; none: number; noticed: number; failures: string[] }
+interface Tally { checks: number; certain: number; uncertain: number; none: number; noticed: number; patrol: number; failures: string[] }
 
 function schedule(rng: Rng, free: readonly Pos[]): ScheduleBlock[] {
     const out: ScheduleBlock[] = [];
@@ -76,7 +76,9 @@ function fixture(rng: Rng): { world: ReadonlyWorld; free: Pos[] } {
     }
     const cameras: CameraDef[] = rng.chance(0.5) ? [{ id: 'cam', pos: take(), facings: [rng.pick(FACINGS), rng.pick(FACINGS)], room: null }] : [];
     const rules = { checkInPeriod: 3, dispatchCheckInPeriod: 3, dispatchSilence: 3 };
-    return { world: fixtureWorld(map, { zones: zoneRows, walls, people, cameras, rules }), free };
+    // The street patrol along the top row, driving past on most turns.
+    const patrol = rng.chance(0.6) ? { lane: Array.from({ length: W }, (_, x) => ({ x, y: 0 })), turns: [1, 2, 3, 4, 5].filter(() => rng.chance(0.7)) } : undefined;
+    return { world: fixtureWorld(map, { zones: zoneRows, walls, people, cameras, rules, ...(patrol ? { patrol } : {}) }), free };
 }
 
 /** Knocks out an NPC on a tile the crew sees this turn, as the knockout leaves it: the crew saw it go down. */
@@ -100,8 +102,10 @@ function bodyAt(world: ReadonlyWorld, state: State, rng: Rng): void {
     state.knowledge.npcs[npc.id] = { at: { ...at }, facing: npc.facing, turn: state.turn, live: true, routine: false, rota: false, watched: 1, watchedTurn: state.turn, tick: state.knowledge.phaseTick + 1 };
 }
 
+/** Who noticed what: NPCs, cameras, and the patrol car (what it saw first: evidence, a crew member or a noise). */
 const noticed = (events: readonly SimEvent[]): { by: string; evidence: string }[] => events.flatMap(e =>
-    e.type === 'evidenceNoticed' ? [{ by: e.npc, evidence: e.evidence }] : e.type === 'cameraSawEvidence' ? [{ by: e.camera, evidence: e.evidence }] : []);
+    e.type === 'evidenceNoticed' ? [{ by: e.npc, evidence: e.evidence }] : e.type === 'cameraSawEvidence' ? [{ by: e.camera, evidence: e.evidence }]
+        : e.type === 'patrolPassed' && e.saw !== null ? [{ by: 'patrol', evidence: e.saw }] : []);
 
 /** The warning against the world phase on the truth and on the picture. */
 function check(world: ReadonlyWorld, state: State, label: string, t: Tally): void {
@@ -116,9 +120,12 @@ function check(world: ReadonlyWorld, state: State, label: string, t: Tally): voi
         t.noticed++;
         if (w.level === 'none') t.failures.push(`${label}: ${n.by} noticed ${n.evidence} at (${w.pos.x}, ${w.pos.y}), shown without a warning`);
     }
+    // The patrol car stops at the first thing it sees: certain to find this, it finds something.
+    const found = (list: typeof truth, f: { id: string }, id: string): boolean => list.some(n => n.by === f.id && (f.id === 'patrol' || n.evidence === id));
     for (const w of warnings) for (const f of w.certain) {
-        if (!picture.some(n => n.by === f.id && n.evidence === w.id)) t.failures.push(`${label}: ${f.id} certain to find ${w.id}, not on the picture`);
-        if ((f.by === 'npc' || state.knowledge.cctv) && !truth.some(n => n.by === f.id && n.evidence === w.id)) t.failures.push(`${label}: ${f.id} certain to find ${w.id}, not in truth`);
+        if (f.by === 'patrol') t.patrol++;
+        if (!found(picture, f, w.id)) t.failures.push(`${label}: ${f.id} certain to find ${w.id}, not on the picture`);
+        if (!found(truth, f, w.id)) t.failures.push(`${label}: ${f.id} certain to find ${w.id}, not in truth`);
     }
 }
 
@@ -144,7 +151,7 @@ function play(world: ReadonlyWorld, start: State, rng: Rng, label: string, t: Ta
 
 describe('the evidence warning (property)', () => {
     it('never leaves evidence the world phase notices unwarned, and a certain finder always finds it', () => {
-        const t: Tally = { checks: 0, certain: 0, uncertain: 0, none: 0, noticed: 0, failures: [] };
+        const t: Tally = { checks: 0, certain: 0, uncertain: 0, none: 0, noticed: 0, patrol: 0, failures: [] };
         const rng = new Rng(SEED);
         for (let i = 0; i < FIXTURES; i++) {
             const { world, free } = fixture(rng);
@@ -174,5 +181,6 @@ describe('the evidence warning (property)', () => {
         expect(t.uncertain).toBeGreaterThan(0);
         expect(t.none).toBeGreaterThan(0);
         expect(t.noticed).toBeGreaterThan(0);
+        expect(t.patrol).toBeGreaterThan(0);
     }, 120_000);
 });

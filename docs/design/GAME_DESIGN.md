@@ -618,8 +618,8 @@ NPCs react to things that have changed, not just to people [R6 in npcs-hostages-
 - Bodies can be **dragged** (Very Heavy carry) and **stashed** in closets and dumpsters (1 action). Stashed bodies
   are not evidence.
 - The player sees what the coming world phase will notice: major evidence the crew knows of wears a warning, certain
-  when an NPC or camera the crew knows finds it, uncertain when someone it doesn't know could, or a door it hasn't
-  seen this turn decides; evidence with no warning isn't noticed (UI.md "Over heads"). Auto-advance stops before a
+  when an NPC the crew knows, a camera whose feed it knows or the patrol car driving past finds it, uncertain when
+  someone it doesn't know could, or a door it hasn't seen this turn or a camera's unknown feed decides; evidence with no warning isn't noticed (UI.md "Over heads"). Auto-advance stops before a
   world phase in which evidence is found for certain.
 - **First-time barks** name the cause ("Was the vault corridor door open before?"); later ones are generic ("Huh?").
   This teaches the evidence system without tutorial pop-ups.

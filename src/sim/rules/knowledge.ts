@@ -1,4 +1,4 @@
-import { IllegalCommand, preview, registerCommandHook, type CommitResult, type PreviewResult } from '../core/engine';
+import { IllegalCommand, preview, registerCommandHook, registerWorldHook, type CommitResult, type PreviewResult } from '../core/engine';
 import { PreviewRollError } from '../core/rng';
 import { facingToward, inBounds } from '../core/grid';
 import { samePlain, sortedIds } from '../core/json';
@@ -34,7 +34,8 @@ import { bitsCount, decodeBits, encodeBits } from './knowledgeBits';
  *   command).
  * - **Fresh tiles**: the tiles seen since the last world phase ended, reset to what the crew sees at the end of each
  *   world phase and added to by every step and command since. NPCs move only in the world phase, so nobody the crew
- *   doesn't know about stands on a fresh tile during the crew phase (§6 decision 24).
+ *   doesn't know about stands on a fresh tile during the crew phase (§6 decision 24). The fresh tiles of the last two
+ *   crew phases are kept too (`fresh1`, `fresh2`, as each world phase begins).
  * - **The blueprint layer** (§17.8) is data from the World: the exterior and the public floor are always known; Staff
  *   and Secure rooms only as outlines, unless the heist bought the Blueprints asset (`World.intel.blueprints`).
  * - **Tile visibility** (decision 44, `tileVisibility`): *hidden*, neither on the blueprint's layout nor ever seen
@@ -135,6 +136,13 @@ export interface Knowledge {
     seen: string;
     /** The tiles seen since the last world phase ended (see the header), a bitset string. */
     fresh: string;
+    /**
+     * `fresh` as it stood when the last world phase began, and the one before (bitset strings; absent in older saves:
+     * none). Nobody unknown stood on those tiles then, so an unknown NPC on one now walked there since (the evidence
+     * warning's unknown walkers, src/game/evidenceWarning.ts).
+     */
+    fresh1?: string;
+    fresh2?: string;
     /** Counts updates, so the projection can tell what was seen during a command. */
     tick: number;
     /** `tick` at the end of the last world phase: an NPC seen after it is still where it was seen (NPCs move only then). */
@@ -594,7 +602,7 @@ function mark(bits: Uint8Array, fields: readonly SightField[], width: number): v
 
 function emptyKnowledge(world: ReadonlyWorld): Knowledge {
     const none = encodeBits(new Uint8Array(tilesOf(world)));
-    return { seen: none, fresh: none, tick: 0, phaseTick: 0, rooms: [], cameras: [], cctv: false, doors: {}, npcs: {}, pings: [] };
+    return { seen: none, fresh: none, fresh1: none, fresh2: none, tick: 0, phaseTick: 0, rooms: [], cameras: [], cctv: false, doors: {}, npcs: {}, pings: [] };
 }
 
 /** NPCs the events show walking across the crew's fields (the world phase), or found by a cut move. */
@@ -788,6 +796,13 @@ function learnNpcs(
     }
 }
 
+// As a world phase begins, before anyone moves: the crew phase's fresh tiles go into `fresh1`, the last ones into `fresh2`.
+registerWorldHook('passiveNpcs', 'knowledge.freshBefore', ctx => {
+    const k = ctx.state.knowledge;
+    k.fresh2 = k.fresh1 ?? encodeBits(new Uint8Array(tilesOf(ctx.world)));
+    k.fresh1 = k.fresh;
+}, { order: -1000 });
+
 registerStateInit('knowledge', (world, state) => {
     state.knowledge = emptyKnowledge(world);
     if (world.intel?.guardRota) {
@@ -852,7 +867,8 @@ export function withLayoutCameras(world: ReadonlyWorld, state: State): State {
 registerStateCheck('knowledge', (state, world) => {
     const k = state.knowledge as Partial<Knowledge> | undefined;
     if (!k || typeof k !== 'object') return 'no knowledge';
-    for (const key of ['seen', 'fresh'] as const) {
+    for (const key of ['seen', 'fresh', 'fresh1', 'fresh2'] as const) {
+        if (key.startsWith('fresh') && key !== 'fresh' && k[key] === undefined) continue;
         if (typeof k[key] !== 'string') return `knowledge.${key} isn't a tile set`;
         try {
             decodeBits(k[key], world ? tilesOf(world) : k[key].length * 6);

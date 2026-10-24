@@ -828,7 +828,9 @@ Later milestones: within each milestone, the `∥` notes in §3 apply. UI packag
     holds nobody it doesn't know about, while one seen earlier may. Green therefore means that no NPC, known or not,
     sees the tile during this crew phase. The fresh set restarts at the end of each world phase from what the crew sees
     then, and grows with every step and command. (The hatched world-phase overlay, about where NPCs walk next, still
-    covers only the known NPCs' committed walks.)
+    covers only the known NPCs' committed walks; the evidence warning, src/game/evidenceWarning.ts, also covers unknown
+    NPCs walking into sight in the world phase, from where they could have walked unseen since the fresh sets of the
+    last two crew phases, `fresh1` and `fresh2`.)
     **Per crew member, by the reaction rules (M1-09/M1-10 follow-up).** A seen tile is hatched grey for a crew member
     only where someone unknown could actually change something for them there: pips, exposure, a challenge or a camera
     report. The unknown observer is taken at its worst: any class (and the manager or the security chief, who see

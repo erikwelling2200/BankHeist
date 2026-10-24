@@ -177,6 +177,8 @@ export class Session {
     private retired = false;
     /** Auto-advance is committing: its moves keep their crew member's route. */
     private autoPlaying = false;
+    /** The stop the last auto-advance step ended with: the same evidence stop doesn't hold the next Go again. */
+    private lastAutoStop: AutoStop | null = null;
     /** The routes as they were before the command auto-advance is committing (it sets the routes after it first). */
     private routesBefore: Routes | null = null;
 
@@ -471,7 +473,11 @@ export class Session {
         try {
             step = autoStep(this.world, this._state, this.routes, {
                 ...options,
-                beforeEnd: state => foundStop(this.world, state),
+                // Held before a world phase that finds evidence for certain, but not twice in a row for the same.
+                beforeEnd: state => {
+                    const stop = foundStop(this.world, state), last = this.lastAutoStop;
+                    return stop && last && stableJson(stop) === stableJson(last) ? null : stop;
+                },
                 play: (cmd, state, routes) => {
                     if (state !== this._state) throw new Error('Auto-advance played from a state that isn\'t the session\'s');
                     // The routes as they will be go into the autosave with the command, so a resume walks on from there.
@@ -487,6 +493,7 @@ export class Session {
         } finally {
             this.autoPlaying = false;
         }
+        this.lastAutoStop = step.stop;
         this.putRoutes(step.routes);
         this.emit({ kind: 'ui' });
         return step;

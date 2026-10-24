@@ -158,8 +158,8 @@ tile beyond a cone the path crosses wears that observer's reaction (each observe
 A dash's tint includes those its noise turns to look, and what they then see, of the mover and of the rest of the
 crew: a dash that makes a teller turn and spot Mara is tinted for Mara's pips or eye (the worst over the crew), and
 "who and why" names her ("Mara: +1 (teller)"). What the world phase after the move then does to a teammate, where
-the move makes it worse for them than ending the turn without it, is hatched the same way ("Mara next phase: Exposed
-(teller)"). A door not seen this turn that could change either hatches the tile. Each
+the move makes it worse for them than ending the turn without it, shows as the corner marker ("Mara next phase:
+Exposed (teller)"). A door not seen this turn that could change either hatches the tile. Each
 step of a drawn path is tinted by who would react to the crew member on it (pips amber, a hand, an eye).
 
 The path's eye icon sits on the **first** unsafe tile, and long-pressing that tile answers who and why: the NPC's
@@ -183,10 +183,11 @@ A dark plate, a glyph and, when there is a clock, a countdown. The states are:
 - **Hostile:** a crosshair.
 - **Will be found** (§8.10): on major evidence the crew knows of (a body, a tied person, a hole, something on the
   floor) that the coming world phase notices, above its own plates: next turn's plate, drawn as the stay tile's (three
-  quarters size, the corner marker's triangle in its corner), a red eye with `!` when a known NPC or camera finds it
-  for certain, with a faint dotted red line from where each finder first sees it; `?` with the triangle hatched when
-  someone could: a known one through a door not seen this turn, or someone unseen standing or walking within sight of
-  it this phase. Nothing on it means the world phase won't notice it. Long-pressing it names each finder ("Next phase:
+  quarters size, the corner marker's triangle in its corner), a red eye with `!` when a known NPC, a camera whose feed
+  is known or the patrol car driving past finds it for certain, with a faint dotted red line from where each finder
+  first sees it; `?` with the triangle hatched when someone could: a known one through a door not seen this turn, a
+  camera whose feed isn't known, the patrol car once a door is opened, or someone unseen standing or walking within
+  sight of it this phase (from where they could have walked unseen). Nothing on it means the world phase won't notice it. Long-pressing it names each finder ("Next phase:
   Teller finds the body") with the sightline. Judged on the crew's picture by the rule the world phase applies, as
   the safe floor is; Go and Wait for stop before a world phase in which it is found for certain.
 

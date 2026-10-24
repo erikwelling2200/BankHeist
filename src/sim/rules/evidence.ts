@@ -54,9 +54,9 @@ import { alertNpc, EYES_DOWN } from './suspicion';
  *   (`evidence.forget`, as each crew phase begins), so the next time is news; every noise is its own.
  * - **First-time barks** (§8.10): each NPC that notices something emits `bark` with the cause; `first` is true until
  *   the crew has seen an NPC bark that kind of evidence (`State.barked`), for the text naming it.
- * - **The hatched overlay** asks `evidenceWorldPhase`, the same function the world phase applies; about a tile, it
- *   passes the move there (`move`), judged on the move's preview. What the player is shown of it goes through
- *   `projectEvidenceSightings` (NPCs and cameras the crew knows).
+ * - **The evidence warning** (src/game/evidenceWarning.ts) asks `evidenceWorldPhase`, the same function the world
+ *   phase applies, on the crew's picture (`previewPicture`: NPCs and cameras the crew knows), so what the player is
+ *   shown of it is what the crew can know; `move` asks about the world phase after a move, judged on its preview.
  */
 
 /**
@@ -269,7 +269,7 @@ export interface EvidenceOptions {
 /**
  * What the coming world phase's noticing finds (see the header): every NPC along the walk it will take and every
  * camera at the facing it pans to, against the evidence on the map, minus what each has noticed already. The world
- * phase applies exactly this; the hatched overlay shows it.
+ * phase applies exactly this; the evidence warning shows it, on the crew's picture.
  */
 export function evidenceWorldPhase(world: ReadonlyWorld, state: State, sight: SightMap, options: EvidenceOptions = {}): EvidenceSighting[] {
     if (options.move) {

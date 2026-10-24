@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest';
+import { MemoryStorage, Session } from '../../src/game';
 import { evidenceWarnings, foundStop, shownWarnings, unknownWalkers, warningLines } from '../../src/game/evidenceWarning';
 import {
-    autoStep, clonePlain, commit, encodeBits, fixtureWorld, initialState, isUnknownRisk, type Facing, type FixtureWall, type ObserverClass, type PersonDef, type Pos,
+    autoStep, clonePlain, commit, encodeBits, fixtureWorld, initialState, isUnknownRisk, type CameraDef, type Facing, type FixtureWall, type ObserverClass, type PersonDef, type Pos,
     type ReadonlyWorld, type State
 } from '../../src/sim';
 import { scouted } from '../sim/helpers';
@@ -24,11 +25,13 @@ function freshOnly(world: ReadonlyWorld, state: State, fresh: (p: Pos) => boolea
 }
 
 /** An open lobby `width` wide: a teller, a customer knocked out at (15, 6) or `body`, Jun far off; everything scouted. */
-function lobby(options: { width?: number; teller?: [Pos, Facing]; body?: Pos; walls?: FixtureWall[] } = {}) {
+function lobby(options: { width?: number; teller?: [Pos, Facing]; body?: Pos; walls?: FixtureWall[]; cameras?: CameraDef[]; patrol?: boolean } = {}) {
     const width = options.width ?? 20, [at, facing] = options.teller ?? [P(15, 1), 'n' as Facing];
     const world = fixtureWorld(Array.from({ length: 9 }, () => '.'.repeat(width)), {
         people: [person('teller', at, facing, 'staff', 'teller'), person('cus', options.body ?? P(15, 6), 's', 'civilian', 'customer')],
-        ...(options.walls ? { walls: options.walls } : {})
+        ...(options.walls ? { walls: options.walls } : {}), ...(options.cameras ? { cameras: options.cameras } : {}),
+        // The street along the bottom row, the patrol car driving past every turn.
+        ...(options.patrol ? { patrol: { lane: Array.from({ length: width }, (_, x) => P(x, 8)), turns: Array.from({ length: 10 }, (_, t) => t) } } : {})
     });
     const state = clonePlain(scouted(world, initialState(world, { seed: 5, crew: [{ id: 'jun', pos: P(1, 4) }] })));
     for (const n of state.npcs) n.intent = { path: [] };
@@ -105,5 +108,57 @@ describe('evidence the coming world phase notices', () => {
         // Seen standing open this turn: the teller sees the body through it for certain.
         const seen = make();
         expect(evidenceWarnings(seen.world, seen.state)).toMatchObject([{ level: 'certain', certain: [{ id: 'teller', by: 'npc', from: P(14, 3) }] }]);
+    });
+
+    it('counts the patrol car driving past as a certain finder, and one a door opened first could let see as possible', () => {
+        const { world, state } = lobby({ patrol: true });
+        const [w] = evidenceWarnings(world, state);
+        expect(w).toMatchObject({ level: 'certain', certain: [{ id: 'patrol', by: 'patrol' }] });
+        expect(warningLines(world, w!)[0]).toMatchObject({ text: 'Next phase: The patrol car spots the body', outcome: '!', to: P(15, 6) });
+        expect(foundStop(world, state)).toMatchObject({ kind: 'evidence', text: 'the patrol car would spot the body', at: P(15, 6) });
+        const ended = commit(world, state, { type: 'endTurn' });
+        expect(ended.events.find(e => e.type === 'patrolPassed')).toMatchObject({ saw: 'body:cus' });
+        expect(ended.state.carriers.map(c => c.kind)).toContain('patrolCar');
+        // Behind a wall with a closed door the crew sees: anyone could open it first.
+        const walls: FixtureWall[] = Array.from({ length: 20 }, (_, x) => ({ between: [P(x, 7), P(x, 8)] as [Pos, Pos], ...(x === 14 ? { door: { id: 'd', lock: 'none' as const } } : {}) }));
+        const shut = lobby({ patrol: true, walls, body: P(14, 5) });
+        expect(evidenceWarnings(shut.world, shut.state)).toMatchObject([{ level: 'uncertain', certain: [], doubted: [{ id: 'patrol', why: 'opened' }] }]);
+        expect(warningLines(shut.world, evidenceWarnings(shut.world, shut.state)[0]!)[0]!.text).toBe('Next phase: The patrol car could spot the body (if a door is opened first)');
+    });
+
+    it('takes a known camera as certain only once its feed is known, and holds Go once for the same stop', () => {
+        const cameras: CameraDef[] = [{ id: 'cam', pos: P(15, 8), facings: ['n'], room: null }];
+        const { world, state } = lobby({ cameras });
+        state.knowledge.cameras = ['cam'];
+        expect(evidenceWarnings(world, state)).toMatchObject([{ level: 'uncertain', certain: [], doubted: [{ id: 'cam', by: 'camera', why: 'feed' }] }]);
+        expect(foundStop(world, state)).toBeNull();
+        // Warnings are cached per state object: a changed copy.
+        const scouted = clonePlain(state);
+        scouted.knowledge.cctv = true;
+        expect(evidenceWarnings(world, scouted)).toMatchObject([{ level: 'certain', certain: [{ id: 'cam', by: 'camera' }] }]);
+        // The Session holds a wait before the world phase once; asked again with the same stop, it plays on.
+        const session = Session.start({ world, state: scouted, storage: new MemoryStorage(), genVersion: 'fixture' });
+        const target = { kind: 'turn' as const, turn: scouted.turn + 3 };
+        const first = session.autoStep({ target });
+        expect(first.stop).toMatchObject({ kind: 'evidence', text: 'a camera would catch the body' });
+        expect(first.played).toEqual([]);
+        const second = session.autoStep({ target });
+        expect(second.played.map(p => p.command.type)).toEqual(['endTurn']);
+    });
+
+    it('puts unknown NPCs only where they could have walked unseen since the last two crew phases', () => {
+        // As in the walking case above, but the whole lobby was seen in both crew phases before this one: nobody unknown
+        // was there then, and two phases' walk from anywhere unseen doesn't reach it.
+        const { world, state } = lobby({ width: 30, body: P(2, 4), teller: [P(27, 1), 'e'] });
+        freshOnly(world, state, p => p.x <= 13);
+        expect(unknownWalkers(world, state, P(2, 4))).toBe(true);
+        const seen = clonePlain(state);
+        seen.knowledge.fresh1 = seen.knowledge.fresh2 = encodeBits(new Uint8Array(world.width * world.height).fill(1));
+        expect(unknownWalkers(world, seen, P(2, 4))).toBe(false);
+        expect(evidenceWarnings(world, seen)).toMatchObject([{ level: 'none' }]);
+        // An NPC the crew no longer knows, last seen at the lobby's far end, could have walked into sight.
+        const ghost = clonePlain(seen);
+        ghost.knowledge.npcs.gone = { at: P(16, 4), facing: 'w', turn: ghost.turn - 5, live: false, routine: false, rota: false, watched: 1, watchedTurn: 0, tick: 0 };
+        expect(unknownWalkers(world, ghost, P(2, 4))).toBe(true);
     });
 });

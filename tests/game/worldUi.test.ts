@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { explainView, floorTiles, npcBadges, npcCone, npcDrawnOn, npcSprites, pathView, previewHearers, previewNoise, previewWitnesses, unhiddenRuns } from '../../src/game/worldUi';
-import { actionPreview, clonePlain, commit, explain, fixtureWorld, initialState, knownView, pathSafety, safeFloor, safeFloorJob, type Facing, type MarkerKind, type NpcMarker, type ObserverClass, type PersonDef, type Pos, type State, VISIBILITY } from '../../src/sim';
+import { actionPreview, clonePlain, commit, explain, fixtureWorld, initialState, knownView, noEffect, pathSafety, safeFloor, safeFloorJob, tintOf, type Facing, type MarkerKind, type NpcMarker, type ObserverClass, type PersonDef, type Pos, type State, VISIBILITY } from '../../src/sim';
 import { scouted } from '../sim/helpers';
 
 const P = (x: number, y: number): Pos => ({ x, y });
@@ -136,5 +136,18 @@ describe('the NPCs drawn (decision 44)', () => {
             const v = VISIBILITY[view.visibility[m.pos.y * view.width + m.pos.x]!];
             if (m.kind === 'live') expect(v).toBe('seen');
         }
+    });
+});
+
+describe('the safe floor tiles', () => {
+    it('reads a quiet move that a door not seen this turn could make worse as unknown risk, with or without a next verdict', () => {
+        const next = { ...noEffect(), pips: { teller: 1 } };
+        const tile = (n: ReturnType<typeof noEffect>) => ({
+            pos: P(1, 1), band: 'move' as const, cost: 2, path: [], knowledge: 'scouted' as const, unknownPath: false, doorRisk: true, unsure: [],
+            now: noEffect(), next: n, teammates: [], tint: tintOf(noEffect(), n, 'scouted', false, true)
+        });
+        const [worse, quiet] = floorTiles({ tiles: [tile(next), tile(noEffect())] });
+        expect([worse!.kind, worse!.hatched, worse!.doorRisk, worse!.now.kind, worse!.next?.kind]).toEqual(['amber', true, true, 'unknownRisk', 'amber']);
+        expect([quiet!.now.kind, quiet!.doorRisk]).toEqual(['unknownRisk', true]);
     });
 });
