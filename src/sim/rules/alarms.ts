@@ -178,7 +178,7 @@ function confront(ctx: Ctx, npc: NpcState, crew: string): void {
  * implementation plan decision 4). A runner's flight calls it (rules/command.ts).
  */
 export function startEscapee(ctx: Ctx, npc: DeepReadonly<NpcState>, pathLength: number): void {
-    raiseCarrier(ctx, { kind: 'escapee', source: npc.id, pos: npc.pos, countdown: Math.ceil(pathLength / 8) });
+    raiseCarrier(ctx, { kind: 'escapee', source: npc.id, pos: npc.pos, countdown: Math.ceil(pathLength / ctx.world.rules.npcRunTiles) });
 }
 
 /**

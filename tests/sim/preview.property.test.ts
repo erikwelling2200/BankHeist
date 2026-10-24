@@ -662,6 +662,13 @@ function endTurn(run: Run, state: State): State {
     if ([...held].sort().join() !== [...shown].sort().join()) probe.fail(`${run.label} t${state.turn}: hold ring ${[...shown]}, within reach ${[...held]}`);
     const r = endPhase(world, state);
     checkTelegraphs(run, state, commit(world, state, { type: 'endTurn' }));
+    // An escapee raises the Alarm only once its runner is off the map (§9.1: it got out).
+    for (const e of r.events) {
+        if (e.type !== 'alarmRaised') continue;
+        const c = state.carriers.find(x => x.id === e.carrier), runner = c?.kind === 'escapee' ? r.state.npcs.find(n => n.id === c.source) : undefined;
+        if (c?.kind === 'escapee') probe.bump('escapee alarms');
+        if (runner && runner.status !== 'away') probe.fail(`${run.label} t${state.turn}: an escapee's Alarm with ${runner.id} still on the map`);
+    }
     for (const e of r.events) {
         if (e.type !== 'commandPips') continue;
         probe.bump(e.held ? 'commanded held' : 'commanded not held');
@@ -1285,6 +1292,37 @@ function takeoverGame(probe: Probe, n: number): void {
     }
 }
 
+/**
+ * Runners and a crew in the way (M2-02, §9.1): a passer-by panicked by a shout runs for the way out beyond a wall with
+ * two gaps, while a crew member stands in one gap or the other, or elsewhere, turn by turn. Every end of the turn is
+ * checked as everywhere (`endTurn`): no escapee raises the Alarm with its runner still on the map, whatever the crew's
+ * standing in the way did to its route.
+ */
+function escapeeGame(probe: Probe, n: number): void {
+    const rng = new Rng(SEED + 104729 * n);
+    const gaps = [rng.int(0, 5), rng.int(7, 12)];
+    const map = Array.from({ length: 10 }, (_, y) => (y === 3 ? [...'TTTTTTTTTTTTTT'].map((c, x) => (gaps.includes(x) ? '.' : c)).join('') : '..............'));
+    const exit = { x: 13, y: 0 };
+    const at = { x: rng.int(0, 13), y: rng.int(6, 9) };
+    const people: PersonDef[] = [{ id: 'walker', name: 'walker', role: 'passer-by', observer: 'civilian', pos: at, facing: 'n', schedule: [
+        { from: 1, activity: 'wait', label: 'stands', room: '', at, facing: 'n' }, { from: 99, activity: 'leave', label: 'leaves', room: '', at: exit }
+    ] }];
+    const world = fixtureWorld(map, { people });
+    const shouter = { x: at.x < 7 ? at.x + 4 : at.x - 4, y: at.y };
+    let state = omniscient(world, initialState(world, { seed: n, crew: [{ id: 'c0', pos: shouter, items: ['pistol'] }, { id: 'c1', pos: { x: gaps[1]!, y: 5 } }] }));
+    const run: Run = { world, rng, omniscient: true, label: `escapee ${n}`, tier: 'fixture', probe };
+    began(run, state);
+    state = commit(world, state, { type: 'command', crew: 'c0' }).state;
+    for (let turn = 0; turn < 8 && !state.bank.alarm; turn++) {
+        const c1 = state.crew.find(c => c.id === 'c1')!;
+        const to = rng.chance(0.6) ? { x: rng.pick(gaps), y: 3 } : { x: rng.int(0, 13), y: rng.int(4, 9) };
+        const reach = reachable(world, state, c1.pos, crewBudget(world, c1, 'move'), crewMoveOptions(world, c1));
+        const path = pathTo(reach, to);
+        if (path?.length) state = commit(world, state, { type: 'move', crew: 'c1', path }).state;
+        state = endTurn(run, state);
+    }
+}
+
 describe('previews (property, §8.8)', () => {
     it('show the takeover as it happens: the command rings, resisters\' chances and holds (M2-01)', () => {
         const probe = new Probe();
@@ -1307,6 +1345,16 @@ describe('previews (property, §8.8)', () => {
         for (const k of ['panic reaction cower', 'panic reaction flee', 'panic reaction hide', 'panic reaction reach', 'telegraphed draw', 'telegraphed escape', 'telegraphed tackle', 'telegraphed call']) {
             expect(probe.stats[k] ?? 0, k).toBeGreaterThan(0);
         }
+        // Runners with the crew in the way (M2-02): escapee alarms happen, never with the runner inside (`endTurn`).
+        for (let n = 0; n < games; n++) {
+            try {
+                escapeeGame(probe, n);
+            } catch (e) {
+                probe.fail(`escapee ${n}: ${(e as Error).stack ?? e}`);
+            }
+        }
+        expect(probe.failures).toEqual([]);
+        expect(probe.stats['escapee alarms'] ?? 0, 'escapee alarms').toBeGreaterThan(0);
         // A guard whose command lapsed reaches for his weapon and ignores the next one.
         expect(probe.stats['command command ignores'] ?? 0).toBeGreaterThan(0);
     }, 300_000);

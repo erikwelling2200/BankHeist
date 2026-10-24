@@ -204,6 +204,14 @@ describe('M1-08 fuzz on generated banks', () => {
                     if (!telegraphed) failures.push(`${label} t${before.turn} ${c.kind} by ${c.source} without telegraph (intent ${JSON.stringify(action)})`);
                     if (c.kind === 'operatorCamera' && !before.cameraReports.length) bump('operatorCamera from a world-phase camera sighting');
                 }
+                // An escapee raises the Alarm only once its runner is off the map (§9.1: it got out).
+                for (const e of r.events) {
+                    if (e.type !== 'alarmRaised') continue;
+                    const c = before.carriers.find(x => x.id === e.carrier);
+                    const runner = c?.kind === 'escapee' ? r.state.npcs.find(n => n.id === c.source) : undefined;
+                    if (runner && runner.status !== 'away') failures.push(`${label} t${before.turn} escapee alarm with ${runner.id} still at ${runner.pos.x},${runner.pos.y}`);
+                    if (c?.kind === 'escapee') bump('escapee alarms');
+                }
                 if (r.events.some(e => e.type === 'confronted')) bump('confronted');
                 if (state.bank.alarm) { bump(`alarm by ${state.response?.by}`); if (state.carriers.length) failures.push(`${label} carriers after alarm`); }
                 // Save/load mid-countdown.

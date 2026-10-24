@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { cachedBank } from '../bankCache';
 import {
-    commandPlan, commit, fixtureWorld, initialState, preview, projectEvents, worldFromBank, type CrewStart, type Facing, type ObserverClass, type PersonDef,
+    commandPlan, commit, fixtureWorld, initialState, preview, projectEvents, reactionOdds, worldFromBank, type CrewStart, type Facing, type ObserverClass, type PersonDef,
     type Pos, type ReadonlyWorld, type SimEvent, type State
 } from '../../src/sim';
 import { wayOut } from '../../src/sim/rules/command';
@@ -94,6 +94,15 @@ describe('panic spreading (the panic-spread fixture)', () => {
     });
 });
 
+describe('the odds', () => {
+    it('give staff their special (the alarm) only in a lapse: panicking, they cower, flee or hide', () => {
+        const { world, state } = setup(OPEN, [person('teller', 'teller', 'staff', P(5, 4))], [{ id: 'jun', pos: P(12, 8) }]);
+        const kinds = (lapse: boolean) => reactionOdds(world, state, npc(state, 'teller'), lapse).map(([r]) => r);
+        expect(kinds(true)).toEqual(['cower', 'flee', 'hide', 'alarm']);
+        expect(kinds(false)).toEqual(['cower', 'flee', 'hide']);
+    });
+});
+
 describe('the off-duty cop (§10.9)', () => {
     it('panics like any customer, then always reaches, telegraphed for a world phase before he draws', () => {
         const { world, state } = setup(OPEN, [customer('cop', P(9, 4), 'n', { armed: 'hidden' }), customer('plain', P(9, 6))], [{ id: 'jun', pos: P(4, 4), items: ['pistol'] }]);
@@ -171,7 +180,7 @@ describe('hiding to phone it in', () => {
             if (!hid) {
                 const done = endTurn(world, picked.state);
                 expect(done.events).toContainEqual({ type: 'hid', npc: 'cust', called: true });
-                expect(of(done.events, 'carrierStarted')).toMatchObject([{ kind: 'phoneCall', holder: 'cust', countdown: 2 }]);
+                expect(of(done.events, 'carrierStarted')).toMatchObject([{ kind: 'phoneCall', holder: 'cust', countdown: 2, about: 'jun' }]);
                 hid++;
             } else {
                 // Mara stands where she sees the spot as it arrives: no call.
@@ -186,6 +195,18 @@ describe('hiding to phone it in', () => {
         expect(seen).toBe(1);
     });
 });
+
+/** Plays world phases until the runner is gone or has no carrier: no Alarm while it is still on the map. */
+function expectNoAlarmInside(world: ReadonlyWorld, start: State): void {
+    let s = start;
+    for (let i = 0; i < 12; i++) {
+        const r = endTurn(world, s);
+        if (r.events.some(e => e.type === 'alarmRaised')) expect(npc(r.state, 'walker').status, `turn ${s.turn}`).toBe('away');
+        s = r.state;
+        if (npc(s, 'walker').status === 'away' || !s.carriers.some(c => c.source === 'walker')) return;
+    }
+    throw new Error('the run never ended');
+}
 
 describe('the escapee (§9.1, §16.4)', () => {
     // A wall of shelves with one gap at (12, 2); the way out is at (13, 0).
@@ -250,12 +271,35 @@ describe('the escapee (§9.1, §16.4)', () => {
         expect(npc(off.state, 'walker').lapse).toEqual({ kind: 'flee', exit: P(29, 1) });
         const fresh = of(off.events, 'carrierStarted');
         expect(fresh).toMatchObject([{ kind: 'escapee', holder: 'walker' }]);
-        const left = 29 - npc(off.state, 'walker').pos.x;
+        // The way left: to a tile next to the way out, where it leaves from.
+        const left = 28 - npc(off.state, 'walker').pos.x;
         expect(fresh[0]!.countdown).toBe(Math.max(2, Math.ceil(left / 8)));
         expect(fresh[0]!.countdown).toBeGreaterThan(2);
-        // No Alarm while the runner is still far inside.
-        const next = endTurn(world, off.state);
-        expect(of(next.events, 'alarmRaised')).toEqual([]);
+        expectNoAlarmInside(world, off.state);
+    });
+
+    it('counts a run the crew lengthen by standing in the way from scratch, never raising the Alarm with the runner inside', () => {
+        // The reviewer's probe: gaps at (0, 2) and (12, 2), the way out at (13, 0); Mara stands in the near gap.
+        const map = ['..............', '..............', '.TTTTTTTTTTT.T', ...MAP.slice(3)];
+        const { world, state } = setup(map, [person('walker', 'passer-by', 'civilian', P(12, 5), 'n')], [{ id: 'jun', pos: P(3, 8) }, { id: 'mara', pos: P(12, 2) }]);
+        const w = npc(state, 'walker');
+        w.lapse = { kind: 'flee', exit: P(13, 0) };
+        w.panic = { since: { turn: 0, phase: 'world' }, crew: null, tile: P(12, 5), reaction: { kind: 'flee' } };
+        w.status = 'panicked';
+        w.intent = { path: [P(12, 4), P(12, 3)], action: { kind: 'flee', exit: P(13, 0) } };
+        w.goal = { kind: 'flee', tile: P(13, 0) };
+        state.carriers.push({ id: 'c1', kind: 'escapee', source: 'walker', pos: P(12, 5), countdown: 2, started: { turn: 0, phase: 'world' }, halted: null });
+        // The way round is too long for 2: the carrier is countered, and a fresh one fits it as the runner sets off.
+        const blocked = commit(world, state, { type: 'wait', crew: 'mara' });
+        expect(of(blocked.events, 'carrierStopped')).toMatchObject([{ carrier: 'c1', why: 'route longer' }]);
+        const off = endTurn(world, blocked.state);
+        expect(of(off.events, 'carrierStarted')[0]!.countdown).toBeGreaterThan(2);
+        expectNoAlarmInside(world, off.state);
+        // The same with the crew in the way as it first sets off.
+        const fresh = commit(world, { ...state, carriers: [] }, { type: 'wait', crew: 'mara' }).state;
+        const first = endTurn(world, fresh);
+        expect(of(first.events, 'carrierStarted')[0]!.countdown).toBeGreaterThan(2);
+        expectNoAlarmInside(world, first.state);
     });
 
     it('is countered by a tackle: 1 action, in reach, and the runner goes face down', () => {

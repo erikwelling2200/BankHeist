@@ -490,7 +490,7 @@ export function noiseReactions(world: ReadonlyWorld, state: State, what: NoiseSo
  * world phase walks and faces as that want has it. Those face down (`hearing` leaves them out) don't turn. Exported
  * for previews that put a noise on a copy without the rest of `makeNoise` (the safe floor's dash band, M1-09).
  */
-export function reactToNoise(ctx: Ctx, ring: Ring, kind: NoiseKind, cause: string): void {
+export function reactToNoise(ctx: Ctx, ring: Ring, kind: NoiseKind, cause: string, by?: string): void {
     const heard = hearing(ctx.world, ctx.state, ring, kind, cause);
     if (!heard.length) return;
     for (const h of heard) {
@@ -498,7 +498,8 @@ export function reactToNoise(ctx: Ctx, ring: Ring, kind: NoiseKind, cause: strin
         if (h.kind === 'loudNoise') alertNpc(ctx, npc, 'noise');
         bark(ctx, npc, h.kind, h.noise);
         // A panicking civilian doesn't go and report it (§10.8): its reaction is its answer.
-        if (h.status === 'panicked') panicNpc(ctx, npc, 'noise', null, h.tile);
+        // Panicked about the crew member who shouted, when one did: who he reaches at, whom a call is about.
+        if (h.status === 'panicked') panicNpc(ctx, npc, 'noise', by ?? null, h.tile);
         else takeEvidence(ctx, npc, h.kind, h.noise, h.tile);
     }
     // In a crew phase the hearers' new intents are telegraphed at once (§6.2), and every hearer turns to the noise now.

@@ -213,17 +213,6 @@ function search(
     return { nodes, found: false };
 }
 
-/**
- * Whether an NPC can get from where it stands to `to`, or a tile next to it, past the people as they stand (a runner's
- * way out, rules/panic.ts): the walk search, stopping once it gets there.
- */
-export function canWalkTo(world: ReadonlyWorld, state: State, npc: DeepReadonly<NpcState>, to: DeepReadonly<Pos>): boolean {
-    const goal = { x: to.x, y: to.y }, { nodes, found } = search(world, state, { x: npc.pos.x, y: npc.pos.y }, goal, npcMoveOptions(world, npc));
-    if (found) return true;
-    for (const node of nodes.values()) if (Math.max(Math.abs(node.pos.x - goal.x), Math.abs(node.pos.y - goal.y)) <= 1) return true;
-    return false;
-}
-
 /** Plans a walk toward a target (see the header). `taken` says which tiles it may not end on (`othersTiles`). */
 export function planWalk(world: ReadonlyWorld, state: State, npc: DeepReadonly<NpcState>, target: WalkTarget, taken: (index: number) => boolean): PlannedWalk {
     const here = { x: npc.pos.x, y: npc.pos.y };

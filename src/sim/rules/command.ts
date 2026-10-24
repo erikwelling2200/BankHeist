@@ -15,7 +15,7 @@ import { stopCarrier } from './carriers';
 import { npcMoveOptions, isPresent, personOf } from './npc/walk';
 import { reconsider } from './npc/intent';
 import { bodyPos, draggedBy } from './place';
-import { hidingSpot, reactionOdds, rollReaction, routeBlocked, startReaction, tackleTarget, type Reaction } from './panic';
+import { hidingSpot, reactionOdds, rollReaction, startReaction, tackleTarget, type Reaction } from './panic';
 import { giveUp, panicsAt } from './panicState';
 import { witnessAct } from './perceive';
 import { alertNpc, expose, isEyesDown } from './suspicion';
@@ -321,7 +321,7 @@ registerAction('command', {
             if (ctx.dice.odds('resist', t.chance!, `resist ${t.npc}`)) ctx.emit({ type: 'resisted', crew: member.id, npc: t.npc, chance: t.chance! });
             else commandNpc(ctx, npcOf(t.npc), member.id, world.rules.commandPips);
         }
-        makeNoise(ctx, 'commandShout', member.pos, `command ${member.id}`, plan.panicRadius);
+        makeNoise(ctx, 'commandShout', member.pos, `command ${member.id}`, plan.panicRadius, member.id);
         if (!state.bank.loud) {
             state.bank.loud = true;
             ctx.emit({ type: 'wentLoud', cause: `command ${member.id}` });
@@ -433,8 +433,9 @@ registerWorldHook('passiveNpcs', 'command.flee', (ctx, phase) => {
         const out = Math.max(Math.abs(npc.pos.x - action.exit.x), Math.abs(npc.pos.y - action.exit.y)) <= 1;
         // Its carrier is seen for a crew phase with the runner still on the map, where the counters reach it (§9.1).
         const running = state.carriers.some(c => c.kind === 'escapee' && c.source === npc.id);
-        let left: number | undefined;
-        if (!out && routeBlocked(world, state, npc, action.exit)) {
+        // The way it has left, past the crew as they stand: what its escapee counts down (§9.1).
+        let left = out ? 0 : runLeft(world, state, npc, action.exit);
+        if (left === undefined) {
             const open = wayOut(world, state, npc, true);
             if (!open) {
                 giveUp(ctx, npc);
@@ -446,7 +447,7 @@ registerWorldHook('passiveNpcs', 'command.flee', (ctx, phase) => {
             npc.lapse = { kind: 'flee', exit: open.exit };
             left = open.tiles;
         }
-        startEscapee(ctx, npc, out ? 0 : left ?? tilesTo(world, state, npc, npc.lapse.exit));
+        startEscapee(ctx, npc, left);
         if (!out || !(running || state.bank.alarm)) continue;
         // Gone for good: its lapse keeps it away (behaviour.ts).
         npc.status = 'away';
@@ -511,7 +512,7 @@ const LAPSE_OF: Readonly<Record<Reaction, LapseOutcome>> = {
 
 /** The archetype's roll (§10.5, §16.2; panic.ts `reactionOdds`): one chance after another, so each is shown odds. */
 function rollLapse(ctx: Ctx, npc: NpcState): LapseOutcome {
-    const rolled = LAPSE_OF[rollReaction(ctx, reactionOdds(ctx.world, ctx.state, npc), 'lapse', r => `lapse ${npc.id} ${LAPSE_OF[r]}`)];
+    const rolled = LAPSE_OF[rollReaction(ctx, reactionOdds(ctx.world, ctx.state, npc, true), 'lapse', r => `lapse ${npc.id} ${LAPSE_OF[r]}`)];
     // An armed civilian rolls as anyone of his archetype does, so a preview stops at the same roll and nothing tells
     // him apart (§10.9 "no tells"); whatever it comes up, he reaches for his weapon (§16.2).
     return npc.armed === 'hidden' ? 'reachForWeapon' : rolled;
@@ -542,11 +543,15 @@ export function wayOut(world: ReadonlyWorld, state: State, npc: DeepReadonly<Npc
     return found && exit && { exit, tiles: Math.ceil(found.cost / HALF_STEPS_PER_TILE) };
 }
 
-/** How far a runner has to its own way out, in tiles (through people, as `wayOut`): what its escapee counts down. */
-function tilesTo(world: ReadonlyWorld, state: State, npc: DeepReadonly<NpcState>, exit: DeepReadonly<Pos>): number {
-    const found = reachable(world, state, { x: npc.pos.x, y: npc.pos.y }, (world.width + world.height) * 4 * HALF_STEPS_PER_TILE,
-        { ...npcMoveOptions(world, npc), ignorePeople: true }, t => samePos(t.pos, exit)).stopped;
-    return found ? Math.ceil(found.cost / HALF_STEPS_PER_TILE) : 0;
+/**
+ * How far a runner has left to its way out, in tiles: to the nearest tile it leaves from (the way out or one next to
+ * it), past the crew as they stand, by walking cost; undefined when the crew block every way there. What its escapee
+ * counts down (§9.1), and what the route check holds the count to (rules/panic.ts).
+ */
+export function runLeft(world: ReadonlyWorld, state: State, npc: DeepReadonly<NpcState>, exit: DeepReadonly<Pos>): number | undefined {
+    const found = reachable(world, state, { x: npc.pos.x, y: npc.pos.y }, (world.width + world.height) * 4 * HALF_STEPS_PER_TILE, npcMoveOptions(world, npc),
+        t => Math.max(Math.abs(t.pos.x - exit.x), Math.abs(t.pos.y - exit.y)) <= 1).stopped;
+    return found && Math.ceil(found.cost / HALF_STEPS_PER_TILE);
 }
 
 /** Carries out the decision of a lapse (see the header); its intent is planned by `reconsider` straight after. */

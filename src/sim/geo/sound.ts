@@ -186,8 +186,11 @@ export function noiseRadius(what: NoiseSource, radius?: number): number {
     return r;
 }
 
-/** Something that follows every noise made (what the crew hears, rules/knowledge.ts), with its ring. */
-export type NoiseHook = (ctx: Ctx, ring: Ring, kind: NoiseKind, cause: string) => void;
+/**
+ * Something that follows every noise made (what the crew hears, rules/knowledge.ts), with its ring; `by` the crew member
+ * who made it on purpose (a shout), when one did.
+ */
+export type NoiseHook = (ctx: Ctx, ring: Ring, kind: NoiseKind, cause: string, by?: string) => void;
 
 const NOISE_HOOKS = new Map<string, NoiseHook>();
 
@@ -201,13 +204,13 @@ export function registerNoiseHook(name: string, hook: NoiseHook, options: { repl
  * Makes a noise from the table on `sources` and emits it with who heard it; when anyone did, a `heard` event follows,
  * which blocks undo. Reactions belong to perception (M1-05), which reads the events. Returns the ring.
  */
-export function makeNoise(ctx: Ctx, what: NoiseSource, sources: Pos | readonly Pos[], cause: string, radius?: number): Ring {
+export function makeNoise(ctx: Ctx, what: NoiseSource, sources: Pos | readonly Pos[], cause: string, radius?: number, by?: string): Ring {
     const kind = NOISES[what].kind, r = noiseRadius(what, radius);
     const ring = soundRing(ctx.world, ctx.state, sources, r);
     const heard = npcsInside(ctx.state, ring);
     ctx.emit({ type: 'noise', sources: ring.sources, radius: r, kind, cause, heard });
     if (heard.length) ctx.emit({ type: 'heard', cause, kind, npcs: heard });
-    for (const name of [...NOISE_HOOKS.keys()].sort()) NOISE_HOOKS.get(name)!(ctx, ring, kind, cause);
+    for (const name of [...NOISE_HOOKS.keys()].sort()) NOISE_HOOKS.get(name)!(ctx, ring, kind, cause, by);
     return ring;
 }
 

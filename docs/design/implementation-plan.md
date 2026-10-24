@@ -688,6 +688,11 @@ Each package lists its goal, the design sections it covers, the files, what it d
       `hide`. `wayOut` stops its flood at the first way out it settles (no cache: what a door lets an NPC through
       depends on it, its keycard too). Save shape hash
       `efa24c46300bf6cf` (updated here, as M2-01, M2-03 and M2-04 did).
+    - **Reviews:** no module cache for `wayOut` (decision 73's re-routing); a re-routed or lengthened run counts
+      afresh (decision 73); the shout's panickers know the shouter (`makeNoise`'s `by`), so the cop reaches at him and
+      a hider's call is about him; panicking staff roll no special (`reactionOdds`' `lapse`). The property test's
+      `escapeeGame` (a runner, a wall with two gaps, a crew member in and out of them) fails on a9bc953 (escapee
+      Alarms with the runner still inside, in several of its 30 games) and passes since.
     - **Deferred:** "Bold" shown on Inspect within 3 tiles and the panic badges' polish (M2-06); panicked crowds jamming
       doorways (+1 move cost, with the police, M3); police outside shifting reactions toward fleeing (M3); a Hostile
       civilian firing (M3); screaming customers (§16.2 "or screams"); barricades and vehicles across a runner's lane
@@ -1381,9 +1386,13 @@ Later milestones: within each milestone, the `∥` notes in §3 apply. UI packag
 73. **Blocking the route (M2-02).** An escapee is countered while the crew, standing where they stand, cut its runner
     off from the way out it runs for (from every tile within one of it; people other than the crew don't block). As it
     would set off again, a runner with another way out still open runs for the nearest one, with a fresh carrier at
-    max(2, ⌈that way ÷ 8⌉), the flight its telegraph (an escapee's count always fits the way it is running); with none
-    left it gives up and cowers. If the crew steps aside first, the next flight starts a fresh carrier at its full
-    countdown. A passer-by's way out is the nearest tile anyone leaves the map by (§16.4's "nearest plot edge"). The
+    max(2, ⌈that way ÷ 8⌉), the flight its telegraph; with none left it gives up and cowers. If the crew steps aside
+    first, the next flight starts a fresh carrier at its full countdown. An escapee's count is always of the way the
+    runner has left past the crew as they stand (to the nearest tile it leaves from: its way out or one next to it), at
+    a run a world phase: when the crew standing in the way makes that way longer than the count still covers (it must
+    be off the map by the world phase whose tick would raise the Alarm), the carrier is countered just the same ('route
+    longer') and the runner, setting off again, starts a fresh one at the longer way's count. So an escapee never raises
+    the Alarm with its runner inside (an invariant of the preview property test and the carrier fuzz). A passer-by's way out is the nearest tile anyone leaves the map by (§16.4's "nearest plot edge"). The
     phone call's "find them" (§9.1) is listed with its counters: finding a hider is what lets the crew command or knock
     it out.
 74. **The crew's tackle (M2-02)** works only on a runner (an NPC fleeing), in reach, 1 action, not while dragging a

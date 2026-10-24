@@ -431,7 +431,7 @@ const CODE_PART: Readonly<Record<string, string>> = { whole: 'the vault code', m
 /** Why a carrier stopped, as the log says it. */
 const STOP_WHY: Readonly<Record<string, string>> = {
     panel: 'the alarm panel is dead', 'source down': 'its holder is down', answered: 'the radio was answered', alarm: 'the alarm is up', commanded: 'its holder is face down',
-    'route blocked': 'the way out is blocked'
+    'route blocked': 'the way out is blocked', 'route longer': 'the way out is longer now'
 };
 
 const capitalise = (text: string): string => text.charAt(0).toUpperCase() + text.slice(1);

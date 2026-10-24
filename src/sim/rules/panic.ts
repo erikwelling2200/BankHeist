@@ -9,10 +9,10 @@ import { sightMap, type SightMap } from '../geo/los';
 import { reachable } from '../geo/move';
 import { inReach, lacksActions, registerAction } from './actions/act';
 import { raiseCarrier, registerCarrierCheck } from './carriers';
-import { commandNpc, wayOut } from './command';
+import { commandNpc, runLeft, wayOut } from './command';
 import { registerPreviewSecret } from './knowledge';
 import { reconsider } from './npc/intent';
-import { canWalkTo, isPresent, npcMoveOptions, othersTiles, paceBudget, personOf } from './npc/walk';
+import { isPresent, npcMoveOptions, othersTiles, paceBudget, personOf } from './npc/walk';
 import { isEyesDown } from './suspicion';
 import { canPanic, panicNpc, startPanic, type Panic, type PanicReaction } from './panicState';
 
@@ -50,10 +50,11 @@ import { canPanic, panicNpc, startPanic, type Panic, type PanicReaction } from '
  * - **Calming down:** a Commanded or tied NPC is no longer Panicked (`commandNpc`; face down otherwise, as intents are
  *   committed); one knocked out neither.
  * - **The escapee's counters** (§9.1): commanding or knocking out the runner (the source), **blocking its route** (a
- *   carrier check: no way to its way out past the crew as they stand counters it; as it sets off again the runner runs
- *   for another way out still open, with a fresh carrier at that way's count, or with none left gives up and cowers), and
- *   **tackling** it (`tackle { crew, npc }`: 1 action, in
- *   reach, on someone running for it; an illegal act seen on both tiles; it goes face down, Commanded by the tackler).
+ *   carrier check: no way to its way out past the crew as they stand counters it, and so does a way past them grown
+ *   longer than the count covers; as it sets off again the runner starts a fresh carrier at the count of the way it
+ *   now runs, another way out still open if its own is cut off, or with none left gives up and cowers), and
+ *   **tackling** it (`tackle { crew, npc }`: 1 action, in reach, on someone running for it; an illegal act seen on both
+ *   tiles; it goes face down, Commanded by the tackler). An escapee's count is always of the way past the crew.
  *   Barricades and vehicles are M3–M4's.
  */
 
@@ -106,17 +107,20 @@ registerPreviewSecret('panicReaction');
 /**
  * The odds an NPC picks its reaction with (§10.5, §10.8, §16.2), each with its weight: an enforcer whose command lapses
  * reaches (or, disarmed, stays down); a hero next to a crew member tackles, and otherwise flees where others cower;
- * everyone else by the archetype's panic column (the staff's own special only in a lapse: staff don't panic). A hidden
- * weapon rolls these odds like anyone (no tells, §10.9), and then reaches whatever came up (`react`, command.ts).
+ * everyone else by the archetype's panic column. The staff's own special (the alarm, the phone, the panel) only in a
+ * `lapse`: a panicked NPC (a civilian, or staff panicking since a lapse to hide or a blocked run, `startReaction`,
+ * `giveUp`) only cowers, flees or hides. A hidden weapon rolls these odds like anyone (no tells, §10.9), and then
+ * reaches whatever came up (`react`, command.ts).
  */
-export function reactionOdds(world: ReadonlyWorld, state: State, npc: DeepReadonly<NpcState>): [Reaction, number][] {
+export function reactionOdds(world: ReadonlyWorld, state: State, npc: DeepReadonly<NpcState>, lapse: boolean): [Reaction, number][] {
     const person = personOf(world, npc.id), weights = panicWeights(person.role, person.observer);
     // An enforcer reaches for his weapon; one a frisk disarmed has nothing to reach for and stays down (decision 66).
     if (!weights) return [[npc.armed !== null ? 'reach' : 'cower', 1]];
     const hero = person.hero === true;
     if (hero && tackleTarget(world, state, npc)) return [['tackle', 1]];
     const options: [Reaction, number][] = [
-        ['cower', hero ? 0 : weights.cower], ['flee', weights.flee + (hero ? weights.cower : 0)], ['hide', weights.hide], [weights.via ?? 'alarm', weights.special]
+        ['cower', hero ? 0 : weights.cower], ['flee', weights.flee + (hero ? weights.cower : 0)], ['hide', weights.hide],
+        [weights.via ?? 'alarm', lapse ? weights.special : 0]
     ];
     return options.filter(([, w]) => w > 0);
 }
@@ -190,7 +194,7 @@ export function startReaction(ctx: Ctx, npc: NpcState, reaction: 'cower' | 'flee
 /** Picks a panicked NPC's reaction (see the header). */
 function react(ctx: Ctx, npc: NpcState): void {
     const { world, state } = ctx;
-    const rolled = rollReaction(ctx, reactionOdds(world, state, npc), 'panic', r => `panic ${npc.id} ${r}`);
+    const rolled = rollReaction(ctx, reactionOdds(world, state, npc, false), 'panic', r => `panic ${npc.id} ${r}`);
     // The off-duty cop rolled like anyone, so no preview tells him apart; he reaches whatever came up (§10.9).
     const picked = npc.armed === 'hidden' ? 'reach' : rolled;
     if (picked === 'reach') {
@@ -201,7 +205,7 @@ function react(ctx: Ctx, npc: NpcState): void {
         ctx.emit({ type: 'panicReaction', npc: npc.id, reaction: 'reach' });
         return;
     }
-    // Civilians have no special of their own (staff never panic): anything else cowers.
+    // The panic odds hold no special (`reactionOdds`): what is left is a cower, a flight, a hide or a tackle.
     const wanted = picked === 'flee' || picked === 'hide' || picked === 'tackle' ? picked : 'cower';
     ctx.emit({ type: 'panicReaction', npc: npc.id, reaction: startReaction(ctx, npc, wanted, npc.panic!.crew) });
 }
@@ -218,18 +222,22 @@ function nearestCrew(state: State, npc: DeepReadonly<NpcState>): string {
 
 // ---------------------------------------------------------------------------------------------------------- Escapees
 
-/** Whether the crew, standing where they stand, block every way from a runner to this exit (or a tile next to it). */
-export const routeBlocked = (world: ReadonlyWorld, state: State, npc: DeepReadonly<NpcState>, exit: DeepReadonly<Pos>): boolean => !canWalkTo(world, state, npc, exit);
-
-// Block the route (§9.1): an escapee whose runner can't get past the crew to the way out it runs for is countered. With
-// another way out still open, it runs for that as it sets off again, with a fresh carrier at that way's count
-// (command.ts); with none, it gives up.
+/**
+ * Block the route (§9.1), and its count held to the run (§9.1, decision 73): an escapee whose runner can't get past the
+ * crew as they stand to the way out it runs for is countered ('route blocked'); so is one whose way past them has grown
+ * longer than its count still covers ('route longer'): it must leave the map no later than the world phase whose tick
+ * would raise the Alarm (a run of `npcRunTiles` a world phase; this world phase's tick, if it is yet to come, counts
+ * against it). Either way the runner, setting off again, starts a fresh carrier at its new way's count, its flight the
+ * telegraph, or with no way out left gives up (command.ts). So no escapee raises the Alarm with its runner inside.
+ */
 registerCarrierCheck('route', (world, state, carrier) => {
     if (carrier.kind !== 'escapee') return null;
     const npc = state.npcs.find(n => n.id === carrier.source);
     if (!npc || !isPresent(npc) || npc.lapse?.kind !== 'flee') return null;
-    const live = state as unknown as State;
-    return routeBlocked(world, live, npc, npc.lapse.exit) ? { halt: 'countered', why: 'route blocked' } : null;
+    const left = runLeft(world, state as unknown as State, npc, npc.lapse.exit);
+    if (left === undefined) return { halt: 'countered', why: 'route blocked' };
+    const ticking = state.phase === 'world' && !(carrier.started.turn === state.turn && carrier.started.phase === 'world') ? 1 : 0;
+    return Math.ceil(left / world.rules.npcRunTiles) > carrier.countdown - ticking ? { halt: 'countered', why: 'route longer' } : null;
 });
 
 /** Why a crew member can't tackle this NPC now (§9.1), or undefined. */

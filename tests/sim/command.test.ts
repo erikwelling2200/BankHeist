@@ -52,7 +52,7 @@ describe('the command', () => {
         const done = commit(world, state, { type: 'command', crew: 'jun' });
         expect(seen.events).toEqual(done.events);
         expect(npc(done.state, 'near')).toMatchObject({ status: 'commanded', command: { pips: 2, by: 'jun' }, intent: { path: [] } });
-        expect(npc(done.state, 'far')).toMatchObject({ alerted: true, status: 'panicked', panic: { reaction: null, crew: null } });
+        expect(npc(done.state, 'far')).toMatchObject({ alerted: true, status: 'panicked', panic: { reaction: null, crew: 'jun' } });
         expect(done.state.bank.loud).toBe(true);
         expect(done.state.crew[0]!.actionsLeft).toBe(1);
         expect(done.undoable).toBe(false);
