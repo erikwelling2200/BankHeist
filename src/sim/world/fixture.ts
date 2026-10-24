@@ -3,6 +3,7 @@ import { clonePlain } from '../core/json';
 import { defaultRules } from '../core/state';
 import { RAISED_HEIGHT } from '../../level/plan';
 import { type CameraDef, type ClimbSide, type DoorDef, type DoorStart, type Lock, type Material, type PersonDef, type Pos, type ReadonlyWorld, type Rules, type Tile, type WallEdge, type WorldObject, type Zone } from '../core/types';
+import { DEFAULT_COVER_HP } from '../data/weapons';
 import { freezeWorld } from './freeze';
 import type { KeyLock } from '../../gen/model';
 
@@ -40,6 +41,8 @@ export interface FixtureOptions {
     rooms?: readonly string[];
     /** Unlit tiles, by position. */
     dark?: readonly Pos[];
+    /** Half cover's hit points by position ('#' tiles take `DEFAULT_COVER_HP`); null can't be destroyed (§11.4). */
+    cover?: readonly { at: Pos; hp: number | null }[];
     /** Tiles with something of middle height on them (a vehicle), by position. */
     midHeight?: readonly Pos[];
     people?: readonly PersonDef[];
@@ -76,7 +79,9 @@ export function fixtureWorld(map: readonly string[], options: FixtureOptions = {
             const z = zones ? zones[y]![x]! : c in ZONES ? c : '.';
             const zone = ZONES[z];
             if (!zone) throw new Error(`Unknown zone '${z}' at (${x}, ${y}): zones are '.', 's' and 'x'`);
-            tiles.push({ zone, raised: c === '^', floor: c === '^' ? RAISED_HEIGHT : 0, lit: true, blocksMove: OBJECTS.has(c), tall: c === 'T', halfCover: c === '#', room: rooms && rooms[y]![x] !== '.' ? rooms[y]![x]! : null });
+            const tile: Tile = { zone, raised: c === '^', floor: c === '^' ? RAISED_HEIGHT : 0, lit: true, blocksMove: OBJECTS.has(c), tall: c === 'T', halfCover: c === '#', room: rooms && rooms[y]![x] !== '.' ? rooms[y]![x]! : null };
+            if (c === '#') tile.coverHp = DEFAULT_COVER_HP;
+            tiles.push(tile);
         });
     });
     map.forEach((line, y) => [...line].forEach((c, x) => {
@@ -89,6 +94,12 @@ export function fixtureWorld(map: readonly string[], options: FixtureOptions = {
     for (const p of options.dark ?? []) {
         if (p.x < 0 || p.y < 0 || p.x >= width || p.y >= height) throw new Error(`Dark tile (${p.x}, ${p.y}) is off the map`);
         tiles[p.y * width + p.x]!.lit = false;
+    }
+    for (const { at, hp } of options.cover ?? []) {
+        const tile = tiles[at.y * width + at.x];
+        if (!tile?.halfCover || at.x < 0 || at.x >= width) throw new Error(`No half cover at (${at.x}, ${at.y})`);
+        if (hp === null) delete tile.coverHp;
+        else tile.coverHp = hp;
     }
     for (const p of options.midHeight ?? []) {
         if (p.x < 0 || p.y < 0 || p.x >= width || p.y >= height) throw new Error(`Middle-height tile (${p.x}, ${p.y}) is off the map`);

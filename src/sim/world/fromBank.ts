@@ -2,7 +2,7 @@ import type { GeneratedBank, GenRoom, RoutineBlock } from '../../gen/model';
 import { CATALOG } from '../../level/catalog';
 import { floorHeight, RAISED_HEIGHT, type LevelProp, type PersonFacing } from '../../level/plan';
 import type { Facing as PropFacing } from '../../level/space';
-import { propTileGrids, wallLookup } from '../../level/tileProps';
+import { blocksMoveAt, HALF_COVER_HEIGHT, isTall, placeProp, propTileGrids, tilesOfBox, wallLookup, type WallAt } from '../../level/tileProps';
 import { edgeKey } from '../core/grid';
 import { clonePlain } from '../core/json';
 import { defaultRules } from '../core/state';
@@ -10,6 +10,7 @@ import {
     type CameraDef, type DoorDef, type Facing, type ObserverClass, type PersonDef, type ReadonlyWorld, type ScheduleBlock, type Tile,
     type WallEdge, type WorldObject, type Zone
 } from '../core/types';
+import { COVER_HP, DEFAULT_COVER_HP } from '../data/weapons';
 import { freezeWorld } from './freeze';
 import { DOOR_KINDS, WALL_MATERIALS } from './materials';
 
@@ -20,7 +21,8 @@ import { DOOR_KINDS, WALL_MATERIALS } from './materials';
  * - tiles: the zone of their room (the street and the neighbours count as Public, implementation plan §6.7), raised and
  *   floor height from the floor (a flight of stairs is ground floor; its top step is the climb onto the landing), lit unless the room has no light and is indoors (§6.10: the baked lamps are art, not
  *   rules), and what the furniture does from `src/level/tileProps.ts`, the grids the generator's `Nav` reads. Tiles
- *   off the map are walls of nothing: no room, blocked and tall.
+ *   off the map are walls of nothing: no room, blocked and tall. A half-cover tile takes its prop's hit points
+ *   (`COVER_HP`, §11.4), the sturdiest where props share a tile; none where one can't be destroyed.
  * - edges: every wall segment, with its material from `materials.ts` and the door that stands in it.
  * - doors: every door with a leaf (open doorways and counter gates are gaps, not doors): closed, or locked if it has a
  *   lock (§6.9).
@@ -34,8 +36,27 @@ import { DOOR_KINDS, WALL_MATERIALS } from './materials';
  *   weapon on an off-duty cop (rules/actions/hostage.ts; everyone else carries what their class does); cameras with
  *   their facings, two for a panning one.
  * - the patrol car's lane along the main street and the timeline's drive-by turns (rules/checkins.ts), and the police
- *   arrival time of the bank's tier (`rules.policeEta`, §9.2), and whether it hides dye packs (`rules.dyePacks`, §15.1).
+ *   arrival time of the bank's tier (`rules.policeEta`, §9.2), whether it hides dye packs (`rules.dyePacks`, §15.1),
+ *   and its guards' armour (`rules.guardArmour`: 1 from City tier, §12.3).
  */
+
+/**
+ * The hit points of the half cover on each tile (§11.4), from the props that give it there, as `tileGrids` finds them:
+ * the sturdiest prop's, Infinity for one that can't be destroyed, 0 where no prop gives cover.
+ */
+function coverHitPoints(width: number, height: number, props: readonly LevelProp[], wallOn: WallAt): Float64Array {
+    const hp = new Float64Array(width * height);
+    for (const prop of props) {
+        const placed = placeProp(prop, wallOn);
+        if (isTall(placed.box) || placed.box.z !== 0 || placed.box.h < HALF_COVER_HEIGHT) continue;
+        const own = Object.hasOwn(COVER_HP, prop.kind) ? COVER_HP[prop.kind]! : DEFAULT_COVER_HP;
+        for (const { x, y } of tilesOfBox(placed.box)) {
+            if (x < 0 || y < 0 || x >= width || y >= height || !blocksMoveAt(placed, x, y)) continue;
+            hp[y * width + x] = Math.max(hp[y * width + x]!, own ?? Infinity);
+        }
+    }
+    return hp;
+}
 
 /** A person's facing as drawn (front is toward the camera, south) to the rules' eight. */
 const PERSON_FACING: Record<PersonFacing, Facing> = { front: 's', back: 'n' };
@@ -100,6 +121,7 @@ export function worldFromBank(bank: GeneratedBank): ReadonlyWorld {
     const height = floors.length, width = floors[0]?.length ?? 0;
     const wallOn = wallLookup(walls);
     const grids = propTileGrids(width, height, bank.props, wallOn);
+    const coverHp = coverHitPoints(width, height, bank.props, wallOn);
 
     // Which room each tile is in: the rooms' parts tile the map (the generator's owner grid, §17).
     const owner: (GenRoom | undefined)[] = new Array<GenRoom | undefined>(width * height).fill(undefined);
@@ -114,10 +136,12 @@ export function worldFromBank(bank: GeneratedBank): ReadonlyWorld {
             continue;
         }
         const floor = floorHeight(floors, x, y);
-        tiles.push({
+        const tile: Tile = {
             zone: zoneOf(room), raised: floor === RAISED_HEIGHT, floor, lit: litOf(room),
             blocksMove: grids.blocked[i] === 1, tall: grids.tall[i] === 1, halfCover: grids.halfCover[i] === 1, room: room.id
-        });
+        };
+        if (tile.halfCover && Number.isFinite(coverHp[i]!)) tile.coverHp = coverHp[i]! || DEFAULT_COVER_HP;
+        tiles.push(tile);
     }
 
     // Stairs (§14.7): the flight is ground floor, and its top step leads onto the raised landing beside it.
@@ -224,8 +248,8 @@ export function worldFromBank(bank: GeneratedBank): ReadonlyWorld {
         for (let x = Math.min(west.tx, east.tx); x <= Math.max(west.tx, east.tx); x++) if (x >= 0 && x < width && tiles[west.ty * width + x]?.room) lane.push({ x, y: west.ty });
     }
     const patrol = { lane, turns: bank.timeline.filter(t => t.name === 'Patrol drive-by').map(t => t.turn).sort((a, b) => a - b) };
-    // Police in N (§9.2) and dye packs or none (§15.1) by the bank's tier.
-    const rules = { ...defaultRules(), policeEta: bank.policeEta, dyePacks: bank.dyePacks };
+    // Police in N (§9.2), dye packs or none (§15.1) and the guards' armour (§12.3) by the bank's tier.
+    const rules = { ...defaultRules(), policeEta: bank.policeEta, dyePacks: bank.dyePacks, guardArmour: bank.tier === 'small' ? 0 : 1 };
     // The key graph (§15.2): the rules read its keys (rules/keys.ts).
     const locks = clonePlain(bank.locks);
     return freezeWorld({ width, height, tiles, edges, doors, objects, people, cameras, rules, stashRooms, building, locks, ...(lane.length ? { patrol } : {}) });

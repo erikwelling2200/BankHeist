@@ -78,13 +78,13 @@ describe('saving', () => {
  * NpcStatusMap, CarrierKindMap or adds a field must also fill it in below, or a change of shape goes unnoticed.
  */
 const SHAPE_HASHES: Record<number, string> = {
-    1: 'f3b3351d03de6ab8'
+    1: 'b62babf5fce9ada6'
 };
 
 /** Paths whose objects are records by id, not structs. */
 const RECORDS = new Set([
     'world.edges', 'world.doors', 'state.doors', 'state.edges', 'state.objects', 'state.cameras', 'state.rng',
-    'state.npcs[].suspicion', 'state.npcs[].lastSeen', 'state.npcs[].frisked', 'state.knowledge.npcs', 'state.knowledge.doors', 'state.radio.calls'
+    'state.cover', 'state.npcs[].suspicion', 'state.npcs[].lastSeen', 'state.npcs[].frisked', 'state.knowledge.npcs', 'state.knowledge.doors', 'state.radio.calls'
 ]);
 
 /** Two shapes as one: the union of their fields, and "a|b" where a field has two types. */
@@ -158,7 +158,14 @@ describe('the save format', () => {
         full.cameraEvidence = [{ camera: 'cam', evidence: 'body:guard', kind: 'body', tile: { x: 1, y: 1 }, turn: 2, handled: true }];
         full.cameraReports = [{ camera: 'cam', crew: 'jun', tile: { x: 0, y: 0 }, turn: 1, phase: 'crew' }];
         full.crew[0]!.notoriety = 2;
-        full.edges['eastWest 0 1'] = { material: 'soft', blocksMove: false, blocksSight: false, blocksSound: false, midHeight: false };
+        full.edges['eastWest 0 1'] = { material: 'soft', blocksMove: false, blocksSight: false, blocksSound: false, midHeight: false, shattered: true, hits: 2 };
+        full.cover = { '2 1': 3 };
+        full.crew[0]!.leaning = { at: { x: 1, y: 0 }, corner: { x: -1, y: -1 } };
+        full.npcs[0]!.leaning = { at: { x: 1, y: 0 }, corner: { x: 1, y: 1 } };
+        full.shots = [{
+            id: 'shot-3', turn: 2, phase: 'crew', rolls: { points: [0.5], covers: [0.25] },
+            shot: { shooter: 'jun', weapon: 'pistol', at: { x: 1, y: 1 }, target: 'guard', lean: { x: 1, y: 0 }, turn: 2, bullets: 1, moved: true, braced: false, aimFactor: 1.5 }
+        }];
         full.doors.staffDoor = { status: 'open', propped: true, work: 1 };
         full.objects.panel = { disabled: true, open: false, progress: 2, codes: ['manager'], sensorsCut: true };
         full.devices = [{ id: 'drill-4', kind: 'drill', at: 'vault', pos: { x: 1, y: 1 }, crew: 'jun', done: 2, needed: 5, jammed: true, noise: 6 }];
@@ -209,10 +216,10 @@ describe('the save format', () => {
                         { from: 2, activity: 'patrol' as const, label: 'patrol', room: '', route: [{ x: 0, y: 0 }, { x: 1, y: 0 }] }
                     ]
                 })),
-                tiles: world.tiles.map((t, i) => (i === 1 ? { ...t, climb: { kind: 'stairs' as const, to: 'n' as const } } : i ? t : { ...t, room: 'lobby', midHeight: true })),
+                tiles: world.tiles.map((t, i) => (i === 1 ? { ...t, climb: { kind: 'stairs' as const, to: 'n' as const } } : i ? t : { ...t, room: 'lobby', midHeight: true, coverHp: 6 })),
                 edges: Object.fromEntries(Object.entries({
                     ...world.edges,
-                    'eastWest 9 9': { run: 'eastWest', tx: 9, ty: 9, material: 'boundary', blocksSight: false, blocksMove: true, halfCover: true, door: 'd' }
+                    'eastWest 9 9': { run: 'eastWest', tx: 9, ty: 9, material: 'boundary', blocksSight: false, blocksMove: true, halfCover: true, door: 'd', shattered: false, hits: 0 }
                 } as typeof world.edges).map(([k, e]) => [k, { ...e, blocksSound: false, midHeight: false }]))
             },
             state: full,

@@ -908,10 +908,28 @@ M2 is complete: every package below has landed.
 
 ### M3: Loud
 
-- [ ] **M3-01 Shot geometry.**
+- [x] **M3-01 Shot geometry.**
   - **Covers:** §11.2–11.7, §14.2 bullets.
   - **Work:** the arc per bullet; rolled points saved in the state; the bullet trace (0.5-tile hitboxes, prone bodies passed over, materials, glass, teller glass, overpenetration); half cover's 90° arc with a rolled 50% block and cover HP; leaning; height; the armour formula. `previewShot` and `resolveShot` use the same trace.
   - **Accept:** a property test that for given rolled points the preview trace equals the outcome trace; the §12.1 expected-hits table checked within tolerance (warning only).
+  - **Notes (done):** decisions 85–92.
+    - `data/weapons.ts` (§12.1's combat numbers, slugs, armour by crew item and NPC role, cover hit points by prop),
+      `geo/angles.ts` (sin, cos and atan2 from + − × ÷ and `sqrt` only: the purity test bans `Math.sin`),
+      `geo/shot.ts` (`traceBullet`: one bullet through the `ShotMap` and the `Fabric` of panes, teller glass's hits and
+      cover's hit points), `rules/shot.ts` (`Shot`, `shotScene`, `shotArcs`, `traceShot`, `resolveShot`,
+      `leanOptions`, armour) and `preview/shot.ts` (`previewShot`: arcs, the fan, bodies with their shields).
+    - **State:** `State.shots` (the last 8 attacks with their rolls), `State.cover` (cover's hit points left by
+      tile), `CrewState.leaning` / `NpcState.leaning`, and `shattered` / `hits` on edge overrides; the World's tiles
+      carry `coverHp`, its rules `guardArmour` (1 from City tier). Save shape hash `b62babf5fce9ada6`.
+    - **No command.** `resolveShot(ctx, shot)` is a function for M3-02's attack to call after its own checks (the
+      weapon in hand, actions, ammunition, the noise, going loud): it validates the geometry before rolling, rolls on
+      'combat', writes what broke, keeps the record, emits `shotFired` and returns the hits; applying damage is
+      M3-03's. It rolls, so an engine `preview` of a command that calls it throws `PreviewRollError`: M3-02 previews an
+      attack with `previewShot` (geometry, never an outcome, §11.7) and its noise, or stops its reducer at the shot.
+    - **Tests:** `tests/sim/shot.test.ts` (every material, cover, height, leaning, the hostage shield, corners,
+      resolving), `tests/sim/shot.property.test.ts` (resolve equals `traceShot` for its rolls, and bullet 1 and random
+      angles agree with the fan, in a fixture with every material and in a bank of each tier; the §12.1 table against
+      the fan's geometry, which it matches in every cell within range).
 - [ ] **M3-02 Weapons and combat actions.**
   - **Covers:** §6.3, §11.8–11.11, §12.1–12.2.
   - **Work:** attack, the fire selector, reload, swap, scavenge, melee strike, taser, Watch reactions, Suppress, Brace, flip table, fused flashbang and smoke.
@@ -1525,6 +1543,51 @@ Later milestones: within each milestone, the `∥` notes in §3 apply. UI packag
     at hand (a crew member with a weapon has someone the crew knows of within the command radius GO would give them,
     as the crow flies) GO heads the grid, a gold row two places wide (UI.md "GO is wider, with a gold border"); until
     then it keeps its place after the stealth entries, gold but one place wide, and a full grid drops it first.
+85. **The bullet's path and range (M3-01, §11.2, §11.3).** A bullet flies from the middle of the origin tile along the
+    aim line (the middle of the aimed-at tile, turned by the fine aim's whole degrees) turned by its offset,
+    (u − 0.5) × its arc for a uniform roll u: uniform in angle, as §12.1's table assumes. A standing body is a disc a
+    quarter tile in radius in the middle of its tile (§11.3's 14° at 2 tiles). Range is a tile test like vision's
+    (decision 3): the bullet stops as it enters the first tile whose middle is further than Range from the origin's,
+    or leaves the map. Turning uses `geo/angles.ts`, sin and cos by series and atan by halving, never `Math.sin` (§2.3).
+86. **What stops a bullet (M3-01, §11.3, §11.6, §14.2).** Full-height objects stop every bullet (they have no material
+    to pierce); middle-height ones (vehicles) stop it unless the origin or the aimed-at tile is raised, as sight's
+    rule. A Soft wall costs Pierce ≥ 1 one damage, and a bullet left with none stops in it. A taser's dart stops at
+    any wall or pane and breaks nothing. A ray exactly through a grid corner (decision 6) passes only when all four
+    edges there and both tiles beside it would let it by untouched (no wall, an open door, a fence, a railing, a
+    shattered pane); anything else stops it at the corner, with no effect on the walls. A bullet that misses keeps
+    flying to range.
+87. **Half cover (M3-01, §11.4, §14.7).** Judged per target from the attack, not per bullet: the origin tile against the
+    target's tile, in integers, so the preview's shield is the rule. A half-cover tile beside the target (orthogonal,
+    with no wall between), a railing on one of its edges, or the corner a leaner leans past covers it when the origin
+    lies in the 90° arc facing it, its 45° edges included; several: the most squarely facing, a tile before a railing
+    before a lean, north first. A covered hit is blocked on a roll below 0.5 (rolled only then); a blocked bullet stops
+    and takes its damage (with the shotgun's close bonus, before armour) off the cover's hit points: desk 6, planter 4,
+    counter 10 and the rest in `COVER_HP` (default 6); railings, corners, hydrants and bollards can't be destroyed. A
+    destroyed piece gives no cover but still stands in the way of walking. A shooter on raised floor ignores the half
+    cover of a target on the ground (no shield shown at all).
+88. **Who stands in the line of fire (M3-01, §11.3, §10.7).** Everyone on the map but the shooter: lying people (face
+    down, tied, out, dead, a dragged body) are passed over unless aimed at; a stashed body isn't there; cowering and
+    hiding civilians stand. A hostage led by the arm stands on its escort's tile and is met before the escort from
+    every side (§10.7 "a real shield"); anyone on the origin tile is fired past.
+89. **One attack is one volley (M3-01, §11.5, §11.6).** The bullets fly in order, and what they break changes the next
+    (a pane shattered, teller glass's hits, a desk broken), but nobody falls mid-attack: everyone hit stays standing
+    until the attack is over. Damage per hit is §11.5's formula with the shotgun's +1 added to Damage when the target's
+    tile is within 3 tiles of the origin (Euclidean between middles); the DMR's ×1.5 applies to what is dealt, rounded
+    down; Pierce 3 passes the first body with 3 less when it has more than 3 left, and stops at the second.
+90. **Leaning (M3-01, §11.4).** A person can lean out to an orthogonal neighbour they could step to (no wall between,
+    no furniture, nobody standing there) where their own tile's side toward one perpendicular way is full cover (a wall
+    that blocks sight, a full-height object beyond, the map's edge) and the neighbour's same side is open. Leaning,
+    their hitbox is on the lean tile, with half cover over the quadrant toward the corner. It ends as their side's next
+    phase begins (the crew's crew phase, NPCs' world phase) or when they move.
+91. **Shot-out glass (M3-01, §11.4, §11.6).** A shattered pane (glass on its first hit, teller glass at its 4th) lets
+    bullets and sound through freely (`blocksSound` false) and still stops people: getting through is a glass cutter's
+    or a charge's job. Teller glass counts every bullet that reaches it, a Pierce 3 one that passes included; the 4th is
+    still stopped below Pierce 3 and shatters the pane.
+92. **Armour and the shot API (M3-01, §12.3).** An NPC's armour is by role: guards and couriers `rules.guardArmour`
+    (0, 1 from City tier), the security chief 1, police and SWAT as §12.3 when M3-04 brings their roles; everyone
+    else 0. A crew member wears the best worn armour piece. `previewShot` is the truth, like an engine preview: what
+    the player sees is projected through the crew's knowledge in M3-09. `resolveShot` is not a command (M3-02's
+    attack calls it) and applies no damage (M3-03).
 
 ### Critical files for implementation
 
