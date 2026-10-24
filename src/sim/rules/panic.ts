@@ -228,16 +228,23 @@ function nearestCrew(state: State, npc: DeepReadonly<NpcState>): string {
  * longer than its count still covers ('route longer'): it must leave the map no later than the world phase whose tick
  * would raise the Alarm (a run of `npcRunTiles` a world phase; this world phase's tick, if it is yet to come, counts
  * against it). Either way the runner, setting off again, starts a fresh carrier at its new way's count, its flight the
- * telegraph, or with no way out left gives up (command.ts). So no escapee raises the Alarm with its runner inside.
+ * telegraph, or with no way out left gives up (command.ts). Only the crew earn these counters: a run held up just as
+ * much with the crew out of the way (other people on and around its way out, where it can't end its walk) is paused
+ * instead ('way out crowded'), and ticks again once it can make it. So no escapee raises the Alarm with its runner
+ * inside.
  */
 registerCarrierCheck('route', (world, state, carrier) => {
     if (carrier.kind !== 'escapee') return null;
     const npc = state.npcs.find(n => n.id === carrier.source);
     if (!npc || !isPresent(npc) || npc.lapse?.kind !== 'flee') return null;
-    const left = runLeft(world, state as unknown as State, npc, npc.lapse.exit);
-    if (left === undefined) return { halt: 'countered', why: 'route blocked' };
     const ticking = state.phase === 'world' && !(carrier.started.turn === state.turn && carrier.started.phase === 'world') ? 1 : 0;
-    return Math.ceil(left / world.rules.npcRunTiles) > carrier.countdown - ticking ? { halt: 'countered', why: 'route longer' } : null;
+    const fits = (left: number | undefined): boolean => left !== undefined && Math.ceil(left / world.rules.npcRunTiles) <= carrier.countdown - ticking;
+    const left = runLeft(world, state as unknown as State, npc, npc.lapse.exit);
+    if (fits(left)) return null;
+    // Held up as much with the crew out of the way: other people (a crowd on and around its way out) are what keep it
+    // in, not the crew, so they earned no counter; it waits, paused, until it can make it again.
+    if (!fits(runLeft(world, state as unknown as State, npc, npc.lapse.exit, { crew: false }))) return { halt: 'paused', why: 'way out crowded' };
+    return { halt: 'countered', why: left === undefined ? 'route blocked' : 'route longer' };
 });
 
 /** Why a crew member can't tackle this NPC now (§9.1), or undefined. */

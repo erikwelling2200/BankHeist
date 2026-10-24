@@ -9,7 +9,7 @@ import {
     behaviourGoal, comingPhase, decidesFor, evidenceReport, friskSatisfied, quarterTurn, reactionOf, settleFrisks, statusFor, topWant, type Goal, type RouteProgress
 } from './behaviour';
 import { blockIndexAt, LEAVING_ACTIVITIES, ROUTE_ACTIVITIES, routeMode, wayBackIn } from './schedule';
-import { crewTiles, intentEnd, isPresent, npcMoveOptions, othersTiles, personOf, planWalk, type WalkTarget } from './walk';
+import { crewTiles, intentEnd, isPresent, leavingTile, npcMoveOptions, othersTiles, personOf, planWalk, type WalkTarget } from './walk';
 
 /*
  * Committed intents (§6.1 step 3, §6.2): at the end of every world phase each NPC commits what it will do in the next
@@ -169,9 +169,12 @@ function planGoal(world: ReadonlyWorld, state: State, npc: NpcState, goal: Goal,
             return walkIntent(world, state, npc, { tile: goal.tile!, pace: 'hurry' }, taken, { lookAt: goal.tile });
         case 'escort':
             return walkIntent(world, state, npc, { tile: goal.tile!, pace: 'hurry', keepOut: 'public' }, taken, { lookAt: goal.tile });
-        case 'flee':
-            // At a run for the way out (§10.5), leaving the map from it or a tile next to it (rules/command.ts).
-            return walkIntent(world, state, npc, { tile: goal.tile!, pace: 'run' }, taken, { action: { kind: 'flee', exit: goal.tile! } });
+        case 'flee': {
+            // At a run for the way out (§10.5), leaving the map from it or a tile next to it (rules/command.ts): the
+            // nearest it can end its walk on, which its escapee counts (`leavingTile`), else the way out itself.
+            const leave = leavingTile(world, state, npc, goal.tile!, { taken });
+            return walkIntent(world, state, npc, { tile: leave?.tile ?? goal.tile!, pace: 'run' }, taken, { action: { kind: 'flee', exit: goal.tile! } });
+        }
         case 'phone':
             // Phones it in where it lies (§16.2 the manager's phone), carried out by rules/alarms.ts.
             return { path: [], action: { kind: 'raiseAlarm', carrier: 'phoneCall', crew: goal.crew! } };

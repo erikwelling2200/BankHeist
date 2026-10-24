@@ -196,16 +196,31 @@ describe('hiding to phone it in', () => {
     });
 });
 
-/** Plays world phases until the runner is gone or has no carrier: no Alarm while it is still on the map. */
-function expectNoAlarmInside(world: ReadonlyWorld, start: State): void {
+/**
+ * Plays world phases until the runner is gone, or has stopped running and has no carrier: no Alarm while it is still on
+ * the map. A runner between a counter and its fresh carrier is still running, so the play goes on through that gap.
+ */
+function expectNoAlarmInside(world: ReadonlyWorld, start: State): State {
     let s = start;
     for (let i = 0; i < 12; i++) {
         const r = endTurn(world, s);
         if (r.events.some(e => e.type === 'alarmRaised')) expect(npc(r.state, 'walker').status, `turn ${s.turn}`).toBe('away');
         s = r.state;
-        if (npc(s, 'walker').status === 'away' || !s.carriers.some(c => c.source === 'walker')) return;
+        const walker = npc(s, 'walker');
+        if (walker.status === 'away' || (walker.lapse?.kind !== 'flee' && !s.carriers.some(c => c.source === 'walker'))) return s;
     }
     throw new Error('the run never ended');
+}
+
+/** A passer-by at (12, 5) already running for the way out at (13, 0) (its flight shown), with its escapee at 2 or none. */
+function setOff(state: State, carrier: boolean): void {
+    const w = npc(state, 'walker');
+    w.lapse = { kind: 'flee', exit: P(13, 0) };
+    w.panic = { since: { turn: 0, phase: 'world' }, crew: null, tile: P(12, 5), reaction: { kind: 'flee' } };
+    w.status = 'panicked';
+    w.intent = { path: [P(12, 4), P(12, 3)], action: { kind: 'flee', exit: P(13, 0) } };
+    w.goal = { kind: 'flee', tile: P(13, 0) };
+    if (carrier) state.carriers.push({ id: 'c1', kind: 'escapee', source: 'walker', pos: P(12, 5), countdown: 2, started: { turn: 0, phase: 'world' }, halted: null });
 }
 
 describe('the escapee (§9.1, §16.4)', () => {
@@ -282,13 +297,7 @@ describe('the escapee (§9.1, §16.4)', () => {
         // The reviewer's probe: gaps at (0, 2) and (12, 2), the way out at (13, 0); Mara stands in the near gap.
         const map = ['..............', '..............', '.TTTTTTTTTTT.T', ...MAP.slice(3)];
         const { world, state } = setup(map, [person('walker', 'passer-by', 'civilian', P(12, 5), 'n')], [{ id: 'jun', pos: P(3, 8) }, { id: 'mara', pos: P(12, 2) }]);
-        const w = npc(state, 'walker');
-        w.lapse = { kind: 'flee', exit: P(13, 0) };
-        w.panic = { since: { turn: 0, phase: 'world' }, crew: null, tile: P(12, 5), reaction: { kind: 'flee' } };
-        w.status = 'panicked';
-        w.intent = { path: [P(12, 4), P(12, 3)], action: { kind: 'flee', exit: P(13, 0) } };
-        w.goal = { kind: 'flee', tile: P(13, 0) };
-        state.carriers.push({ id: 'c1', kind: 'escapee', source: 'walker', pos: P(12, 5), countdown: 2, started: { turn: 0, phase: 'world' }, halted: null });
+        setOff(state, true);
         // The way round is too long for 2: the carrier is countered, and a fresh one fits it as the runner sets off.
         const blocked = commit(world, state, { type: 'wait', crew: 'mara' });
         expect(of(blocked.events, 'carrierStopped')).toMatchObject([{ carrier: 'c1', why: 'route longer' }]);
@@ -300,6 +309,47 @@ describe('the escapee (§9.1, §16.4)', () => {
         const first = endTurn(world, fresh);
         expect(of(first.events, 'carrierStarted')[0]!.countdown).toBeGreaterThan(2);
         expectNoAlarmInside(world, first.state);
+    });
+
+    // Staff who stand where they are (they don't panic), on the way out at (13, 0) and every tile beside it but (12, 1);
+    // a fourth on (12, 1) until turn 6, when she walks off.
+    const crowd = [P(13, 0), P(12, 0), P(13, 1)].map((p, i) => person(`c${i}`, 'clerk', 'staff', p));
+    const leaving: PersonDef = {
+        ...person('c3', 'clerk', 'staff', P(12, 1)),
+        schedule: [{ from: 1, activity: 'wait', label: 'waiting', room: '', at: P(12, 1), facing: 'n' }, { from: 6, activity: 'wait', label: 'waiting', room: '', at: P(5, 0), facing: 'n' }]
+    };
+
+    it('waits, paused, while other people hold every tile it leaves from: no counter for the crew, no Alarm, and it runs on once they clear', () => {
+        const { world, state } = setup(MAP, [passer, ...crowd, leaving], [{ id: 'jun', pos: P(1, 8) }, { id: 'mara', pos: P(2, 8) }]);
+        setOff(state, false);
+        const stopped: string[] = [], paused: string[] = [];
+        let s = state;
+        for (let i = 0; i < 4; i++) {
+            const r = endTurn(world, s);
+            stopped.push(...of(r.events, 'carrierStopped').map(e => e.why));
+            paused.push(...of(r.events, 'carrierPaused').map(e => e.why));
+            expect(of(r.events, 'alarmRaised')).toEqual([]);
+            s = r.state;
+        }
+        // Stuck below the crowd, where the reviewer's probe went 2, 1, countered ('route longer'), 2, … for ever.
+        expect(npc(s, 'walker')).toMatchObject({ pos: P(12, 2), lapse: { kind: 'flee' } });
+        expect(stopped).toEqual([]);
+        expect(paused).toEqual(['way out crowded']);
+        expect(s.carriers).toMatchObject([{ kind: 'escapee', source: 'walker', countdown: 2, halted: 'paused' }]);
+        // The clerk on (12, 1) walks off: the carrier ticks again and the runner gets out, and only then does it raise
+        // the Alarm.
+        const end = expectNoAlarmInside(world, s);
+        expect(npc(end, 'walker').status).toBe('away');
+    });
+
+    it('is countered when the crew hold the last tile it could leave from, and the runner gives up', () => {
+        const { world, state } = setup(MAP, [passer, ...crowd], [{ id: 'jun', pos: P(1, 8) }, { id: 'mara', pos: P(12, 1) }]);
+        setOff(state, true);
+        const blocked = commit(world, state, { type: 'wait', crew: 'mara' });
+        expect(of(blocked.events, 'carrierStopped')).toMatchObject([{ carrier: 'c1', why: 'route blocked' }]);
+        const after = endTurn(world, blocked.state);
+        expect(after.events).toContainEqual({ type: 'gaveUp', npc: 'walker' });
+        expect(of(after.events, 'carrierStarted')).toEqual([]);
     });
 
     it('is countered by a tackle: 1 action, in reach, and the runner goes face down', () => {

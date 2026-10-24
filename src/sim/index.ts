@@ -175,9 +175,9 @@ export {
 } from './preview/floor';
 export { explain, observerName, sightingText, type Explanation } from './preview/explain';
 export { actionPreview, type ActionPreview, type Ear, type NoisePreview, type Witness } from './preview/action';
-export { commandPreview, holdPreview, type CommandRings } from './preview/command';
+export { commandPreview, holdPreview, type CommandRings, type HoldRing } from './preview/command';
 export {
-    commandNpc, commandPlan, commandRadius, crewThreat, goBlocked, holdTargets, isResister, resistChance,
+    commandNpc, commandPlan, commandRadius, crewThreat, goBlocked, hasWeaponInHand, holdTargets, isResister, resistChance,
     type Commanded, type CommandPlan, type CommandTarget, type Lapse, type LapseOutcome
 } from './rules/command';
 export { PANIC, panicWeights, type PanicWeights } from './data/archetypes';

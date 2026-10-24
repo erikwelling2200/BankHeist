@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { archetypesFor } from '../../src/gen/generate';
 import { TIERS, type KeyLock } from '../../src/gen/model';
 import {
-    actionPreview, autoAdvanceBlocked, CARRIERS, cctvDesk, npcCanPass, pathTo, planMoveOptions, reachable, timeLockOpen, clonePlain, commit, doorSides, doorStatus, fixtureWorld, initialState, inReach, interruptsOf, legalActions, lineOfSight, preview, sightMap, tileAt,
+    actionPreview, autoAdvanceBlocked, CARRIERS, cctvDesk, npcCanPass, pathTo, planMoveOptions, reachable, timeLockOpen, clonePlain, commit, doorSides, doorStatus, fixtureWorld, initialState, inReach, interruptsOf, legalActions, onFloor, preview, tileAt,
     vaultLock, whyNot, worldFromBank, type Command, type CrewStart, type DeepReadonly, type PersonDef, type Pos, type ReadonlyWorld, type State,
     type WorldObject
 } from '../../src/sim';
@@ -13,8 +13,11 @@ import { scouted, step } from './helpers';
  * Vault access (M2-05; §15.2, §15.3, §9.1's sensors, §7.2): the key graph's keys as the rules play them. The acceptance
  * test opens every generated bank's vault three ways, each scripted on its own copy: its social key (the code, coerced
  * out of its key-holders or pulled from the manager's PC; the time-lock window; Three Keys' card), its technical key
- * (the drill) and its violent key (thermite); then a crew member walks in. The rest are fixtures: the console, the PC,
- * the time lock, jams and Steady Hands, the sensors, card readers, lockpicking and deposit boxes.
+ * (the drill) and its violent key (thermite); then a crew member walks in. It is played as commands with the actions
+ * each crew phase gives, turn by turn into the window, but from a set start: the bank out cold (`quiet`), the crew
+ * starting beside their first target, and put past the mantrap where their cards don't open it (`getTo`). The rest
+ * are fixtures: the console, the PC, the time lock, jams and Steady Hands, the sensors (and the race against their
+ * countdowns), card readers, lockpicking and deposit boxes.
  */
 
 const P = (x: number, y: number): Pos => ({ x, y });
@@ -28,7 +31,7 @@ const SEEDS = [0, 1, 2];
 /** Tiles a crew member could stand on: walkable, in a room, nobody on them. */
 function standable(world: ReadonlyWorld, state: State, p: Pos, taken: readonly Pos[] = []): boolean {
     const tile = tileAt(world, p);
-    return !!tile?.room && !tile.blocksMove && !state.npcs.some(n => n.pos.x === p.x && n.pos.y === p.y)
+    return !!tile?.room && !tile.blocksMove && !onFloor(state).npcs.some(n => n.pos.x === p.x && n.pos.y === p.y)
         && !state.crew.some(c => c.pos.x === p.x && c.pos.y === p.y) && !taken.some(t => t.x === p.x && t.y === p.y);
 }
 
@@ -42,16 +45,12 @@ function around(world: ReadonlyWorld, state: State, p: DeepReadonly<Pos>, taken:
     return out;
 }
 
-/** The nearest tile to `p` someone could stand on that isn't in reach of it (rings outward). */
-function free(world: ReadonlyWorld, state: State, p: DeepReadonly<Pos>): Pos {
-    for (let r = 2; r < 12; r++) for (let dy = -r; dy <= r; dy++) for (let dx = -r; dx <= r; dx++) {
-        const q = P(p.x + dx, p.y + dy);
-        if (Math.max(Math.abs(dx), Math.abs(dy)) === r && standable(world, state, q)) return q;
-    }
-    throw new Error(`No free tile near ${JSON.stringify(p)}`);
-}
-
-/** The heist's start with everyone on the map out cold for good (nobody to raise the alarm while the test works). */
+/**
+ * The heist's start with everyone on the map out cold for good (nobody to raise the alarm while the test works). Kept
+ * as a set state: subduing a whole bank by play is the takeover's business (tests/sim/command.test.ts and the preview
+ * property test's takeover game), and a bank awake around the vault would make this test about everything but the
+ * keys. Who lies where stays as the bank put them; the crew then only play commands from there.
+ */
 function quiet(world: ReadonlyWorld, crew: CrewStart[]): State {
     const state = initialState(world, { seed: 7, crew });
     for (const n of state.npcs) if (n.status !== 'away') Object.assign(n, { status: 'unconscious', outCold: 9999, intent: { path: [] } });
@@ -60,20 +59,18 @@ function quiet(world: ReadonlyWorld, crew: CrewStart[]): State {
 
 const place = (state: State, crew: string, pos: Pos): State => ({ ...state, crew: state.crew.map(c => (c.id === crew ? { ...c, pos } : c)) });
 
-/** Puts an NPC (tied) on a tile. */
-const putNpc = (state: State, id: string, pos: Pos): State => ({ ...state, npcs: state.npcs.map(n => (n.id === id ? { ...n, pos, status: 'tied' as const, intent: { path: [] } } : n)) });
-
 /** The vault door's tiles: the one outside (where the crew works) and the one inside. */
 function vaultSides(world: ReadonlyWorld): { outside: Pos; inside: Pos; lock: DeepReadonly<KeyLock> } {
     const lock = vaultLock(world)!, [a, b] = doorSides(world, world.doors[lock.target]!)!;
     return tileAt(world, a)!.room === lock.room ? { outside: b, inside: a, lock } : { outside: a, inside: b, lock };
 }
 
-/** Walks the crew member at the vault door's outer tile in, and checks they got there (and the motion sensor saw them). */
+/** Walks the crew member to the vault door's outer tile and in, and checks they got there (and the motion sensor saw them). */
 function walkIn(world: ReadonlyWorld, state: State, crew: string): void {
     const { outside, inside, lock } = vaultSides(world);
     // Scouted: a move is planned against what the crew knows, and nobody has seen into the vault yet.
-    const at = scouted(world, place(fresh(state), crew, outside));
+    let at = scouted(world, getTo(world, state, crew, outside));
+    if (at.crew.find(c => c.id === crew)!.actionsLeft < 1) at = scouted(world, commit(world, at, { type: 'endTurn' }).state);
     const r = commit(world, at, { type: 'move', crew, path: [inside] });
     expect(r.state.crew.find(c => c.id === crew)!.pos).toEqual(inside);
     // Not in the window, and not once the seismic sensor (or anything) has raised the Alarm: nothing starts then.
@@ -82,14 +79,17 @@ function walkIn(world: ReadonlyWorld, state: State, crew: string): void {
     if (motion) routes.add('motion sensor');
 }
 
-/** Walks a crew member to `goal` turn by turn over the scouted map, through the doors their cards open. */
+/**
+ * Walks a crew member to `goal` turn by turn over the scouted map, through the doors their cards open (leading a
+ * hostage, at half movement), with the actions each crew phase gives them.
+ */
 function walkTo(world: ReadonlyWorld, state: State, crew: string, goal: Pos): State {
-    let s = scouted(world, fresh(state));
+    let s = scouted(world, state);
     for (let turns = 0; turns < 40; turns++) {
-        for (let a = 0; a < 2; a++) {
+        while (s.crew.find(c => c.id === crew)!.actionsLeft > 0) {
             const member = s.crew.find(c => c.id === crew)!;
             if (member.pos.x === goal.x && member.pos.y === goal.y) return s;
-            const path = pathTo(reachable(world, s, member.pos, 100000, planMoveOptions(world, s, member)), goal);
+            const path = pathTo(reachable(world, onFloor(s), member.pos, 100000, planMoveOptions(world, s, member)), goal);
             expect(path, `a way from ${JSON.stringify(member.pos)} to ${JSON.stringify(goal)}`).toBeDefined();
             const r = [6, 5, 4, 3, 2, 1].map(k => { try { return commit(world, s, { type: 'move', crew, path: path!.slice(0, k) }); } catch { return undefined; } }).find(x => x);
             s = scouted(world, r!.state);
@@ -99,41 +99,71 @@ function walkTo(world: ReadonlyWorld, state: State, crew: string, goal: Pos): St
     throw new Error(`${crew} never got to ${JSON.stringify(goal)}`);
 }
 
+/**
+ * Gets a crew member to `goal`: walked there (`walkTo`) when the cards they hold open the way, else put there. City
+ * and HQ vaults lie behind the mantrap, whose doors open only to the operator's card and only once its cameras are
+ * looped (decision 75, played in the card reader tests below): playing that through on every bank would be a heist of
+ * its own, not this test's.
+ */
+function getTo(world: ReadonlyWorld, state: State, crew: string, goal: Pos): State {
+    const member = state.crew.find(c => c.id === crew)!, s = scouted(world, state);
+    const way = pathTo(reachable(world, onFloor(s), member.pos, 100000, planMoveOptions(world, s, member)), goal);
+    return way ? walkTo(world, state, crew, goal) : place(state, crew, goal);
+}
+
 /** The social routes the banks took, to check every kind came up. */
 const routes = new Set<string>();
 
-/** A crew member zip-ties the manager, out cold where he lies: the frisk takes his card. */
-function friskManager(world: ReadonlyWorld, state: State, crew: string): State {
-    const manager = world.people.find(p => p.role === 'manager')!, lying = state.npcs.find(n => n.id === manager.id)!.pos;
-    let s = place(state, crew, around(world, state, lying)[0]!);
-    s = run(world, s, { type: 'zipTie', crew, npc: manager.id });
-    expect(s.crew.find(c => c.id === crew)!.keycards).toContain(manager.id);
+/** Plays a command with the actions the crew member has left, ending the turn first when they have none. */
+function act(world: ReadonlyWorld, state: State, cmd: Command & { crew: string }): State {
+    const s = state.crew.find(c => c.id === cmd.crew)!.actionsLeft > 0 ? state : commit(world, state, { type: 'endTurn' }).state;
+    return commit(world, s, cmd).state;
+}
+
+/** A crew member walks to an NPC out cold and zip-ties them: the frisk takes their card. */
+function tieUp(world: ReadonlyWorld, state: State, crew: string, npc: string): State {
+    const lying = state.npcs.find(n => n.id === npc)!.pos;
+    const s = act(world, getTo(world, state, crew, around(world, state, lying)[0]!), { type: 'zipTie', crew, npc });
+    expect(s.crew.find(c => c.id === crew)!.keycards).toContain(npc);
     return s;
 }
 
-/** Into the time-lock window, a world phase at a time from just before it (codes are refused until then). */
-function intoWindow(world: ReadonlyWorld, state: State): State {
-    const window = vaultLock(world)!.timeLock;
-    if (!window || state.turn >= window.from) return state;
-    const before = { ...state, turn: window.from - 1 };
-    return commit(world, before, { type: 'endTurn' }).state;
+/** A crew member, starting beside the manager out cold, zip-ties him: the frisk takes his card. */
+function friskManager(world: ReadonlyWorld, state: State, crew: string): State {
+    const manager = world.people.find(p => p.role === 'manager')!.id;
+    // Where they start the heist: beside him (the walk to his office is any heist's, and walkTo's own test is the PC's).
+    return tieUp(world, place(state, crew, around(world, state, state.npcs.find(n => n.id === manager)!.pos)[0]!), crew, manager);
 }
 
-/** The social key (§15.2), scripted for the bank's kind of vault; codes and the card only in the time-lock window. */
-function socialKey(world: ReadonlyWorld, tier: string): State {
+/** Into the time-lock window, played a world phase at a time (codes are refused until then). */
+function intoWindow(world: ReadonlyWorld, state: State): State {
+    const window = vaultLock(world)!.timeLock;
+    let s = state;
+    while (window && s.turn < window.from) s = commit(world, s, { type: 'endTurn' }).state;
+    return s;
+}
+
+/**
+ * The social key (§15.2), scripted for the bank's kind of vault; codes and the card only in the time-lock window. With
+ * the crew member who opened it.
+ */
+function socialKey(world: ReadonlyWorld, tier: string): { state: State; crew: string } {
     const { lock } = vaultSides(world);
     const console = world.objects.find(o => o.kind === 'vaultConsole')!;
     let state = quiet(world, [{ id: 'mara', pos: P(0, 0), items: ['pistol', 'hackingKit'] }, { id: 'jun', pos: P(0, 0) }]);
     if (lock.social.kind === 'threeKeys') {
         // The manager's card (a frisk takes it), the CCTV room held (its operators out cold), in the window.
         routes.add('threeKeys');
-        state = intoWindow(world, friskManager(world, state, 'jun'));
-        // At the desk is anywhere beside it (cctv.ts): the operator, out cold in his chair, may hold the one tile in reach.
+        // Mara starts the heist at the CCTV desk (at it is anywhere beside it, cctv.ts: the operator, out cold in his chair,
+        // may hold the one tile in reach), holding the room; Jun beside the manager, whose card he takes and walks to the
+        // console with.
         const desk = cctvDesk(world);
         if (desk) state = place(state, 'mara', around(world, state, desk.pos, [], false)[0]!);
-        state = place(state, 'jun', around(world, state, console.pos)[0]!);
-        expect(whyNot(world, state, { type: 'interact', crew: 'jun', object: console.id, verb: 'unlock' })).toBeUndefined();
-        return run(world, state, { type: 'interact', crew: 'jun', object: console.id, verb: 'unlock' });
+        state = friskManager(world, state, 'jun');
+        state = intoWindow(world, getTo(world, state, 'jun', around(world, state, console.pos)[0]!));
+        const unlock: Command = { type: 'interact', crew: 'jun', object: console.id, verb: 'unlock' };
+        expect(whyNot(world, fresh(state), unlock)).toBeUndefined();
+        return { state: act(world, state, { type: 'interact', crew: 'jun', object: console.id, verb: 'unlock' }), crew: 'jun' };
     }
     if (lock.social.kind !== 'code') throw new Error(`A vault's social key is '${lock.social.kind}'`);
     if (lock.social.parts.includes('whole')) {
@@ -142,44 +172,45 @@ function socialKey(world: ReadonlyWorld, tier: string): State {
         routes.add(`${tier} pc`);
         const pc = world.objects.find(o => o.kind === 'managerPc')!;
         state = friskManager(world, state, 'mara');
-        state = place(state, 'mara', P(0, 0));
-        // The manager, tied at his desk, may sit on the one tile the PC is reached from: he is moved aside (dragging him
-        // there is body.ts's business, tested on its own).
-        if (!around(world, state, pc.pos).length) {
-            const manager = world.people.find(p => p.role === 'manager')!.id, aside = free(world, state, pc.pos);
-            state = putNpc(state, manager, aside);
+        // The manager, tied at his desk, may lie on the one tile the PC is reached from: Mara takes him by the arm (so he
+        // is where she is), steps onto it and lets go of him there.
+        const manager = world.people.find(p => p.role === 'manager')!.id;
+        if (!inReach(world, state, state.crew.find(c => c.id === 'mara')!.pos, pc.pos)) {
+            if (!around(world, state, pc.pos).length) state = act(world, state, { type: 'escort', crew: 'mara', npc: manager });
+            state = walkTo(world, state, 'mara', around(world, state, pc.pos)[0]!);
+            if (state.crew.find(c => c.id === 'mara')!.dragging) state = act(world, state, { type: 'drop', crew: 'mara' });
         }
-        state = place(state, 'mara', around(world, state, pc.pos)[0]!);
-        state = run(world, state, { type: 'interact', crew: 'mara', object: pc.id, verb: 'hack' }, { type: 'interact', crew: 'mara', object: pc.id, verb: 'hack' });
+        state = act(world, state, { type: 'interact', crew: 'mara', object: pc.id, verb: 'hack' });
+        state = act(world, state, { type: 'interact', crew: 'mara', object: pc.id, verb: 'hack' });
         expect(state.codesKnown).toEqual(['whole']);
         state = walkTo(world, state, 'mara', around(world, state, console.pos)[0]!);
         if (lock.timeLock && state.turn < lock.timeLock.from) {
             expect(whyNot(world, fresh(state), { type: 'interact', crew: 'mara', object: console.id, verb: 'unlock' })).toBe(`The time lock holds the vault shut until turn ${lock.timeLock.from}`);
         }
         state = intoWindow(world, state);
-        return run(world, state, { type: 'interact', crew: 'mara', object: console.id, verb: 'unlock' });
+        return { state: act(world, state, { type: 'interact', crew: 'mara', object: console.id, verb: 'unlock' }), crew: 'mara' };
     }
-    // Dual control: each key-holder, tied beside the console, is made to enter their half, in the window.
+    // Dual control: Mara starts beside the first key-holder; she ties each up where they lie (taking their cards), leads
+    // them to the console and has them enter their half there, in the window, and lets go of them.
     routes.add(`${tier} dualControl`);
-    state = intoWindow(world, state);
-    for (const role of lock.social.parts) {
-        const holder = world.people.find(p => p.role === role)!;
-        state = place(state, 'mara', P(0, 0));
-        const spot = around(world, state, console.pos).find(h => around(world, state, h, [h], false).some(c => lineOfSight(sightMap(world, state), c, h)))!;
-        state = putNpc(state, holder.id, spot);
-        state = place(state, 'mara', around(world, state, spot, [], false).find(c => lineOfSight(sightMap(world, state), c, spot))!);
-        state = run(world, state, { type: 'coerce', crew: 'mara', npc: holder.id, at: console.id });
-        // Back where they lay, out of the next one's way.
-        state = putNpc(state, holder.id, world.people.find(p => p.id === holder.id)!.pos);
+    const holders = lock.social.parts.map(role => world.people.find(p => p.role === role)!.id);
+    state = place(state, 'mara', around(world, state, state.npcs.find(n => n.id === holders[0])!.pos)[0]!);
+    for (const holder of holders) {
+        state = tieUp(world, state, 'mara', holder);
+        state = act(world, state, { type: 'escort', crew: 'mara', npc: holder });
+        state = getTo(world, state, 'mara', around(world, state, console.pos)[0]!);
+        state = intoWindow(world, state);
+        state = act(world, state, { type: 'coerce', crew: 'mara', npc: holder, at: console.id });
+        state = act(world, state, { type: 'drop', crew: 'mara' });
     }
-    return state;
+    return { state, crew: 'mara' };
 }
 
 /** The drill (no Steady Hands: its jams fixed as they come, then taken back) or thermite at the vault door, worked through. */
 function deviceKey(world: ReadonlyWorld, kind: 'drill' | 'thermite'): State {
     const { outside, lock } = vaultSides(world);
     let state = quiet(world, [{ id: 'jun', pos: outside, items: [kind] }]);
-    state = run(world, state, kind === 'drill' ? { type: 'drill', crew: 'jun', at: lock.target } : { type: 'thermite', crew: 'jun', door: lock.target });
+    state = act(world, state, kind === 'drill' ? { type: 'drill', crew: 'jun', at: lock.target } : { type: 'thermite', crew: 'jun', door: lock.target });
     const key = kind === 'drill' ? lock.technical : lock.violent;
     const phases = key.kind === 'drill' || key.kind === 'thermite' ? key.phases : 0;
     let turns = 0;
@@ -189,12 +220,12 @@ function deviceKey(world: ReadonlyWorld, kind: 'drill' | 'thermite'): State {
         turns++;
         if (r.events.some(e => e.type === 'drillJammed')) {
             routes.add('drill jammed');
-            state = commit(world, state, { type: 'fixDrill', crew: 'jun', device: state.devices[0]!.id }).state;
+            state = act(world, state, { type: 'fixDrill', crew: 'jun', device: state.devices[0]!.id });
         }
     }
     expect(turns).toBe(phases);
     if (kind === 'drill') {
-        state = run(world, state, { type: 'takeDrill', crew: 'jun', device: state.devices[0]!.id });
+        state = act(world, state, { type: 'takeDrill', crew: 'jun', device: state.devices[0]!.id });
         expect(state.crew[0]!.loadout.items).toEqual(['drill']);
     }
     return state;
@@ -208,8 +239,8 @@ function openEveryWay(tier: string, bank: ReturnType<typeof cachedBank>): void {
     routes.add(`class ${bank.vaultClass}`);
 
     const social = socialKey(world, tier);
-    expect(doorStatus(world, social, lock.target)).toBe('closed');
-    walkIn(world, social, 'mara');
+    expect(doorStatus(world, social.state, lock.target)).toBe('closed');
+    walkIn(world, social.state, social.crew);
 
     const drilled = deviceKey(world, 'drill');
     expect(doorStatus(world, drilled, lock.target)).toBe('breached');
@@ -232,8 +263,8 @@ describe('every generated vault opens to each of its three keys (§15.2)', { tim
         // No patrol car this time: the bodies the test leaves about would be seen from the street and raise the Alarm.
         const world = Object.fromEntries(Object.entries(worldFromBank(bank!)).filter(([k]) => k !== 'patrol')) as unknown as ReadonlyWorld;
         const { outside, lock } = vaultSides(world);
-        let state = place(fresh(socialKey(world, 'hq')), 'mara', outside);
-        state = run(world, state, { type: 'door', crew: 'mara', door: lock.target, action: 'open' });
+        let state = walkTo(world, socialKey(world, 'hq').state, 'mara', outside);
+        state = act(world, state, { type: 'door', crew: 'mara', door: lock.target, action: 'open' });
         while (timeLockOpen(world, state.turn)) state = commit(world, state, { type: 'endTurn' }).state;
         expect(doorStatus(world, state, lock.target)).toBe('open');
         walkIn(world, state, 'mara');
@@ -458,6 +489,42 @@ describe('the drill and thermite (§15.3)', () => {
         const opens = commit(world, seen.state, { type: 'endTurn' });
         expect(opens.state.turn).toBe(3);
         expect(opens.events).toContainEqual(expect.objectContaining({ type: 'carrierStopped', kind: 'motionSensor', why: 'time lock' }));
+    });
+
+    it('races the countdown with real action budgets: which crews cut a sensor at the console in time (decision 81)', () => {
+        /*
+         * Jun starts the sensor (steps into the breached vault: motion, 2; or sets thermite: seismic, 4) as the crew phase
+         * begins; the cutters stand at the console with a hacking kit, their actions spent elsewhere this crew phase
+         * (`wait`) or not. They hack the wiring with what each crew phase gives them, nobody's actions topped up, until
+         * the carrier stops or raises the Alarm.
+         */
+        const race = (sensor: 'motion' | 'seismic', cutters: CrewStart[], spent: boolean): 'cut' | 'alarm' => {
+            const { world, state } = vault([{ id: 'jun', pos: P(4, 2), items: ['thermite'] }, ...cutters], vaultLockDef(), []);
+            let s = scouted(world, sensor === 'motion' ? { ...state, doors: { vaultDoor: { status: 'breached' as const } } } : state);
+            for (const c of cutters) if (spent) s = commit(world, s, { type: 'wait', crew: c.id }).state;
+            s = commit(world, s, sensor === 'motion' ? { type: 'move', crew: 'jun', path: [P(5, 2)] } : { type: 'thermite', crew: 'jun', door: 'vaultDoor' }).state;
+            expect(s.carriers.map(c => [c.kind, c.countdown])).toEqual([[`${sensor}Sensor`, sensor === 'motion' ? 2 : 4]]);
+            for (let turns = 0; turns < 6; turns++) {
+                for (const c of cutters) {
+                    while (s.carriers.length && s.crew.find(m => m.id === c.id)!.actionsLeft > 0) s = commit(world, s, { type: 'interact', crew: c.id, object: 'console', verb: 'sensors' }).state;
+                }
+                if (!s.carriers.length) return 'cut';
+                s = commit(world, s, { type: 'endTurn' }).state;
+                if (s.bank.alarm) return 'alarm';
+            }
+            throw new Error('the race never ended');
+        };
+        const mara: CrewStart = { id: 'mara', pos: P(1, 1), items: ['hackingKit'] }, kit: CrewStart = { id: 'kit', pos: P(2, 1), items: ['hackingKit'] };
+        const steady: CrewStart = { ...kit, traits: ['steadyHands'] };
+        // The motion sensor (2) leaves one whole crew phase: one crew member's 2 actions are half the 4 it takes.
+        expect(race('motion', [mara], true)).toBe('alarm');
+        // Two crew members, or Steady Hands (2 actions), cut it in that crew phase.
+        expect(race('motion', [mara, kit], true)).toBe('cut');
+        expect(race('motion', [steady], true)).toBe('cut');
+        // One crew member already at the console with her actions in hand when it starts has two crew phases' worth.
+        expect(race('motion', [mara], false)).toBe('cut');
+        // The seismic sensor (4) leaves two whole crew phases (and the third's start): one crew member alone is enough.
+        expect(race('seismic', [mara], true)).toBe('cut');
     });
 
     it('a motion sensor in a Class III vault starts its carrier as the crew steps in, outside the time-lock window', () => {

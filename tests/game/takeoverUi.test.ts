@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import type { UiState } from '../../src/game/session';
-import { hudView, threatLedger } from '../../src/game/views';
+import { hudView, takeoverAtHand, threatLedger } from '../../src/game/views';
 import { commandRings, holdRings, intentPlate, npcBadges } from '../../src/game/worldUi';
-import { clonePlain, commandPlan, commandPreview, commit, doorDoubt, fixtureWorld, freezeWorld, holdPreview, initialState, knownView, preview, type Command, type FixtureOptions, type World, type Facing, type ObserverClass, type PersonDef, type Pos, type State } from '../../src/sim';
+import { clonePlain, commandPlan, commandPreview, commit, doorDoubt, fixtureWorld, freezeWorld, holdPreview, holdTargets, initialState, knownView, preview, type Command, type FixtureOptions, type World, type Facing, type ObserverClass, type PersonDef, type Pos, type State } from '../../src/sim';
 import { scouted } from '../sim/helpers';
 
 /*
@@ -47,6 +47,33 @@ describe('GO and the command rings', () => {
         expect(state.takeover).toBeNull();
         const after = commit(world, state, go).state;
         expect(hudView(world, after, ui(null)).goRail).toBe('on');
+    });
+
+    it('brings GO up wide only with a weapon in hand and someone in sight who could still be put face down (decision 84)', () => {
+        // The rifle, Ann 2 tiles off and Bob 3: at hand.
+        expect(takeoverAtHand(...Object.values(scene()) as [World, State])).toBe(true);
+        // Unarmed (Threat 1, a radius of 1 on the takeover turn), with Ann right beside Jun: no weapon, no takeover.
+        const beside = scene(s => {
+            s.crew[0]!.loadout.items = [];
+            s.npcs.find(n => n.id === 'ann')!.pos = P(5, 2);
+            s.knowledge.npcs.ann!.at = P(5, 2);
+        });
+        expect(takeoverAtHand(beside.world, beside.state)).toBe(false);
+        // Everyone known already face down, tied or out cold: nobody left to take over.
+        for (const status of ['commanded', 'tied', 'unconscious'] as const) {
+            const down = scene(s => {
+                for (const n of s.npcs) Object.assign(n, { status, ...(status === 'commanded' ? { command: { pips: 2, by: 'jun' } } : {}) });
+            });
+            expect(takeoverAtHand(down.world, down.state), status).toBe(false);
+        }
+        // Ann behind a wall, in the radius but out of sight (Bob gone): not at hand either.
+        const walls: FixtureOptions['walls'] = Array.from({ length: 12 }, (_, x) => ({ between: [P(x, 1), P(x, 2)] as [Pos, Pos] }));
+        const world = fixtureWorld(Array.from({ length: 9 }, () => '............'), { walls, people: [person('ann', P(5, 1), 's')] });
+        const state = clonePlain(scouted(world, initialState(world, { seed: 3, crew: [{ id: 'jun', pos: P(5, 3), items: ['assaultRifle'] }] })));
+        state.knowledge.npcs.ann = { at: P(5, 1), facing: 's', turn: state.turn, live: true, routine: false, rota: false, watched: 1, watchedTurn: state.turn, tick: state.knowledge.phaseTick + 1 };
+        expect(takeoverAtHand(world, state)).toBe(false);
+        state.crew[0]!.pos = P(5, 2);
+        expect(takeoverAtHand(world, clonePlain(state))).toBe(false);
     });
 
     it('the shout shows both rings, an outcome over each known NPC and the resister\'s chance, in steel blue', () => {
@@ -105,6 +132,28 @@ describe('a door the crew can\'t vouch for (decision 44)', () => {
             return { plan, rings: commandRings(world, state, knownView(world, state), plan), hud: hudView(world, state, ui({ type: 'command', crew: 'jun' }), { rings: plan }).rings, hold: holdPreview(world, state, 'jun') };
         });
         expect(shown[0]).toEqual(shown[1]);
+    });
+
+    it('marks a hold through it unsure, in the rings and the lapse row, whether it truly keeps them down or not', () => {
+        // The customer face down, Jun 4 tiles off on this side of the door and holding the room.
+        const shown = (['open', 'closed'] as const).map(status => {
+            const { world, state } = build(status);
+            state.crew[0]!.pos = P(19, 1);
+            state.crew[0]!.holding = state.turn;
+            Object.assign(state.npcs.find(n => n.id === 'cus')!, { status: 'commanded', command: { pips: 2, by: 'jun' }, intent: { path: [] } });
+            // Put down by Jun and seen face down there.
+            state.knowledge.npcs.cus = { at: P(23, 1), facing: 'w', turn: state.turn, live: true, routine: false, rota: false, watched: 1, watchedTurn: state.turn, tick: state.knowledge.phaseTick + 1 };
+            const truth = holdTargets(world, state, 'jun');
+            return { truth, hold: holdPreview(world, state, 'jun'), hud: hudView(world, state, ui({ type: 'hold', crew: 'jun' }), { rings: holdPreview(world, state, 'jun') }).rings,
+                row: threatLedger(state, world).find(t => t.id === 'lapse:jun') };
+        });
+        // The truth differs (the hold reaches through the open door only), what is shown doesn't: a `?`, never a promise.
+        expect(shown.map(s => s.truth)).toEqual([['cus'], []]);
+        for (const s of shown) {
+            expect(s.hold).toEqual({ held: [], unsure: ['cus'] });
+            expect(s.hud).toMatchObject({ kind: 'hold', down: 0, unsure: 1 });
+            expect(s.row).toMatchObject({ label: 'Lapses?: 1 face down (jun)', halted: null });
+        }
     });
 });
 

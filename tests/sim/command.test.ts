@@ -128,7 +128,7 @@ describe('Commanded pips, Hold and lapses', () => {
         expect(npc(s, 'cust').command).toEqual({ pips: 2, by: 'jun' });
         // 4 tiles away: outside a pistol's 3, inside the takeover's 4.
         expect(holdTargets(world, s, 'jun')).toEqual(['cust']);
-        expect(holdPreview(world, s, 'jun')).toEqual(['cust']);
+        expect(holdPreview(world, s, 'jun')).toEqual({ held: ['cust'], unsure: [] });
         s = step(world, s, { type: 'hold', crew: 'jun' }).state;
         const after = step(world, s, { type: 'endTurn' });
         expect(after.events).toContainEqual({ type: 'commandPips', npc: 'cust', pips: 2, held: true });

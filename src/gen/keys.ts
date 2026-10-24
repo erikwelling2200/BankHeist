@@ -55,7 +55,7 @@ export function keyGraph(ctx: Ctx): KeyLock[] {
             : parts.length > 1
                 ? { kind: 'code', parts, text: 'Dual control: the manager and the head teller each enter half the code (coerced: 1 action each, adjacent)' }
                 : { kind: 'code', parts, text: "The code, from the manager's PC (hacking kit, 2 actions in the office) or a bribed or inside staff member" };
-        if (window && social.kind === 'code') social.text = `${social.text}; codes only work in the time-lock window, when the vault opens itself`;
+        if (window && social.kind === 'code') social.text = `${social.text}; codes only work in the time-lock window, and someone still has to enter them`;
         locks.push({
             id: 'vault', name: `Vault (class ${ctx.vaultClass})`, target: vaultDoor.id, room: vault.id, social,
             technical: { kind: 'drill', phases: drill, noise, sensors, text: `Drill: ${drill} phases${sensors.length ? ', seismic sensor starts an alarm carrier' : ''}` },

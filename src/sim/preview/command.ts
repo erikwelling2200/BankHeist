@@ -31,10 +31,23 @@ export function commandPreview(world: ReadonlyWorld, state: State, crewId: strin
     return { ...plan, targets: targets.filter(t => !unsure.includes(t.npc)), unsure };
 }
 
+/** What a hold would keep down (§10.3): the NPCs for certain, and those a door the crew can't vouch for decides. */
+export interface HoldRing {
+    held: string[];
+    /** Known Commanded NPCs the ring reaches only through a door the crew can't vouch for: kept down if it stands open. */
+    unsure: string[];
+}
+
 /**
- * The Commanded NPCs the crew knows of that a hold by this crew member would keep down for certain (§10.3): its ring on
- * the picture, the doors it can't vouch for shut (a hold through one of them is no promise either way).
+ * The Commanded NPCs the crew knows of that a hold by this crew member would keep down (§10.3): for certain, its ring
+ * on the picture with the doors it can't vouch for shut; `unsure`, those it would reach were they all open as well (a
+ * hold through such a door is no promise either way, so it is shown as a `?`, as the command's rings do).
  */
-export function holdPreview(world: ReadonlyWorld, state: State, crewId: string): string[] {
-    return holdTargets(world, previewPicture(world, state), crewId).filter(id => isKnownNow(world, state, id));
+export function holdPreview(world: ReadonlyWorld, state: State, crewId: string): HoldRing {
+    const picture = previewPicture(world, state);
+    const held = holdTargets(world, picture, crewId).filter(id => isKnownNow(world, state, id));
+    const doubt = doorDoubt(world, state);
+    if (!doubt) return { held, unsure: [] };
+    const unsure = holdTargets(world, doubtStates(world, picture, doubt).open, crewId).filter(id => isKnownNow(world, state, id) && !held.includes(id));
+    return { held, unsure };
 }

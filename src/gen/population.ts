@@ -219,10 +219,10 @@ function scheduleDay(ctx: Ctx, people: GenPerson[]): { timeline: TimelineEvent[]
     let timeLockOpen: number | undefined;
     if (headlines.includes('armouredCar') || (spec.armouredCar && t.chance(spec.armouredCar * 0.5))) {
         timeLockOpen = t.int(14, 30);
-        timeline.push({ turn: timeLockOpen, name: 'Armoured car', detail: `Couriers arrive at the ${roomId('loadingBay') ? 'loading bay' : 'back door'}; the vault time lock opens for 5 turns.`, duration: 5 });
+        timeline.push({ turn: timeLockOpen, name: 'Armoured car', detail: `Couriers arrive at the ${roomId('loadingBay') ? 'loading bay' : 'back door'}; the vault's time lock lets it be unlocked for 5 turns (nobody opens it for you).`, duration: 5 });
     } else if (ctx.timeLock) {
         timeLockOpen = t.int(10, 28);
-        timeline.push({ turn: timeLockOpen, name: 'Time-lock window', detail: 'The vault time lock opens for its scheduled window.', duration: 4 });
+        timeline.push({ turn: timeLockOpen, name: 'Time-lock window', detail: "The vault's time lock lets it be unlocked for its scheduled window (nobody opens it for you).", duration: 4 });
     }
     // Police drive past every 8 to 12 turns; their officers see through windows.
     for (let turn = t.int(4, 10); turn < close; turn += t.int(8, 12)) timeline.push({ turn, name: 'Patrol drive-by', detail: 'A police car passes on the street.' });

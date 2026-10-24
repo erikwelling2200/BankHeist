@@ -898,7 +898,8 @@ M2 is complete: every package below has landed.
       tell how such a door stands; a known NPC whose outcome those doors could change (judged with them open too) is
       `unsure` and wears a `?`, counted apart on the chip (a test draws the rings with a doubted door open and shut:
       identical; the property test checks every certain outcome against the truth, and every other known NPC in a ring
-      is unsure). Heroes show their chance at any range (decision 82); the pill reads LOUD after the shout (decision
+      is unsure). A hold does the same: `holdPreview` gives the NPCs it keeps for certain and those a doubted door
+      decides (`unsure`, a `?` on the chip), and the lapse row reads "Lapses?" when only those might lapse. Heroes show their chance at any range (decision 82); the pill reads LOUD after the shout (decision
       83); GO's wide row only once a takeover is at hand (decision 84). Ghosts keep the pose they were last drawn in; a
       throw never aims at a hidden tile (`throwTiles`), and while one is previewed only a tap on a floor tile retargets
       it (a tap on someone still selects them). A jammed drill's row is stalled and amber (`urgent` now shows: an amber
@@ -1467,7 +1468,11 @@ Later milestones: within each milestone, the `∥` notes in §3 apply. UI packag
     runner has left past the crew as they stand (to the nearest tile it leaves from: its way out or one next to it), at
     a run a world phase: when the crew standing in the way makes that way longer than the count still covers (it must
     be off the map by the world phase whose tick would raise the Alarm), the carrier is countered just the same ('route
-    longer') and the runner, setting off again, starts a fresh one at the longer way's count. So an escapee never raises
+    longer') and the runner, setting off again, starts a fresh one at the longer way's count. The tile it leaves from is
+    the nearest within one of the way out that it can end its walk on (nobody stands there or is headed there,
+    `leavingTile`): the flight walks there and the count is of the way there. Only the crew earn these counters: a run
+    held up just as much with the crew out of the way (a crowd on and around its way out) is paused ('way out
+    crowded'), not countered, and ticks again once the runner can make it (cleanup review). So an escapee never raises
     the Alarm with its runner inside (an invariant of the preview property test and the carrier fuzz). A passer-by's way out is the nearest tile anyone leaves the map by (§16.4's "nearest plot edge"). The
     phone call's "find them" (§9.1) is listed with its counters: finding a hider is what lets the crew command or knock
     it out.
@@ -1496,7 +1501,7 @@ Later milestones: within each milestone, the `∥` notes in §3 apply. UI packag
     from its turn for its duration. It blocks codes, and Three Keys' card, outside the window (§15.2); in it they are
     what opens the vault. The window doesn't open the vault by itself: §15.2's "opens itself during its scheduled window
     (usually the armoured-car delivery)" is read as the couriers' delivery, when staff open it, which comes with the
-    couriers (M6); the generator's own line is "the vault time lock opens". So the PC's code (every small branch, always
+    couriers (M6); the generator's own line is "the vault's time lock lets it be unlocked". So the PC's code (every small branch, always
     time-locked) and dual control (every HQ) are live keys, used in the window. As each crew phase begins outside the
     window, a shut vault door that isn't locked locks again, whatever unlocked it, and the code entered at the console
     is cleared; an open one stays open until shut.
@@ -1540,8 +1545,9 @@ Later milestones: within each milestone, the `∥` notes in §3 apply. UI packag
     while GO is previewed and through the takeover turn until the shout makes the bank Loud, then LOUD; the gold rail
     and the third gold pip go on saying GO for the rest of the turn.
 84. **Where GO sits in the grid (M2-06).** The stealth boards show no GO: it is a takeover's button. Once a takeover is
-    at hand (a crew member with a weapon has someone the crew knows of within the command radius GO would give them,
-    as the crow flies) GO heads the grid, a gold row two places wide (UI.md "GO is wider, with a gold border"); until
+    at hand (a crew member with a weapon in hand would have someone the crew knows of in their command ring for certain
+    on the takeover turn, GO's ×1.5 radius in their line of sight, who isn't down yet: not face down, tied, out cold or
+    Hostile; `commandPreview`'s reading) GO heads the grid, a gold row two places wide (UI.md "GO is wider, with a gold border"); until
     then it keeps its place after the stealth entries, gold but one place wide, and a full grid drops it first.
 85. **The bullet's path and range (M3-01, §11.2, §11.3).** A bullet flies from the middle of the origin tile along the
     aim line (the middle of the aimed-at tile, turned by the fine aim's whole degrees) turned by its offset,

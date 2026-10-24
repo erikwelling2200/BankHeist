@@ -1,6 +1,6 @@
 import {
-    CARRIERS, commandRadius, crewLoot, crewLook, crewThreat, DASH_ACTIONS, holdPreview, isKnownNow, knownCarriers, lootOf, markerKind, mayBeDyed, steadyHand, walkingToAlarm, MOVE_ACTIONS, nextDriveBy, type CarrierChanges, type CarrierPreview,
-    type CommandRings, type Command, type ReadonlyWorld, type SimEvent, type State
+    CARRIERS, commandPreview, crewLoot, crewLook, DASH_ACTIONS, hasWeaponInHand, holdPreview, isKnownNow, knownCarriers, lootOf, markerKind, mayBeDyed, steadyHand, walkingToAlarm, MOVE_ACTIONS, nextDriveBy, type CarrierChanges, type CarrierPreview,
+    type CommandRings, type Command, type HoldRing, type ReadonlyWorld, type SimEvent, type State
 } from '../sim';
 import {
     CREW_COLOURS, OVERLAY_IDS, type ActionVM, type BankStatus, type CommitKind, type ConfirmVM, type HudIcon, type BankStatusVM, type CrewVM, type HudViewModel, type LootVM, MAX_ACTIONS, type OverlayId,
@@ -106,19 +106,22 @@ function clocks(world: ReadonlyWorld, state: State): ThreatVM[] {
 /**
  * When the crew's commands lapse (§10.2, §10.5): per crew member, the Commanded NPCs they put face down that the crew
  * knows of, counted down to the soonest whose pips run out (a pip goes every world phase; at 0 it is Twitchy, and one
- * that stayed down rolls again after the next). Paused while a hold this turn keeps them all.
+ * that stayed down rolls again after the next). Paused while a hold this turn keeps them all; "Lapses?" while the only
+ * ones it may not keep are those it reaches through a door the crew can't vouch for (`holdPreview`'s `unsure`).
  */
 function lapseClocks(world: ReadonlyWorld, state: State): ThreatVM[] {
     const out: ThreatVM[] = [];
     for (const c of state.crew) {
         const down = state.npcs.filter(n => n.status === 'commanded' && n.command?.by === c.id && isKnownNow(world, state, n.id));
         if (!down.length) continue;
-        const kept = new Set(c.holding === state.turn ? holdPreview(world, state, c.id) : []), loose = down.filter(n => !kept.has(n.id));
-        const soonest = (loose.length ? loose : down).reduce((a, n) => (Math.max(1, n.command!.pips) < Math.max(1, a.command!.pips) ? n : a));
+        const ring = c.holding === state.turn ? holdPreview(world, state, c.id) : { held: [], unsure: [] };
+        const doubted = down.filter(n => ring.unsure.includes(n.id)), loose = down.filter(n => !ring.held.includes(n.id) && !ring.unsure.includes(n.id));
+        const soonest = (loose.length ? loose : doubted.length ? doubted : down).reduce((a, n) => (Math.max(1, n.command!.pips) < Math.max(1, a.command!.pips) ? n : a));
         const at = state.knowledge.npcs[soonest.id]?.at ?? soonest.pos;
+        const word = loose.length ? 'Lapses' : doubted.length ? 'Lapses?' : 'Held';
         out.push({
-            id: `lapse:${c.id}`, kind: 'lapse', source: c.id, label: `${loose.length ? 'Lapses' : 'Held'}: ${down.length} face down (${c.name})`,
-            countdown: Math.max(1, soonest.command!.pips), halted: loose.length ? null : 'paused', pos: { x: at.x, y: at.y }, targetId: soonest.id
+            id: `lapse:${c.id}`, kind: 'lapse', source: c.id, label: `${word}: ${down.length} face down (${c.name})`,
+            countdown: Math.max(1, soonest.command!.pips), halted: loose.length || doubted.length ? null : 'paused', pos: { x: at.x, y: at.y }, targetId: soonest.id
         });
     }
     return out;
@@ -220,8 +223,8 @@ export function lootView(world: ReadonlyWorld, state: State): LootVM | null {
  * A previewed command's rings counted (§10.1), from `commandPreview` (the NPCs the crew knows of, each resister's chance
  * the one the commit rolls with); or a previewed hold's (`holdPreview`): how many it keeps face down.
  */
-export function ringsView(world: ReadonlyWorld, plan: CommandRings | { held: readonly string[] }): RingsVM {
-    if ('held' in plan) return { kind: 'hold', down: plan.held.length, panics: 0, alerted: 0, ignores: 0, unsure: 0, resisters: [] };
+export function ringsView(world: ReadonlyWorld, plan: CommandRings | HoldRing): RingsVM {
+    if ('held' in plan) return { kind: 'hold', down: plan.held.length, panics: 0, alerted: 0, ignores: 0, unsure: plan.unsure.length, resisters: [] };
     const count = (o: string) => plan.targets.filter(t => t.outcome === o).length;
     const resisters = plan.targets.filter(t => t.outcome === 'resists').map(t => {
         const person = world.people.find(p => p.id === t.npc), portrait = person && rolePortrait(person.role);
@@ -249,7 +252,7 @@ export interface HudExtras {
     /** GO is previewed: the state after it (`Session.preview`), for the gold rail's masks and third actions. */
     goPreview?: State;
     /** The pending command's rings (`Session.commandRings`) or the pending hold's (`Session.holdRing`). */
-    rings?: CommandRings | { held: readonly string[] };
+    rings?: CommandRings | HoldRing;
 }
 
 /**
@@ -326,16 +329,16 @@ export function actionsView(world: ReadonlyWorld, state: State, ui: UiState, ext
 }
 
 /**
- * Whether a takeover is at hand (decision 84): a crew member carrying a weapon has someone the crew knows of within the
- * command radius GO would give them (×1.5), as the crow flies.
+ * Whether a takeover is at hand (decision 84): a crew member with a weapon in hand would, shouting on the takeover turn
+ * (GO's radius, ×1.5), have someone the crew knows of in their command ring for certain who isn't down yet: up and
+ * taking orders (or resisting them), in their line of sight, as the command's own preview reads it (`commandPreview`:
+ * not through a door the crew can't vouch for). Face down, tied, out cold or Hostile, nobody brings it up.
  */
 export function takeoverAtHand(world: ReadonlyWorld, state: State): boolean {
     const go = { ...state, takeover: state.turn };
-    return state.crew.some(c => {
-        if (crewThreat(c) <= 0) return false;
-        const r = commandRadius(go, c);
-        return state.npcs.some(n => n.status !== 'away' && isKnownNow(world, state, n.id) && (n.pos.x - c.pos.x) ** 2 + (n.pos.y - c.pos.y) ** 2 <= r * r);
-    });
+    const down = (id: string): boolean => state.npcs.find(n => n.id === id)?.status === 'commanded';
+    return state.crew.some(c => hasWeaponInHand(c)
+        && commandPreview(world, go, c.id).targets.some(t => t.ring === 'command' && (t.outcome === 'complies' || t.outcome === 'resists') && !down(t.npc)));
 }
 
 /** Events in a preview that give the crew away, or are an illegal act seen or not (§8.4): Confirm turns amber. */
@@ -474,7 +477,7 @@ export function describeEvent(world: ReadonlyWorld, state: State, event: SimEven
         case 'timeLockShut': return 'The time lock locked the vault again';
         case 'drillTaken': return `${name(event.crew)} took the drill back`;
         case 'sensorsCut': return `${name(event.crew)} cut the vault’s sensors`;
-        case 'pcHacked': return `${name(event.crew)} got into the manager’s PC: ${event.part ? CODE_PART[event.part] : 'no code'}${event.window ? `; the time lock opens on turns ${event.window.from}–${event.window.until - 1}` : ''}`;
+        case 'pcHacked': return `${name(event.crew)} got into the manager’s PC: ${event.part ? CODE_PART[event.part] : 'no code'}${event.window ? `; the time lock takes codes on turns ${event.window.from}–${event.window.until - 1}` : ''}`;
         case 'lockWorked': return `${name(event.crew)} worked on the lock (${event.progress}/${event.needed})`;
         case 'doorWorked': return `${name(event.crew)} worked on the lock of ${doorName(world, event.door)} (${event.progress}/${event.needed})`;
         case 'boxOpened': return `${name(event.crew)} opened a deposit box`;

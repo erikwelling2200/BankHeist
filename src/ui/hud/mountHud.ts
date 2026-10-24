@@ -375,7 +375,7 @@ export function mountHud(root: HTMLElement, callbacks: HudCallbacks, options: Hu
         const count = (cls: string, mark: string, n: number, words: string) => (n ? h(`span.sh-rc.${cls}` as 'span', { title: words }, h('b', {}, mark), String(n)) : null);
         rings.className = `sh-panel sh-rings ${r.kind}`;
         rings.setAttribute('aria-label', r.kind === 'hold'
-            ? `Hold keeps ${r.down} face down`
+            ? `Hold keeps ${r.down} face down${r.unsure ? `, ${r.unsure} depend on a door` : ''}`
             : [`${r.down} get down`, r.panics ? `${r.panics} panic` : '', r.alerted ? `${r.alerted} alerted` : '', r.ignores ? `${r.ignores} ignore it` : '', r.unsure ? `${r.unsure} depend on a door` : '',
                 ...r.resisters.map(x => `${x.name} resists ${pct(x.chance)}`)].filter(Boolean).join(', '));
         put(rings, img(iconUrl(r.kind === 'hold' ? 'hold' : 'command')), count('down', '▼', r.down, r.kind === 'hold' ? 'Kept face down' : 'Get down'),

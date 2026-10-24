@@ -1,5 +1,5 @@
 import {
-    actionPreview, assertPlainJson, autoStep, clonePlain, commandPreview, explain, holdPreview, type CommandRings, pathSafety, safeFloor, safeFloorJob, type ActionPreview, type CarrierChanges, type Explanation, type FloorBand, type FloorJob,
+    actionPreview, assertPlainJson, autoStep, clonePlain, commandPreview, explain, holdPreview, type CommandRings, type HoldRing, pathSafety, safeFloor, safeFloorJob, type ActionPreview, type CarrierChanges, type Explanation, type FloorBand, type FloorJob,
     type PathSafety, type SafeFloor, commit, deepFreeze, hashOf, noticedUnseen, popUndo, preview, previewCertain, projectEvents, projectPreviewEvents, RECENT_EVENTS, recordUndo, SaveFormatError, stableJson,
     type AutoOptions, type AutoStepResult, type AutoStop, type Command, type CommitResult, type Pos, type PreviewResult, type ReadonlyWorld, type Routes, type SimEvent, type State,
     type UndoStack, withLayoutCameras
@@ -327,7 +327,7 @@ export class Session {
                 // hold's rings come from the rules' own reading of them.
                 if (pending.type === 'go') more.goPreview = this.preview(pending).state;
                 else if (pending.type === 'command') more.rings = this.commandRings(pending.crew);
-                else if (pending.type === 'hold') more.rings = { held: this.holdRing(pending.crew) };
+                else if (pending.type === 'hold') more.rings = this.holdRing(pending.crew);
             } catch { /* a stale command: Confirm shows it, and committing it says why it can't */ }
         }
         return hudView(this.world, this._state, this._ui, {
@@ -398,8 +398,8 @@ export class Session {
         return commandPreview(this.world, this._state, crew);
     }
 
-    /** The Commanded NPCs the crew knows of that a hold by `crew` would keep down (§10.3). */
-    holdRing(crew: string): string[] {
+    /** The Commanded NPCs the crew knows of that a hold by `crew` would keep down (§10.3), and those a door decides. */
+    holdRing(crew: string): HoldRing {
         return holdPreview(this.world, this._state, crew);
     }
 

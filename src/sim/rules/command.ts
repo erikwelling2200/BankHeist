@@ -12,9 +12,9 @@ import { lacksActions, registerAction } from './actions/act';
 import { releaseBody } from './actions/body';
 import { startEscapee } from './alarms';
 import { stopCarrier } from './carriers';
-import { npcMoveOptions, isPresent, personOf } from './npc/walk';
+import { leavingTile, npcMoveOptions, isPresent, othersTiles, personOf } from './npc/walk';
 import { reconsider } from './npc/intent';
-import { bodyPos, draggedBy } from './place';
+import { bodyPos, draggedBy, onFloor } from './place';
 import { hidingSpot, reactionOdds, rollReaction, startReaction, tackleTarget, type Reaction } from './panic';
 import { giveUp, panicsAt } from './panicState';
 import { witnessAct } from './perceive';
@@ -173,7 +173,7 @@ export function crewThreat(member: DeepReadonly<CrewState>): number {
 }
 
 /** Whether a crew member has a weapon in hand (one that can be aimed: anything with a Threat). */
-const armed = (member: DeepReadonly<CrewState>): boolean => weaponsInHand(member).length > 0;
+export const hasWeaponInHand = (member: DeepReadonly<CrewState>): boolean => weaponsInHand(member).length > 0;
 
 /** A crew member's command radius now (§10.1): the Threat, ×1.5 on the takeover turn, rounded down. */
 export function commandRadius(state: DeepReadonly<State>, member: DeepReadonly<CrewState>): number {
@@ -242,7 +242,7 @@ const BEYOND_COMMAND = new Set(['unconscious', 'dead', 'tied', 'away']);
  * at it (armed, within their own command radius, in line of sight); halved by an Intimidating shouter.
  */
 export function resistChance(world: ReadonlyWorld, state: State, crewId: string, npc: DeepReadonly<NpcState>, sight = sightMap(world, state)): number {
-    const aiming = state.crew.filter(c => armed(c) && inCommandReach(sight, c.pos, commandRadius(state, c), npc.pos)).length;
+    const aiming = state.crew.filter(c => hasWeaponInHand(c) && inCommandReach(sight, c.pos, commandRadius(state, c), npc.pos)).length;
     const base = npc.surprised !== null || aiming >= 2 ? 0.1 : 0.4;
     return crewMember(state, crewId).traits.includes('intimidating') ? base / 2 : base;
 }
@@ -435,6 +435,12 @@ registerWorldHook('passiveNpcs', 'command.flee', (ctx, phase) => {
         const running = state.carriers.some(c => c.kind === 'escapee' && c.source === npc.id);
         // The way it has left, past the crew as they stand: what its escapee counts down (§9.1).
         let left = out ? 0 : runLeft(world, state, npc, action.exit);
+        if (left === undefined && runLeft(world, state, npc, action.exit, { crew: false }) === undefined) {
+            // Other people hold every tile it leaves from (a crowd on and around its way out), not the crew: it keeps
+            // running for it, its carrier paused until they let it through (rules/panic.ts), no counter the crew earned.
+            startEscapee(ctx, npc, runLeft(world, state, npc, action.exit, { crew: false, ending: false }) ?? 0);
+            continue;
+        }
         if (left === undefined) {
             const open = wayOut(world, state, npc, true);
             if (!open) {
@@ -530,28 +536,30 @@ function exitsOf(world: ReadonlyWorld): Pos[] {
 /**
  * The nearest way out for a runner (§10.5 flee): a tile where anyone leaves the map, by walking cost, ties in row order;
  * with its cost in tiles. `pastCrew`: past the crew as they stand (§9.1 "block the route": the runner leaves from its
- * exit or a tile next to it, so reaching one of those will do); otherwise through people. The flood stops at the first.
+ * exit or a tile next to it, so reaching one of those it can end its walk on will do, as `runLeft`); otherwise through
+ * people. The flood stops at the first.
  */
 export function wayOut(world: ReadonlyWorld, state: State, npc: DeepReadonly<NpcState>, pastCrew = false): { exit: Pos; tiles: number } | undefined {
     const exits = exitsOf(world);
     if (!exits.length) return undefined;
+    const floor = onFloor(state), taken = pastCrew ? othersTiles(world, floor, npc.id) : undefined;
     const reach = (p: DeepReadonly<Pos>, e: Pos): boolean => (pastCrew ? Math.max(Math.abs(p.x - e.x), Math.abs(p.y - e.y)) <= 1 : samePos(p, e));
     const options = pastCrew ? npcMoveOptions(world, npc) : { ...npcMoveOptions(world, npc), ignorePeople: true };
-    const found = reachable(world, state, { x: npc.pos.x, y: npc.pos.y }, (world.width + world.height) * 4 * HALF_STEPS_PER_TILE, options,
-        t => exits.some(e => reach(t.pos, e))).stopped;
+    const found = reachable(world, floor, { x: npc.pos.x, y: npc.pos.y }, (world.width + world.height) * 4 * HALF_STEPS_PER_TILE, options,
+        t => exits.some(e => reach(t.pos, e)) && (!taken || t.cost === 0 || (t.canEnd && !taken(t.pos.y * world.width + t.pos.x)))).stopped;
     const exit = found && exits.find(e => reach(found.pos, e));
     return found && exit && { exit, tiles: Math.ceil(found.cost / HALF_STEPS_PER_TILE) };
 }
 
 /**
- * How far a runner has left to its way out, in tiles: to the nearest tile it leaves from (the way out or one next to
- * it), past the crew as they stand, by walking cost; undefined when the crew block every way there. What its escapee
- * counts down (§9.1), and what the route check holds the count to (rules/panic.ts).
+ * How far a runner has left to its way out, in tiles: to the tile it leaves from (npc/walk.ts `leavingTile`: the
+ * nearest within one of the way out that it can end its walk on), past the crew as they stand; undefined when it can
+ * get to none. What its escapee counts down (§9.1), and what the route check holds the count to (rules/panic.ts).
  */
-export function runLeft(world: ReadonlyWorld, state: State, npc: DeepReadonly<NpcState>, exit: DeepReadonly<Pos>): number | undefined {
-    const found = reachable(world, state, { x: npc.pos.x, y: npc.pos.y }, (world.width + world.height) * 4 * HALF_STEPS_PER_TILE, npcMoveOptions(world, npc),
-        t => Math.max(Math.abs(t.pos.x - exit.x), Math.abs(t.pos.y - exit.y)) <= 1).stopped;
-    return found && Math.ceil(found.cost / HALF_STEPS_PER_TILE);
+export function runLeft(
+    world: ReadonlyWorld, state: State, npc: DeepReadonly<NpcState>, exit: DeepReadonly<Pos>, how: { crew?: boolean; ending?: boolean } = {}
+): number | undefined {
+    return leavingTile(world, state, npc, exit, how)?.tiles;
 }
 
 /** Carries out the decision of a lapse (see the header); its intent is planned by `reconsider` straight after. */
