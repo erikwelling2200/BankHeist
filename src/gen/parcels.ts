@@ -8,7 +8,7 @@ import {
 import type { Furnisher, Placed } from './furnish';
 import { RoomPlan, type GroupDef, type Kind, type PlacedGroup } from './groups';
 import type { GenRoom, Rect, RoomType } from './model';
-import type { P } from './nav';
+import { reachesFrom, type P } from './nav';
 import type { Rng } from './rng';
 import type { Site } from './site';
 import { tellStories } from './stories';
@@ -154,8 +154,32 @@ export class Parcel extends RoomPlan {
         this.out.alarms.push({ tx: this.x(dx), ty: this.top + dy, name, room: this.room.id });
     }
 
+    /** Loot at the frame's (dx, dy), or the nearest tile the crew can take it from (`placeLoot`). */
     loot(name: string, value: number, weight: Furnished['loot'][number]['weight'], dx: number, dy: number): void {
-        this.out.loot.push({ tx: this.x(dx), ty: this.top + dy, name, value, weight, room: this.room.id });
+        this.placeLoot({ x: this.x(dx), y: this.top + dy }, name, value, weight);
+    }
+
+    /**
+     * Loot goes where someone can take it: on `at` when a tile it is reached from (`reachesFrom`) can be walked to from
+     * the doors, else on the nearest tile of the room that has one (on furniture before bare floor). One of the tiles it
+     * is reached from then has to stay reachable, so nothing placed later boxes it in.
+     */
+    private placeLoot(at: P, name: string, value: number, weight: Furnished['loot'][number]['weight']): void {
+        const seen = this.reached(), width = this.site.width;
+        const from = (t: P) => reachesFrom(this.site, t).filter(a => seen.has(a.y * width + a.x));
+        let spot = at, reach = from(at);
+        if (!reach.length) {
+            const tiles = this.site.tilesOfRoom(this.room).map(t => ({ t, reach: from(t) })).filter(c => c.reach.length);
+            const cost = (t: P) => Math.abs(t.x - at.x) + Math.abs(t.y - at.y) + (this.f.occupied(t.x, t.y) ? 0 : 0.5);
+            const best = tiles.sort((a, b) => cost(a.t) - cost(b.t))[0];
+            // Nowhere at all: it stays where it was put, and the §17.7 check (`objectsReachable`) rolls the bank again.
+            if (best) {
+                spot = best.t;
+                reach = best.reach;
+            }
+        }
+        if (reach.length) this.mustAny.push(reach);
+        this.out.loot.push({ tx: spot.x, ty: spot.y, name, value, weight, room: this.room.id });
     }
 
     /**
@@ -164,7 +188,7 @@ export class Parcel extends RoomPlan {
      */
     lootAt(group: PlacedGroup | undefined, on: string | undefined, name: string, value: number, weight: Furnished['loot'][number]['weight'], dx = 0, dy = 0): void {
         const piece = group?.placed.find((b, i) => b && (on === undefined || group.def.pieces[i]!.tag === on || b.prop.kind === on));
-        if (piece) this.out.loot.push({ tx: piece.prop.tx, ty: piece.prop.ty, name, value, weight, room: this.room.id });
+        if (piece) this.placeLoot({ x: piece.prop.tx, y: piece.prop.ty }, name, value, weight);
         else this.loot(name, value, weight, dx, dy);
     }
 

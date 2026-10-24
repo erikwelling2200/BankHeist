@@ -13,6 +13,7 @@ import { GALLERY_TYPES, GALLERY_VARIANTS, roomGallery } from '../src/gen/gallery
 import { emptyFurnished, PARCELS } from '../src/gen/parcels';
 import { Rng } from '../src/gen/rng';
 import { ROOM_RULES } from '../src/gen/rooms';
+import { RULES } from '../src/gen/validate';
 import { edgeBetween, edgeKey, Site, tilesOf } from '../src/gen/site';
 import { TIER_SPECS } from '../src/gen/tiers';
 import { TILE } from '../src/level/constants';
@@ -45,6 +46,15 @@ describe('the generator', () => {
         }
         expect(failures).toEqual([]);
     }, 120000);
+
+    it('places every piece of loot and every heist object where the crew can reach it from the van (§17.7)', () => {
+        // These once boxed the records room's files into a corner behind the archivist's desk.
+        for (const b of [bank(8919, 1, { tier: 'small', archetype: 'twoWing', plot: 'midBlock' }), bank(1000, 0, { tier: 'hq', archetype: 'threeKeys', plot: 'plazaFront' })]) {
+            const r = b.validation.results.find(x => x.rule === RULES.objectsReachable);
+            expect(r?.ok, r?.detail).toBe(true);
+            expect(b.loot.filter(l => b.rooms.find(room => room.id === l.room)?.type === 'recordsRoom').length).toBeGreaterThan(0);
+        }
+    }, 60000);
 
     it('replays a bank from its seeds, and keeps the building when only the population seed changes (§17.2)', () => {
         const a = bank(4242, 7), again = generateBank({ layout: 4242, population: 7 }), other = bank(4242, 8);

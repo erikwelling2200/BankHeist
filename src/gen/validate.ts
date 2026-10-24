@@ -1,5 +1,6 @@
 import type { Approach, Door, GenCamera, GenRoom, GetawaySpot, PlotExit, RuleResult } from './model';
-import type { Nav, P } from './nav';
+import type { LevelProp } from '../level/plan';
+import { reachesFrom, type Nav, type P } from './nav';
 import type { Furnished } from './parcels';
 import { CAMERA_HALF_ANGLE, CAMERA_RANGE, cone, GUARD_HALF_ANGLE, GUARD_RANGE, type GuardPlan } from './security';
 import type { Site } from './site';
@@ -17,13 +18,20 @@ export const RULES = {
     usefulCameras: 'Every camera covers a tile someone has to cross',
     alarmsAndExits: "Every silent-alarm station reachable from the lobby, the manager's desk among them; civilian exits within reach of the crowd",
     getaways: 'Getaway spots connect to at least 2 plot exits',
-    vaultDepth: 'The vault is at least 2 doors from any Public tile; the CCTV room is not on the vault corridor'
+    vaultDepth: 'The vault is at least 2 doors from any Public tile; the CCTV room is not on the vault corridor',
+    objectsReachable: 'Every piece of loot and every heist object can be reached by the crew from where they start'
 } as const;
 
 export type Rule = keyof typeof RULES;
 
 /** Which rules give way first when too many seeds fail. */
 export const RELAX_ORDER: Rule[] = ['guardOverlap', 'usefulCameras', 'alarmsAndExits', 'cleanRoute'];
+
+/**
+ * The props the crew acts on in a heist (the rules' objects with a verb: `OBJECT_KINDS` in `src/sim/world/fromBank.ts`,
+ * the ways in aside, which `approachesReachVault` checks). The manager's PC is on the desk the office's loot lies on.
+ */
+export const HEIST_OBJECTS: readonly LevelProp['kind'][] = ['alarmPanel', 'breakerPanel', 'cctvDesk', 'vaultConsole', 'serverRack', 'depositBoxes', 'atmBack'];
 
 /** How far (in steps) the crowd may be from a civilian exit (§17.7's "set distance band"). */
 export const EXIT_BAND: [number, number] = [1, 28];
@@ -151,7 +159,32 @@ export function validate(ctx: Ctx): RuleResult[] {
     const cctv = ofType('cctvRoom').map(r => r.id);
     const onCorridor = doors.some(d => (cctv.includes(d.a) && vaultCorridors.has(d.b)) || (cctv.includes(d.b) && vaultCorridors.has(d.a)));
     results.push(result('vaultDepth', nearest >= 2 && !onCorridor, `${Number.isFinite(nearest) ? nearest : 'no'} doors from the public floor to the vault${onCorridor ? '; the CCTV room opens onto the vault corridor' : ''}`));
+
+    // The loot and the heist objects: each reached (as the rules' `inReach`) from a tile the crew can walk to from their
+    // van, through every door (no keys yet: a locked door is one more to open), with nobody in the way.
+    const fromCrew = nav.distances([crewStart(ctx)]).dist;
+    const takeable = (t: P) => reachesFrom(site, t).some(a => fromCrew[a.y * site.width + a.x]! >= 0);
+    const things = [
+        ...ctx.furnished.loot.map(l => ({ what: l.name, room: l.room, x: l.tx, y: l.ty })),
+        ...site.props.filter(p => HEIST_OBJECTS.includes(p.kind)).map(p => ({ what: p.kind, room: site.roomAt(p.tx, p.ty)?.id, x: p.tx, y: p.ty }))
+    ];
+    const cutOff = things.filter(t => !takeable(t));
+    results.push(result('objectsReachable', !cutOff.length, `${things.length} pieces of loot and objects${cutOff.length ? `; out of reach: ${cutOff.map(t => `${t.what} in ${t.room} at ${t.x},${t.y}`).join(', ')}` : ''}`));
     return results;
+}
+
+/** Where the crew starts (`crewOrigin` in `src/game/heist.ts`): by the van at the curb, the first getaway, or the lobby. */
+function crewStart(ctx: Ctx): P {
+    const { site, nav } = ctx, spot = ctx.getaways.find(g => g.id === 'curb') ?? ctx.getaways[0];
+    const lobby = ctx.bank.find(r => r.type === 'lobby') ?? ctx.bank[0]!;
+    const origin = spot ? { x: spot.tx, y: spot.ty } : { x: lobby.x + Math.floor(lobby.w / 2), y: lobby.y + lobby.h };
+    // The nearest walkable ground-floor tile, by rings round it (as `crewStarts`).
+    for (let r = 0; r < Math.max(site.width, site.height); r++) {
+        for (let y = origin.y - r; y <= origin.y + r; y++) for (let x = origin.x - r; x <= origin.x + r; x++) {
+            if (Math.max(Math.abs(x - origin.x), Math.abs(y - origin.y)) === r && nav.walkable(x, y) && site.heightAt(x, y) === 0) return { x, y };
+        }
+    }
+    return origin;
 }
 
 /** The most door-disjoint ways from the `from` rooms to the `to` rooms: each door carries one way (§17.7 loops). */

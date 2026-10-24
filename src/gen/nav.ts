@@ -15,6 +15,26 @@ export interface P { x: number; y: number }
 /** What sight passes through (§8.3): glass, railings, a chain-link fence; closed doors and walls block it. */
 export const SEE_THROUGH: readonly WallKind[] = ['window', 'doorGlass', 'curtain', 'doorTower', 'rail', 'fence', 'tellerWindow'];
 
+/**
+ * The tiles someone acts on `t` from (the rules' `inReach`): its own and the eight round it, on its level (no more than a
+ * step up or down), with no wall on the edge between them, or on any of the four edges round the corner of a diagonal.
+ */
+export function reachesFrom(site: Site, t: P): P[] {
+    const out: P[] = [];
+    const open = (a: P, b: P) => !site.wallAt(edgeBetween(a, b));
+    for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
+        const a = { x: t.x + dx, y: t.y + dy };
+        if (!site.inside(a.x, a.y) || site.owner[a.y]![a.x]! < 0) continue;
+        if (Math.abs(site.heightAt(a.x, a.y) - site.heightAt(t.x, t.y)) > MAX_STEP) continue;
+        if (dx && dy) {
+            const across = { x: t.x, y: a.y }, down = { x: a.x, y: t.y };
+            if (!open(a, across) || !open(a, down) || !open(across, t) || !open(down, t)) continue;
+        } else if ((dx || dy) && !open(a, t)) continue;
+        out.push(a);
+    }
+    return out;
+}
+
 /** A binary min-heap of tiles by key, for the door-counting search; stale entries are skipped by the caller. */
 class Heap {
     private readonly keys: Float64Array;

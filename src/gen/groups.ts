@@ -142,6 +142,8 @@ export class RoomPlan {
     private readonly inward: P[] = [];
     /** Tiles that must stay reachable from the doors: stations, clearance, the spots kept for hatches and grates. */
     readonly must: P[] = [];
+    /** Sets of tiles of which at least one must stay reachable from the doors: where each piece of loot is taken from. */
+    readonly mustAny: P[][] = [];
     /** Tiles no group may take (a hatch's or a vent's spot, kept for the ways in). */
     readonly reserved = new Set<string>();
     readonly groups: PlacedGroup[] = [];
@@ -380,10 +382,18 @@ export class RoomPlan {
         return group;
     }
 
-    /** Whether every tile that must stay reachable (the other doors among them, and `extra`) still is, from its first door. */
+    /**
+     * Whether every tile that must stay reachable (the other doors among them, and `extra`) still is, from its first door,
+     * and one tile of each set in `mustAny`.
+     */
     reachable(extra: P[] = []): boolean {
-        const { width } = this.site, seen = this.distances(this.entries[0]!);
-        return [...this.must, ...extra].every(t => seen.has(t.y * width + t.x));
+        const { width } = this.site, seen = this.reached(), at = (t: P) => seen.has(t.y * width + t.x);
+        return [...this.must, ...extra].every(at) && this.mustAny.every(set => set.some(at));
+    }
+
+    /** The tiles of the room a person can walk to from its first door now, by `y * width + x`. */
+    reached(): Map<number, number> {
+        return this.distances(this.entries[0]!);
     }
 }
 
