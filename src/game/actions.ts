@@ -1,6 +1,6 @@
 import {
     besideDoor, crewPicture, doorStatus, DRAGGABLE, draggedBy, goBlocked, inHands, inReach, interactionVerbs, isKnownNow, JAMMER, legalActions, LOOP_FROM, lootWeight,
-    pocketed, reachesObject, STASH_KINDS, throwTargets, whyNot, type Command, type Pos, type ReadonlyWorld, type State
+    pocketed, reachesObject, STASH_KINDS, throwTargets, tieIneligible, whyNot, type Command, type Pos, type ReadonlyWorld, type State
 } from '../sim';
 import type { HudIcon as HudIconName } from '../ui/hud/viewModels';
 
@@ -24,6 +24,10 @@ import type { HudIcon as HudIconName } from '../ui/hud/viewModels';
  *   down, Throw (a bag) to a teammate it would reach, and Pass (it, or a body) to a teammate in reach; Inspect a
  *   pocketed stack of cash not yet looked through; Drop ruined cash a dye pack spoilt. Throwing to a floor tile is `window.sim` only until the throw arc
  *   (M2-06).
+ * - Hostages and disguises (§10.6, §10.7, §8.14, M2-03): Zip-tie an NPC in reach that can be tied (face down,
+ *   surprised, out cold); Lead (escort) one face down or tied (Drop lets go); Coerce a hostage the crew knows of into
+ *   opening a drawer or entering the vault code (the first the sim allows); Change clothes from a downed guard or the
+ *   staff lockers in reach (the first the sim allows). The polished hostage UI is M2-06's.
  * - Wait.
  * - The takeover (§9.3, §10.1–10.3, M2-01), after Wait: Command always; Hold while anyone is Commanded; Mask up while
  *   unmasked; GO while it can still be pressed.
@@ -157,6 +161,19 @@ export function actionMenu(world: ReadonlyWorld, state: State, crewId: string, t
         if (body) add('drag', 'Drag', 'heavy', { type: 'drag', crew: crewId, npc: body }, body);
     }
 
+    // Hostages and disguises (M2-03).
+    if (handsFreeOf(member)) {
+        const tieable = pick(targets.npcs.filter(id => !tieIneligible(state.npcs.find(n => n.id === id)!)));
+        if (tieable) add('zipTie', `Zip-tie (${member.zipTies})`, 'ziptie', { type: 'zipTie', crew: crewId, npc: tieable }, tieable);
+        const led = pick(targets.npcs.filter(id => ['commanded', 'tied'].includes(state.npcs.find(n => n.id === id)!.status)));
+        if (led) add('escort', 'Lead', 'hold', { type: 'escort', crew: crewId, npc: led }, led);
+    }
+    const legal = legalActions(world, state, crewId);
+    const coerce = legal.find((c): c is Extract<Command, { type: 'coerce' }> => c.type === 'coerce' && isKnownNow(world, state, c.npc) && (!target || c.npc === target || c.at === target));
+    if (coerce) add('coerce', world.objects.find(o => o.id === coerce.at)?.kind === 'vaultConsole' ? 'Make them enter the code' : 'Make them open the drawer', 'command', coerce, coerce.npc);
+    const change = legal.find((c): c is Extract<Command, { type: 'changeClothes' }> => c.type === 'changeClothes' && (!target || c.from === target));
+    if (change) add('changeClothes', 'Change clothes', 'swap', change, change.from);
+
     const object = pick(targets.objects.filter(id => interactionVerbs(world, id).length));
     if (object) {
         const kind = world.objects.find(o => o.id === object)!.kind;
@@ -206,6 +223,9 @@ export function actionMenu(world: ReadonlyWorld, state: State, crewId: string, t
     if (!goBlocked(state)) add('go', 'GO', 'star', { type: 'go', crew: crewId });
     return out;
 }
+
+/** Whether a crew member's hands are free (nothing carried, nobody dragged or led). */
+const handsFreeOf = (member: State['crew'][number]): boolean => member.loadout.carrying === null && member.dragging === null;
 
 /** Whether `menu` agrees with the sim's `legalActions`: every enabled entry is one of them (for tests). */
 export function menuIsLegal(world: ReadonlyWorld, state: State, crewId: string, menu: readonly ActionEntry[]): boolean {

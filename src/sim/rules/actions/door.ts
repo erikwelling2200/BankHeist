@@ -9,7 +9,7 @@ import { lacksActions, registerAction } from './act';
 /*
  * Interacting with doors (§6.3 Interact, 1 action), from a tile beside the door:
  *
- * - **open** a closed door; a locked one only with its key (`crewHasKey`, crew/movement.ts: no keys yet).
+ * - **open** a closed door; a locked one only with its key (`crewHasKey`, crew/movement.ts: a keycard taken in a frisk).
  * - **close** an open door (a propped one too: the wedge comes out). Breached and jammed doors stay as they are.
  * - **lock** a closed door: with its key, or without one a mechanical lock from its inner side (the side of the higher
  *   zone, Public < Staff < Secure; either side between equals), where a thumb-turn needs none. Keycards, maglocks and

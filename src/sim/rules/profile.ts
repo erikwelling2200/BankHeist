@@ -1,7 +1,7 @@
 import { registerCrewInit, registerRuleDefaults } from '../core/state';
 import type { CrewState, DeepReadonly, ObserverClass, Rules } from '../core/types';
 import {
-    CARRIED, DUFFEL_ITEM, itemDef, MASK_PROFILE, PACKED_PROFILE, profileRank, raiseProfile, type Profile
+    CARRIED, DUFFEL_ITEM, HOSTAGE, itemDef, MASK_PROFILE, PACKED_PROFILE, profileRank, raiseProfile, type Profile
 } from '../data/items';
 import { UNIFORMS, type IllegalAct, type Uniform } from '../data/matrix';
 
@@ -100,9 +100,8 @@ export interface CrewLook {
     act?: IllegalAct;
 }
 
-/** A crew member's look from their loadout (§7.4). The first item of the highest profile, in loadout order, is named. */
-export function crewLook(member: DeepReadonly<CrewState>): CrewLook {
-    const { loadout } = member;
+/** The profile of a loadout and what shows most; `holstered` counts a holsterable pistol as Clean (§8.14). */
+function shownProfile(loadout: DeepReadonly<CrewState['loadout']>, holstered: boolean): { profile: Profile; shows: string } {
     let profile: Profile = 'clean', shows = 'nothing';
     const consider = (p: Profile, what: string): void => {
         if (profileRank(p) > profileRank(profile)) {
@@ -110,16 +109,35 @@ export function crewLook(member: DeepReadonly<CrewState>): CrewLook {
             shows = what;
         }
     };
-    for (const id of loadout.items) consider(itemDef(id).profile, id);
+    for (const id of loadout.items) {
+        const def = itemDef(id);
+        consider(holstered && def.holsterable ? 'clean' : def.profile, id);
+    }
     for (const id of loadout.packed) {
         const own = itemDef(id).profile;
         consider(profileRank(own) > profileRank(PACKED_PROFILE) ? PACKED_PROFILE : own, `packed:${id}`);
     }
     if (loadout.carrying !== null) consider(CARRIED[loadout.carrying] ?? 'armed', `carrying:${loadout.carrying}`);
     if (loadout.masked) consider(MASK_PROFILE, 'mask');
-    const uniform = loadout.uniform !== null && profileRank(profile) <= profileRank('concealed') ? loadout.uniform : null;
-    // Dragging an NPC's body is an illegal act for as long as it lasts (carrying a downed crew member is only Armed).
-    return member.dragging ? { profile, shows, uniform, act: 'dragBody' } : { profile, shows, uniform };
+    return { profile, shows };
+}
+
+/**
+ * A crew member's look from their loadout (§7.4). The first item of the highest profile, in loadout order, is named.
+ * Under a guard's or a courier's uniform a holstered pistol counts as Clean while the uniform holds (§8.14).
+ */
+export function crewLook(member: DeepReadonly<CrewState>): CrewLook {
+    const { loadout } = member;
+    const holsters = loadout.uniform !== null && !!UNIFORMS[loadout.uniform].holsters;
+    let { profile, shows } = shownProfile(loadout, holsters);
+    const holds = loadout.uniform !== null && profileRank(profile) <= profileRank('concealed');
+    // Broken (armour above a light vest, a long gun, a bag, a mask): the profile is computed normally.
+    if (holsters && !holds) ({ profile, shows } = shownProfile(loadout, false));
+    const uniform = holds ? loadout.uniform : null;
+    // Dragging an NPC's body is an illegal act for as long as it lasts (carrying a downed crew member is only Armed);
+    // leading a hostage is commanding them (§10.6 escort, implementation plan §6 decision 63).
+    if (member.dragging) return { profile, shows, uniform, act: loadout.carrying === HOSTAGE ? 'command' : 'dragBody' };
+    return { profile, shows, uniform };
 }
 
 /** A crew member's profile as the HUD shows it (§7.4): before any observer's reading. */

@@ -169,7 +169,7 @@ describe('the rules engine', () => {
         expect(WORLD_STEPS).toEqual(['passiveNpcs', 'combatNpcs', 'devices', 'commitIntents', 'crewPhase']);
         expect(worldHooks()).toEqual({
             passiveNpcs: ['knowledge.freshBefore', 'command.hold', 'evidence.judge', 'perception.world', 'evidence.notice', 'cameras.operator', 'trespass.deadlines', 'npcs.passive', 'alarms.raise', 'command.called', 'command.flee', 'command.draw', 'evidence.tell'], combatNpcs: ['npcs.combat'],
-            devices: ['devices.carriers', 'devices.police', 'radio.checkIns', 'patrol.pass', 'test.dice', 'cameras.pan', 'perception.decay', 'knockout.wake', 'evidence.settle', 'doors.swingShut'],
+            devices: ['devices.carriers', 'devices.police', 'radio.checkIns', 'patrol.pass', 'test.dice', 'cameras.pan', 'perception.decay', 'knockout.wake', 'evidence.settle', 'hostage.untie', 'doors.swingShut'],
             commitIntents: ['perception.glances', 'command.surprise', 'npcs.intents', 'cameras.pin'], crewPhase: ['crew.actions', 'evidence.forget', 'command.lapse']
         });
         const { world, state } = smallBank();

@@ -10,9 +10,11 @@ import { lineOfSight, sightMap, type SightMap } from '../geo/los';
 import { reachable, reachAt } from '../geo/move';
 import { DEAF_STATUSES, makeNoise, noiseRadius, npcsInside, soundRing } from '../geo/sound';
 import { lacksActions, registerAction } from './actions/act';
+import { releaseBody } from './actions/body';
 import { startEscapee } from './alarms';
 import { npcMoveOptions, isPresent, personOf } from './npc/walk';
 import { reconsider } from './npc/intent';
+import { bodyPos, draggedBy } from './place';
 import { witnessAct } from './perceive';
 import { alertNpc, expose, isEyesDown } from './suspicion';
 
@@ -247,8 +249,10 @@ export function commandPlan(world: ReadonlyWorld, state: State, crewId: string):
     const hears = new Set(npcsInside(state, ring));
     const targets: CommandTarget[] = [];
     for (const npc of state.npcs) {
-        if (BEYOND_COMMAND.has(npc.status) || !isPresent(npc) || npc.stashed !== null || state.crew.some(c => c.dragging === npc.id)) continue;
-        if (inCommand.has(npc.pos.y * world.width + npc.pos.x)) {
+        // A hostage led along (hostage.ts) is where its escort is; a body being dragged is beyond command anyway.
+        if (BEYOND_COMMAND.has(npc.status) || !isPresent(npc) || npc.stashed !== null) continue;
+        const at = bodyPos(state, npc);
+        if (inCommand.has(at.y * world.width + at.x)) {
             if (npc.status === 'hostile' || npc.lapse?.kind === 'reach') targets.push({ npc: npc.id, ring: 'command', outcome: 'ignores' });
             else if (isResister(world, npc) && npc.status !== 'commanded') {
                 targets.push({ npc: npc.id, ring: 'command', outcome: 'resists', chance: resistChance(world, state, crewId, npc, sight) });
@@ -263,7 +267,7 @@ export function commandPlan(world: ReadonlyWorld, state: State, crewId: string):
 /** The Commanded NPCs a hold by this crew member where they stand would keep down (§10.3), in resolution order. */
 export function holdTargets(world: ReadonlyWorld, state: State, crewId: string): string[] {
     const member = crewMember(state, crewId), sight = sightMap(world, state), radius = commandRadius(state, member);
-    return state.npcs.filter(n => n.command !== null && inCommandReach(sight, member.pos, radius, n.pos)).map(n => n.id);
+    return state.npcs.filter(n => n.command !== null && inCommandReach(sight, member.pos, radius, bodyPos(state, n))).map(n => n.id);
 }
 
 /** Puts an NPC face down for a crew member (§10.2), or refreshes its pips. */
@@ -461,14 +465,25 @@ registerWorldHook('crewPhase', 'command.lapse', ctx => {
         if (!keep && npc.command.pips === 0) lapsing.push(npc);
     }
     for (const c of state.crew) c.holding = null;
-    for (const npc of lapsing) lapse(ctx, npc, rollLapse(ctx, npc));
+    for (const npc of lapsing) {
+        // A hostage led along (hostage.ts) lapses where its escort stands, and shakes free unless it stays down.
+        const escort = draggedBy(state, npc.id);
+        if (escort) npc.pos = { x: escort.pos.x, y: escort.pos.y };
+        lapse(ctx, npc, rollLapse(ctx, npc));
+        if (!escort || npc.status === 'commanded') continue;
+        releaseBody(ctx.world, state, state.crew.find(c => c.id === escort.id)!);
+        ctx.emit({ type: 'hostageFree', crew: escort.id, npc: npc.id, at: { x: npc.pos.x, y: npc.pos.y } });
+    }
     if (lapsing.length) reconsider(ctx);
 }, { order: 100 });
 
 /** The archetype's roll (§10.5, §16.2): one chance after another, each the share of what is left, so each is shown odds. */
 function rollLapse(ctx: Ctx, npc: NpcState): LapseOutcome {
     const person = personOf(ctx.world, npc.id), weights = panicWeights(person.role, person.observer);
-    if (!weights) return 'reachForWeapon';
+    // An armed civilian always reaches for his weapon (§10.9); an enforcer a frisk disarmed goes for the alarm (his
+    // radio) instead (implementation plan §6 decision 66).
+    if (npc.armed === 'hidden') return 'reachForWeapon';
+    if (!weights) return npc.armed !== null ? 'reachForWeapon' : 'alarm';
     // Hiding needs a hiding place (M2-02): it counts as staying down.
     const options: [LapseOutcome, number][] = [['stayDown', weights.cower + weights.hide], ['flee', weights.flee], [weights.via ?? 'alarm', weights.special]];
     let left = options.reduce((sum, [, w]) => sum + w, 0);

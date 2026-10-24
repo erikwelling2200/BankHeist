@@ -4,7 +4,7 @@ import { registerStateInit } from '../../core/state';
 import type { CrewState, DeepReadonly, Pos, ReadonlyWorld, State } from '../../core/types';
 import { registerEvents } from '../../core/undo';
 import { registerBudgetModifier, registerDashCheck, registerMoveHook } from '../../crew/movement';
-import { BRUISER_CARRY_PENALTY, CARRY_WEIGHT, HEAVY_CARRY_PENALTY, POCKETS, THROW_RANGE, type CarryWeight } from '../../data/items';
+import { BRUISER_CARRY_PENALTY, CARRY_WEIGHT, HEAVY_CARRY_PENALTY, HOSTAGE, POCKETS, THROW_RANGE, type CarryWeight } from '../../data/items';
 import { HALF_STEPS_PER_TILE } from '../../data/movement';
 import { attended, registerEvidenceSource, type Evidence } from '../evidence';
 import { inHands, lootObject, lootWeight, syncHands } from '../hands';
@@ -117,7 +117,7 @@ const carryWeight = (member: DeepReadonly<CrewState>): Exclude<CarryWeight, 'lig
     (member.loadout.carrying !== null && Object.hasOwn(CARRY_WEIGHT, member.loadout.carrying) ? CARRY_WEIGHT[member.loadout.carrying]! : null);
 
 /** Whether a crew member's hands are free: nothing carried, no body dragged. */
-const handsFree = (member: DeepReadonly<CrewState>): boolean => member.loadout.carrying === null && member.dragging === null;
+export const handsFree = (member: DeepReadonly<CrewState>): boolean => member.loadout.carrying === null && member.dragging === null;
 
 /** Whether a tile is inside the bank's building (§15.1). */
 function inBuilding(world: ReadonlyWorld, p: Pos): boolean {
@@ -137,6 +137,7 @@ registerBudgetModifier('carrying', (_world, member, _mode, budget) => {
 });
 
 registerDashCheck('carrying', m => {
+    if (m.loadout.carrying === HOSTAGE) return `${m.name} can't dash leading a hostage`;
     if (m.dragging !== null) return `${m.name} can't dash dragging a body`;
     return carryWeight(m) ? `${m.name} can't dash carrying ${m.loadout.carrying === 'lootBag' ? 'a bag' : 'a crate'}` : undefined;
 });
@@ -319,13 +320,16 @@ registerAction('pass', {
     // Handing over a body is dragging it, seen on both of them (§8.4, decision 27).
     illegal(_world, state, cmd) {
         const member = state.crew.find(c => c.id === cmd.crew)!, mate = state.crew.find(c => c.id === cmd.to)!;
-        return member.dragging === null ? undefined : { act: 'dragBody', tiles: [member.pos, mate.pos] };
+        if (member.dragging === null) return undefined;
+        return { act: member.loadout.carrying === HOSTAGE ? 'command' : 'dragBody', tiles: [member.pos, mate.pos] };
     },
     run(ctx, member, cmd) {
         const mate = ctx.state.crew.find(c => c.id === cmd.to)!, npc = member.dragging, id = inHands(ctx.world, ctx.state, member.id);
         if (npc !== null) {
             mate.dragging = npc;
+            mate.leading = member.leading;
             member.dragging = null;
+            member.leading = false;
         } else ctx.state.loot[id!]!.holder = mate.id;
         syncHands(ctx.world, ctx.state, member);
         syncHands(ctx.world, ctx.state, mate);

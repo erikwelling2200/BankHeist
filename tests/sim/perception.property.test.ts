@@ -156,8 +156,11 @@ function predict(state: State, crew: string, sightings: readonly Sighting[]): Ef
  * predicted from the state the action leaves (the target down, the door moved): the witnesses of an illegal act, then
  * the end-of-action check, read by the design's words (`predict`).
  */
-/** The takeover's commands (M2-01), left to the preview property test. */
-const TAKEOVER = new Set(['command', 'go', 'maskUp', 'hold']);
+/**
+ * The takeover's commands (M2-01) and the hostages' (M2-03: a tied NPC can be freed and then Exposes whoever tied it, a
+ * rule of its own the sightings here don't model), left to the preview property test.
+ */
+const TAKEOVER = new Set(['command', 'go', 'maskUp', 'hold', 'zipTie', 'escort', 'coerce']);
 
 function playAction(world: ReadonlyWorld, state: State, cmd: Command, failures: string[], at: string): State {
     const seen = preview(world, state, cmd);

@@ -27,7 +27,8 @@ import { DOOR_KINDS, WALL_MATERIALS } from './materials';
  *   manager's PC, the alarm buttons that start a §9.1 carrier, and the loot.
  * - stash rooms: the cleaner's closet, where a body can be hidden (§8.10); the building: the bank's rooms under its
  *   roof, which a dye pack's cash must not leave (§15.1).
- * - people: their role, observer class and schedule (the typed `routine` with its tiles, run by rules/npc); cameras with
+ * - people: their role, observer class and schedule (the typed `routine` with its tiles, run by rules/npc), and a hidden
+ *   weapon on an off-duty cop (rules/actions/hostage.ts; everyone else carries what their class does); cameras with
  *   their facings, two for a panning one.
  * - the patrol car's lane along the main street and the timeline's drive-by turns (rules/checkins.ts), and the police
  *   arrival time of the bank's tier (`rules.policeEta`, §9.2).
@@ -62,6 +63,9 @@ export const OBJECT_KINDS: Partial<Record<LevelProp['kind'], string>> = {
     // Somewhere to stash a body (§8.10, rules/actions/body.ts).
     dumpster: 'dumpster'
 };
+
+/** The generator's trait of an armed civilian (src/gen/population.ts): 'off-duty cop (armed)'. */
+export const ARMED_CIVILIAN = 'off-duty cop';
 
 /** Rooms a body can be stashed anywhere in (§8.10, `World.stashRooms`). */
 export const STASH_ROOMS: readonly GenRoom['type'][] = ['cleanersCloset'];
@@ -183,7 +187,9 @@ export function worldFromBank(bank: GeneratedBank): ReadonlyWorld {
 
     const people: PersonDef[] = bank.people.map(p => ({
         id: p.id, name: p.name, role: p.role, observer: p.observer satisfies ObserverClass, pos: { x: p.tx, y: p.ty },
-        facing: PERSON_FACING[p.facing], schedule: (p.routine ?? []).map(scheduleBlock)
+        facing: PERSON_FACING[p.facing], schedule: (p.routine ?? []).map(scheduleBlock),
+        // An off-duty cop among the customers (§10.9): a hidden pistol, found only by a frisk.
+        ...(p.traits.some(t => t.startsWith(ARMED_CIVILIAN)) ? { armed: 'hidden' as const } : {})
     }));
     const cameras: CameraDef[] = bank.cameras.map(c => ({
         id: c.id, pos: { x: c.tx, y: c.ty }, facings: c.pan ? [c.pan[0], c.pan[1]] : [PROP_FACING[c.facing]], room: c.room

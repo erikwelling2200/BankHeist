@@ -11,7 +11,7 @@ import { HEAVY_ARMOUR_ITEM } from './movement';
  *   A packed item shows as at most `packed`: the case or the duffel is Concealed (§7.3, §12.1 "Concealed when cased").
  *   An item with `cased` carries its own case; anything else needs a duffel, which holds one long gun and one armour
  *   piece (§7.3).
- * - **Holstered** pistols count as Clean under a guard's uniform (§8.14); the disguise package reads `holsterable`.
+ * - **Holstered** pistols count as Clean under a guard's uniform (§8.14, rules/profile.ts `crewLook`).
  * - **Threat** (§12.1 Thr) is a weapon's command radius in tiles (§10.1); unarmed is `UNARMED_THREAT`.
  */
 
@@ -107,22 +107,33 @@ export const UNARMED_THREAT = 1;
 /** Wearing a mask sets the profile to Heavy (§6.3, §7.4). */
 export const MASK_PROFILE: Profile = 'heavy';
 
-/** Things carried in the hands that show (§7.4): a loot bag, a loot crate, a body. */
+/** A hostage led by the arm (§10.6 escort): in the hands like a body, `Loadout.carrying`. */
+export const HOSTAGE = 'hostage';
+
+/** Things carried in the hands that show (§7.4): a loot bag, a loot crate, a body, a hostage led along. */
 export const CARRIED: Readonly<Record<string, Profile>> = {
     lootBag: 'armed',
     lootCrate: 'armed',
-    body: 'armed'
+    body: 'armed',
+    [HOSTAGE]: 'armed'
 };
 
 /** How heavy loot is to carry (§15.1): Light is pocketed, Heavy and Very heavy are carried in the hands. */
 export type CarryWeight = 'light' | 'heavy' | 'very heavy';
 
-/** How heavy each thing carried in the hands is (§15.1): a bag Heavy, a crate or a body Very heavy. */
+/**
+ * How heavy each thing carried in the hands is (§15.1): a bag Heavy, a crate or a body Very heavy; a hostage led along
+ * too, "at half movement" (§10.6).
+ */
 export const CARRY_WEIGHT: Readonly<Record<string, Exclude<CarryWeight, 'light'>>> = {
     lootBag: 'heavy',
     lootCrate: 'very heavy',
-    body: 'very heavy'
+    body: 'very heavy',
+    [HOSTAGE]: 'very heavy'
 };
+
+/** Zip-ties each crew member brings (§7.3, §10.6). */
+export const ZIP_TIES = 4;
 
 /** What the hands carry for loot of each weight (`Loadout.carrying`). */
 export const LOOT_CARRY: Readonly<Record<Exclude<CarryWeight, 'light'>, string>> = { heavy: 'lootBag', 'very heavy': 'lootCrate' };

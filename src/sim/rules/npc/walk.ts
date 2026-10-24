@@ -63,14 +63,17 @@ export function personOf(world: ReadonlyWorld, id: string): DeepReadonly<PersonD
     return person;
 }
 
-/** Whether someone of this person's class walks through a door in this state (see the header). */
-export function npcCanPass(person: DeepReadonly<PersonDef>): (door: DeepReadonly<DoorDef>, status: DoorStatus) => boolean {
-    const keys = person.observer !== 'civilian';
-    return (door, status) => status === 'closed' || (status === 'locked' && keys && door.lock !== 'vault');
+/**
+ * Whether someone of this person's class walks through a door in this state (see the header); with `npc`, a keycard
+ * door only while it still has its keycard (a frisk takes it, rules/actions/hostage.ts).
+ */
+export function npcCanPass(person: DeepReadonly<PersonDef>, npc?: DeepReadonly<NpcState>): (door: DeepReadonly<DoorDef>, status: DoorStatus) => boolean {
+    const keys = person.observer !== 'civilian', card = npc ? npc.keycard : true;
+    return (door, status) => status === 'closed' || (status === 'locked' && keys && door.lock !== 'vault' && (card || door.lock !== 'keycard'));
 }
 
 export function npcMoveOptions(world: ReadonlyWorld, npc: DeepReadonly<NpcState>): MoveOptions {
-    return { mover: npc.id, canPassDoor: npcCanPass(personOf(world, npc.id)) };
+    return { mover: npc.id, canPassDoor: npcCanPass(personOf(world, npc.id), npc) };
 }
 
 /** Whether an NPC is on the map. */

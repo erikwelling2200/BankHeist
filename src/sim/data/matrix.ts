@@ -17,7 +17,11 @@ import type { Profile } from './items';
  *   civilians '-' there.
  * - **Peripheral** view is one step weaker (`PERIPHERAL`): ! → +2, +2 → +1, +1 → nothing, and a trespass needs Core.
  * - **Cameras** read the enforcer column and register only '!' (in their Core, which is all they have).
- * - **Illegal acts** are '!' for every observer, in any zone, in Peripheral view too (`ILLEGAL_ACTS`).
+ * - **Illegal acts** are '!' for every observer, in any zone, in Peripheral view too (`ILLEGAL_ACTS`). Changing into a
+ *   uniform is one too (§8.14 "out of every NPC's sight", implementation plan §6 decision 61).
+ * - **Guard and courier uniforms** (§8.14): the Staff zone reads as Public; in the Secure zone staff give +1 and
+ *   enforcers and cameras nothing; any enforcer within frisk range in Core, and the security chief at any range in
+ *   Core, sees through it: `!`.
  */
 
 /** A matrix cell. */
@@ -62,25 +66,49 @@ export const OUTCOME_RANK: Readonly<Record<Outcome, number>> = { '-': 0, '+1': 1
 export const OUTCOME_PIPS: Readonly<Record<Outcome, number>> = { '-': 0, '+1': 1, '+2': 2, T: 0, '!': 0 };
 
 /** Uniforms (§8.14). Augment to add one; give it an entry in `UNIFORMS`. */
-export interface UniformMap { staff: true }
+export interface UniformMap { staff: true; guard: true; courier: true }
 export type Uniform = keyof UniformMap;
 
 export interface UniformDef {
     /** Zones that read as another zone under this uniform. */
     zoneAs: Readonly<Partial<Record<Zone, Zone>>>;
-    /** Roles (`PersonDef.role`) who see through it in Core view and read the tile's own zone. */
+    /**
+     * Cells that read otherwise under this uniform, by the zone read and the observer's column, for a profile it holds
+     * over (Clean or Concealed as read): a guard's uniform in the Secure zone is +1 to staff and nothing to enforcers
+     * and cameras.
+     */
+    cells?: Readonly<Partial<Record<Zone, Readonly<Partial<Record<ObserverClass, Cell>>>>>>;
+    /** Roles (`PersonDef.role`) who see through it in Core view, at any range. */
     seenThroughBy: readonly string[];
+    /** An observer class that sees through it in Core view within frisk range (a guard: "You're not Dave."). */
+    seenThroughNear?: ObserverClass;
+    /** Seen through, it Exposes at once (`!`); otherwise the tile reads as its own zone (the staff uniform: trespass). */
+    exposes?: true;
+    /** A holstered pistol (`ItemDef.holsterable`) counts as Clean under it. */
+    holsters?: true;
 }
+
+/** A guard's uniform and a courier's (§8.14): the courier's works "as guard". */
+const GUARD_LIKE: UniformDef = {
+    zoneAs: { staff: 'public' },
+    cells: { secure: { staff: '+1', enforcer: '-' } },
+    seenThroughBy: ['chief'],
+    seenThroughNear: 'enforcer',
+    exposes: true,
+    holsters: true
+};
 
 export const UNIFORMS: Readonly<Record<Uniform, UniformDef>> = {
     // The manager is 'manager' and the security chief 'chief' in the generator's population (src/gen/population.ts).
-    staff: { zoneAs: { staff: 'public' }, seenThroughBy: ['manager', 'chief'] }
+    staff: { zoneAs: { staff: 'public' }, seenThroughBy: ['manager', 'chief'] },
+    guard: GUARD_LIKE,
+    courier: GUARD_LIKE
 };
 
 /** The illegal acts of §8.4: '!' for anyone who sees them, in Core or Peripheral view. */
 export const ILLEGAL_ACTS = [
     'lockpick', 'hack', 'zipTie', 'command', 'attack', 'knockout', 'dragBody', 'breach', 'drill', 'plantCharge', 'maskUp',
-    'takeLoot', 'pickPocket'
+    'takeLoot', 'pickPocket', 'changeClothes'
 ] as const;
 
 export type IllegalAct = (typeof ILLEGAL_ACTS)[number];

@@ -1339,7 +1339,7 @@ function doubtedWalkers(world: ReadonlyWorld, before: State, events: readonly Si
     let sight: SightMap | null = null;
     for (const npc of before.npcs) {
         if (!isPresent(npc) || !isKnownNow(world, before, npc.id)) continue;
-        const pass = npcCanPass(personOf(world, npc.id));
+        const pass = npcCanPass(personOf(world, npc.id), npc);
         let prev: DeepReadonly<Pos> = npc.pos, steps = -1;
         for (let i = 0; i < npc.intent.path.length && steps < 0; i++) {
             const p = npc.intent.path[i]!;

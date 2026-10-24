@@ -31,14 +31,16 @@ declare module '../../core/types' {
     interface CommandMap {
         /** Take hold of a body (knocked out, dead or tied) in reach, to drag it (1 action, an illegal act). */
         drag: { crew: string; npc: string };
-        /** Let go of the body being dragged, where the crew member stands (1 action). */
+        /** Let go of the body being dragged (or the hostage being led), where the crew member stands (1 action). */
         drop: { crew: string };
         /** Put the body being dragged in a stash: the object `at` in reach, or the stash room they stand in (1 action). */
         stash: { crew: string; at?: string };
     }
     interface CrewState {
-        /** The NPC whose body they drag (§8.10), or null. */
+        /** The NPC whose body they drag (§8.10), or the hostage they lead (`leading`, actions/hostage.ts), or null. */
         dragging: string | null;
+        /** The one in hand is a hostage led by the arm, not a body (§10.6 escort). */
+        leading: boolean;
     }
     interface NpcState {
         /** The stash it lies in (an object id or a room id), or null: a stashed body is not evidence. */
@@ -63,6 +65,7 @@ export const DRAGGABLE: ReadonlySet<NpcStatus> = new Set<NpcStatus>(['unconsciou
 
 registerCrewInit('body', (_world, _start, member) => {
     member.dragging = null;
+    member.leading = false;
 });
 
 registerNpcInit('body', (_world, _person, npc) => {
@@ -135,6 +138,8 @@ registerAction('stash', {
         const lack = lacksActions(member, 1);
         if (lack) return lack;
         if (member.dragging === null) return `${member.name} isn't dragging anyone`;
+        // A hostage led along must be tied first: one only face down would get up in there (hostage.ts).
+        if (state.npcs.find(n => n.id === member.dragging)?.status === 'commanded') return 'Only someone tied or out cold can be stashed';
         const stash = stashOf(world, state, member, cmd.at);
         return typeof stash === 'string' ? stash : undefined;
     },
@@ -157,9 +162,10 @@ registerAction('stash', {
     }
 });
 
-/** Lets go of the body a crew member drags (it stays where it lies). */
+/** Lets go of the body a crew member drags or the hostage they lead (it stays where it lies). */
 export function releaseBody(world: ReadonlyWorld, state: State, member: CrewState): void {
     member.dragging = null;
+    member.leading = false;
     syncHands(world, state, member);
 }
 

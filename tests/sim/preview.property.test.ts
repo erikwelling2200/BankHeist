@@ -70,7 +70,7 @@ const W = 14, H = 10;
 
 const LOADOUTS: readonly Partial<CrewStart>[] = [
     {}, {}, {}, { items: ['pistol'] }, { items: ['assaultRifle'] }, { masked: true }, { uniform: 'staff' }, { uniform: 'staff', items: ['pistol'] },
-    { notoriety: 2 }, { notoriety: 4, items: ['pistol'] }, { items: ['duffel'], packed: ['smg'] }
+    { uniform: 'guard', items: ['pistol'] }, { notoriety: 2 }, { notoriety: 4, items: ['pistol'] }, { items: ['duffel'], packed: ['smg'] }
 ];
 
 function randomSchedule(rng: Rng, free: readonly Pos[]): ScheduleBlock[] {
@@ -495,6 +495,9 @@ function tableRadius(state: State, member: State['crew'][number]): number {
     return state.takeover === state.turn ? Math.floor(threat * 1.5) : threat;
 }
 
+/** Where an NPC is: a hostage led along (M2-03) with whoever leads it. */
+const whereIs = (state: State, n: State['npcs'][number]): Pos => state.crew.find(c => c.dragging === n.id)?.pos ?? n.pos;
+
 /** The Commanded NPCs a hold keeps this world phase (§10.3), worked out here: within a holder's radius and sight. */
 function heldByHolds(world: ReadonlyWorld, state: State): Set<string> {
     const out = new Set<string>();
@@ -502,8 +505,8 @@ function heldByHolds(world: ReadonlyWorld, state: State): Set<string> {
         if (c.holding !== state.turn) continue;
         const radius = tableRadius(state, c);
         for (const n of state.npcs) {
-            const dx = n.pos.x - c.pos.x, dy = n.pos.y - c.pos.y;
-            if (n.command !== null && dx * dx + dy * dy <= radius * radius && hasLineOfSight(world, state, c.pos, n.pos)) out.add(n.id);
+            const at = whereIs(state, n), dx = at.x - c.pos.x, dy = at.y - c.pos.y;
+            if (n.command !== null && dx * dx + dy * dy <= radius * radius && hasLineOfSight(world, state, c.pos, at)) out.add(n.id);
         }
     }
     return out;
@@ -511,6 +514,8 @@ function heldByHolds(world: ReadonlyWorld, state: State): Set<string> {
 
 /** The takeover's commands (M2-01). */
 const TAKEOVER = new Set(['command', 'go', 'maskUp', 'hold']);
+/** The hostages' commands (M2-03), played in the takeover game. */
+const HOSTAGE_COMMANDS = new Set(['zipTie', 'escort', 'coerce']);
 
 /**
  * The command's rings (§10.1) are its outcome for everything not rolled, and a resister's shown chance is the chance
@@ -531,8 +536,8 @@ function checkCommand(run: Run, state: State, crew: string, r: CommitResult): vo
     const radius = tableRadius(state, member);
     if (plan.radius !== radius) probe.fail(`${run.label}: command radius ${plan.radius}, the weapon table says ${radius}`);
     for (const n of state.npcs) {
-        const dx = n.pos.x - member.pos.x, dy = n.pos.y - member.pos.y;
-        const inside = dx * dx + dy * dy <= radius * radius && hasLineOfSight(world, state, member.pos, n.pos);
+        const at = whereIs(state, n), dx = at.x - member.pos.x, dy = at.y - member.pos.y;
+        const inside = dx * dx + dy * dy <= radius * radius && hasLineOfSight(world, state, member.pos, at);
         const t = plan.targets.find(x => x.npc === n.id);
         if (t && (t.ring === 'command') !== inside) probe.fail(`${run.label}: ${n.id} in the ${t.ring} ring, within reach ${inside}`);
     }
@@ -1103,7 +1108,7 @@ function takeoverGame(probe: Probe, n: number): void {
     const roles: [string, ObserverClass][] = [['customer', 'civilian'], ['customer', 'civilian'], ['customer', 'civilian'], ['lobbyGuard', 'enforcer'], ['teller', 'staff'], ['manager', 'staff']];
     roles.forEach(([role, observer], i) => {
         const at = free();
-        people.push({ id: `n${i}`, name: `n${i}`, role, observer, pos: at, facing: rng.pick(FACINGS), schedule: [
+        people.push({ id: `n${i}`, name: `n${i}`, role, observer, pos: at, facing: rng.pick(FACINGS), ...(i === 0 && rng.chance(0.5) ? { armed: 'hidden' as const } : {}), schedule: [
             { from: 1, activity: role === 'teller' ? 'window' : role === 'manager' ? 'post' : 'wait', label: 'stands', room: '', at, facing: 'n' },
             { from: 99, activity: 'leave', label: 'leaves', room: '', at: exit }
         ] });
@@ -1133,6 +1138,17 @@ function takeoverGame(probe: Probe, n: number): void {
                 state = r.state;
             }
             member = state.crew.find(c => c.id === id)!;
+            // The hostages (M2-03): tie, lead, coerce whoever is face down in reach; each preview is its commit.
+            const hostage = legalActions(world, state, id).filter(c => HOSTAGE_COMMANDS.has(c.type));
+            if (member.actionsLeft > 0 && hostage.length && rng.chance(0.6)) {
+                const cmd = rng.pick(hostage), shown = actionPreview(world, state, cmd), r = commit(world, state, cmd);
+                probe.bump(`command ${cmd.type}`);
+                const projected = projectPreviewEvents(world, state, commit(world, withDoubtedShut(world, state), cmd));
+                if (!shown.ok || JSON.stringify(shown.events) !== JSON.stringify(projected)) probe.fail(`takeover ${n}: ${cmd.type} preview events differ from its commit`);
+                if (shown.ok && shown.events.some(e => e.type === 'hiddenWeaponFound')) probe.fail(`takeover ${n}: a preview told of a hidden weapon`);
+                state = r.state;
+                member = state.crew.find(c => c.id === id)!;
+            }
             if (member.actionsLeft > 0 && rng.chance(0.5) && state.npcs.some(x => x.command !== null)) state = commit(world, state, { type: 'hold', crew: id }).state;
         }
         state = endTurn(run, state);
@@ -1156,6 +1172,7 @@ describe('previews (property, §8.8)', () => {
         for (const k of ['command command complies', 'command command resists', 'command panic alerted', 'commanded held', 'commanded not held']) {
             expect(probe.stats[k] ?? 0, k).toBeGreaterThan(5);
         }
+        for (const k of ['command zipTie', 'command escort']) expect(probe.stats[k] ?? 0, k).toBeGreaterThan(5);
         // A guard whose command lapsed reaches for his weapon and ignores the next one.
         expect(probe.stats['command command ignores'] ?? 0).toBeGreaterThan(0);
     }, 300_000);

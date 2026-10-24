@@ -15,7 +15,9 @@ import './geo/move';
 import './geo/sound';
 import './rules/actions/act';
 import './rules/actions/body';
+import './rules/actions/disguise';
 import './rules/actions/door';
+import './rules/actions/hostage';
 import './rules/actions/interact';
 import './rules/actions/knockout';
 import './rules/actions/loot';
@@ -108,6 +110,10 @@ export { bodyAway, DRAGGABLE, releaseBody, STASH_KINDS, stashes } from './rules/
 export { bodyPos, draggedBy, onFloor, placeCrew } from './rules/place';
 export { crewLoot, lootOf, mayBeDyed, pocketed, throwPlan, throwTargets, type LootState, type ThrowPlan } from './rules/actions/loot';
 export { handsCarry, inHands, lootWeight } from './rules/hands';
+export { CHANGE_ACTIONS, uniformFrom, UNIFORM_KINDS } from './rules/actions/disguise';
+export {
+    CODE_ROLES, DRAWER_ROLES, startingKeycard, startingWeapon, tieIneligible, type NpcWeapon
+} from './rules/actions/hostage';
 export { knockoutBlocked, knockoutIneligible, registerKnockoutWindow, type KnockoutWindow } from './rules/actions/knockout';
 export { interactionVerbs, reachesObject, registerInteraction, type InteractionHandler, type InteractionVerb } from './rules/actions/interact';
 export {

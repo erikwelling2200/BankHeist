@@ -203,9 +203,13 @@ function cutPath(ctx: Ctx, member: CrewState, path: readonly Pos[], mode: MoveMo
     return { walked: path.slice(0, keep).map(p => ({ x: p.x, y: p.y })), cut };
 }
 
-/** Whether a crew member holds the key to a locked door. Keys arrive with the key graph (M1-06/M1-07): none yet. */
-export function crewHasKey(_member: DeepReadonly<CrewState>, _door: DeepReadonly<DoorDef>): boolean {
-    return false;
+/**
+ * Whether a crew member holds the key to a locked door: a keycard door with a keycard taken in a frisk
+ * (rules/actions/hostage.ts; any keycard opens any keycard door until the key graph names whose opens which, M2-05,
+ * implementation plan §6 decision 60). Mechanical keys, maglocks and the vault arrive with the key graph.
+ */
+export function crewHasKey(member: DeepReadonly<CrewState>, door: DeepReadonly<DoorDef>): boolean {
+    return door.lock === 'keycard' && member.keycards.length > 0;
 }
 
 /** The doors a crew member walks through, opening them: closed ones, and locked ones they hold the key to. */

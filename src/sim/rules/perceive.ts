@@ -127,17 +127,26 @@ export function reaction(rules: DeepReadonly<Rules>, input: ReactionInput): Reac
     if (profileRank(profile) > profileRank(plain)) why.push('onEdge');
     let readAs = input.zone;
     const uniform = input.look.uniform;
+    let cell = MATRIX[readAs][profile][OBSERVER_COLUMN[reader]];
     if (uniform !== null) {
-        const def = UNIFORMS[uniform], as = def.zoneAs[input.zone];
-        if (as !== undefined) {
-            if (!input.camera && input.band === 'core' && input.role !== null && def.seenThroughBy.includes(input.role)) why.push('seenThrough');
-            else {
-                readAs = as;
-                why.push('uniform');
-            }
+        const def = UNIFORMS[uniform], as = def.zoneAs[input.zone], held = profileRank(profile) <= profileRank('concealed');
+        const over = def.cells?.[input.zone]?.[reader];
+        const seenThrough = !input.camera && input.band === 'core' && (
+            (input.role !== null && def.seenThroughBy.includes(input.role))
+            || (def.seenThroughNear === input.observer && input.chebyshev <= rules.friskRange));
+        if (seenThrough && (as !== undefined || over !== undefined || def.exposes)) {
+            why.push('seenThrough');
+            // A guard's uniform seen through is an impostor (§8.14 "You're not Dave."): Exposed at once.
+            if (def.exposes) return { profile, readAs, cell: '!', outcome: '!', why };
+        } else if (as !== undefined) {
+            readAs = as;
+            cell = MATRIX[readAs][profile][OBSERVER_COLUMN[reader]];
+            why.push('uniform');
+        } else if (over !== undefined && held) {
+            cell = over;
+            why.push('uniform');
         }
     }
-    const cell = MATRIX[readAs][profile][OBSERVER_COLUMN[reader]];
     let outcome: Outcome;
     if (cell === '+1f') {
         const near = input.chebyshev <= rules.friskRange;

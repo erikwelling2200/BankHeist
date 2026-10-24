@@ -85,7 +85,7 @@ function judge(world: ReadonlyWorld, state: State): EvidenceWarning[] {
     // The steps of an NPC's walk no doubted door could stop, or undefined: all of them.
     const cut = (npc: DeepReadonly<NpcState>): number | undefined => {
         if (!d || !npc.intent.path.length) return undefined;
-        const pass = npcCanPass(personOf(world, npc.id));
+        const pass = npcCanPass(personOf(world, npc.id), npc);
         let prev: DeepReadonly<Pos> = npc.pos;
         for (let i = 0; i < npc.intent.path.length; i++) {
             const p = npc.intent.path[i]!;

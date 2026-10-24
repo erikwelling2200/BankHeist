@@ -1,12 +1,12 @@
 import { sortedIds } from '../core/json';
 import { registerStateCheck } from '../core/save';
 import type { CrewState, DeepReadonly, ReadonlyWorld, State, WorldObject } from '../core/types';
-import { LOOT_CARRY, type CarryWeight } from '../data/items';
+import { HOSTAGE, LOOT_CARRY, type CarryWeight } from '../data/items';
 
 /*
  * What a crew member's hands hold (§15.1, §8.10) has one source of truth: the body they drag (`CrewState.dragging`,
  * actions/body.ts) or the loot that isn't Light whose holder they are (`State.loot`, actions/loot.ts). The look of it,
- * `Loadout.carrying` ('body', 'lootBag', 'lootCrate': what the profile reads, §7.4), is derived from those by
+ * `Loadout.carrying` ('body', 'hostage', 'lootBag', 'lootCrate': what the profile reads, §7.4), is derived from those by
  * `syncHands`, the only thing that writes it, after every change to them; a save whose `carrying` disagrees is refused.
  * So nothing can be shown carried that can't be put down. Kept apart from the actions so both can import it.
  */
@@ -28,7 +28,7 @@ export function inHands(world: ReadonlyWorld, state: DeepReadonly<State>, crewId
 
 /** What a crew member's hands show carrying, from the body they drag or the loot in them: `Loadout.carrying`'s value. */
 export function handsCarry(world: ReadonlyWorld, state: DeepReadonly<State>, member: DeepReadonly<CrewState>): string | null {
-    if (member.dragging !== null) return 'body';
+    if (member.dragging !== null) return member.leading ? HOSTAGE : 'body';
     const id = inHands(world, state, member.id);
     return id === undefined ? null : LOOT_CARRY[lootWeight(world, id) as Exclude<CarryWeight, 'light'>];
 }
@@ -46,7 +46,7 @@ registerStateCheck('hands', (raw, world) => {
         // With the world, exactly; an autosave's state alone (its world saved apart) can't weigh loot, only tell a
         // body from loot and loot from nothing.
         const holds = sortedIds(state.loot).some(id => state.loot[id]!.holder === c.id);
-        const held = world ? handsCarry(world, state, c) : c.dragging !== null ? 'body' : holds && shown !== 'body' ? shown : null;
+        const held = world ? handsCarry(world, state, c) : c.dragging !== null ? (c.leading ? HOSTAGE : 'body') : holds && shown !== 'body' && shown !== HOSTAGE ? shown : null;
         if (shown !== held) return `${c.id} shows carrying '${shown}' but holds ${held ?? 'nothing'}`;
     }
     return undefined;

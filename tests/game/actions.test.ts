@@ -27,6 +27,16 @@ function scene(): { world: ReadonlyWorld; state: State } {
 const ids = (world: ReadonlyWorld, state: State, target?: string) => actionMenu(world, state, 'jun', target).map(e => `${e.id}${e.reason ? '!' : ''}`);
 
 describe('the action grid', () => {
+    it('offers Zip-tie and Lead on someone face down (M2-03)', () => {
+        const { world, state } = scene();
+        const down = commit(world, state, { type: 'command', crew: 'jun' }).state;
+        expect(ids(world, down)).toEqual(['door:open', 'door:lock', 'knockout!', 'zipTie', 'escort', 'wait', 'command', 'hold', 'mask']);
+        expect(menuIsLegal(world, down, 'jun', actionMenu(world, down, 'jun'))).toBe(true);
+        const tied = commit(world, down, actionMenu(world, down, 'jun').find(e => e.id === 'zipTie')!.command);
+        expect(tied.state.npcs[0]!.status).toBe('tied');
+        expect(describeEvent(world, tied.state, { type: 'zipTied', crew: 'jun', npc: 'clerk' })).toBe('jun zip-tied clerk');
+    });
+
     it('offers what the sim allows where the crew member stands, for the tapped target', () => {
         const { world, state } = scene();
         expect(targetsOf(world, state, 'jun')).toEqual({ doors: ['d'], npcs: ['clerk'], objects: ['dumpster-0'], cameras: [], loot: [] });

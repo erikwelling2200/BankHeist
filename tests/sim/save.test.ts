@@ -78,7 +78,7 @@ describe('saving', () => {
  * NpcStatusMap, CarrierKindMap or adds a field must also fill it in below, or a change of shape goes unnoticed.
  */
 const SHAPE_HASHES: Record<number, string> = {
-    1: '117209a95b7c85de'
+    1: '8bd2490a05b09e62'
 };
 
 /** Paths whose objects are records by id, not structs. */
@@ -140,6 +140,11 @@ describe('the save format', () => {
         full.npcs[0]!.command = { pips: 0, by: 'jun' };
         full.npcs[0]!.lapse = { kind: 'flee', exit: { x: 2, y: 2 } };
         full.npcs[0]!.surprised = 1;
+        full.npcs[0]!.armed = 'hidden';
+        full.npcs[0]!.tiedBy = 'jun';
+        full.npcs[0]!.untying = { by: 'guard', phases: 1 };
+        full.npcs[0]!.stripped = true;
+        full.crew[0]!.keycards = ['guard'];
         full.crew[0]!.holding = 1;
         full.takeover = 1;
         full.held = ['guard'];
@@ -154,7 +159,7 @@ describe('the save format', () => {
         full.crew[0]!.notoriety = 2;
         full.edges['eastWest 0 1'] = { material: 'soft', blocksMove: false, blocksSight: false, blocksSound: false, midHeight: false };
         full.doors.staffDoor = { status: 'open', propped: true };
-        full.objects.panel = { disabled: true, open: false, progress: 2 };
+        full.objects.panel = { disabled: true, open: false, progress: 2, codes: ['manager'] };
         full.objects.recorder = { taken: 'jun', destroyed: false };
         full.cameras.cam = { facing: 0, live: true, loopedUntil: 3 };
         full.crew[0]!.loadout = { items: ['pistol', 'duffel'], packed: ['assaultRifle'], uniform: 'staff', masked: false, carrying: 'lootBag' };
@@ -188,6 +193,8 @@ describe('the save format', () => {
                 cameras: [{ id: 'cam', pos: { x: 0, y: 0 }, facings: ['s', 'e'], room: 'lobby', seesInDark: true }],
                 people: world.people.map(p => ({
                     ...p,
+                    armed: 'hidden' as const,
+                    keycard: true,
                     schedule: [
                         { from: 3, setOff: 1, activity: 'post' as const, label: 'at post', room: 'lobby', at: { x: 0, y: 0 }, facing: 's' as const },
                         { from: 2, activity: 'patrol' as const, label: 'patrol', room: '', route: [{ x: 0, y: 0 }, { x: 1, y: 0 }] }

@@ -656,10 +656,43 @@ Each package lists its goal, the design sections it covers, the files, what it d
   - **Work:** structured traits in the generator (replacing the trait strings).
   - **Depends on:** M2-01. **∥** M2-03, M2-04.
   - **Accept:** no NPC draws without one telegraphed phase (property test); the panic-spread fixture.
-- [ ] **M2-03 Zip-ties, frisking, escort, coercion and disguises.**
+- [x] **M2-03 Zip-ties, frisking, escort, coercion and disguises.**
   - **Covers:** §10.6, §10.7 (keys, drawers), §8.14 (decision Q14).
   - **Depends on:** M2-01. **∥** M2-02, M2-04.
   - **Accept:** a frisk removes hidden weapons and keycards; a disguise changes the matrix cells as §8.14 says.
+  - **Notes (done):** `rules/actions/hostage.ts` (what NPCs carry, zip-ties and the frisk, freeing, escort, coercion),
+    `rules/actions/disguise.ts` (where uniforms come from), the guard and courier uniforms in `data/matrix.ts`
+    (`UniformDef.cells`, `seenThroughNear`, `exposes`, `holsters`) read by perceive.ts `reaction`, the holster rule in
+    profile.ts `crewLook`. Decisions 59–66.
+    - **What NPCs carry:** `NpcState.armed` ('holstered' | 'hidden' | null) and `NpcState.keycard`, from
+      `PersonDef.armed` / `.keycard` or by class (enforcers a holstered pistol; staff and enforcers a keycard);
+      `fromBank` gives the generator's off-duty cops ('off-duty cop (armed)') a hidden pistol.
+    - **Commands:** `zipTie { crew, npc }` (1, in reach, hands free, `CrewState.zipTies` 4, a Commanded, Surprised or
+      out-cold NPC; illegal act 'zipTie' seen on both tiles; tied, `tiedBy`; the frisk takes the weapon and the keycard
+      into `CrewState.keycards`), `escort { crew, npc }` (1, a Commanded or tied NPC; `dragging` with `carrying`
+      'hostage' through `CrewState.leading`; Drop lets go), `coerce { crew, npc, at }` (1, a drawer or the vault console; `ObjectState.codes`),
+      `changeClothes { crew, from }` (2, a downed guard, `NpcState.stripped`, or staff lockers). All in `legalActions`.
+    - **Keys:** `crewHasKey` is true for a keycard door with any keycard taken; an NPC frisked of its keycard no longer
+      passes keycard doors (`npcCanPass(person, npc)`).
+    - **Lapses:** an armed civilian always reaches for his weapon (§10.9); an enforcer without a weapon goes for the
+      alarm (his radio). A Commanded hostage led along lapses where its escort stands and shakes free (`hostageFree`)
+      unless it stays down; command and hold rings read a led hostage where its escort is (`bodyPos`).
+    - **For the UI (M2-06):** the grid offers Zip-tie (with the ties left), Lead, Coerce ("open the drawer", "enter the
+      code") and Change clothes; recap lines for every event. Events: `zipTied`, `weaponTaken`, `hiddenWeaponFound`
+      (a preview secret), `keycardTaken`, `escorting`, `hostageFree`, `coerced`, `codeEntered`, `untying`, `freed`,
+      `changedClothes`.
+    - **Tests:** `tests/sim/hostage.test.ts` (tying and its targets, the frisk finding a hidden weapon only on commit and
+      taking a keycard that opens a keycard door, freeing, escort's penalties, coercing a teller across the window and
+      a key-holder at the console, the armed civilian's lapse, changing clothes, the holster rule, and every matrix
+      cell §8.14 changes); the preview property test's takeover game ties, leads and coerces (each preview equal to its
+      commit, never telling of a hidden weapon), with an armed civilian among the crowd, and the floor's loadouts gain
+      a guard's uniform with a pistol; the perception property test leaves the hostage commands to it. Save shape hash
+      `8bd2490a05b09e62`.
+    - **Deferred:** NPCs setting out to free a tied colleague on purpose (they free one only when they stay in reach;
+      M2-02's behaviour or M3), police freeing hostages and what a released hostage tells (M3); which keycard opens
+      which door, mechanical keys and the maglock buzzer (M2-05's key graph); what the console's codes open (M2-05);
+      uniforms at shift change only, and the courier van's uniforms (M6); the shield, negotiation and trades (M3);
+      the hostage drawn standing beside its escort (M2-06).
 - [x] **M2-04 Loot and carrying.**
   - **Covers:** §15.1, bodies in §8.10 (drag, stash).
   - **Work:** Light, Heavy and Very heavy loot; throwing and catching; chains; dye packs; generator loot wired in.
@@ -1161,6 +1194,45 @@ Later milestones: within each milestone, the `∥` notes in §3 apply. UI packag
     "2+ crew aiming".
 58. **Hidden in the state (M2-04).** `LootState.dyePack` is the truth, never read by a view model; a pack flagged by
     intel (a later planning asset) would make it known and then shown.
+
+59. **Zip-ties (M2-03).** A zip-tie needs free hands and a target in reach that is Commanded, Surprised (GO) or out
+    cold; "compliant" in §10.6 is read as Commanded (a Twitchy NPC staying down included). One out cold is tied as it
+    lies and comes round tied: the knockout's wake no longer applies. Tying clears its command, lapse and intent, so a
+    tied NPC never lapses, and its carriers are countered as for anyone tied. The frisk is part of the tie: nothing
+    else frisks an NPC.
+60. **Keycards (M2-03).** Every staff member and enforcer carries a keycard (the cleaner's opens what his keys did); a
+    frisk takes it into the crew member's `keycards`. Until M2-05's key graph says whose card opens which door, any
+    taken keycard opens every keycard door (not maglocks, mechanical locks or the vault), as NPCs with keys pass them
+    all. An NPC frisked of its card no longer passes keycard doors.
+61. **Changing clothes is witnessed (M2-03).** §8.14 "out of every NPC's sight" is the illegal act 'changeClothes' (`!`
+    for anyone who sees it, Core or Peripheral, cameras too), not a refusal: refusing a change in view of an NPC the
+    crew can't see would tell the player who is watching. Staff uniforms come from staff lockers (`lockers` on Staff
+    floor, the break room's) at any time; the shift-change timing is M6's. A stripped guard stays the body or tied
+    person it was (major evidence until stashed). Changing needs free hands; it replaces any uniform worn.
+62. **Guard and courier uniforms in the matrix (M2-03).** The Staff zone reads as Public; in the Secure zone (for Clean
+    and Concealed as read) staff give +1, enforcers and cameras nothing. "Any guard within 2 tiles" is any enforcer
+    within frisk range (Chebyshev 2) in Core, the security chief at any range in Core; seen through, the crew member
+    is Exposed (`!`) in any zone. A holstered pistol (`holsterable`) counts as Clean while the uniform holds; once it
+    breaks the profile is computed as without it. The courier's uniform is the guard's ("as guard"). The unknown
+    observer's worst case needs nothing new: the enforcer class within frisk range and the chief's role are already in
+    it.
+63. **Escort (M2-03)** is leading a Commanded or tied hostage by the arm, 1 action: the hostage is in the hands like a
+    body (`dragging` with `CrewState.leading`, so `carrying` 'hostage' by rules/hands.ts, Very heavy: half movement, a Bruiser's −1 tile, no Dash, sidearms only), and
+    leading it is the illegal act 'command' for as long as it lasts (§8.4 "commanding"; dragging's pattern, decision
+    27). It is where its escort is; Drop lets go (1 action) and Pass hands it over. A hostage only face down can't be
+    stashed. Its command still ticks: a lapse other than staying down shakes it free where the escort stands.
+64. **Coercion (M2-03).** 1 action, the illegal act 'command': the hostage (Commanded or tied) is next to the crew
+    member and in their sight, which lets a teller's drawer be opened across the teller glass; the drawer or console
+    must be in the hostage's reach. Drawers stay open to taking as M2-04 made them; coercion reaches one the crew can't.
+    A teller (teller, head teller, drive teller) opens a drawer not yet taken and the cash is pocketed; a manager or
+    head teller enters their part of the code at a vault console once (`ObjectState.codes`), which M2-05 reads.
+65. **Freeing (M2-03).** A free NPC (up, not Hostile) that has noticed the tied one and ends a world phase in its reach
+    starts untying it (`untying`, shown for a crew phase); ending the next world phase in reach too frees it, Alerted,
+    reporting its assault like a knockout victim who comes round (it doesn't Expose whoever tied it: the overlay's
+    world phase would have to foresee it, and a knockout victim doesn't either). Another helper, or a gap, starts over.
+66. **Weapons and lapses (M2-03).** §10.5 "reach for weapon (armed NPCs only)": an NPC with a hidden weapon (the
+    off-duty cop) always reaches when his command lapses (§16.2); an enforcer with his pistol reaches as before; one a
+    frisk disarmed goes for the alarm (his radio) instead.
 
 ### Critical files for implementation
 
