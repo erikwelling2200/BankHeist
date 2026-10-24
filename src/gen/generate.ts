@@ -169,7 +169,7 @@ function finishBank(shell: Shell, rng: Rng, people: Rng, spec: TierSpec, opts: G
     return {
         seed: { layout: opts.layout, population: opts.population },
         name: `${named.pick(BANK_NAMES)} ${named.pick(BANK_KINDS)}, ${named.pick(STREETS)}`,
-        tier, archetype, plot: shell.plotKind, headlines, vaultClass, timeLock, dualControl: spec.dualControl, policeEta: spec.policeEta,
+        tier, archetype, plot: shell.plotKind, headlines, vaultClass, timeLock, dualControl: spec.dualControl, policeEta: spec.policeEta, dyePacks: spec.dyePacks,
         level: site.level(), rooms: site.rooms, doors: site.doors, props: site.props, people: pop.people, cameras, locks,
         approaches: ways.approaches, routes: ways.routes, getaways: ways.getaways, exits: ways.exits, staging: ways.staging,
         neighbours: shell.neighbours.map(n => n.slot.kind), timeline: pop.timeline, opportunities: pop.opportunities, intel: pop.intel,

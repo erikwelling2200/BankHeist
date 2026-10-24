@@ -28,6 +28,9 @@ import { cachedBank } from './bankCache';
  * furniture and people as the hand-made bank does, and is replayable from its seeds.
  */
 
+/** A generous timeout for the tests that walk many generated banks: vitest's 5 s runs out under load. */
+const HEAVY = 60000;
+
 /**
  * A generated bank, shared with the other test files and kept between runs (tests/bankCache.ts). The checks of the
  * generator itself (that every tier, archetype and plot builds and passes §17.7, and replays) run it afresh.
@@ -74,7 +77,7 @@ describe('the generator', () => {
     }, 60000);
 });
 
-describe('a generated bank', () => {
+describe('a generated bank', { timeout: HEAVY }, () => {
     const samples = [bank(11, 1, { tier: 'small' }), bank(12, 2, { tier: 'city', archetype: 'atrium' }), bank(13, 3, { tier: 'hq', archetype: 'fortress' }), bank(14, 4, { tier: 'city', archetype: 'mezzanineWatch' })];
 
     it('has every room the design gives the tier a job for (§17.4), with the CCTV room in another wing than the vault', () => {
@@ -225,7 +228,7 @@ describe('room parcels (§17.1)', () => {
  * rather than one stretched hall, shape moves between neighbours, and locked shortcuts where a walk goes the long way.
  * Checked on the shells (rooms, walls and doors) of every tier, archetype and plot over several seeds.
  */
-describe('interiors', () => {
+describe('interiors', { timeout: HEAVY }, () => {
     const shell = (layout: number, tier: Tier, archetype: Archetype, plot: PlotKind): Shell => {
         const rng = new Rng(layout), shape = rollShape(rng, { layout, population: 1, tier, archetype, plot });
         for (let attempt = 0; attempt < 20; attempt++) {
@@ -419,7 +422,7 @@ describe('regressions found by adversarial review', () => {
     }, 60000);
 });
 
-describe('the room gallery', () => {
+describe('the room gallery', { timeout: HEAVY }, () => {
     it('builds every room type in every variant, each with a door, furnished by the parcels', () => {
         const { data, cells } = roomGallery();
         expect(cells.length).toBe(GALLERY_TYPES.length * GALLERY_VARIANTS.length);
@@ -471,7 +474,7 @@ function siteOf(b: GeneratedBank): { roomAt: (x: number, y: number) => GenRoom |
  * the walks between their doors kept free, desks staffed by a share of the people, a story or two per room, and the
  * room metrics in the validation report.
  */
-describe('furnishing by activity', () => {
+describe('furnishing by activity', { timeout: HEAVY }, () => {
     /** A room `w` by `h` with walls round it and a door in its south wall, alone on a site. */
     const lone = (w: number, h: number) => {
         const site = new Site(w + 4, h + 4), rng = new Rng(5);
@@ -609,5 +612,24 @@ describe('furnishing by activity', () => {
             }
         }
         expect(notes).toBeGreaterThan(sweep.length / 4);
+    });
+});
+
+describe('dye packs (§15.1)', { timeout: HEAVY }, () => {
+    it('hide in one open teller window\'s drawer, rolled, not always the westmost', () => {
+        let notWestmost = 0;
+        for (const b of sweep) {
+            expect(b.dyePacks, b.tier).toBe(TIER_SPECS[b.tier].dyePacks);
+            const dyed = b.loot.filter(l => l.dyePack);
+            if (!b.dyePacks) {
+                expect(dyed).toEqual([]);
+                continue;
+            }
+            const windows = b.loot.filter(l => l.name === 'Cash drawer' && b.rooms.find(r => r.id === l.room)?.type === 'tellerLine');
+            expect(dyed.length, `${b.tier} ${b.archetype}`).toBe(1);
+            expect(windows).toContain(dyed[0]);
+            if (dyed[0]!.tx > Math.min(...windows.map(w => w.tx))) notWestmost++;
+        }
+        expect(notWestmost).toBeGreaterThan(0);
     });
 });

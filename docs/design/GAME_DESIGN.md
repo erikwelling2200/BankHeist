@@ -861,7 +861,9 @@ turn a slipping crowd into an escalating situation.
 
 - **Decided when the bank is generated:** 0–2 per bank by tier, usually an off-duty cop among the customers.
 - **No tells.** He looks, moves and inspects exactly like any other customer, and no intel marks him. The player
-  can't know which civilian it is, only that one might be.
+  can't know which civilian it is, only that one might be. Even the odds shown for his lapse are a customer's: the one
+  place a preview knowingly differs from the outcome, since true odds would point him out. The promise kept for him
+  is the telegraphed reach below.
 - **Found by a frisk:** zip-tying includes a frisk, which finds and removes the weapon.
 - **When he acts:** while Commanded or tied, never. When he is **Panicked** or his command **lapses**, his reaction
   is always ***Reach for weapon***. The intent shows for one world phase, and he becomes Hostile only after it. No

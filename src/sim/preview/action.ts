@@ -6,7 +6,8 @@ import type { NoiseKind } from '../data/noise';
 import { DEAF_STATUSES, inRing, soundRing, type Ring } from '../geo/sound';
 import { carrierPreview, projectCarriers, type CarrierPreview } from '../rules/carriers';
 import { hearing } from '../rules/evidence';
-import { doorDoubt, doubtStates, narrowDoubt, previewCertain, projectPreviewEvents } from '../rules/knowledge';
+import { carriedOut } from '../rules/actions/loot';
+import { doorDoubt, doubtStates, doubtedCut, narrowDoubt, previewCertain, projectPreviewEvents } from '../rules/knowledge';
 import { pathSafety, type PathSafety } from './floor';
 import { previewPicture } from './picture';
 
@@ -162,6 +163,14 @@ export function actionPreview(world: ReadonlyWorld, state: State, cmd: Command):
     };
     if (result.pending) out.odds = result.pending;
     const dyed = events.flatMap(e => (e.type === 'cashOut' ? [e.loot] : []));
+    // A move cut at a door that could refuse it shows no step beyond: cash its path takes out past the door is marked
+    // all the same, and the move is final whichever way the door goes (a refusal is final too).
+    const cut = doubtedCut(world, state, cmd);
+    if (cut && before && (cmd.type === 'move' || cmd.type === 'dash')) {
+        const beyond = carriedOut(world, state, cut.crew, cut.step ? cmd.path[cut.step - 1]! : before.pos, cmd.path.slice(cut.step));
+        for (const id of beyond) if (!dyed.includes(id)) dyed.push(id);
+        if (beyond.length) out.undoable = false;
+    }
     if (dyed.length) out.mayBeDyed = dyed;
     if ((cmd.type === 'move' || cmd.type === 'dash') && crew) out.path = pathSafety(world, state, crew, cmd.path, { mode: cmd.type });
     return out;

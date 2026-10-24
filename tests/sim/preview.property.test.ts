@@ -1004,7 +1004,7 @@ function playLoot(probe: Probe, rng: Rng, n: number): void {
         const role = observer === 'civilian' ? 'customer' : observer === 'staff' ? 'teller' : 'guard';
         people.push({ id: `n${i}`, name: `n${i}`, role, observer, pos: take(), facing: rng.pick(FACINGS), schedule: randomSchedule(rng, free) });
     }
-    const world = fixtureWorld(map, { rooms, walls, people, objects, rules: { checkInPeriod: 2, dispatchCheckInPeriod: 2, dispatchSilence: 2 } });
+    const world = fixtureWorld(map, { rooms, walls, people, objects, rules: { checkInPeriod: 2, dispatchCheckInPeriod: 2, dispatchSilence: 2, dyePacks: true } });
     const state = initialState(world, { seed: n, crew });
     play({ world, rng, omniscient: n % 2 === 0, label: `loot ${n}`, tier: 'fixture', probe, loot: true }, state, FIXTURE_TURNS + 2, false);
 }

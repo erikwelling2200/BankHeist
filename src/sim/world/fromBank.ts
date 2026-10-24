@@ -31,7 +31,7 @@ import { DOOR_KINDS, WALL_MATERIALS } from './materials';
  *   weapon on an off-duty cop (rules/actions/hostage.ts; everyone else carries what their class does); cameras with
  *   their facings, two for a panning one.
  * - the patrol car's lane along the main street and the timeline's drive-by turns (rules/checkins.ts), and the police
- *   arrival time of the bank's tier (`rules.policeEta`, §9.2).
+ *   arrival time of the bank's tier (`rules.policeEta`, §9.2), and whether it hides dye packs (`rules.dyePacks`, §15.1).
  */
 
 /** A person's facing as drawn (front is toward the camera, south) to the rules' eight. */
@@ -204,7 +204,7 @@ export function worldFromBank(bank: GeneratedBank): ReadonlyWorld {
         for (let x = Math.min(west.tx, east.tx); x <= Math.max(west.tx, east.tx); x++) if (x >= 0 && x < width && tiles[west.ty * width + x]?.room) lane.push({ x, y: west.ty });
     }
     const patrol = { lane, turns: bank.timeline.filter(t => t.name === 'Patrol drive-by').map(t => t.turn).sort((a, b) => a - b) };
-    // Police in N (§9.2) by the bank's tier.
-    const rules = { ...defaultRules(), policeEta: bank.policeEta };
+    // Police in N (§9.2) and dye packs or none (§15.1) by the bank's tier.
+    const rules = { ...defaultRules(), policeEta: bank.policeEta, dyePacks: bank.dyePacks };
     return freezeWorld({ width, height, tiles, edges, doors, objects, people, cameras, rules, stashRooms, building, ...(lane.length ? { patrol } : {}) });
 }

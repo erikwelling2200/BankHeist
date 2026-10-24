@@ -308,11 +308,13 @@ function tellerLine(style: 'backCounters' | 'cabinets' | 'mixed'): ParcelFn {
         const open = windows.slice(0, Math.max(1, ctx.tellers));
         const counter: LevelProp = { kind: 'counter', tx: x0, ty: row, width: x1 - x0, stations: windows, closed: windows.filter(x => !open.includes(x)), gate: ctx.gateX };
         if (!p.f.try(counter, room)) throw new Error(`The teller counter doesn't fit the front row of ${room.id}`);
+        // A dye pack in one open window's drawer (§15.1), unmarked: only inspecting the cash finds it. Which window comes
+        // from a stream of its own, so it isn't learnable from the layout and the rest of the room rolls as before.
+        const dyed = ctx.dyePacks && open.length ? p.rng.fork('dyePack').pick(open) : undefined;
         for (const x of open) {
             if (p.f.stand(x, row - 1)) p.out.stations.push({ tx: x, ty: row - 1, facing: 'front', role: 'teller', room: room.id });
             p.out.alarms.push({ tx: x, ty: row - 1, name: 'Teller window alarm button', room: room.id });
-            // A dye pack in the first window's drawer (§15.1), unmarked: only inspecting the cash finds it.
-            p.out.loot.push({ tx: x, ty: row - 1, name: 'Cash drawer', value: 5000, weight: 'light', room: room.id, ...(ctx.dyePacks && x === open[0] ? { dyePack: true as const } : {}) });
+            p.out.loot.push({ tx: x, ty: row - 1, name: 'Cash drawer', value: 5000, weight: 'light', room: room.id, ...(x === dyed ? { dyePack: true as const } : {}) });
         }
         p.walks();
         if (style === 'backCounters') p.lineNorth(['backCounter', 'printer', 'backCounter', 'filingCabinet'], 1);

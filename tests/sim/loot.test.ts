@@ -30,7 +30,7 @@ const OBJECTS: WorldObject[] = [
 ];
 
 function setup(crew: CrewStart[], options: { walls?: FixtureWall[]; people?: PersonDef[]; map?: string[] } = {}): { world: ReadonlyWorld; state: State } {
-    const world = fixtureWorld(options.map ?? MAP, { rooms: FLOOR, objects: OBJECTS, walls: options.walls ?? [], people: options.people ?? [] });
+    const world = fixtureWorld(options.map ?? MAP, { rooms: FLOOR, objects: OBJECTS, walls: options.walls ?? [], people: options.people ?? [], rules: { dyePacks: true } });
     return { world, state: initialState(world, { seed: 3, crew }) };
 }
 
@@ -289,13 +289,45 @@ describe('dye packs stay secret', () => {
         expect(commit(world, again, { type: 'move', crew: 'mara', path: [P(1, 4)] }).events.some(e => e.type === 'cashOut')).toBe(false);
     });
 
-    it('only matter in a bank with dye packs', () => {
-        const world = fixtureWorld(MAP, { rooms: FLOOR, objects: OBJECTS.map(o => (o.id === 'drawer' ? loot('drawer', P(1, 1), 'light', 5000) : o)) });
-        const s = run(world, initialState(world, { seed: 3, crew: [{ id: 'mara', pos: P(1, 2) }] }), { type: 'takeLoot', crew: 'mara', loot: 'drawer' });
-        expect(mayBeDyed(world, s, 'drawer')).toBe(false);
-        const shown = actionPreview(world, s, { type: 'move', crew: 'mara', path: [P(1, 3), P(1, 4)] });
-        expect(shown.ok && shown.events.some(e => e.type === 'cashOut')).toBe(false);
-        expect(shown).not.toHaveProperty('mayBeDyed');
+    it('through a door the crew can\'t vouch for, out of the building: marked and final, however the door stands', () => {
+        const walls: FixtureWall[] = [{ between: [P(1, 3), P(1, 4)], door: { id: 'exit', lock: 'keycard', start: 'closed' } }];
+        const doubtedWith = (loot: string, status: 'open' | 'locked') => {
+            const { world, state } = setup([{ id: 'mara', pos: P(1, 2) }], { walls });
+            const s = run(world, state, { type: 'takeLoot', crew: 'mara', loot });
+            // Neither side of the door seen this turn, and known only as closed.
+            const k = s.knowledge, fresh = decodeBits(k.fresh, world.width * world.height);
+            for (const p of [P(1, 3), P(1, 4)]) fresh[p.y * world.width + p.x] = 0;
+            return { world, state: { ...s, doors: { ...s.doors, exit: { status } }, knowledge: { ...k, fresh: encodeBits(fresh), doors: { ...k.doors, exit: 'closed' as const } }, crew: s.crew.map(c => ({ ...c, actionsLeft: 2 })) } };
+        };
+        const path = [P(1, 3), P(1, 4), P(1, 5)];
+        const shown = (['drawer', 'drawer2'] as const).flatMap(loot => (['open', 'locked'] as const).map(status => {
+            const { world, state } = doubtedWith(loot, status);
+            const p = actionPreview(world, state, { type: 'move', crew: 'mara', path });
+            // The commit: out with a cashOut through the open door, refused (a cut) at the locked one; final either way.
+            const r = commit(world, state, { type: 'move', crew: 'mara', path });
+            expect(r.events.some(e => e.type === (status === 'open' ? 'cashOut' : 'moveCut'))).toBe(true);
+            expect(r.undoable).toBe(false);
+            return JSON.stringify(p).replaceAll('drawer2', 'drawer');
+        }));
+        expect(new Set(shown).size).toBe(1);
+        const p = JSON.parse(shown[0]!) as Extract<ReturnType<typeof actionPreview>, { ok: true }>;
+        expect(p.events.some(e => e.type === 'cashOut')).toBe(false);
+        expect(p.mayBeDyed).toEqual(['drawer']);
+        expect(p.undoable).toBe(false);
+    });
+
+    it('only matter in a bank whose tier has them, which the player knows, not which drawers hide one', () => {
+        // No drawer hides a pack; whether the cash may be dyed follows the tier's rule alone.
+        const objects = OBJECTS.map(o => (o.id === 'drawer' ? loot('drawer', P(1, 1), 'light', 5000) : o));
+        for (const dyePacks of [false, true]) {
+            const world = fixtureWorld(MAP, { rooms: FLOOR, objects, rules: { dyePacks } });
+            const s = run(world, initialState(world, { seed: 3, crew: [{ id: 'mara', pos: P(1, 2) }] }), { type: 'takeLoot', crew: 'mara', loot: 'drawer' });
+            expect(mayBeDyed(world, s, 'drawer')).toBe(dyePacks);
+            const shown = actionPreview(world, s, { type: 'move', crew: 'mara', path: [P(1, 3), P(1, 4)] });
+            expect(shown.ok && shown.events.some(e => e.type === 'cashOut')).toBe(dyePacks);
+            if (dyePacks) expect(shown).toHaveProperty('mayBeDyed', ['drawer']);
+            else expect(shown).not.toHaveProperty('mayBeDyed');
+        }
     });
 });
 

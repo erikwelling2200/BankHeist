@@ -52,19 +52,17 @@ export interface SavedState { state: State; recent: SimEvent[]; undo: UndoStack 
 /**
  * The keys every state has, and every crew member, loadout and NPC in it, from a fresh state of a two-tile world with
  * one NPC and one crew member: so every package's own fields count, and a save made before a package added one is
- * refused rather than read with the field missing.
+ * refused rather than read with the field missing. Worked out on every load, not cached: a shape taken before every
+ * package had registered its inits would miss their fields for good, and a two-tile state costs next to nothing.
  */
 interface StateShape { state: string[]; crew: string[]; loadout: string[]; npc: string[] }
 
-let SHAPE: StateShape | null = null;
-
 function stateShape(): StateShape {
-    if (SHAPE) return SHAPE;
     const tile = { zone: 'public', raised: false, floor: 0, lit: true, blocksMove: false, tall: false, halfCover: false, room: null } as const;
     const person = { id: 'npc', name: 'npc', role: 'customer', observer: 'civilian', pos: { x: 1, y: 0 }, facing: 's', schedule: [] } as const;
     const world = { width: 2, height: 1, tiles: [tile, tile], edges: {}, doors: {}, objects: [], people: [person], cameras: [], rules: defaultRules() };
     const fresh = initialState(world, { seed: 0, crew: [{ id: 'crew', pos: { x: 0, y: 0 } }] });
-    return SHAPE = {
+    return {
         state: sortedIds(fresh), crew: sortedIds(fresh.crew[0]!), loadout: sortedIds(fresh.crew[0]!.loadout), npc: sortedIds(fresh.npcs[0]!)
     };
 }

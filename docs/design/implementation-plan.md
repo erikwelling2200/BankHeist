@@ -714,7 +714,8 @@ Each package lists its goal, the design sections it covers, the files, what it d
     - **Keys:** `crewHasKey` is true for a keycard door with any keycard taken; an NPC frisked of its keycard no longer
       passes keycard doors (`npcCanPass(person, npc)`).
     - **Lapses:** an armed civilian always reaches for his weapon (§10.9), after the same roll as anyone of his
-      archetype; an enforcer without a weapon stays down. A Commanded hostage led along lapses where its escort stands and shakes free (`hostageFree`)
+      archetype, so his shown lapse odds are knowingly false: the one deliberate exception to "the preview is the
+      outcome" (decision 66); an enforcer without a weapon stays down. A Commanded hostage led along lapses where its escort stands and shakes free (`hostageFree`)
       unless it stays down; command and hold rings read a led hostage where its escort is (`bodyPos`).
     - **For the UI (M2-06):** the grid offers Zip-tie (with the ties left), Lead, Coerce ("open the drawer", "enter the
       code") and Change clothes; recap lines for every event. Events: `zipTied`, `weaponTaken`, `hiddenWeaponFound`
@@ -784,6 +785,15 @@ Each package lists its goal, the design sections it covers, the files, what it d
       with each). It applies only in a bank with dye packs (none in the M1 small branch). The move hooks' `step` gets
       where the move set off (no module state). Ruined cash put down is neither a target nor drawn; autosaves are
       checked with their world (`deserialiseState(text, world)`), so the hands check is exact on every load.
+    - **Cleanup.** Whether the bank has dye packs is the tier's rule (`Rules.dyePacks`, from `GeneratedBank.dyePacks`;
+      fixtures default to none), what the player knows, not the hidden `loot.dyePack` flags. The pack's window is
+      rolled (`parcels.ts`, its own `dyePack` fork of the room's stream, so nothing else moves; no visual baseline
+      changed), no longer always the westmost (M2-02 already dropped the "dye pack in the drawer" trait). A move through a door that could refuse it (`doubtedCut`, where
+      `previewCertain` stops it) whose path leaves the building beyond the door still marks the uninspected cash
+      (`ActionPreview.mayBeDyed`, from the path and `mayBeDyed` alone, `carriedOut`) and isn't undoable: final either
+      way, as a refusal is too; a regression test checks dyed and clean, open and locked previews are identical. The
+      save shape's cached fresh state (`core/save.ts`) is worked out per load, so it can't miss a package registered
+      late. Heavy generator tests have a 60 s timeout. Save shape hash now `dcff06300b8ae7eb` (`Rules.dyePacks`).
 - [ ] **M2-05 Vault access: wiring the key graph into the rules.**
   - **Covers:** §15.2, §15.3, §9.1 sensors, §7.2 kits and traits (Steady Hands).
   - **Work:** turn `KeyLock` into structured keys (`gen/keys.ts`); codes and dual control at the console; the manager's PC; the time-lock window from the timeline; the drill with jams (rolled) and noise; deposit boxes; lockpicking; card readers.
@@ -1277,8 +1287,10 @@ Later milestones: within each milestone, the `∥` notes in §3 apply. UI packag
 64. **Coercion (M2-03).** 1 action, the illegal act 'command': the hostage (Commanded or tied) is next to the crew
     member and in their sight, which lets a teller's drawer be opened across the teller glass; the drawer or console
     must be in the hostage's reach. Drawers stay open to taking as M2-04 made them; coercion reaches one the crew can't.
-    A teller (teller, head teller, drive teller) opens their own drawer (`ownDrawer`: the Light loot next to the window
-    or desk their day starts at, the nearest), not yet taken, and the cash is pocketed; a manager or
+    A teller (teller, head teller, drive teller) opens their own drawer (`ownDrawer(world, npc, turn)`: the Light loot
+    next to the window or desk they work on that turn, the nearest; on a break or at the shift change the window they
+    left, before their first the one they are coming to), not yet taken, and the cash is pocketed. A relief teller,
+    whose day is breaks and the shift change, works no window and has no drawer ("They don't work a window"); a manager or
     head teller enters their part of the code at a vault console once (`ObjectState.codes`), which M2-05 reads.
 65. **Freeing (M2-03).** A free NPC (up, not Hostile) that has noticed the tied one and ends a world phase in its reach
     starts untying it (`untying`, shown for a crew phase); ending the next world phase in reach too frees it, Alerted,
@@ -1288,7 +1300,10 @@ Later milestones: within each milestone, the `∥` notes in §3 apply. UI packag
     off-duty cop) always reaches when his command lapses (§16.2), but rolls his archetype's lapse first as any
     customer does and then ignores it, so a preview of the world phase stops at the same roll and tells him from
     nobody (§10.9 "no tells"). An enforcer with his pistol reaches as before; one a frisk disarmed stays down (cowed):
-    "go for alarm" is staff only and he has no weapon to reach for.
+    "go for alarm" is staff only and he has no weapon to reach for. **A deliberate exception to "the preview is the
+    outcome":** the lapse odds shown for him are a customer's, and knowingly false, since whatever comes up he reaches.
+    Showing his true odds (a certain reach) would be the tell §10.9 forbids; what the player is promised instead is the
+    reach's telegraphed phase before he turns Hostile (§10.9, R28). Every other NPC's shown odds are the ones rolled.
 67. **Who panics (M2-02).** Only civilians (observer class `civilian`: customers, passers-by, the café and shop people,
     an off-duty cop, a customer hero). Staff and guards hearing the shout are Alerted and act by role (§10.1); the
     staff's panic weights are for their lapses only. A civilian panics on hearing any loud noise (not only the shout)

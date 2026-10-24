@@ -225,6 +225,8 @@ export interface GeneratedBank {
     timeLock: boolean;
     dualControl: boolean;
     policeEta: number;
+    /** Whether the tier hides dye packs in its cash (§15.1): the player knows this, not which drawer. */
+    dyePacks: boolean;
     level: Level;
     rooms: GenRoom[];
     doors: Door[];

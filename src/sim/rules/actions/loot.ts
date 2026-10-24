@@ -1,6 +1,6 @@
 import { cornerEdges, edgeBetween, edgeKey, inBounds, tileAt } from '../../core/grid';
 import { sortedIds } from '../../core/json';
-import { registerStateInit } from '../../core/state';
+import { registerRuleDefaults, registerStateInit } from '../../core/state';
 import type { CrewState, DeepReadonly, Pos, ReadonlyWorld, State } from '../../core/types';
 import { registerEvents } from '../../core/undo';
 import { registerBudgetModifier, registerDashCheck, registerMoveHook } from '../../crew/movement';
@@ -61,6 +61,13 @@ declare module '../../core/types' {
         /** The bank's loot by World object id (§15.1). */
         loot: Record<string, LootState>;
     }
+    interface Rules {
+        /**
+         * Whether the bank's tier hides dye packs in its cash (§15.1, `worldFromBank`): what the player knows before
+         * casing, so what a preview may go by, whichever stacks hold one.
+         */
+        dyePacks: boolean;
+    }
     interface World {
         /** The rooms of the bank's building (§15.1: a dye pack bursts outside them). Absent: tiles in any room. */
         building?: string[];
@@ -97,6 +104,8 @@ declare module '../../core/types' {
     }
 }
 
+registerRuleDefaults({ dyePacks: false });
+
 registerStateInit('loot', (world, state) => {
     state.loot = {};
     for (const o of world.objects) {
@@ -121,7 +130,7 @@ const carryWeight = (member: DeepReadonly<CrewState>): Exclude<CarryWeight, 'lig
 export const handsFree = (member: DeepReadonly<CrewState>): boolean => member.loadout.carrying === null && member.dragging === null;
 
 /** Whether a tile is inside the bank's building (§15.1). */
-function inBuilding(world: ReadonlyWorld, p: Pos): boolean {
+function inBuilding(world: ReadonlyWorld, p: DeepReadonly<Pos>): boolean {
     const room = tileAt(world, p)?.room ?? null;
     if (room === null) return false;
     return world.building ? world.building.includes(room) : true;
@@ -365,9 +374,6 @@ registerAction('inspectLoot', {
     }
 });
 
-/** Whether the bank hides dye packs at all (§15.1, its tier's: what the player knows of it before casing). */
-const hasDyePacks = (world: ReadonlyWorld): boolean => world.objects.some(o => !!o.loot?.dyePack);
-
 /**
  * Whether a stack might still hide a dye pack as far as the player can tell (§15.1): taken cash in a bank with dye
  * packs, neither known clean (`inspected`: looked through, or carried out once without a burst) nor ruined. Carrying it
@@ -375,7 +381,22 @@ const hasDyePacks = (world: ReadonlyWorld): boolean => world.objects.some(o => !
  */
 export function mayBeDyed(world: ReadonlyWorld, state: DeepReadonly<State>, id: string): boolean {
     const loot = state.loot[id]!;
-    return loot.taken && !loot.inspected && !loot.ruined && lootWeight(world, id) === 'light' && hasDyePacks(world);
+    return loot.taken && !loot.inspected && !loot.ruined && lootWeight(world, id) === 'light' && world.rules.dyePacks;
+}
+
+/**
+ * The cash that may be dyed (`mayBeDyed`) a crew member would carry out of the building along `path` from `from`: all of
+ * it once a step leaves the building, none otherwise. For a move the preview cuts at a door that could refuse it
+ * (knowledge.ts `doubtedCut`), whose `cashOut` beyond the door no preview shows; it reads only the path and what the
+ * player knows of the stacks, so dyed and clean cash read the same.
+ */
+export function carriedOut(world: ReadonlyWorld, state: DeepReadonly<State>, crewId: string, from: DeepReadonly<Pos>, path: readonly DeepReadonly<Pos>[]): string[] {
+    let prev = from;
+    for (const p of path) {
+        if (inBuilding(world, prev) && !inBuilding(world, p)) return lootOf(state, crewId).filter(id => mayBeDyed(world, state, id));
+        prev = p;
+    }
+    return [];
 }
 
 // Stepping out of the building with cash that may be dyed: `cashOut` for each such stack; a hidden pack bursts and ruins

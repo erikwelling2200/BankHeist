@@ -226,12 +226,19 @@ registerAction('escort', {
 
 // ---------------------------------------------------------------------------------------------------------- Coercion
 
+/** The blocks of an NPC's day at a window or desk of their own, in order. */
+const stationsOf = (world: ReadonlyWorld, npcId: string) => personOf(world, npcId).schedule.filter(b => (b.activity === 'window' || b.activity === 'post') && b.at);
+
 /**
- * A teller's own cash drawer (§10.7 "their drawer"): the Light loot next to the window or desk their day starts at
- * (Chebyshev 1 of its tile), the nearest, then the first by id; undefined when there is none.
+ * A teller's own cash drawer (§10.7 "their drawer") on `turn`: the Light loot next to the window or desk they work then
+ * (Chebyshev 1 of its tile), the nearest, then the first by id. The station is the last window or post block of their
+ * schedule begun by `turn` (a teller on a break or at the shift change keeps the window they left), or before their
+ * first one the window they are coming to, so a drawer follows its window if it changes hands. A relief teller, whose
+ * day is breaks and the shift change, works no window and has no drawer: undefined, as when no drawer is in reach.
  */
-export function ownDrawer(world: ReadonlyWorld, npcId: string): string | undefined {
-    const station = personOf(world, npcId).schedule.find(b => (b.activity === 'window' || b.activity === 'post') && b.at)?.at;
+export function ownDrawer(world: ReadonlyWorld, npcId: string, turn: number): string | undefined {
+    const stations = stationsOf(world, npcId);
+    const station = (stations.filter(b => b.from <= turn).at(-1) ?? stations[0])?.at;
     if (!station) return undefined;
     let best: { id: string; d: number } | undefined;
     for (const o of world.objects) {
@@ -251,7 +258,8 @@ function coercion(world: ReadonlyWorld, state: State, member: DeepReadonly<CrewS
         const loot = state.loot[at]!;
         if (lootWeight(world, at) !== 'light' || loot.taken) return 'There is no drawer to open there';
         if (!DRAWER_ROLES.has(role)) return 'Only a teller can open a cash drawer';
-        if (ownDrawer(world, npc.id) !== at) return 'It isn\'t their drawer';
+        if (!stationsOf(world, npc.id).length) return 'They don\'t work a window: no drawer is theirs';
+        if (ownDrawer(world, npc.id, state.turn) !== at) return 'It isn\'t their drawer';
         if (!inReach(world, state, from, loot.pos)) return 'They can\'t reach the drawer';
         return pocketed(world, state, member.id).length >= POCKETS ? `${member.name}'s pockets are full` : 'drawer';
     }
@@ -338,7 +346,7 @@ registerWorldHook('devices', 'hostage.untie', ctx => {
         }
         // Free: up and Alerted, it reports what was done to it, as a knockout victim does on waking (knockout.ts).
         npc.untying = null;
-            npc.status = 'alerted';
+        npc.status = 'alerted';
         ctx.emit({ type: 'freed', npc: npc.id, by: helper.id });
         ctx.emit({ type: 'npcStatus', npc: npc.id, status: 'alerted' });
         alertNpc(ctx, npc, 'freed');

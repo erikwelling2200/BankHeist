@@ -1374,6 +1374,22 @@ function crossedWithin(
 }
 
 /**
+ * The first door of a move or dash that could refuse the mover (`doorMayRefuse`), where `previewCertain` cuts it: the
+ * door, and the index in the path of the step through it. Undefined for any other command, or a path with none.
+ */
+export function doubtedCut(world: ReadonlyWorld, state: State, cmd: Command): { crew: string; door: string; step: number } | undefined {
+    if (cmd.type !== 'move' && cmd.type !== 'dash') return undefined;
+    const member = state.crew.find(c => c.id === cmd.crew), d = doorDoubt(world, state);
+    if (!member || !d) return undefined;
+    let prev: DeepReadonly<Pos> = member.pos;
+    for (let i = 0; i < cmd.path.length; i++) {
+        if (doorMayRefuse(world, d, member, prev, cmd.path[i]!)) return { crew: member.id, door: doorBetween(world, { x: prev.x, y: prev.y }, cmd.path[i]!)!.id, step: i };
+        prev = cmd.path[i]!;
+    }
+    return undefined;
+}
+
+/**
  * A command previewed for the player (§8.8): on the truth with every door the crew can't vouch for shut
  * (`withDoubtedShut`), so all it sees and hears happens however those doors really stand, and nothing of how they stand
  * shows (decision 44). A move or dash through such a door that could refuse the mover (`doorMayRefuse`) is previewed
@@ -1383,15 +1399,9 @@ function crossedWithin(
  */
 export function previewCertain(world: ReadonlyWorld, state: State, cmd: Command): PreviewResult {
     const shut = withDoubtedShut(world, state), result = preview(world, shut, cmd);
-    if (cmd.type !== 'move' && cmd.type !== 'dash') return result;
-    const member = state.crew.find(c => c.id === cmd.crew), d = doorDoubt(world, state);
-    if (!member || !d) return result;
-    let prev: DeepReadonly<Pos> = member.pos, door: string | undefined;
-    for (let i = 0; i < cmd.path.length && !door; i++) {
-        if (doorMayRefuse(world, d, member, prev, cmd.path[i]!)) door = doorBetween(world, { x: prev.x, y: prev.y }, cmd.path[i]!)!.id;
-        prev = cmd.path[i]!;
-    }
-    if (!door) return result;
+    const cut = doubtedCut(world, state, cmd);
+    if (!cut) return result;
+    const { door } = cut, member = state.crew.find(c => c.id === cut.crew)!;
     const was = Object.hasOwn(shut.doors, door) ? shut.doors[door]! : { status: doorStatus(world, shut, door) };
     const refused = preview(world, { ...shut, doors: { ...shut.doors, [door]: { ...was, status: 'locked' } } }, cmd);
     // The door as shut and as known before: the preview never tells how it stands.

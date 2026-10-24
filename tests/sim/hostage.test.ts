@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
-    actionPreview, commit, crewBudget, crewThreat, deserialiseState, npcCanPass, pendingCarriers, personOf, safeFloor, serialiseState, crewLook, dashRefusal, fixtureWorld, initialState, legalActions, preview, reaction, whyNot, type CrewLook, type CrewStart, type FixtureWall,
+    actionPreview, commit, ownDrawer, crewBudget, crewThreat, deserialiseState, npcCanPass, pendingCarriers, personOf, safeFloor, serialiseState, crewLook, dashRefusal, fixtureWorld, initialState, legalActions, preview, reaction, whyNot, type CrewLook, type CrewStart, type FixtureWall,
     type ObserverClass, type PersonDef, type Pos, type ReactionInput, type ReadonlyWorld, type State, type WorldObject, type Zone
 } from '../../src/sim';
 import { scouted, step } from './helpers';
@@ -150,6 +150,22 @@ describe('coercion (§10.7)', () => {
         expect(preview(world, down, { type: 'coerce', crew: 'mara', npc: 'teller', at: 'drawer' }).events).toEqual(r.events);
         // Only their own drawer: the next window's is in their reach, but not theirs.
         expect(whyNot(world, down, { type: 'coerce', crew: 'mara', npc: 'teller', at: 'drawer2' })).toBe('It isn\'t their drawer');
+    });
+
+    it('gives a teller the drawer of the window they work now, and a relief teller none', () => {
+        const other: WorldObject = { ...drawer, id: 'drawer2', pos: P(5, 0) };
+        const block = (from: number, activity: 'window' | 'break' | 'shiftChange', at: Pos) => ({ from, activity, label: activity, room: '', at, facing: 's' as const });
+        // Window 3 until the shift change, window 5 after it; the relief teller only covers breaks.
+        const mover = person('mover', 'teller', 'staff', P(4, 1), { schedule: [block(1, 'window', P(3, 1)), block(4, 'shiftChange', P(1, 3)), block(6, 'window', P(5, 1))] });
+        const relief = person('relief', 'teller', 'staff', P(4, 1), { schedule: [block(1, 'break', P(1, 3)), block(4, 'shiftChange', P(1, 3)), block(6, 'break', P(1, 3))] });
+        const { world, state } = setup([mover, relief], [{ id: 'mara', pos: P(4, 2) }], { objects: [drawer, other] });
+        expect([1, 4, 5, 6, 9].map(turn => ownDrawer(world, 'mover', turn))).toEqual(['drawer', 'drawer', 'drawer', 'drawer2', 'drawer2']);
+        expect(ownDrawer(world, 'relief', 1)).toBeUndefined();
+        const down = fresh(run(world, state, { type: 'command', crew: 'mara' }));
+        expect(whyNot(world, down, { type: 'coerce', crew: 'mara', npc: 'relief', at: 'drawer' })).toBe('They don\'t work a window: no drawer is theirs');
+        expect(whyNot(world, down, { type: 'coerce', crew: 'mara', npc: 'mover', at: 'drawer2' })).toBe('It isn\'t their drawer');
+        expect(whyNot(world, { ...down, turn: 6 }, { type: 'coerce', crew: 'mara', npc: 'mover', at: 'drawer' })).toBe('It isn\'t their drawer');
+        expect(whyNot(world, { ...down, turn: 6 }, { type: 'coerce', crew: 'mara', npc: 'mover', at: 'drawer2' })).toBeUndefined();
     });
 
     it('has a key-holder enter their part of the vault code at the console, once; others know none', () => {
