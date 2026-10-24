@@ -52,10 +52,15 @@ export interface CoverView {
     state: 'covered' | 'flanked';
     kind?: 'tile' | 'edge' | 'lean';
     at?: string;
-    /** Its hit points; null can't be destroyed. */
+    /** Its hit points; null can't be destroyed. Absent when the crew can't vouch for it (`mayBeGone`). */
     hp?: number | null;
-    /** This attack could destroy it (the cracked shield): every bullet that can reach it, blocked, takes it to 0. */
+    /**
+     * This attack could destroy it (the cracked shield): every bullet that can reach it, blocked, takes it to 0; always
+     * so for cover that may be gone, whose wear the crew doesn't know.
+     */
     mayBreak?: boolean;
+    /** Destructible cover on a tile the crew doesn't see this turn: it may already be broken (`doubtOf`). */
+    mayBeGone?: true;
 }
 
 export interface ShotPreviewBody {
@@ -191,7 +196,8 @@ export function previewShot(world: ReadonlyWorld, state: DeepReadonly<State>, sh
         let cover: CoverView | null = null;
         if (source) {
             const hp = source.tile >= 0 && scene.fabric.cover[source.tile] !== INDESTRUCTIBLE ? scene.fabric.cover[source.tile]! : null;
-            cover = { state: 'covered', kind: source.kind, at: source.at, hp, mayBreak: hp !== null && !scene.bullet.knockout && (wear.get(source.at) ?? []).reduce((a, b) => a + b, 0) >= hp };
+            if (source.tile >= 0 && scene.doubt?.tiles[source.tile]) cover = { state: 'covered', kind: source.kind, at: source.at, mayBreak: !scene.bullet.knockout, mayBeGone: true };
+            else cover = { state: 'covered', kind: source.kind, at: source.at, hp, mayBreak: hp !== null && !scene.bullet.knockout && (wear.get(source.at) ?? []).reduce((a, b) => a + b, 0) >= hp };
         } else if (hasCover(map, scene.fabric, body, origin)) cover = { state: 'flanked' };
         bodies.push({ id, crew: crewIds.has(id), ...mark, cover });
     }

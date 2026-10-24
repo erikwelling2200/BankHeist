@@ -384,6 +384,21 @@ describe('the preview, fixed in review', () => {
         expect(doubtOf(intact.world, map, view).tiles[10]).toBe(1);
     });
 
+    it('shows a shield the crew can\'t vouch for as one that may be gone, without its hit points', () => {
+        // A customer beside the desk at (4, 1), as a preview with a view sees them: the desk's tile seen, then not.
+        const { world, state } = setup(['.........', '....#....', '.........'], { people: [person('cust', P(5, 1))] });
+        state.cover['4 1'] = 2;
+        const shot: Shot = { shooter: 'jun', weapon: 'pistol', at: P(5, 1) };
+        const n = world.width * world.height, hidden = new Uint8Array(n), seen = new Uint8Array(n).fill(1);
+        expect(previewShot(world, state, shot, { hidden, seen }).bodies[0]!.cover).toEqual({ state: 'covered', kind: 'tile', at: '4 1', hp: 2, mayBreak: true });
+        seen[1 * world.width + 4] = 0;
+        const doubted = previewShot(world, state, shot, { hidden, seen }).bodies[0]!.cover;
+        expect(doubted).toEqual({ state: 'covered', kind: 'tile', at: '4 1', mayBreak: true, mayBeGone: true });
+        // The same whatever its true wear.
+        state.cover['4 1'] = 6;
+        expect(previewShot(world, state, shot, { hidden, seen }).bodies[0]!.cover).toEqual(doubted);
+    });
+
     it('wears cover per piece, whoever stands behind it', () => {
         // One desk (5, 4) covers both customers from the shooter at (0, 0): A east of it behind a Soft wall (an LMG
         // meets A with 2), B south of it in the open (3), reached only by the three widest bullets. A alone could take
