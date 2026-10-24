@@ -177,7 +177,9 @@ const UNWARY = new Set(['calm', 'curious']);
 function hitboxOf(state: DeepReadonly<State>, person: Person): Pos {
     if (person.kind === 'crew') return person.crew.leaning?.at ?? person.crew.pos;
     const npc = person.npc;
-    return npc.leaning?.at ?? draggedBy(state, npc.id)?.pos ?? npc.pos;
+    // A body dragged or a hostage led is where its dragger is: on the lean tile while they lean (§11.4).
+    const by = draggedBy(state, npc.id);
+    return npc.leaning?.at ?? (by ? by.leaning?.at ?? by.pos : npc.pos);
 }
 
 /** Everyone a shot can meet, by tile index, in the order a bullet meets them (geo/shot.ts `ShotScene.bodies`). */

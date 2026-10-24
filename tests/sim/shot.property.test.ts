@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { Rng } from '../../src/gen/rng';
 import {
-    commit, copyFabric, fixtureWorld, IllegalCommand, initialState, LYING_STATUSES, leanOptions, previewShot, resolveShot, shotScene, traceBullet, traceShot,
-    WEAPONS, worldFromBank, type BulletTrace, type FanSegment, type FixtureWall, type NpcStatus, type Pos, type ReadonlyWorld, type Shot, type ShotStep, type State
+    brokenFabric, commit, copyFabric, NO_COVER, fixtureWorld, IllegalCommand, initialState, LYING_STATUSES, leanOptions, previewShot, resolveShot, shotScene, traceBullet, traceShot,
+    WEAPONS, worldFromBank, type BulletTrace, type Fabric, type FanSegment, type FixtureWall, type ShotMap, type NpcStatus, type Pos, type ReadonlyWorld, type Shot, type ShotStep, type State
 } from '../../src/sim';
 import { cachedBank } from '../bankCache';
 import { registerTestCommand, testCommand } from './helpers';
@@ -26,26 +26,41 @@ registerTestCommand('propertyShoot', (ctx, cmd) => {
 const STATUSES: NpcStatus[] = ['calm', 'curious', 'alerted', 'hostile', 'commanded', 'tied', 'unconscious', 'dead'];
 const ARMOUR = ['lightVest', 'mediumArmour', 'heavyArmour'];
 
-/** A step as the fan and the outcome must agree on it: cover's roll and what it took left out. */
-function plain(step: ShotStep): unknown {
-    if (step.kind !== 'body') return step;
-    return { kind: 'body', id: step.id, covered: !!step.cover, ...(step.effect === 'blocked' ? {} : { effect: step.effect, damage: step.damage }) };
-}
+/**
+ * Steps as the fan and the outcome must agree on them: cover's roll and what it took left out, which hit breaks the
+ * teller glass, and plain glass, which every bullet passes and only the first shatters.
+ */
+const plain = (steps: readonly ShotStep[]): unknown[] => steps.filter(s => !(s.kind === 'wall' && s.material === 'glass')).map(step => (step.kind === 'wall' ? { ...step, broke: undefined } : step.kind !== 'body' ? step
+    : { kind: 'body', id: step.id, covered: !!step.cover, ...(step.effect === 'blocked' ? {} : { effect: step.effect, damage: step.damage }) }));
 
-/** Whether a bullet's trace is what a fan segment says: the same steps, or a prefix ending where cover blocked it. */
-function agrees(segment: FanSegment, bullet: BulletTrace): boolean {
-    const a = segment.steps.map(plain), b = bullet.steps.map(plain);
+/** Whether a bullet's trace is what a fan path says: the same steps, or a prefix ending where cover blocked it. */
+function agrees(path: { steps: ShotStep[]; stop: string }, bullet: BulletTrace): boolean {
+    const a = plain(path.steps), b = plain(bullet.steps);
     if (bullet.stop === 'cover') {
         const n = b.length;
         return n <= a.length && JSON.stringify(a.slice(0, n - 1)) === JSON.stringify(b.slice(0, n - 1)) && (a[n - 1] as { id?: string }).id === (b[n - 1] as { id?: string }).id;
     }
-    return segment.stop === bullet.stop && JSON.stringify(a) === JSON.stringify(b);
+    return path.stop === bullet.stop && JSON.stringify(a) === JSON.stringify(b);
 }
+
+/** Steps reduced to what breakage can't change: no panes, bodies by id. */
+const unbroken = (steps: readonly ShotStep[]): unknown[] => steps
+    .filter(s => !(s.kind === 'wall' && (s.material === 'glass' || s.material === 'tellerGlass'))).map(s => (s.kind === 'body' ? s.id : s));
+
+/** Whether a bullet part of the way between the fabric as it stood and as it could stand broken meets a part of the broken path. */
+function onTheWay(path: { steps: ShotStep[] }, bullet: BulletTrace): boolean {
+    const a = unbroken(path.steps), b = unbroken(bullet.steps);
+    return b.length <= a.length && JSON.stringify(a.slice(0, b.length)) === JSON.stringify(b);
+}
+
+/** What breakage changes in a fabric: teller glass shattered (plain glass changes nothing) and cover gone. */
+const breakage = (map: ShotMap, f: Fabric): string =>
+    `${map.edges.map((e, i) => (e.material === 'glass' ? '' : f.shattered[i])).join('')}|${[...f.cover].map(c => (c === NO_COVER ? 0 : 1)).join('')}`;
 
 /** The segment strictly holding an angle, away from its edges; undefined on an edge. */
 const segmentAt = (fan: readonly FanSegment[], angle: number): FanSegment | undefined => fan.find(s => angle > s.from + 1e-7 && angle < s.to - 1e-7);
 
-interface Tally { shots: number; refused: number; bullets: number; checked: number; walls: number; bodies: number; covered: number; blocked: number; through: number; corners: number }
+interface Tally { broken: number; shots: number; refused: number; bullets: number; checked: number; walls: number; bodies: number; covered: number; blocked: number; through: number; corners: number }
 
 function randomShots(world: ReadonlyWorld, base: State, rng: Rng, shots: number, tally: Tally): void {
     const free: Pos[] = [];
@@ -79,7 +94,9 @@ function randomShots(world: ReadonlyWorld, base: State, rng: Rng, shots: number,
         const inRange = [...state.crew, ...state.npcs].filter(p => p.id !== shooter && (p.pos.x - me.x) ** 2 + (p.pos.y - me.y) ** 2 <= w.range ** 2 && (p.pos.x !== me.x || p.pos.y !== me.y));
         const at = inRange.length && rng.chance(0.5) ? { ...rng.pick(inRange).pos } : rng.pick(near.length ? near : free);
         const shot: Shot = { shooter, weapon, at };
+        // Fine aim near the line, or anywhere round the circle (the fan may pass ±180°).
         if (rng.chance(0.3)) shot.turn = rng.int(-12, 12);
+        else if (rng.chance(0.2)) shot.turn = rng.chance(0.3) ? rng.pick([180, -180, 179, -179, 178, -175]) : rng.int(-180, 180);
         if (rng.chance(0.3)) shot.bullets = rng.int(1, w.bullets);
         if (rng.chance(0.3)) shot.moved = true;
         if (rng.chance(0.2)) shot.braced = true;
@@ -118,14 +135,28 @@ function randomShots(world: ReadonlyWorld, base: State, rng: Rng, shots: number,
                 }
             }
         }
-        // Bullet 1 as resolved, through the fabric before the shot: in the fan.
-        const first = again.bullets[0]!, segment = segmentAt(previewed.fan, first.offset);
-        if (segment) {
-            tally.checked++;
-            expect(agrees(segment, first), `bullet 1 at ${first.offset}° ${JSON.stringify(first.steps)} vs ${JSON.stringify(segment)}`).toBe(true);
-        }
-        // Random angles over the widest arc.
+        // Every bullet as resolved, replayed through the fabric as the earlier ones left it: what it met is what its
+        // segment says as the fabric stood, or as it could stand broken, or a part of the way to that; and nobody it
+        // hits is missing from the preview's bodies.
         const scene = shotScene(world, state, shot);
+        const fabric = copyFabric(scene.fabric), broken = brokenFabric(scene.map, scene.fabric, again.bullets.length, scene.bullet);
+        const before = breakage(scene.map, scene.fabric), allBroken = breakage(scene.map, broken);
+        const previewedIds = new Set(previewed.bodies.map(b => b.id));
+        let cover = 0;
+        again.bullets.forEach((b, k) => {
+            const now = breakage(scene.map, fabric);
+            expect(traceBullet(scene, fabric, b.offset, () => record.rolls.covers[cover++]!)).toEqual(b);
+            for (const s of b.steps) if (s.kind === 'body' && s.effect !== 'blocked') expect(previewedIds.has(s.id), `${s.id} hit unpreviewed`).toBe(true);
+            const segment = segmentAt(previewed.fan, b.offset);
+            if (!segment) return;
+            tally.checked++;
+            const why = `bullet ${k + 1} at ${b.offset}° ${JSON.stringify(b.steps)} vs ${JSON.stringify(segment)}`;
+            if (now === before) expect(agrees(segment, b), why).toBe(true);
+            else if (now === allBroken) expect(agrees(segment.broken ?? segment, b), why).toBe(true);
+            else expect(onTheWay(segment.broken ?? segment, b), why).toBe(true);
+            if (now !== before) tally.broken++;
+        });
+        // Random angles over the widest arc.
         for (let k = 0; k < 6; k++) {
             const angle = previewed.fan[0]!.from + rng.next() * (previewed.fan[previewed.fan.length - 1]!.to - previewed.fan[0]!.from);
             const seg = segmentAt(previewed.fan, angle);
@@ -137,7 +168,7 @@ function randomShots(world: ReadonlyWorld, base: State, rng: Rng, shots: number,
     }
 }
 
-const tally = (): Tally => ({ shots: 0, refused: 0, bullets: 0, checked: 0, walls: 0, bodies: 0, covered: 0, blocked: 0, through: 0, corners: 0 });
+const tally = (): Tally => ({ broken: 0, shots: 0, refused: 0, bullets: 0, checked: 0, walls: 0, bodies: 0, covered: 0, blocked: 0, through: 0, corners: 0 });
 
 describe('shot previews are the outcome (M3-01)', () => {
     it('in a fixture with every material', () => {
@@ -171,7 +202,7 @@ describe('shot previews are the outcome (M3-01)', () => {
             randomShots(world, state, new Rng(seed * 31), 60, t);
         }
         expect(t.checked).toBeGreaterThan(1000);
-        expect(t.walls && t.bodies && t.covered && t.blocked && t.through).toBeTruthy();
+        expect(t.walls && t.bodies && t.covered && t.blocked && t.through && t.broken).toBeTruthy();
     });
 
     it('in generated banks', () => {
@@ -226,9 +257,16 @@ describe('the §12.1 expected hits (tuning, warning only)', () => {
                         .reduce((a, s) => a + Math.max(0, Math.min(hi, s.to) - Math.max(lo, s.from)), 0);
                     return sum + on / arc;
                 }, 0);
-                const want = row.hits[i]!;
-                expect(expected).toBeGreaterThanOrEqual(0);
-                if (Math.abs(expected - want) > Math.max(0.15, want * 0.1)) off.push(`${weapon} at ${d}: ${expected.toFixed(2)} (table ${want})`);
+                // The same from resolved shots: uniform points through `traceShot`, so a wrong fan can't hide here.
+                const rng = new Rng(d * 101 + i), samples = 2000;
+                let hits = 0;
+                for (let n = 0; n < samples; n++) {
+                    const t = traceShot(world, state, shot, { points: p.arcs.map(() => rng.next()), covers: [] });
+                    hits += t.hits.find(h => h.id === 'dummy')?.hits ?? 0;
+                }
+                const resolved = hits / samples, want = row.hits[i]!;
+                expect(Math.abs(resolved - expected), `${weapon} at ${d}: resolved ${resolved}, fan ${expected}`).toBeLessThan(0.12);
+                if (Math.abs(resolved - want) > Math.max(0.15, want * 0.1)) off.push(`${weapon} at ${d}: ${resolved.toFixed(2)} (table ${want})`);
             });
         }
         if (off.length) console.warn(`§12.1 expected hits off the table:\n  ${off.join('\n  ')}`);

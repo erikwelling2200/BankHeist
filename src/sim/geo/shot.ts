@@ -418,3 +418,20 @@ export function hasCover(map: ShotMap, fabric: Fabric, body: Body, origin: Pos):
         return cx >= 0 && cy >= 0 && cx < width && cy < height && (!edge || edge.open) && fabric.cover[cy * width + cx] !== NO_COVER;
     });
 }
+
+/**
+ * The fabric as it could stand once an attack of `bullets` bullets has broken all it might (§11.7: nobody is hit by
+ * surprise): every pane shattered, teller glass shattered where `bullets` more hits reach its 4th, and the cover those
+ * bullets could destroy (each blocked at most once per bullet, by the bullet's most damage) gone. A taser breaks
+ * nothing. Later bullets of an attack meet the fabric somewhere between this and the one it started with.
+ */
+export function brokenFabric(map: ShotMap, fabric: Fabric, bullets: number, bullet: BulletSpec): Fabric {
+    const out = copyFabric(fabric);
+    if (bullet.knockout) return out;
+    map.edges.forEach((e, i) => {
+        if (e.material === 'glass' || (e.material === 'tellerGlass' && fabric.hits[i]! + bullets >= TELLER_GLASS.hits)) out.shattered[i] = 1;
+    });
+    const most = bullets * (bullet.damage + (bullet.close?.damage ?? 0));
+    for (let i = 0; i < out.cover.length; i++) if (out.cover[i]! > 0 && out.cover[i]! <= most) out.cover[i] = NO_COVER;
+    return out;
+}

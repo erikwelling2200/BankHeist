@@ -3,6 +3,7 @@ import {
     atan2Deg, commit, fixtureWorld, initialState, leanOptions, preview, PreviewRollError, previewShot, resolveShot, rotate, sinCosDeg, traceShot,
     type FixtureOptions, type NpcStatus, type PersonDef, type Pos, type ReadonlyWorld, type Shot, type ShotRolls, type ShotTrace, type State
 } from '../../src/sim';
+import { crewShotPreview } from '../../src/sim';
 import { registerTestCommand, testCommand } from './helpers';
 
 const P = (x: number, y: number): Pos => ({ x, y });
@@ -154,7 +155,7 @@ describe('half cover', () => {
         expect(t.bullets[1]!.steps[0]).toMatchObject({ effect: 'blocked', cover: { hp: 0, destroyed: true } });
         expect(hitsOf(traceShot(world, state, shot, straight(2, [0.6, 0.2])))).toEqual({ cust: 3 });
         // The preview's shield: covered, and this attack could break it.
-        expect(previewShot(world, state, shot).bodies).toEqual([{ id: 'cust', crew: false, first: true, through: false, cover: { state: 'covered', kind: 'tile', at: '4 1', hp: 6, mayBreak: true } }]);
+        expect(previewShot(world, state, shot).bodies).toEqual([{ id: 'cust', crew: false, first: true, through: false, ifBroken: false, cover: { state: 'covered', kind: 'tile', at: '4 1', hp: 6, mayBreak: true } }]);
     });
 
     it('covers within the 90° arc facing it, edges included, and is flanked outside it', () => {
@@ -241,5 +242,68 @@ describe('resolving a shot', () => {
         expect(() => commit(world, state, testCommand({ type: 'testShoot', shot: { shooter: 'jun', weapon: 'pistol', at: P(0, 1) } } as never))).toThrow(/somewhere to aim/);
         expect(() => commit(world, state, testCommand({ type: 'testShoot', shot: { shooter: 'jun', weapon: 'pistol', at: P(4, 1), bullets: 3 } } as never))).toThrow(/1 to 2/);
         expect(() => commit(world, state, testCommand({ type: 'testShoot', shot: { shooter: 'jun', weapon: 'mask', at: P(4, 1) } } as never))).toThrow(/no weapon/);
+    });
+});
+
+describe('the preview, fixed in review', () => {
+    it('shows who a later bullet reaches once teller glass breaks', () => {
+        const { world, state } = setup(OPEN, { walls: [{ between: [P(2, 1), P(3, 1)], material: 'tellerGlass' }], people: [person('teller', P(5, 1), 'teller', 'staff')] });
+        const shot: Shot = { shooter: 'jun', weapon: 'lmg', at: P(5, 1) };
+        const p = previewShot(world, state, shot);
+        expect(traceShot(world, state, shot, straight(10)).hits).toEqual([{ id: 'teller', hits: 6, damage: 18, knockout: false }]);
+        expect(p.bodies).toMatchObject([{ id: 'teller', first: true, ifBroken: true }]);
+        const middle = p.fan.find(s => s.from < 0 && s.to > 0)!;
+        expect(middle.steps).toMatchObject([{ kind: 'wall', material: 'tellerGlass', effect: 'stopped' }]);
+        expect(middle.broken!.steps).toMatchObject([{ kind: 'body', id: 'teller', effect: 'hit' }]);
+    });
+
+    it('cuts the fan right across ±180°', () => {
+        const { world, state } = setup(['..........', '..........', '..........', '..........', '..........'], { jun: P(5, 2), people: [person('a', P(1, 2)), person('b', P(9, 2))] });
+        for (const turn of [178, 180, -175, -180, 179]) {
+            const shot: Shot = { shooter: 'jun', weapon: 'shotgun', at: P(9, 2), turn };
+            const p = previewShot(world, state, shot);
+            expect(p.fan[0]!.from).toBeCloseTo(turn - 10, 9);
+            expect(p.fan[p.fan.length - 1]!.to).toBeCloseTo(turn + 10, 9);
+            // Turned right round, the cone holds the customer west of jun.
+            expect(p.bodies.map(b => b.id)).toEqual(['a']);
+            for (let k = 1; k < 40; k++) {
+                const angle = turn - 10 + k / 2;
+                const seg = p.fan.find(s => angle > s.from + 1e-7 && angle < s.to - 1e-7);
+                if (!seg) continue;
+                const t = traceShot(world, state, { ...shot, bullets: 1, turn }, { points: [0.5 + (angle - turn) / 20], covers: [] });
+                expect(t.bullets[0]!.steps).toEqual(seg.steps);
+            }
+        }
+    });
+
+    it('claims a cracked shield only when the attack can break it', () => {
+        const map = ['.........', '.....#...', '.........'];
+        const near = setup(map, { jun: P(3, 1), people: [person('cust', P(6, 1))], cover: [{ at: P(5, 1), hp: 13 }] });
+        expect(previewShot(near.world, near.state, { shooter: 'jun', weapon: 'shotgun', at: P(6, 1) }).bodies[0]!.cover).toMatchObject({ mayBreak: true });
+        const far = setup(map, { jun: P(1, 1), people: [person('cust', P(6, 1))], cover: [{ at: P(5, 1), hp: 13 }] });
+        expect(previewShot(far.world, far.state, { shooter: 'jun', weapon: 'shotgun', at: P(6, 1) }).bodies[0]!.cover).toMatchObject({ mayBreak: false });
+    });
+
+    it('keeps a led hostage with its escort as the escort leans', () => {
+        const map = ['......', '......', '......', '......'];
+        const walls = [0, 1, 2].map(x => ({ between: [P(x, 1), P(x, 2)] as [Pos, Pos], material: 'reinforced' as const }));
+        const { world, state } = setup(map, { jun: P(2, 2), walls, people: [person('cust', P(2, 2)), person('guard', P(5, 0), 'lobbyGuard', 'enforcer')] });
+        const jun = state.crew[0]!;
+        jun.dragging = 'cust';
+        jun.leading = true;
+        state.npcs[0]!.status = 'commanded';
+        // Jun leans out with the hostage and fires: past his own hostage.
+        expect(hitsOf(traceShot(world, state, { shooter: 'jun', weapon: 'pistol', at: P(5, 0), lean: P(3, 2) }, straight(2)))).toEqual({ guard: 6 });
+        jun.leaning = { at: P(3, 2), corner: P(-1, -1) };
+        // The guard firing back meets the hostage first, on the lean tile.
+        expect(hitsOf(traceShot(world, state, { shooter: 'guard', weapon: 'pistol', at: P(3, 2) }, straight(2)))).toEqual({ cust: 6 });
+    });
+
+    it('shows the player only the people the crew knows of', () => {
+        const { world, state } = setup(OPEN, { walls: [{ between: [P(3, 1), P(4, 1)], material: 'soft' }], people: [person('hidden', P(6, 1))] });
+        const shot: Shot = { shooter: 'jun', weapon: 'assaultRifle', at: P(8, 1) };
+        expect(previewShot(world, state, shot).bodies.map(b => b.id)).toEqual(['hidden']);
+        state.knowledge.npcs = {};
+        expect(crewShotPreview(world, state, shot).bodies).toEqual([]);
     });
 });

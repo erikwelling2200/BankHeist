@@ -1573,7 +1573,11 @@ Later milestones: within each milestone, the `∥` notes in §3 apply. UI packag
     (a pane shattered, teller glass's hits, a desk broken), but nobody falls mid-attack: everyone hit stays standing
     until the attack is over. Damage per hit is §11.5's formula with the shotgun's +1 added to Damage when the target's
     tile is within 3 tiles of the origin (Euclidean between middles); the DMR's ×1.5 applies to what is dealt, rounded
-    down; Pierce 3 passes the first body with 3 less when it has more than 3 left, and stops at the second.
+    down; Pierce 3 passes the first body with 3 less when it has more than 3 left, and stops at the second. The preview
+    shows breakage too (§11.7, nobody is hit by surprise): each fan segment also gives the path with everything the
+    attack could break broken (`brokenFabric`: panes, teller glass whose 4th hit is in reach, cover the bullets could
+    wear through), and a body reached only so is `ifBroken`. A cracked shield (`mayBreak`) is claimed only when the
+    bullets whose arcs reach the body, each blocked with the damage it meets the body with, would destroy it.
 90. **Leaning (M3-01, §11.4).** A person can lean out to an orthogonal neighbour they could step to (no wall between,
     no furniture, nobody standing there) where their own tile's side toward one perpendicular way is full cover (a wall
     that blocks sight, a full-height object beyond, the map's edge) and the neighbour's same side is open. Leaning,
@@ -1585,8 +1589,10 @@ Later milestones: within each milestone, the `∥` notes in §3 apply. UI packag
     still stopped below Pierce 3 and shatters the pane.
 92. **Armour and the shot API (M3-01, §12.3).** An NPC's armour is by role: guards and couriers `rules.guardArmour`
     (0, 1 from City tier), the security chief 1, police and SWAT as §12.3 when M3-04 brings their roles; everyone
-    else 0. A crew member wears the best worn armour piece. `previewShot` is the truth, like an engine preview: what
-    the player sees is projected through the crew's knowledge in M3-09. `resolveShot` is not a command (M3-02's
+    else 0. A crew member wears the best worn armour piece. `previewShot` is omniscient, like an engine preview
+    (bodies behind walls, cover's hit points, refusals naming unknown targets); the player is shown `crewShotPreview`,
+    the same on the crew's picture (only NPCs it sees or predicts, a hostage it leads, doors as last seen), and M3-09
+    draws from that. `resolveShot` is not a command (M3-02's
     attack calls it) and applies no damage (M3-03).
 
 ### Critical files for implementation
