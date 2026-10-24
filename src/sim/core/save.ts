@@ -162,6 +162,7 @@ export function serialiseState(saved: { state: State; recent?: readonly SimEvent
     return JSON.stringify({ format: SAVE_FORMAT, ...stateFields(saved) });
 }
 
-export function deserialiseState(text: string): SavedState {
-    return readState(parse(text, 'saved state'));
+/** An autosave's state; with its `world` (saved apart), the checks that need one run too. */
+export function deserialiseState(text: string, world?: ReadonlyWorld): SavedState {
+    return readState(parse(text, 'saved state'), world);
 }

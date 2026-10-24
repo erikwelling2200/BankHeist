@@ -1305,8 +1305,8 @@ export class PlayMode {
             visibility: { width: view.width, codes: view.visibility },
             ghosts: view.npcs.filter(m => m.kind === 'ghost' && shown(m.id)).map(m => ({ pos: m.pos, seenAgo: m.seenAgo })),
             pings: view.pings.map(p => ({ at: p.at })),
-            // The crew's own loot left on the floor (§15.1): it knows where it put it.
-            loot: Object.keys(state.loot).sort().filter(id => state.loot[id]!.taken && state.loot[id]!.holder === null)
+            // The crew's own loot left on the floor (§15.1): it knows where it put it. Ruined cash put down is litter.
+            loot: Object.keys(state.loot).sort().filter(id => state.loot[id]!.taken && state.loot[id]!.holder === null && !state.loot[id]!.ruined)
                 .map(id => ({ at: state.loot[id]!.pos, crate: lootWeight(world, id) === 'very heavy' })),
             colourBlind: this.colourBlind,
             ...(filter ? { coneFilter: true } : {}),

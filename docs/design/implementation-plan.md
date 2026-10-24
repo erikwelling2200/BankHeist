@@ -737,6 +737,12 @@ Each package lists its goal, the design sections it covers, the files, what it d
       landing and catcher from the design itself (`expectedThrow`) and compares every offered target with it; the
       skipped dash-with-a-bag test in `move.test.ts` is filled in. Save shape hash now `117209a95b7c85de` (updated here,
       as M2-01 did, rather than by the integrator).
+    - **Second review.** `cashOut` leaked the pack: it stopped once a burst ruined the stack, so a path out and back in
+      twice showed dyed cash one way out and clean cash three. Now a stack is settled at its first way out (a burst, or
+      known clean: `inspected`), so `cashOut` comes once per stack whatever it hid (a regression test previews one path
+      with each). It applies only in a bank with dye packs (none in the M1 small branch). The move hooks' `step` gets
+      where the move set off (no module state). Ruined cash put down is neither a target nor drawn; autosaves are
+      checked with their world (`deserialiseState(text, world)`), so the hands check is exact on every load.
 - [ ] **M2-05 Vault access: wiring the key graph into the rules.**
   - **Covers:** §15.2, §15.3, §9.1 sensors, §7.2 kits and traits (Steady Hands).
   - **Work:** turn `KeyLock` into structured keys (`gen/keys.ts`); codes and dual control at the console; the manager's PC; the time-lock window from the timeline; the drill with jams (rolled) and noise; deposit boxes; lockpicking; card readers.
@@ -1185,9 +1191,10 @@ Later milestones: within each milestone, the `∥` notes in §3 apply. UI packag
 56. **Dye packs (M2-04).** Inspecting is 1 action on a pocketed stack: it finds the pack and takes it out. Unfound, the
     pack bursts on its carrier's first step onto a tile outside the bank's building (its lot's rooms that aren't
     outdoors), ruining the stack, which stays pocketed. The player isn't told before: previews never show a pack found
-    or bursting (`registerPreviewSecret`). So that previews stay honest, every step that takes uninspected cash out
-    of the building is `cashOut`, shown and final whether or not a pack bursts; inspecting is final too. The burst
-    isn't evidence.
+    or bursting (`registerPreviewSecret`). So that previews stay honest, the first step that takes cash that may be
+    dyed (taken, in a bank with dye packs, not known clean) out of the building is `cashOut`, shown and final whether
+    or not a pack bursts; cash that leaves without bursting is known clean from then on, as inspected cash is.
+    Inspecting is final too. The burst isn't evidence.
 57. **Carry penalties (M2-04).** Heavy is −2 tiles off the Move (in half-steps, after heavy armour's 4 tiles); Very
     heavy halves it rounded down in half-steps (M1's drag), or −1 tile for a Bruiser; bodies are Very heavy too. Only
     a pistol is in hand with a Very heavy carry (not a machine pistol or a taser): it alone counts for Threat and for

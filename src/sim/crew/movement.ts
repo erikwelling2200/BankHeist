@@ -54,8 +54,8 @@ export type MoveMode = 'move' | 'dash';
 export interface MoveHook {
     /** Before the first step, with the state as it was before the move (the path is already checked). */
     start?: (ctx: Ctx, member: CrewState, path: readonly Pos[], mode: MoveMode) => void;
-    /** After the mover stands on `path[index]` (facing along the step), before the next step. */
-    step?: (ctx: Ctx, member: CrewState, path: readonly Pos[], index: number, mode: MoveMode) => void;
+    /** After the mover stands on `path[index]` (facing along the step), before the next step; `from` is where it set off. */
+    step?: (ctx: Ctx, member: CrewState, path: readonly Pos[], index: number, mode: MoveMode, from: Pos) => void;
     /** After the move is over (the moved event and any noise emitted). */
     end?: (ctx: Ctx, member: CrewState, path: readonly Pos[], mode: MoveMode) => void;
 }
@@ -238,7 +238,7 @@ function walk(ctx: Ctx, member: CrewState, planned: readonly Pos[], mode: MoveMo
         member.facing = facingToward(prev, p) ?? member.facing;
         member.pos = { x: p.x, y: p.y };
         prev = p;
-        for (const h of hooks()) h.step?.(ctx, member, path, i, mode);
+        for (const h of hooks()) h.step?.(ctx, member, path, i, mode, from);
     }
     const copy = path.map(p => ({ x: p.x, y: p.y }));
     if (copy.length) ctx.emit({ type: 'moved', crew: member.id, from, to: { x: member.pos.x, y: member.pos.y }, path: copy });

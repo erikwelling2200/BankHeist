@@ -28,8 +28,9 @@ import { inReach, lacksActions, registerAction } from './act';
  * - **Dye packs** (§15.1): a drawer the generator marks hides one. The player isn't told: unless the cash is inspected
  *   (1 action on a pocketed stack, which finds and removes it) the pack bursts once its carrier steps out of the
  *   building (`World.building`) and ruins that stack. Previews keep the find and the burst secret
- *   (`registerPreviewSecret`), but every step that takes uninspected cash out is `cashOut`, shown and final: such a move
- *   may be final for a reason the player can't know yet, so it is never offered as undoable (`mayBeDyed`).
+ *   (`registerPreviewSecret`), but the first step that takes cash that may be dyed out (`mayBeDyed`: in a bank with
+ *   dye packs, not known clean) is `cashOut`, shown and final whichever it was: such a move may be final for a reason
+ *   the player can't know yet, so it is never offered as undoable. A stack that left without bursting is known clean.
  * - What the hands hold is `State.loot` and `CrewState.dragging`; `Loadout.carrying` follows them (rules/hands.ts).
  * - Loot behind a lock M2-05 opens (the deposit boxes, `loot.behind`) isn't the heist's loot yet.
  * - A throw never passes a door the crew can't vouch for (decision 44), so its preview and its outcome can't differ.
@@ -49,7 +50,7 @@ export interface LootState {
     taken: boolean;
     /** A dye pack still hides in it (the player isn't told). */
     dyePack: boolean;
-    /** Inspected (§15.1): a dye pack in it was found and taken out. */
+    /** Known clean (§15.1): looked through (a dye pack in it found and taken out), or carried out without a burst. */
     inspected: boolean;
     /** Ruined by its dye pack: worth nothing. */
     ruined: boolean;
@@ -348,7 +349,7 @@ registerAction('inspectLoot', {
         if (loot?.holder !== member.id) return `${member.name} doesn't have it`;
         if (lootWeight(world, cmd.loot) !== 'light') return 'Only a stack of cash can hide a dye pack';
         if (loot.ruined) return 'The dye pack has ruined it';
-        return loot.inspected ? 'It has been looked through already' : undefined;
+        return loot.inspected ? 'It is known to be clean' : undefined;
     },
     candidates: (world, state, member) => pocketed(world, state, member.id).map(id => ({ type: 'inspectLoot', crew: member.id, loot: id })),
     cost: () => 1,
@@ -362,32 +363,34 @@ registerAction('inspectLoot', {
     }
 });
 
+/** Whether the bank hides dye packs at all (§15.1, its tier's: what the player knows of it before casing). */
+const hasDyePacks = (world: ReadonlyWorld): boolean => world.objects.some(o => !!o.loot?.dyePack);
+
 /**
- * Whether a stack might still hide a dye pack as far as the player can tell (§15.1): taken cash not inspected and not
- * ruined. Carrying it out of the building makes a move final, burst or not (`cashOut`); the view can mark it.
+ * Whether a stack might still hide a dye pack as far as the player can tell (§15.1): taken cash in a bank with dye
+ * packs, neither known clean (`inspected`: looked through, or carried out once without a burst) nor ruined. Carrying it
+ * out of the building makes a move final, burst or not (`cashOut`); the view can mark it.
  */
 export function mayBeDyed(world: ReadonlyWorld, state: DeepReadonly<State>, id: string): boolean {
     const loot = state.loot[id]!;
-    return loot.taken && !loot.inspected && !loot.ruined && lootWeight(world, id) === 'light';
+    return loot.taken && !loot.inspected && !loot.ruined && lootWeight(world, id) === 'light' && hasDyePacks(world);
 }
 
-/** Where each mover stood before its move's first step, for telling the step that leaves the building. */
-const MOVE_FROM = new WeakMap<CrewState, Pos>();
-
-// Stepping out of the building with uninspected cash: `cashOut` for each such stack, and a hidden pack bursts and
-// ruins it (§15.1).
+// Stepping out of the building with cash that may be dyed: `cashOut` for each such stack; a hidden pack bursts and ruins
+// it (§15.1), and a stack without one is known clean from then on. Either way the stack is settled at its first way
+// out, so `cashOut` comes once per stack whichever it was: a preview of any path tells dyed cash from clean by nothing.
 registerMoveHook('loot', {
-    start(_ctx, member) {
-        MOVE_FROM.set(member, { x: member.pos.x, y: member.pos.y });
-    },
-    step(ctx, member, path, index) {
-        const at = path[index]!, before = index > 0 ? path[index - 1]! : MOVE_FROM.get(member)!;
+    step(ctx, member, path, index, _mode, from) {
+        const at = path[index]!, before = index > 0 ? path[index - 1]! : from;
         if (inBuilding(ctx.world, at) || !inBuilding(ctx.world, before)) return;
         for (const id of lootOf(ctx.state, member.id)) {
             if (!mayBeDyed(ctx.world, ctx.state, id)) continue;
             ctx.emit({ type: 'cashOut', crew: member.id, loot: id, at: { x: at.x, y: at.y } });
             const loot = ctx.state.loot[id]!;
-            if (!loot.dyePack) continue;
+            if (!loot.dyePack) {
+                loot.inspected = true;
+                continue;
+            }
             loot.dyePack = false;
             loot.ruined = true;
             ctx.emit({ type: 'dyePackBurst', crew: member.id, loot: id, at: { x: at.x, y: at.y } });

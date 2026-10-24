@@ -54,7 +54,7 @@ export interface Targets {
     objects: string[];
     /** The cameras the crew knows of, when the member can loop a feed from where they stand. */
     cameras: string[];
-    /** Loot in reach that nobody has (where the bank keeps it, or on the floor). */
+    /** Loot in reach that nobody has (where the bank keeps it, or on the floor), ruined cash aside. */
     loot: string[];
 }
 
@@ -71,7 +71,8 @@ export function targetsOf(world: ReadonlyWorld, state: State, crewId: string): T
         .filter(o => (STASH_KINDS.has(o.kind) || interactionVerbs(world, o.id).length) && reachesObject(world, state, member.pos, o))
         .map(o => o.id);
     const atConsole = world.objects.some(o => LOOP_FROM.has(o.kind) && inReach(world, state, member.pos, o.pos));
-    const loot = Object.keys(state.loot).sort().filter(id => state.loot[id]!.holder === null && inReach(world, state, member.pos, state.loot[id]!.pos));
+    // Not a ruined stack put down: it is nothing to take, and would hide real loot behind a greyed Take.
+    const loot = Object.keys(state.loot).sort().filter(id => state.loot[id]!.holder === null && !state.loot[id]!.ruined && inReach(world, state, member.pos, state.loot[id]!.pos));
     return { doors, npcs, objects, cameras: atConsole ? knownCameras(world, state) : [], loot };
 }
 

@@ -57,7 +57,7 @@ export function heistWorldId(heistText: string): string {
 
 export function deserialiseHeist<Ui>(heistText: string, worldText: string): SavedState & { genVersion: string; world: ReadonlyWorld } & HeistExtras<Partial<Ui> | null> {
     const { genVersion, world } = deserialiseWorld(worldText);
-    const saved = deserialiseState(heistText);
+    const saved = deserialiseState(heistText, world);
     const heist = parseObject(heistText, 'save');
     for (const key of EXTRA_KEYS) if (!(key in heist)) throw new SaveFormatError(`The save has no ${key}`);
     const ui = heist.ui && typeof heist.ui === 'object' ? heist.ui as Partial<Ui> : null;

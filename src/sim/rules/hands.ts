@@ -43,8 +43,8 @@ registerStateCheck('hands', (raw, world) => {
     if (!Array.isArray(state.crew) || !state.loot) return 'there is no crew or loot to check the hands against';
     for (const c of state.crew) {
         const shown = c.loadout.carrying;
-        // With the world, exactly; an autosave's state alone (its world saved apart) can't weigh loot, only tell a
-        // body from loot and loot from nothing.
+        // With the world (every load in the game has it), exactly; a state alone can't weigh loot, only tell a body from
+        // loot and loot from nothing.
         const holds = sortedIds(state.loot).some(id => state.loot[id]!.holder === c.id);
         const held = world ? handsCarry(world, state, c) : c.dragging !== null ? (c.leading ? HOSTAGE : 'body') : holds && shown !== 'body' && shown !== HOSTAGE ? shown : null;
         if (shown !== held) return `${c.id} shows carrying '${shown}' but holds ${held ?? 'nothing'}`;

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
-    actionPreview, commit, crewBudget, deserialise, serialise, crewLoot, crewThreat, dashRefusal, decodeBits, encodeBits, evidenceOnMap, fixtureWorld, initialState, legalActions, throwPlan, throwTargets,
+    actionPreview, commit, crewBudget, deserialise, deserialiseState, mayBeDyed, serialise, serialiseState, crewLoot, crewThreat, dashRefusal, decodeBits, encodeBits, evidenceOnMap, fixtureWorld, initialState, legalActions, throwPlan, throwTargets,
     whyNot, type CrewStart, type FixtureWall, type PersonDef, type Pos, type ReadonlyWorld, type State, type WorldObject
 } from '../../src/sim';
 import { syncHands } from '../../src/sim/rules/hands';
@@ -50,6 +50,11 @@ describe('the bank\'s loot', () => {
         expect(deserialise(serialise({ genVersion: 'fixture', world, state: s })).state.crew[0]!.loadout.carrying).toBe('lootBag');
         const forged = { ...state, crew: state.crew.map(c => ({ ...c, loadout: { ...c.loadout, carrying: 'lootBag' } })) };
         expect(() => deserialise(serialise({ genVersion: 'fixture', world, state: forged }))).toThrow(/shows carrying 'lootBag' but holds nothing/);
+        // An autosave's state, read with its world: a bag shown while only cash is pocketed is refused too.
+        const cash = run(world, { ...state, crew: state.crew.map(c => ({ ...c, pos: P(2, 2) })) }, { type: 'takeLoot', crew: 'mara', loot: 'drawer2' });
+        const pocketsOnly = { ...cash, crew: cash.crew.map(c => ({ ...c, loadout: { ...c.loadout, carrying: 'lootBag' } })) };
+        expect(() => deserialiseState(serialiseState({ state: pocketsOnly }), world)).toThrow(/shows carrying 'lootBag' but holds nothing/);
+        expect(deserialiseState(serialiseState({ state: cash }), world).state.loot.drawer2!.holder).toBe('mara');
     });
 
     it('is every loot object worth something, where the bank keeps it; a dye pack goes with its drawer', () => {
@@ -249,6 +254,48 @@ describe('dye packs', () => {
         expect(crewLoot(world, clean.state)).toEqual({ carried: 5000, ruined: 0 });
         const inspectShown = actionPreview(world, s, { type: 'inspectLoot', crew: 'mara', loot: 'drawer' });
         expect(inspectShown.ok && inspectShown.events.map(e => e.type)).toEqual(['lootInspected']);
+    });
+});
+
+describe('dye packs stay secret', () => {
+    const zigzag = [P(1, 4), P(1, 3), P(1, 4), P(1, 3), P(1, 4)];
+    const carrying = (loot: string) => {
+        const { world, state } = setup([{ id: 'mara', pos: P(1, 2) }]);
+        const s = run(world, state, { type: 'takeLoot', crew: 'mara', loot });
+        return { world, state: { ...s, crew: s.crew.map(c => ({ ...c, pos: P(1, 3), actionsLeft: 2 })) } };
+    };
+
+    it('in a preview of any path: dyed and clean cash read the same, out, in and out again', () => {
+        const dyed = carrying('drawer'), clean = carrying('drawer2');
+        const a = actionPreview(dyed.world, dyed.state, { type: 'move', crew: 'mara', path: zigzag });
+        const b = actionPreview(clean.world, clean.state, { type: 'move', crew: 'mara', path: zigzag });
+        expect(JSON.stringify(a).replaceAll('drawer2', 'drawer')).toBe(JSON.stringify(b).replaceAll('drawer2', 'drawer'));
+        expect(a.ok && a.events.filter(e => e.type === 'cashOut').length).toBe(1);
+        // And in what the commit shows: one way out each, a burst only for the dyed.
+        const ra = commit(dyed.world, dyed.state, { type: 'move', crew: 'mara', path: zigzag });
+        const rb = commit(clean.world, clean.state, { type: 'move', crew: 'mara', path: zigzag });
+        expect(ra.events.filter(e => e.type === 'cashOut').length).toBe(1);
+        expect(rb.events.filter(e => e.type === 'cashOut').length).toBe(1);
+        expect(ra.state.loot.drawer!.ruined).toBe(true);
+    });
+
+    it('cash that left the building without bursting is known clean: later ways out aren\'t final', () => {
+        const { world, state } = carrying('drawer2');
+        const out = commit(world, state, { type: 'move', crew: 'mara', path: [P(1, 4)] }).state;
+        expect(out.loot.drawer2).toMatchObject({ inspected: true, ruined: false });
+        expect(mayBeDyed(world, out, 'drawer2')).toBe(false);
+        const back = commit(world, out, { type: 'move', crew: 'mara', path: [P(1, 3)] }).state;
+        const again = { ...back, crew: back.crew.map(c => ({ ...c, actionsLeft: 2 })) };
+        expect(commit(world, again, { type: 'move', crew: 'mara', path: [P(1, 4)] }).events.some(e => e.type === 'cashOut')).toBe(false);
+    });
+
+    it('only matter in a bank with dye packs', () => {
+        const world = fixtureWorld(MAP, { rooms: FLOOR, objects: OBJECTS.map(o => (o.id === 'drawer' ? loot('drawer', P(1, 1), 'light', 5000) : o)) });
+        const s = run(world, initialState(world, { seed: 3, crew: [{ id: 'mara', pos: P(1, 2) }] }), { type: 'takeLoot', crew: 'mara', loot: 'drawer' });
+        expect(mayBeDyed(world, s, 'drawer')).toBe(false);
+        const shown = actionPreview(world, s, { type: 'move', crew: 'mara', path: [P(1, 3), P(1, 4)] });
+        expect(shown.ok && shown.events.some(e => e.type === 'cashOut')).toBe(false);
+        expect(shown).not.toHaveProperty('mayBeDyed');
     });
 });
 
