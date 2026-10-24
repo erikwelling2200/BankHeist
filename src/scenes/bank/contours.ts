@@ -15,8 +15,11 @@ export interface Side { x0: number; y0: number; x1: number; y1: number; tile: Po
  * corner, the run turns right, round its own tile, so touching regions stay apart.
  */
 export function sideRuns(tiles: readonly Pos[], inside: (x: number, y: number) => boolean): Side[][] {
-    const sides: Side[] = [];
+    const sides: Side[] = [], once = new Set<string>();
     for (const p of tiles) {
+        // A tile given twice is one tile: its sides twice would break the chains.
+        if (once.has(`${p.x},${p.y}`)) continue;
+        once.add(`${p.x},${p.y}`);
         const { x, y } = p;
         if (!inside(x, y - 1)) sides.push({ x0: x, y0: y, x1: x + 1, y1: y, tile: p });
         if (!inside(x + 1, y)) sides.push({ x0: x + 1, y0: y, x1: x + 1, y1: y + 1, tile: p });

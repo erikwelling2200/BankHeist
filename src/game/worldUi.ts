@@ -1,6 +1,6 @@
 import type { GlyphName } from '../art/ui/glyphs';
 import {
-    crewPicture, LYING_STATUSES, neutralised, profilesOf, npcObserver, seenTiles, bandAt, type ActionPreview, type CarrierKind, type Explanation,
+    crewPicture, LYING_STATUSES, neutralised, profilesOf, npcObserver, seenTiles, bandAt, type ActionPreview, type CarrierKind, type Effect, type Explanation, type FloorTile,
     type KnownCamera, type KnownView, type MarkerKind, type NpcMarker, type PathSafety, type TileVisibility, VISIBILITY, type Pos, type ReadonlyWorld, type SafeFloor, type Sighting, type State, type Tint, type TintKind, type Witness
 } from '../sim';
 import { rolePortrait } from './views';
@@ -241,6 +241,38 @@ export function floorTiles(floor: { readonly tiles: readonly SafeFloor['tiles'][
 export function stayTile(floor: { readonly tiles: readonly SafeFloor['tiles'][number][] }): FloorTileVM | undefined {
     const t = floor.tiles.find(x => x.band === 'stay');
     return t && tintVM(t.pos, 'move', t.tint);
+}
+
+/** The NPCs and cameras an effect names: who Exposes, keeps watching, adds pips, challenges or reports the crew member. */
+function effectObservers(e: Effect | null, out: Set<string>): void {
+    if (!e) return;
+    for (const id of [...e.exposed, ...e.watching, ...Object.keys(e.pips), ...e.cameras]) out.add(id);
+    if (e.challenged) out.add(e.challenged);
+}
+
+/** Who reacts to a floor tile's move: now and in the coming world phase, to the crew member or a teammate. */
+function tileObservers(t: FloorTile, out: Set<string>): void {
+    effectObservers(t.now, out);
+    effectObservers(t.next, out);
+    for (const m of t.teammates) effectObservers(m.effect, out);
+}
+
+/**
+ * The observers whose cones the overlay shows (v2): those that react to the crew member somewhere it could go. With a
+ * path, anyone reacting on any of its steps (decision 46), at its end or in the world phase after, or on the stay tile;
+ * without, anyone reacting on any tile of the safe floor (the stay tile among them).
+ */
+export function reactingObservers(floor: { readonly tiles: readonly FloorTile[] } | undefined, path?: PathSafety): string[] {
+    const out = new Set<string>();
+    if (path) {
+        if (path.ok) {
+            for (const step of path.steps) for (const x of step.sightings) out.add(x.observer);
+            tileObservers(path.end, out);
+        }
+        const stay = floor?.tiles.find(t => t.band === 'stay');
+        if (stay) tileObservers(stay, out);
+    } else for (const t of floor?.tiles ?? []) tileObservers(t, out);
+    return [...out];
 }
 
 /** One step of a drawn path, tinted (§8.8 "along the whole drawn path"); `doorRisk` as on `FloorTileVM`. */

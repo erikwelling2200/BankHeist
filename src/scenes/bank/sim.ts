@@ -1,6 +1,6 @@
 import Phaser from 'phaser';
 import {
-    cameraViews, explainView, floorTiles, npcBadges, npcCone, npcDrawnOn, npcSprites, pathView, unhiddenRuns, unhiddenTiles, previewHearers, previewNoise, previewWitnesses, stayTile, type CameraVM, type ConeVM, type ExplainVM, type FloorTileVM,
+    cameraViews, explainView, floorTiles, npcBadges, npcCone, npcDrawnOn, npcSprites, pathView, unhiddenRuns, unhiddenTiles, previewHearers, previewNoise, previewWitnesses, reactingObservers, stayTile, type CameraVM, type ConeVM, type ExplainVM, type FloorTileVM,
     type PathVM
 } from '../../game/worldUi';
 import {
@@ -13,7 +13,7 @@ import { headingOf } from '../../art/bank/people';
 import type { PersonPose } from '../../level/plan';
 import {
     COMBAT_STATUSES, crewPicture, dashRefusal, IllegalCommand, knownDoorStatus, knownView, planRoute, VISIBILITY, routeBreak, soundRing, type ActionPreview,
-    type AutoStop, type Command, type CrewState, type KnownView, type MarkerKind, type State, type TileVisibility, type Facing, type Pos, type SimEvent
+    type AutoStop, type Command, type CrewState, type KnownView, type MarkerKind, type PathSafety, type State, type TileVisibility, type Facing, type Pos, type SimEvent
 } from '../../sim';
 import { mountAutoBar, type AutoBarHandle } from '../../ui/hud/autoBar';
 import { iconUrl, portraitUrl } from '../../ui/hud/icons';
@@ -162,7 +162,7 @@ export class PlayMode {
     };
     private floorFrame = 0;
     /** A drawn path's safety, once per state and path. */
-    private pathFor?: { state: State; key: string; view: PathVM | undefined };
+    private pathFor?: { state: State; key: string; raw: PathSafety; view: PathVM | undefined };
     /** A long-pressed tile's "who and why" (until the next tap), and its tag. */
     private explained: ExplainVM | null = null;
     private explainTag?: HTMLElement;
@@ -1143,8 +1143,10 @@ export class PlayMode {
         // The floor is judged whenever someone is selected: their own tile (what ending the turn there does) shows even
         // with no actions left or the range stepped aside.
         const judged = this.floor(member), floor = range ? judged : undefined, stay = this.floorFor?.stay;
+        // v2's cones: those of the observers reacting to them somewhere they could go (with a path, on it: below).
+        const reactors = (path?: PathSafety) => (OVERLAY_V2 ? { reactors: reactingObservers(this.floorFor?.job, path) } : {});
         const base = {
-            colour, intents, ...layer, ...(stay ? { stay } : {}), ...(range ? { reach: { move: unhiddenTiles(this.known(), range.walk), dash: unhiddenTiles(this.known(), range.run), at: member.pos, unfilled: bodies } } : {}),
+            colour, intents, ...layer, ...reactors(), ...(stay ? { stay } : {}), ...(range ? { reach: { move: unhiddenTiles(this.known(), range.walk), dash: unhiddenTiles(this.known(), range.run), at: member.pos, unfilled: bodies } } : {}),
             ...(floor ? { safeFloor: floor } : {}), ...(this.explained ? { explain: this.explained } : {})
         };
         if (this.dragPath) {
@@ -1161,10 +1163,11 @@ export class PlayMode {
                     from: member.pos, path: this.dragPath, badFrom: cut < 0 ? undefined : cut, routeDrag: true
                 };
             }
-            const cmd = along.command, safety = cmd && (cmd.type === 'move' || cmd.type === 'dash') ? this.dragSafety(member.id, cmd.path, cmd.type) : undefined;
+            const cmd = along.command, judged = cmd && (cmd.type === 'move' || cmd.type === 'dash') ? this.dragSafety(member.id, cmd.path, cmd.type) : undefined;
+            const safety = judged?.view;
             return {
                 ...base, from: member.pos, path: this.dragPath, dash: cmd?.type === 'dash', badFrom: along.badFrom, floorDim: true,
-                ...(safety ? { pathSafety: safety } : {})
+                ...(safety ? { pathSafety: safety } : {}), ...(judged ? reactors(judged.raw) : {})
             };
         }
         const pending = this.session.pendingCommand;
@@ -1173,7 +1176,7 @@ export class PlayMode {
             const dash = pending.type === 'dash', safety = shown?.ok && shown.path ? pathView(shown.path) : undefined;
             return {
                 ...base, from: member.pos, path: pending.path as Pos[], dash, floorDim: true, ...(safety ? { pathSafety: safety } : {}),
-                ...(shown ? this.previewMarks(shown) : {})
+                ...(shown?.ok && shown.path ? reactors(shown.path) : {}), ...(shown ? this.previewMarks(shown) : {})
             };
         }
         // An action on a thing: its target marked, the noise it makes (a knockout's), and who would see it (§8.4).
@@ -1226,12 +1229,13 @@ export class PlayMode {
     }
 
     /** A dragged path's safety (§8.8 "along the whole drawn path"), once per state and path. */
-    private dragSafety(crew: string, path: readonly Pos[], mode: 'move' | 'dash'): PathVM | undefined {
+    private dragSafety(crew: string, path: readonly Pos[], mode: 'move' | 'dash'): { raw: PathSafety; view: PathVM | undefined } {
         const state = this.session.state, key = `${crew}:${mode}:${JSON.stringify(path)}`;
         if (this.pathFor?.state !== state || this.pathFor.key !== key) {
-            this.pathFor = { state, key, view: pathView(this.session.pathSafety(crew, path, mode)) };
+            const raw = this.session.pathSafety(crew, path, mode);
+            this.pathFor = { state, key, raw, view: pathView(raw) };
         }
-        return this.pathFor.view;
+        return this.pathFor;
     }
 
     /** The player's preview of `cmd` (`actionPreview`, through the Session's cache), or undefined when it throws. */

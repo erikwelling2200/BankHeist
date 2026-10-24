@@ -20,9 +20,9 @@ import { insetLoops, sideRuns, withoutHoles, type Corner, type Side } from './co
  *   only a Dash reaches; hatched when the coming world phase does it) and a glyph for what it warns of (pips, a hand,
  *   an eye, a camera, `?`), and the band edges over them (Move's solid steel blue, Dash's dashed gold), so both read
  *   at once; before the floor arrives a band is filled steel blue or hatched gold; an NPC's cones on long-press and the
- *   known cameras' (`drawViews`: exactly the tiles seen, outlined inset with rounded corners in pale white over ink, a
- *   faint fade; stronger when Alerted or on the operator's monitors, grey while looped, cameras dashed, a panning
- *   camera's next facing dotted), under the band edges; a previewed noise's ring (dotted, faint fill); a moment's flashes (a guard's shout ring, the
+ *   known cameras' (`drawViews`: all as one area, exactly the tiles any of them sees, outlined inset with rounded
+ *   corners in pale white over ink; stronger when someone is Alerted or a camera on the operator's monitors), under
+ *   the band edges; a previewed noise's ring (dotted, faint fill); a moment's flashes (a guard's shout ring, the
  *   Alarm's rings).
  * - **Paths:** NPC intents (a dotted hairline, an open chevron and a pin where the walk ends; fainter when predicted);
  *   predicted markers (a dashed footprint); the previewed or dragged path, each step tinted by its safety (the floor
@@ -41,8 +41,8 @@ function cameraPlate(cam: CameraVM): PlateVM {
     return cam.monitored ? { glyph: 'camera', signal: 'red', sym: '!' } : { glyph: 'camera', signal: 'amber' };
 }
 
-/** A view to draw (`drawViews`): who looks from where, the tiles they see, the edge's colour and line, and a fade. */
-interface View { from: Pos; tiles: Pos[]; colour: string; line: 'solid' | 'dashed' | 'dotted'; wash: boolean }
+/** A view to draw (`drawViews`): who looks from where and the tiles they see; `strong` when Alerted or on the monitors. */
+interface View { from: Pos; tiles: Pos[]; strong: boolean }
 
 /** UI pixels per art pixel. */
 const UI_SCALE = 2;
@@ -124,6 +124,8 @@ export interface OverlayContent {
     stay?: FloorTileVM;
     /** v2: draw only the cones (NPCs' and cameras') that meet the reach or the drawn path. */
     coneFilter?: boolean;
+    /** v2: the observers that react to the selected crew member where they could go (or on the drawn path): whose cones show. */
+    reactors?: string[];
 }
 
 /** The signal palette, and its colour-blind preset (UI.md). */
@@ -399,26 +401,23 @@ export class WorldOverlay {
             }
         }
 
-        // v2: a cone is drawn where being seen matters: when it meets a step of the drawn path, or with none a tile of the
-        // reach, that isn't safe (or the drawer shows all, or it was long-pressed).
-        const risky = c.path?.length ? (c.pathSafety ? c.pathSafety.steps.filter(t => t.kind !== 'safe').map(t => t.pos) : c.path)
-            : c.safeFloor?.length ? c.safeFloor.filter(t => t.kind !== 'safe').map(t => t.pos) : [...(c.reach?.move ?? []), ...(c.reach?.dash ?? [])];
-        const near = has(risky);
-        const relevant = (tiles: Pos[]) => !c.coneFilter || tiles.some(p => near(p.x, p.y));
-        // Cones, NPCs' and cameras' (v2: only those `relevant`): the tiles seen, outlined inset in pale white, no colour
-        // any other layer uses, stronger when Alerted or on the operator's monitors; cameras dashed, grey and fainter
-        // while looped; a panning camera's next facing dotted.
+        // v2: a cone shows when its observer reacts to the selected crew member on the drawn path (any step, its end, the
+        // world phase after) or on the stay tile, or with no path anywhere they could go (or the drawer shows all, or it
+        // was long-pressed). A hatch is about watchers the crew hasn't seen, so it pulls in no known observer's cone.
+        const reacting = new Set(c.reactors ?? []);
+        const relevant = (id: string) => !c.coneFilter || reacting.has(id);
+        // Cones, NPCs' and cameras' (v2: only those `relevant`): all of them as one area, the tiles any of them sees,
+        // outlined inset in pale white (no colour any other layer uses), stronger when someone is Alerted or a camera is
+        // on the operator's monitors. A looped camera reports nothing and a panning camera's next facing is still to
+        // come, so neither is part of it. Who sees a tile is the long-press's "who and why".
         const views: View[] = [];
         for (const cone of c.cones ?? []) {
             const all = [...cone.core, ...cone.peripheral];
-            if (relevant(all)) views.push({ from: cone.from, tiles: all, colour: alpha(VIEW, cone.alerted ? 0.9 : 0.65), line: 'solid', wash: true });
+            if (all.length && relevant(cone.id)) views.push({ from: cone.from, tiles: all, strong: cone.alerted });
         }
         for (const cam of c.cameras ?? []) {
             const all = [...cam.core, ...cam.peripheral];
-            if (!all.length || !relevant([...all, ...(cam.next ?? [])])) continue;
-            const looped = cam.loopLeft !== undefined, colour = looped ? alpha('#a8a6b0', 0.45) : alpha(VIEW, cam.monitored ? 0.9 : 0.65);
-            views.push({ from: cam.pos, tiles: all, colour, line: 'dashed', wash: !looped });
-            if (cam.next?.length) views.push({ from: cam.pos, tiles: cam.next, colour: alpha(VIEW, 0.4), line: 'dotted', wash: false });
+            if (all.length && cam.loopLeft === undefined && relevant(cam.id)) views.push({ from: cam.pos, tiles: all, strong: cam.monitored });
         }
         this.drawViews(views, mid, S, ox, oy);
         overCones();
@@ -648,38 +647,36 @@ export class WorldOverlay {
     }
 
     /**
-     * Views (cones): each exactly the tiles its watcher sees (the rules' own field, `ConeVM`/`CameraVM`, and the tile
-     * they stand on, so it closes round them), as a closed outline inset in those tiles with rounded corners like the
-     * noise ring: it never sits on a band's edge or a tile's, and a tile is inside it exactly when it is seen. A faint
-     * fade from the watcher outwards (8% to nothing at the furthest tile), then a thin edge over a dark under-stroke,
-     * thinner than the band edges, which are drawn over it.
+     * Views (cones), all as one area: exactly the tiles any of the watchers sees (the rules' own fields, `ConeVM` and
+     * `CameraVM`, and the tiles they stand on, so it closes round them), as one closed outline inset in those tiles with
+     * rounded corners like the noise ring: it never sits on a band's edge or a tile's, and a tile is inside it exactly
+     * when someone shown sees it. A lone view gets a faint fade from its watcher outwards (8% to nothing at its furthest
+     * tile); then a thin edge over a dark under-stroke, thinner than the band edges, which are drawn over it.
      */
     private drawViews(views: readonly View[], mid: (p: Pos) => [number, number], S: number, ox: number, oy: number): void {
+        if (!views.length) return;
         const ctx = this.ctx, px = (p: Corner): [number, number] => [(p.x * TILE - ox) * UI_SCALE, (p.y * TILE - this.lift(p.tile.x, p.tile.y) - oy) * UI_SCALE];
-        for (const v of views) {
-            if (!v.tiles.length) continue;
-            const all = [...v.tiles, v.from], seen = new Set(all.map(p => `${p.x},${p.y}`));
-            const loops = insetLoops(all, (x, y) => seen.has(`${x},${y}`), VIEW_INSET / S);
-            if (!loops.length) continue;
-            this.loopPath(loops, VIEW_RADIUS, px);
-            if (v.wash) {
-                const [cx, cy] = mid(v.from), range = Math.max(...v.tiles.map(p => Math.hypot(p.x - v.from.x, p.y - v.from.y))) + 0.5;
-                const fade = ctx.createRadialGradient(cx, cy, 0, cx, cy, range * S);
-                fade.addColorStop(0, alpha(VIEW, 0.08));
-                fade.addColorStop(1, alpha(VIEW, 0));
-                ctx.fillStyle = fade;
-                // Even-odd, so a hole (a tile not seen inside the view) stays unwashed.
-                ctx.fill('evenodd');
-            }
-            ctx.setLineDash(v.line === 'dashed' ? [6, 4] : v.line === 'dotted' ? [2, 4] : []);
-            ctx.lineWidth = 3.5;
-            ctx.strokeStyle = 'rgba(13, 12, 20, 0.55)';
-            ctx.stroke();
-            ctx.lineWidth = 1.5;
-            ctx.strokeStyle = v.colour;
-            ctx.stroke();
-            ctx.setLineDash([]);
+        const seen = new Map<string, Pos>();
+        for (const v of views) for (const p of [...v.tiles, v.from]) seen.set(`${p.x},${p.y}`, p);
+        const loops = insetLoops([...seen.values()], (x, y) => seen.has(`${x},${y}`), VIEW_INSET / S);
+        if (!loops.length) return;
+        this.loopPath(loops, VIEW_RADIUS, px);
+        const only = views.length === 1 ? views[0] : undefined;
+        if (only) {
+            const [cx, cy] = mid(only.from), range = Math.max(...only.tiles.map(p => Math.hypot(p.x - only.from.x, p.y - only.from.y))) + 0.5;
+            const fade = ctx.createRadialGradient(cx, cy, 0, cx, cy, range * S);
+            fade.addColorStop(0, alpha(VIEW, 0.08));
+            fade.addColorStop(1, alpha(VIEW, 0));
+            ctx.fillStyle = fade;
+            // Even-odd, so a hole (a tile not seen inside the view) stays unwashed.
+            ctx.fill('evenodd');
         }
+        ctx.lineWidth = 3.5;
+        ctx.strokeStyle = 'rgba(13, 12, 20, 0.55)';
+        ctx.stroke();
+        ctx.lineWidth = 1.5;
+        ctx.strokeStyle = alpha(VIEW, views.some(v => v.strong) ? 0.9 : 0.65);
+        ctx.stroke();
     }
 
     /** v2: chained sides (`sideRuns`) stroked over a 1px ink drop shadow, each side at its own tile's lift. */

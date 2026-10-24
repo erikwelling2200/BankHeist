@@ -266,6 +266,41 @@ const byCustomerCone = (cross: boolean) => async (page: Page, info: { customer: 
     if (to) await tapTile(page, to);
 };
 
+/** Mara and Jun just inside the lobby entrance, the guard a few tiles north of them facing south, all known. */
+const BY_ENTRANCE = `(() => { ${PAGE_HELPERS}
+    const base = clone(sim.state), guard = base.npcs.find(n => n.status !== 'away' && /lobbyGuard/.test(w.people.find(p => p.id === n.id).role));
+    if (!guard) return null;
+    guard.facing = 's';
+    for (const d of [{ x: -1, y: 3 }, { x: 1, y: 3 }, { x: -2, y: 3 }, { x: 0, y: 3 }, { x: -1, y: 2 }]) {
+        const st = clone(base), p = { x: guard.pos.x + d.x, y: guard.pos.y + d.y };
+        if (!free(st, p)) continue;
+        st.crew[0].pos = p;
+        const q = [{ x: p.x + 1, y: p.y }, { x: p.x - 1, y: p.y }, { x: p.x, y: p.y + 1 }].find(t => free(st, t) && !(t.x === guard.pos.x && t.y === guard.pos.y));
+        if (!q) continue;
+        st.crew[1].pos = q;
+        for (const n of st.npcs) if (n.status !== 'away' && Math.max(Math.abs(n.pos.x - p.x), Math.abs(n.pos.y - p.y)) <= 9) know(st, n);
+        return { state: st, info: { at: p, guard: guard.id } };
+    }
+    return null;
+})()`;
+
+/** Mara selected by the entrance with a Move previewed to a green tile, a hatched one, or nothing and every cone on. */
+const byEntrance = (to: 'green' | 'hatched' | 'all') => async (page: Page) => {
+    if (to === 'all') {
+        await page.locator('[data-region="drawer-button"]').click();
+        await page.locator('[data-overlay="cones"]').click();
+        await page.locator('[data-region="drawer-button"]').click();
+    }
+    await selectMara(page);
+    await settle(page);
+    if (to === 'all') return;
+    const end = await page.evaluate((to: string) => (window as any).sim.safeFloor('mara').tiles
+        .filter((t: any) => t.band === 'move' && t.path.length >= 3 && (to === 'green' ? t.tint.kind === 'safe' && !t.tint.hatched && !t.tint.doorRisk
+            : t.tint.hatched || t.tint.kind === 'unknownRisk' || t.tint.doorRisk))
+        .sort((a: any, b: any) => b.path.length - a.path.length)[0]?.pos, to);
+    if (end) await tapTile(page, end);
+};
+
 export const SETUPS: Record<string, Setup> = {
     'mara-selected': {
         about: 'Mara selected at the van as the heist starts (nothing shows: Clean in Public)',
@@ -414,6 +449,21 @@ export const SETUPS: Record<string, Setup> = {
         about: 'customer-cone-cross with the Move previewed along the cone, just outside it',
         script: CUSTOMER_FACING_SOUTH,
         then: byCustomerCone(false)
+    },
+    'entrance-green': {
+        about: 'Mara and Jun inside the lobby entrance, the guard north of them facing south, a Move previewed to a green tile',
+        script: BY_ENTRANCE,
+        then: byEntrance('green')
+    },
+    'entrance-hatched': {
+        about: 'entrance-green with the Move previewed to a hatched tile instead',
+        script: BY_ENTRANCE,
+        then: byEntrance('hatched')
+    },
+    'entrance-all': {
+        about: 'Mara and Jun inside the lobby entrance with every cone on (the overlay drawer), nothing previewed',
+        script: BY_ENTRANCE,
+        then: byEntrance('all')
     },
     'safe-floor': {
         about: 'Mara two tiles from an NPC with the bank scouted round her, her Move band showing the most kinds of tile',
