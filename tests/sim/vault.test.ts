@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { archetypesFor } from '../../src/gen/generate';
 import { TIERS, type KeyLock } from '../../src/gen/model';
 import {
-    actionPreview, cctvDesk, clonePlain, commit, doorSides, doorStatus, fixtureWorld, initialState, inReach, legalActions, lineOfSight, preview, sightMap, tileAt,
+    actionPreview, cctvDesk, clonePlain, commit, doorSides, doorStatus, fixtureWorld, initialState, inReach, interruptsOf, legalActions, lineOfSight, preview, sightMap, tileAt,
     vaultLock, whyNot, worldFromBank, type Command, type CrewStart, type DeepReadonly, type PersonDef, type Pos, type ReadonlyWorld, type State,
     type WorldObject
 } from '../../src/sim';
@@ -288,11 +288,13 @@ describe('the drill and thermite (§15.3)', () => {
         expect(shown.events).toContainEqual(expect.objectContaining({ type: 'noise', kind: 'loud', radius: 6 }));
         let s = set.state, jams = 0, turns = 0;
         while (doorStatus(world, s, 'vaultDoor') !== 'breached' && turns < 60) {
-            const r = commit(world, s, { type: 'endTurn' });
+            const before = s, r = commit(world, s, { type: 'endTurn' });
             turns++;
             s = r.state;
             if (r.events.some(e => e.type === 'drillJammed')) {
                 jams++;
+                // A jam stops a Wait or a Go (auto-advance), where the drill stands.
+                expect(interruptsOf(world, before, r)).toContainEqual({ kind: 'jam', text: 'the drill jammed', at: P(4, 2) });
                 expect(whyNot(world, s, { type: 'fixDrill', crew: 'jun', device: 'drill-1' })).toBeUndefined();
                 s = commit(world, s, { type: 'fixDrill', crew: 'jun', device: 'drill-1' }).state;
                 expect(s.devices[0]!.jammed).toBe(false);
@@ -303,6 +305,14 @@ describe('the drill and thermite (§15.3)', () => {
         expect(turns).toBe(6);
         expect(s.devices).toEqual([]);
         expect(s.dice.filter(d => d.reason === 'jam drill-1').filter(d => d.value < 0.15).length).toBe(jams);
+    });
+
+    it('a jam stops a Wait or a Go where the drill stands', () => {
+        const { world, state } = vault([{ id: 'jun', pos: P(4, 2), items: ['drill'] }], vaultLockDef({ technical: { kind: 'drill', phases: 6, sensors: [], text: 'drill' } }), []);
+        const set = same(world, state, { type: 'drill', crew: 'jun', at: 'vaultDoor' }).state;
+        const jammed = { ...set, devices: set.devices.map(d => ({ ...d, jammed: true })) };
+        expect(interruptsOf(world, set, { state: jammed, events: [{ type: 'drillJammed', device: 'drill-1' }] }))
+            .toContainEqual({ kind: 'jam', text: 'the drill jammed', at: P(4, 2) });
     });
 
     it('Steady Hands beside a drill keeps it from jamming and fixes a jam for free', () => {

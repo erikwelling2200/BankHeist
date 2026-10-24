@@ -69,6 +69,13 @@
 .sh-timeline.police .sh-num { color: var(--red); }
 .sh-timeline.heat { gap: 8px; box-shadow: inset 2px 0 0 var(--heat); }
 .sh-timeline.heat .sh-label { color: var(--dim); font-size: calc(var(--sh-text) * 13px); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.sh-loot { display: flex; align-items: center; gap: 4px; padding: 0 8px 0 4px; white-space: nowrap; box-shadow: inset 2px 0 0 var(--gold); }
+.sh-loot .sh-num { color: var(--gold); font-size: calc(var(--sh-text) * 15px); }
+.sh-loot .sh-ic { width: 20px; height: 20px; }
+/* "May be dyed" (§15.1): a hatched amber "?" (could be worse than shown), never whether it is. */
+.sh-dye { display: inline-flex; align-items: center; justify-content: center; min-width: 13px; height: 14px; padding: 0 1px; box-sizing: border-box; border: 1px solid var(--amber); color: var(--amber);
+  font-size: 11px; letter-spacing: 0; line-height: 1; background: repeating-linear-gradient(135deg, rgba(226, 162, 64, 0.28) 0 1px, transparent 1px 4px), var(--ink); }
+.sh-ruined { color: var(--red); font-size: calc(var(--sh-text) * 12px); letter-spacing: 0; text-decoration: line-through; }
 .sh-turn { display: flex; align-items: center; justify-content: center; min-width: 44px; padding: 0 6px; }
 /* The ledger button: a 44x44 target whose visible face is the strip's 32px. */
 .sh-ledger-btn { position: relative; width: 44px; height: 44px; flex: none; background: none; border: 0; align-self: flex-start; }
@@ -77,6 +84,21 @@
 .sh-count { position: absolute; top: -5px; right: -5px; min-width: 16px; height: 16px; padding: 0 2px; box-sizing: border-box; border-radius: var(--r); background: var(--red); color: #fff;
   font-size: 12px; letter-spacing: 0; text-shadow: none; display: flex; align-items: center; justify-content: center; }
 .sh-ledger-btn .sh-kc { right: -2px; bottom: -2px; }
+
+/* A previewed command's rings counted (§10.1, UI.md "GO previewed"), under the top strip: steel blue for "get down", amber for
+   panic, red for alerted or ignored, and each resister's portrait with the chance it rolls with. */
+.sh-rings { position: absolute; top: calc(var(--pt) + 38px); left: calc(var(--pl) + 92px); height: 32px; display: flex; align-items: center; gap: 8px; padding: 0 8px 0 4px;
+  border-color: var(--cmd); white-space: nowrap; pointer-events: none; }
+.sh-rings .sh-ic { width: 22px; height: 22px; }
+.sh-rc { display: flex; align-items: center; gap: 2px; font-size: calc(var(--sh-text) * 15px); letter-spacing: 0; }
+.sh-rc b { font-weight: 700; }
+.sh-rc.down { color: var(--cmd); }
+.sh-rc.panic { color: var(--amber); }
+.sh-rc.alert, .sh-rc.ignore { color: var(--red); }
+.sh-resist { display: flex; align-items: center; gap: 4px; padding-left: 6px; border-left: 1px solid var(--line2); }
+.sh-resist .sh-p { width: 24px; height: 24px; }
+.sh-resist span.sh-p { font-size: 12px; }
+.sh-resist .sh-num { color: var(--amber); font-size: calc(var(--sh-text) * 15px); }
 
 /* ---------------------------------------------------------------- end turn: far from Confirm on purpose */
 .sh-endturn { position: absolute; top: var(--pt); right: var(--pr); width: 52px; height: 44px; display: flex; align-items: center; justify-content: center; overflow: visible; }
@@ -105,6 +127,8 @@
 .sh-badge { width: 24px; height: 24px; flex: none; box-sizing: border-box; background: var(--ink); border: 1px solid var(--line2); display: flex; align-items: center; justify-content: center; }
 .sh-badge .sh-ic { width: 22px; height: 22px; }
 .sh-badge.unknown { color: var(--dim); font-size: 14px; }
+.sh-badge.unsure { position: relative; border-color: var(--amber); }
+.sh-badge .sh-dye { position: absolute; right: -5px; bottom: -4px; }
 .sh-ammo { font-size: 11px; letter-spacing: 0; color: var(--iv); line-height: 12px; }
 .sh-ammo.last { color: var(--amber); text-decoration: underline; }
 .sh-foot { position: absolute; left: 28px; right: 3px; top: 52px; height: 14px; display: flex; align-items: center; gap: 4px; }
@@ -116,6 +140,10 @@
 .sh-exp { flex: none; display: flex; align-items: center; gap: 1px; height: 14px; padding: 0 2px 0 1px; box-sizing: border-box; background: var(--ink); border: 1px solid var(--red); color: var(--red); font-size: 11px; letter-spacing: 0; line-height: 1; }
 .sh-exp .sh-ic { width: 12px; height: 12px; image-rendering: auto; }
 .sh-crew .sh-kc { left: 50%; top: -7px; transform: translateX(-50%); }
+/* GO (§9.3): the rail turns gold, masks on and a third action each; dashed while GO is only previewed. */
+.sh-rail.go .sh-crew { border-color: var(--gold); box-shadow: inset 0 0 0 1px rgba(242, 201, 76, 0.35); }
+.sh-rail.go-preview .sh-crew { border-style: dashed; }
+.sh-rail.go .sh-crew.sel { border-color: var(--gold); box-shadow: inset 0 0 0 1px var(--gold), 0 0 0 1px rgba(0, 0, 0, 0.6); }
 .sh-rail.compact .sh-crew { height: 60px; }
 .sh-rail.compact .sh-face { width: 40px; height: 40px; left: 32px; }
 .sh-rail.compact .sh-foot { top: 43px; }
@@ -148,7 +176,8 @@
 .sh-act { position: relative; width: 52px; height: 52px; border-radius: var(--r); background: var(--panel); border: 1px solid var(--line); display: flex; align-items: center; justify-content: center; box-sizing: border-box; }
 .sh-act.sel { border-color: var(--iv); background: rgba(242, 230, 200, 0.16); box-shadow: inset 0 -2px 0 var(--iv); }
 .sh-act.na { opacity: 0.35; cursor: default; }
-.sh-act.go { width: 64px; border-color: var(--gold); }
+.sh-act.go { grid-column: span 2; width: 108px; border-color: var(--gold); box-shadow: inset 0 0 0 1px rgba(242, 201, 76, 0.45); }
+.sh-act.go.sel { background: rgba(242, 201, 76, 0.18); box-shadow: inset 0 -2px 0 var(--gold); }
 .sh-cost { display: flex; gap: 2px; }
 .sh-act .sh-cost { position: absolute; left: 4px; bottom: 4px; }
 .sh-act .sh-cost i { display: block; width: 3px; height: 7px; background: var(--iv); }
@@ -161,6 +190,7 @@
 .sh-cnote .sh-ic { width: 16px; height: 16px; }
 .sh-cstart { border: 2px solid var(--red); color: #ffd9d2; box-shadow: inset 3px 0 0 var(--red); }
 .sh-cstop { border: 1px dashed var(--safe); color: var(--safe); }
+.sh-cwarn { border: 1px dashed var(--amber); color: var(--amber); }
 .sh-undo { position: absolute; right: calc(var(--pr) + 172px); bottom: var(--pb); }
 .sh-undo .sh-kc { right: -4px; top: -8px; }
 .sh-confirm { position: absolute; right: var(--pr); bottom: var(--pb); width: 164px; height: 58px; box-sizing: border-box; border-radius: var(--r2); border: 0;
@@ -176,6 +206,7 @@
 .sh-confirm.lethal { background: var(--red); color: #fff4e0 !important; }
 .sh-confirm.lethal .sh-ic { filter: brightness(0) invert(0.95); }
 .sh-confirm.command { background: var(--cmd); }
+.sh-confirm.go { background: var(--gold); }
 .sh-confirm.off { background: var(--panel); border: 1px solid var(--line); color: var(--dim) !important; cursor: default; }
 .sh-confirm.off .sh-ic { filter: none; opacity: 0.35; }
 .sh-confirm.off .sh-cname { opacity: 0.45; }

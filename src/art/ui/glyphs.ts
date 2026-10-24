@@ -21,7 +21,9 @@ export const GLYPHS = {
     star: ['....x....', '.x..x..x.', '..x.x.x..', '...x.x...', 'xxx...xxx', '...x.x...', '..x.x.x..', '.x..x..x.', '....x....'],
     speaker: ['...x...', '..xx...', 'xxxx.x.', 'xxxx..x', 'xxxx.x.', '..xx...', '...x...'],
     pin: ['.xxx.', 'x...x', 'x...x', '.x.x.', '..x..'],
-    camera: ['xxxxxxxx....', 'x......xxx..', 'x......x.x..', 'xxxxxxxxxx..', '...x........', '.xxxxx......']
+    camera: ['xxxxxxxx....', 'x......xxx..', 'x......x.x..', 'xxxxxxxxxx..', '...x........', '.xxxxx......'],
+    /** A pistol, side on (UI.md "Over heads": draws is a hand on a gun). */
+    gun: ['xxxxxxxx', 'xxxxxxxx', 'xxx.x...', 'xx..x...', 'xx......', 'xx......']
 } as const satisfies Record<string, readonly string[]>;
 
 export type GlyphName = keyof typeof GLYPHS;
@@ -32,7 +34,8 @@ export const DIGITS: Readonly<Record<string, readonly string[]>> = {
     '4': ['...x.', '..xx.', '.x.x.', 'x..x.', 'xxxxx', '...x.', '...x.', '...x.'], '5': ['xxxxx', 'x....', 'xxxx.', '....x', '....x', '....x', 'x...x', '.xxx.'],
     '6': ['..xx.', '.x...', 'x....', 'xxxx.', 'x...x', 'x...x', 'x...x', '.xxx.'], '7': ['xxxxx', '....x', '...x.', '...x.', '..x..', '..x..', '.x...', '.x...'],
     '8': ['.xxx.', 'x...x', 'x...x', '.xxx.', 'x...x', 'x...x', 'x...x', '.xxx.'], '9': ['.xxx.', 'x...x', 'x...x', 'x...x', '.xxxx', '....x', '...x.', '.xx..'],
-    '!': ['x', 'x', 'x', 'x', 'x', '.', '.', 'x'], '?': ['.xxx.', 'x...x', '....x', '...x.', '..x..', '.....', '.....', '..x..']
+    '!': ['x', 'x', 'x', 'x', 'x', '.', '.', 'x'], '?': ['.xxx.', 'x...x', '....x', '...x.', '..x..', '.....', '.....', '..x..'],
+    '%': ['xx...', 'xx..x', '...x.', '..x..', '.x...', 'x..xx', '...xx', '.....']
 };
 
 /** The ink of the drop shadows and plates (UI.md: near-black, not pure black). */

@@ -313,18 +313,25 @@ export class Session {
      * coloured from the player's preview of the pending command.
      */
     hud(extras: Omit<HudExtras, 'undoEnabled' | 'previewEvents' | 'costOf'> = {}): HudViewModel {
-        let previewEvents: HudExtras['previewEvents'], carriers: CarrierChanges | undefined;
-        if (this._ui.pendingCommand) {
+        let previewEvents: HudExtras['previewEvents'], carriers: CarrierChanges | undefined, more: Pick<HudExtras, 'mayBeDyed' | 'goPreview' | 'rings'> = {};
+        const pending = this._ui.pendingCommand;
+        if (pending) {
             try {
-                const shown = this.actionPreview(this._ui.pendingCommand);
+                const shown = this.actionPreview(pending);
                 if (shown.ok) {
                     previewEvents = shown.events;
-                    carriers = this.carrierChanges(this._ui.pendingCommand);
+                    carriers = this.carrierChanges(pending);
+                    if (shown.mayBeDyed) more.mayBeDyed = shown.mayBeDyed;
                 }
+                // GO's rail shows the crew as GO leaves them (masks on, a third action: nothing rolled); a command's or a
+                // hold's rings come from the rules' own reading of them.
+                if (pending.type === 'go') more.goPreview = this.preview(pending).state;
+                else if (pending.type === 'command') more.rings = this.commandRings(pending.crew);
+                else if (pending.type === 'hold') more.rings = { held: this.holdRing(pending.crew) };
             } catch { /* a stale command: Confirm shows it, and committing it says why it can't */ }
         }
         return hudView(this.world, this._state, this._ui, {
-            ...extras, undoEnabled: this.canUndo, previewEvents, costOf: cmd => this.costOf(cmd), ...(carriers ? { carriers } : {})
+            ...extras, undoEnabled: this.canUndo, previewEvents, costOf: cmd => this.costOf(cmd), ...(carriers ? { carriers } : {}), ...more
         });
     }
 

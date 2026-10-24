@@ -324,6 +324,45 @@ const BODY_FOUND = `(() => { ${PAGE_HELPERS}
     return null;
 })()`;
 
+/**
+ * The takeover of §3 on this bank: Mara (Intimidating, with a rifle) in the lobby a few tiles from the lobby guard, on
+ * the free tile with the most people round her, Jun beside her; the crew knowing everyone in the lobby.
+ */
+export const TAKEOVER = `(() => { ${PAGE_HELPERS}
+    const base = clone(sim.state), role = n => w.people.find(p => p.id === n.id).role;
+    const guard = base.npcs.find(n => n.status !== 'away' && /lobbyGuard/.test(role(n)));
+    if (!guard) return null;
+    const room = w.tiles[guard.pos.y * w.width + guard.pos.x].room, present = base.npcs.filter(n => n.status !== 'away');
+    const cheb = (p, q) => Math.max(Math.abs(p.x - q.x), Math.abs(p.y - q.y));
+    let best = null;
+    for (let y = 0; y < w.height; y++) for (let x = 0; x < w.width; x++) {
+        const p = { x, y };
+        if (w.tiles[y * w.width + x].room !== room || !free(base, p) || cheb(p, guard.pos) < 3 || cheb(p, guard.pos) > 5) continue;
+        const score = present.filter(n => cheb(n.pos, p) <= 8).length * 10 - cheb(p, guard.pos);
+        if (!best || score > best.score) best = { score, p };
+    }
+    if (!best) return null;
+    const st = clone(base), p = best.p;
+    st.crew[0].pos = p;
+    st.crew[0].loadout.items.push('assaultRifle');
+    if (!st.crew[0].traits.includes('intimidating')) st.crew[0].traits.push('intimidating');
+    const q = [{ x: p.x + 1, y: p.y + 1 }, { x: p.x - 1, y: p.y + 1 }, { x: p.x, y: p.y + 1 }, { x: p.x + 1, y: p.y }, { x: p.x - 1, y: p.y }].find(t => free(st, t));
+    if (q) st.crew[1].pos = q;
+    for (const n of st.npcs) if (n.status !== 'away' && w.tiles[n.pos.y * w.width + n.pos.x].room === room) know(st, n);
+    if (sim.whyNot({ type: 'go', crew: 'mara' }, st)) return null;
+    return { state: st, info: { at: p, guard: guard.id } };
+})()`;
+
+/** GO pressed by Mara in the takeover scene, Mara selected and her shout (Command) previewed: the two rings (§3). */
+export const takeoverShout = async (page: Page, info: { at: { x: number; y: number } }): Promise<void> => {
+    await page.evaluate(() => (window as any).sim.commit({ type: 'go', crew: 'mara' }));
+    await page.waitForFunction(() => !(window as any).game.scene.getScene('bank').debugState.play?.playing);
+    await selectMara(page);
+    await lookAt(page, info.at);
+    await page.locator('.sh-actions button[data-action="command"]').click();
+    await page.waitForTimeout(400);
+};
+
 /** Centres the camera on a tile. */
 const lookAt = (page: Page, p: { x: number; y: number }): Promise<void> => page.evaluate(q => {
     (window as any).game.scene.getScene('bank').lookAt(q.x * 16 + 8, q.y * 16 + 8);
@@ -552,6 +591,56 @@ export const SETUPS: Record<string, Setup> = {
             await lookAt(page, info.body);
             await page.waitForTimeout(600);
             await holdTile(page, info.body);
+        }
+    },
+    'takeover-go': {
+        about: 'the takeover scene (§3) with GO previewed: the rail turns gold, masks on and a third action each',
+        script: TAKEOVER,
+        then: async (page, info: { at: { x: number; y: number } }) => {
+            await selectMara(page);
+            await lookAt(page, info.at);
+            await page.locator('.sh-actions button[data-action="go"]').click();
+            await page.waitForTimeout(400);
+        }
+    },
+    'takeover': {
+        about: 'the takeover turn of §3: GO pressed, Mara\'s shout previewed with both rings, each NPC\'s outcome and the guard\'s resist chance',
+        script: TAKEOVER,
+        then: takeoverShout
+    },
+    'takeover-held': {
+        about: 'the takeover after the shout: the lobby face down, and Mara\'s Hold previewed with its ring',
+        script: TAKEOVER,
+        then: async (page, info: { at: { x: number; y: number } }) => {
+            await takeoverShout(page, info);
+            await page.locator('.sh-confirm').click();
+            await page.waitForFunction(() => !(window as any).game.scene.getScene('bank').debugState.play?.playing);
+            await page.locator('.sh-actions button[data-action="hold"]').click();
+            await page.waitForTimeout(400);
+        }
+    },
+    'takeover-lapse': {
+        about: 'the takeover two turns on, nobody holding: the commands lapse, each lapse\'s intent on the map',
+        script: TAKEOVER,
+        then: async (page, info: { at: { x: number; y: number } }) => {
+            await takeoverShout(page, info);
+            await page.locator('.sh-confirm').click();
+            await page.evaluate(() => { (window as any).sim.endTurn(); (window as any).sim.endTurn(); });
+            await page.waitForFunction(() => !(window as any).game.scene.getScene('bank').debugState.play?.playing);
+            // Nobody selected: the lapses alone on the map.
+            if (await page.evaluate(() => (window as any).sim.session.selected)) await selectMara(page);
+            await lookAt(page, info.at);
+            await page.waitForTimeout(400);
+        }
+    },
+    'inspect-guard': {
+        about: 'the takeover scene with the lobby guard long-pressed (Inspect): his cones and a tag naming him ("Bold" for a hero near the crew)',
+        script: TAKEOVER,
+        then: async (page, info: { at: { x: number; y: number }; guard: string }) => {
+            await lookAt(page, info.at);
+            await page.waitForTimeout(400);
+            const at = await page.evaluate(id => (window as any).sim.state.npcs.find((n: any) => n.id === id).pos, info.guard);
+            await holdTile(page, at);
         }
     },
     'hatched-held': {

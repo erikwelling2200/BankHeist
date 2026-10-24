@@ -1,10 +1,10 @@
 import Phaser from 'phaser';
 import {
-    cameraViews, explainView, floorTiles, npcBadges, npcCone, npcDrawnOn, npcSprites, pathView, unhiddenRuns, unhiddenTiles, previewHearers, previewNoise, previewWitnesses, reactingObservers, stayTile, type CameraVM, type ConeVM, type ExplainVM, type FloorTileVM,
+    cameraViews, commandRings, explainView, floorTiles, holdRings, npcBadges, npcCone, npcDrawnOn, npcSprites, pathView, unhiddenRuns, unhiddenTiles, previewHearers, previewNoise, previewWitnesses, reactingObservers, stayTile, type CameraVM, type ConeVM, type ExplainVM, type FloorTileVM,
     type PathVM
 } from '../../game/worldUi';
 import {
-    actionMenu, AutoRun, autoBarView, bankView, barkText, cameraName, doorMiddle, nextCamera, moveAlong, moveRange, moveTo, routeViews, stopNeedsAttention, targetsOf, waitMenu, type ActionId, type FloorJob, type MoveRange,
+    actionMenu, AutoRun, rolePortrait, autoBarView, bankView, barkText, cameraName, doorMiddle, nextCamera, moveAlong, moveRange, moveTo, routeViews, stopNeedsAttention, targetsOf, waitMenu, type ActionId, type FloorJob, type MoveRange,
     type PlaybackItem, type PlaybackSpeed, type Session, type SessionChange
 } from '../../game';
 import { shownWarnings, warningLines, type EvidenceWarning } from '../../game/evidenceWarning';
@@ -13,7 +13,7 @@ import { TILE } from '../../level/constants';
 import { headingOf } from '../../art/bank/people';
 import type { PersonPose } from '../../level/plan';
 import {
-    COMBAT_STATUSES, crewPicture, dashRefusal, IllegalCommand, knownDoorStatus, knownView, lootWeight, planRoute, throwPlan, VISIBILITY, routeBreak, soundRing, type ActionPreview,
+    COMBAT_STATUSES, crewPicture, dashRefusal, IllegalCommand, knownDoorStatus, knownView, lootWeight, planRoute, throwPlan, throwTargets, VISIBILITY, routeBreak, soundRing, type ActionPreview,
     type AutoStop, type Command, type CrewState, type KnownView, type MarkerKind, type PathSafety, type State, type TileVisibility, type Facing, type Pos, type SimEvent
 } from '../../sim';
 import { mountAutoBar, type AutoBarHandle } from '../../ui/hud/autoBar';
@@ -52,6 +52,8 @@ const ALARM_MS = 2600;
 const FLASH_MS = 1500;
 /** How long a frame may spend judging the safe floor's Dash band (ms). */
 const FLOOR_SLICE_MS = 6;
+/** How near a crew member (tiles, either way) a hero must be for Inspect to tag it "Bold" (§16.2). */
+const BOLD_TILES = 3;
 /** A tap snaps to a valid tile no further than this (tiles) from where it landed. */
 const SNAP_TILES = 1.5;
 /** How many tiles north of the crew the first view of a heist is centred. */
@@ -277,7 +279,9 @@ export class PlayMode {
             actions: this.session.hud({ target: this.target }).actions.map(a => ({ id: a.id, enabled: a.enabled, reason: a.reason, selected: !!a.selected })),
             intents: this.overlay.state.intents,
             /** Loot drawn on the floor, and a previewed throw's arc (§15.1). */
-            loot: this.overlay.state.loot, throwArc: this.overlay.state.throwArc,
+            loot: this.overlay.state.loot, throwArc: this.overlay.state.throwArc, throwRange: this.overlay.state.throwRange,
+            /** A previewed command's rings (tile counts, each outcome's plate) and the hold rings drawn (§10.1, §10.3). */
+            rings: this.overlay.state.rings, holds: this.overlay.state.holds,
             /** The safe floor drawn (§8.8), whether its Dash band is in yet, and how long each band took to judge (ms). */
             safeFloor: this.overlay.state.safeFloor, floorDash: !!this.floorFor?.dash, floorMs: this.floorFor ? { ...this.floorFor.ms } : null,
             floorDim: this.overlay.state.floorDim,
@@ -692,9 +696,12 @@ export class PlayMode {
             // A stashed body is out of sight, as one away from the map is (rules/actions/body.ts).
             this.people.setAway(index, !m || n.status === 'away' || n.stashed !== null);
             if (!m) continue;
-            this.setPose(n.id, n.status === 'tied' ? 'tied' : n.status === 'unconscious' || n.status === 'dead' ? 'prone' : undefined);
-            // A dragged body lies on the tile behind its carrier (the rules keep it on theirs).
-            const dragger = state.crew.find(c => c.dragging === n.id);
+            // A dragged body lies on the tile behind its carrier (the rules keep it on theirs); a hostage led along walks
+            // there on its feet (§10.6); the rest lie as they are: tied, out cold, or face down with the hands on the head.
+            const dragger = state.crew.find(c => c.dragging === n.id), led = !!dragger?.leading;
+            // Posed as the crew knows it (the marker's status), as it is drawn where the crew knows it.
+            const status = m.status ?? n.status;
+            this.setPose(n.id, led ? undefined : status === 'tied' ? 'tied' : status === 'unconscious' || status === 'dead' || status === 'commanded' ? 'prone' : undefined);
             place(index, dragger ? this.trailOf(dragger) : m.pos, m.facing);
             // The crew has hold of a dragged body: it is never a guess.
             this.people.setAlpha(index, dragger ? 1 : MARKER_ALPHA[m.kind]);
@@ -810,9 +817,16 @@ export class PlayMode {
         // Someone standing on the tile tapped (the one selected: nobody is then), unless a crew drawing in front of them
         // was hit (a head over their tile); then a second tap on the previewed tile, which commits it (UI.md); then
         // someone whose drawing (standing up over the tiles behind them) was tapped.
+        // A throw previewed (§15.1): a tap on a tile the bag reaches (a teammate's too) throws it there instead; on the
+        // tile it lands on, commits it.
+        const pending = this.session.pendingCommand;
+        if (pending?.type === 'throwLoot' && throwTargets(this.session.world, this.session.state, pending.crew).some(p => same(p, tile))) {
+            if (same(pending.to, tile)) return this.confirm();
+            this.preview({ ...pending, to: tile });
+            return;
+        }
         const onTile = crew.find(c => same(c.pos, tile)), drawn = this.crewAt(x, y);
         if (onTile) return this.select(drawn && drawn.pos.y > onTile.pos.y ? drawn.id : onTile.id);
-        const pending = this.session.pendingCommand;
         if (pending && 'path' in pending && same(pending.path.at(-1), tile)) return this.confirm();
         const member = this.selectedMember();
         const canAct = !!member && this.session.state.phase === 'crew' && member.actionsLeft > 0;
@@ -1135,7 +1149,7 @@ export class PlayMode {
 
     private overlayContent(): Parameters<WorldOverlay['set']>[0] {
         if (this.recap) return null;
-        const layer = { ...this.knowledgeLayer(), routes: routeViews(this.session) };
+        const layer = { ...this.knowledgeLayer(), routes: routeViews(this.session), ...this.takeoverLayer() };
         if (this.busy || this.session.state.phase !== 'crew') return { colour: '', ...layer };
         const intents = this.intents(), member = this.selectedMember();
         if (!member) return { colour: '', intents, ...layer };
@@ -1189,9 +1203,21 @@ export class PlayMode {
         const marks = { ...(targetDoor ? { targetDoor } : {}), ...(targetTile ? { targetTile } : {}) };
         // An action on a thing: its noise ring and who'd hear or see it, without the movement range under them.
         const { reach: _range, safeFloor: _floor, ...rest } = base;
-        // A throw (§15.1): the bag's arc, as `throwPlan` has it land.
+        // A throw (§15.1): the bag's arc, as `throwPlan` has it land, and every tile it could go to (a tap picks one).
         const thrown = pending?.type === 'throwLoot' ? throwPlan(this.session.world, this.session.state, pending) : undefined;
-        const arc = thrown && typeof thrown !== 'string' ? { throwArc: { from: thrown.from, to: thrown.to, caught: thrown.catcher !== null } } : {};
+        const arc = thrown && typeof thrown !== 'string'
+            ? { throwArc: { from: thrown.from, to: thrown.to, caught: thrown.catcher !== null }, throwRange: unhiddenTiles(this.known(), throwTargets(this.session.world, this.session.state, member.id)) } : {};
+        // A command (§10.1): its two rings and each known NPC's outcome stand in for its noise ring and ear badges.
+        if (pending?.type === 'command') {
+            const rings = commandRings(this.session.world, this.session.state, this.known(), this.session.commandRings(pending.crew));
+            // The rings are the question asked: no cones under them.
+            return { ...rest, ...marks, rings, reactors: [], witnesses: shown ? previewWitnesses(this.session.world, this.known(), shown) : [] };
+        }
+        // A hold (§10.3): the ring it would keep down, over those it keeps already.
+        if (pending?.type === 'hold') {
+            const tiles = unhiddenTiles(this.known(), this.session.commandRings(pending.crew).commandTiles);
+            return { ...rest, ...marks, reactors: [], holds: [...(layer.holds ?? []), { crew: pending.crew, tiles, preview: true }] };
+        }
         if (pending) return { ...rest, ...marks, ...arc, ...(shown ? this.previewMarks(shown) : {}) };
         return { ...base, ...marks };
     }
@@ -1274,13 +1300,26 @@ export class PlayMode {
      * The walks the NPCs on screen have committed to for the next world phase (§4 Intent, §6.2), hostile ones aside.
      * TODO(M1-10): only those the crew can know; TODO(M1-14): the overlay's own intent arrows.
      */
-    private intents(): { from: Pos; path: Pos[]; predicted: boolean }[] {
+    private intents(): { from: Pos; path: Pos[]; predicted: boolean; tone?: 'red' | 'amber' }[] {
         return this.known().npcs.flatMap(m => {
             const index = this.sprite.get(m.id);
             if (index === undefined || !this.people.shown(index) || m.kind === 'ghost' || m.status === 'hostile' || !m.intent?.path.length) return [];
             // Only over tiles that aren't hidden (decision 44).
-            return unhiddenRuns(this.known(), m.pos, m.intent.path).map(r => ({ ...r, predicted: m.kind === 'predicted' }));
+            // A lapse's or a panicked civilian's run (§10.5, §10.8): red to a way out, amber to a hiding spot.
+            const kind = m.intent.action?.kind, tone = kind === 'flee' ? { tone: 'red' as const } : kind === 'hide' ? { tone: 'amber' as const } : {};
+            return unhiddenRuns(this.known(), m.pos, m.intent.path).map(r => ({ ...r, predicted: m.kind === 'predicted', ...tone }));
         });
+    }
+
+    /**
+     * The takeover's marks that stay on the map (§10.3, §10.6): the rings of those holding the room this turn, and a
+     * tether from each escort to the hostage they lead.
+     */
+    private takeoverLayer(): Pick<OverlayContent, 'holds' | 'tethers'> {
+        const { world, state } = this.session;
+        if (this.busy) return {};
+        const tethers = state.crew.filter(c => c.leading && c.dragging !== null).map(c => ({ from: c.pos, to: this.trailOf(c) }));
+        return { holds: holdRings(world, state, this.known()), tethers };
     }
 
     /** What the crew knows now (§8.15), worked out once per state. */
@@ -1371,13 +1410,29 @@ export class PlayMode {
             this.coneOf = null;
             this.setExplained(this.explainFound(member, tile, found));
         } else if (hit || !member) {
-            this.setExplained(null);
             this.coneOf = hit && this.coneOf !== hit ? hit : null;
+            this.setExplained(this.coneOf ? this.inspect(this.coneOf) ?? null : null);
         } else {
             this.coneOf = null;
             this.setExplained(this.explainTile(member, tile));
         }
         this.refresh();
+    }
+
+    /**
+     * Inspecting an NPC (a long-press, §16.1): its cones on the map, and a tag naming it; a hero ("Bold", §16.2) is
+     * tagged so when the crew sees it within 3 tiles of a crew member. Nothing else: an off-duty cop looks like any
+     * customer (§10.9). Undefined for a camera.
+     */
+    private inspect(id: string): ExplainVM | undefined {
+        const { world, state } = this.session, person = world.people.find(p => p.id === id), m = this.known().npcs.find(k => k.id === id);
+        if (!person || !m) return undefined;
+        const near = m.kind === 'live' && state.crew.some(c => Math.max(Math.abs(c.pos.x - m.pos.x), Math.abs(c.pos.y - m.pos.y)) <= BOLD_TILES);
+        const bold = near && person.hero === true, portrait = rolePortrait(person.role);
+        return {
+            tile: { ...m.pos },
+            lines: [{ observer: id, by: 'npc', ...(portrait ? { portrait } : {}), text: `${person.name}, ${person.role.replace(/([a-z])([A-Z])/g, '$1 $2').toLowerCase()}${bold ? ' · Bold' : ''}`, phase: 'now', outcome: bold ? '+1' : '-', from: null, to: { ...m.pos } }]
+        };
     }
 
     /** Who finds evidence next phase, then what the tile does to `member` (its quiet line left out: it isn't about them). */

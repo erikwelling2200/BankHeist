@@ -53,7 +53,8 @@ describe('movement as the player picks it', () => {
         const { world, state } = corridor();
         const ui: UiState = { selected: 'jun', camera: null, pendingCommand: { type: 'dash', crew: 'jun', path: along(8) } };
         expect(actionsView(world, state, ui).map(a => [a.id, a.label, a.cost, !!a.selected])).toEqual([
-            ['move', 'Dash', 2, true], ['wait', 'Wait', 0, false], ['command', 'Command', 1, false], ['mask', 'Mask up', 1, false], ['go', 'GO', 0, false]
+            // GO heads the grid (a gold row of its own, M2-06).
+            ['go', 'GO', 0, false], ['move', 'Dash', 2, true], ['wait', 'Wait', 0, false], ['command', 'Command', 1, false], ['mask', 'Mask up', 1, false]
         ]);
         expect(confirmView(ui)).toMatchObject({ label: 'DASH', cost: 2, enabled: true });
         expect(confirmView({ ...ui, pendingCommand: { type: 'move', crew: 'jun', path: along(2) } })).toMatchObject({ label: 'MOVE', cost: 1 });

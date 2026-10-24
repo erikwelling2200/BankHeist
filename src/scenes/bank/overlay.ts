@@ -1,6 +1,9 @@
 import Phaser from 'phaser';
 import { drawNumber, drawRows, GLYPHS, glyphSize, numberWidth, type GlyphName } from '../../art/ui/glyphs';
-import { witnessPlate, type PhaseVM, type BadgeVM, type CameraVM, type ConeVM, type ExplainVM, type FloorTileVM, type HearerVM, type PathVM, type PlateVM, type Signal, type WitnessVM } from '../../game/worldUi';
+import {
+    witnessPlate, type PhaseVM, type BadgeVM, type CameraVM, type ConeVM, type ExplainVM, type FloorTileVM, type HearerVM, type HoldRingVM, type PathVM, type PlateVM, type RingsOverlayVM, type Signal,
+    type WitnessVM
+} from '../../game/worldUi';
 import type { EvidenceWarning } from '../../game/evidenceWarning';
 import type { TintKind } from '../../sim';
 import { TILE } from '../../level/constants';
@@ -23,7 +26,9 @@ import { insetLoops, sideRuns, withoutHoles, type Corner, type Side } from './co
  *   the drawer, or one long-pressed; all as one area, exactly the tiles any of them sees, outlined inset with rounded
  *   corners in pale white over ink; stronger when someone is Alerted or a camera on the operator's monitors); over
  *   them each band's outer edge (Move's solid steel blue, Dash's dashed gold); a previewed noise's ring (a rounded
- *   lilac contour inset in its tiles); a moment's flashes (a guard's shout ring, the Alarm's rings).
+ *   lilac contour inset in its tiles); a moment's flashes (a guard's shout ring, the Alarm's rings); a previewed
+ *   command's two rings (the panic ring dashed amber round the command ring in steel blue) and hold rings (dotted steel
+ *   blue); a previewed throw's reach (dotted gold), its arc and where it lands; a led hostage's tether.
  * - **Paths:** NPC intents (a dotted hairline, an open chevron and a pin where the walk ends; fainter when predicted);
  *   predicted markers (a dashed footprint); the previewed or dragged path, each step tinted by its safety (the floor
  *   underneath dimmed), ending on a tile outline in the crew colour (doubled for a dash; steps past the first bad one
@@ -93,7 +98,7 @@ export interface OverlayContent {
     /** The dragged path is a route being drawn: only steps past `badFrom` are red, not those past this turn's reach. */
     routeDrag?: boolean;
     /** The NPCs' committed walks for the next world phase: a dotted line and a pin where each ends. */
-    intents?: { from: Pos; path: Pos[]; predicted?: boolean }[];
+    intents?: { from: Pos; path: Pos[]; predicted?: boolean; /** A lapse's run (red) or a hider's (amber). */ tone?: 'red' | 'amber' }[];
     /** Each tile's visibility code (row-major, `VISIBILITY`, decision 44): a stale tile (1) is veiled grey. */
     visibility?: { width: number; codes: Uint8Array };
     /** Ghosts: where an NPC was last seen, and how long ago. */
@@ -110,6 +115,14 @@ export interface OverlayContent {
     crewColours?: Record<string, string>;
     /** Who hears a previewed noise and what they'll do (an ear badge each). */
     hearers?: HearerVM[];
+    /** A previewed command's two rings (§10.1) and each known NPC's outcome over its head. */
+    rings?: RingsOverlayVM;
+    /** Hold rings (§10.3): of those holding the room this turn, and a hold previewed. */
+    holds?: HoldRingVM[];
+    /** Where the bag in the selected crew member's hands could be thrown (`throwTargets`), while a throw is previewed. */
+    throwRange?: Pos[];
+    /** A hostage led along (§10.6): a tether from the escort to them. */
+    tethers?: { from: Pos; to: Pos }[];
     /** NPC cones to show (one on long-press, or all from the overlay drawer). */
     cones?: ConeVM[];
     /** The cameras the crew knows of: a plate each, and their cones when the drawer's Cameras overlay is on. */
@@ -227,7 +240,7 @@ export class WorldOverlay {
     }
 
     /** The path shown, for tests. */
-    get state(): { safeFloor: FloorTileVM[]; floorDim: boolean; pathSafety: PathVM | null; explain: ExplainVM | null; found: { pos: Pos; level: string }[]; badges: number; hearers: number; cones: number; cameras: number; cameraCones: number; flashes: number; colourBlind: boolean; path: Pos[]; reach: number; dashReach: number; range: { walk: Pos[]; run: Pos[] }; dash: boolean; noise: number; witnesses: number; intents: number; loot: Pos[]; throwArc: { from: Pos; to: Pos; caught: boolean } | null } {
+    get state(): { safeFloor: FloorTileVM[]; floorDim: boolean; pathSafety: PathVM | null; explain: ExplainVM | null; found: { pos: Pos; level: string }[]; badges: number; hearers: number; cones: number; cameras: number; cameraCones: number; flashes: number; colourBlind: boolean; path: Pos[]; reach: number; dashReach: number; range: { walk: Pos[]; run: Pos[] }; dash: boolean; noise: number; witnesses: number; intents: number; loot: Pos[]; throwArc: { from: Pos; to: Pos; caught: boolean } | null; throwRange: Pos[]; rings: { command: number; panic: number; outcomes: { id: string; glyph: string; count?: number | string }[] } | null; holds: number } {
         const c = this.content;
         return {
             safeFloor: c?.safeFloor ?? [], floorDim: !!c?.floorDim, pathSafety: c?.pathSafety ?? null, explain: c?.explain ?? null,
@@ -239,7 +252,9 @@ export class WorldOverlay {
             path: c?.path ?? [], reach: c?.reach?.move.length ?? 0, dashReach: c?.reach?.dash.length ?? 0,
             range: { walk: c?.reach?.move ?? [], run: c?.reach?.dash ?? [] }, dash: !!c?.dash, noise: c?.noise?.length ?? 0, witnesses: c?.witnesses?.length ?? 0,
             intents: c?.intents?.length ?? 0,
-            loot: (c?.loot ?? []).map(l => l.at), throwArc: c?.throwArc ?? null
+            loot: (c?.loot ?? []).map(l => l.at), throwArc: c?.throwArc ?? null, throwRange: c?.throwRange ?? [],
+            rings: c?.rings ? { command: c.rings.command.length, panic: c.rings.panic.length, outcomes: c.rings.outcomes.map(o => ({ id: o.id, glyph: o.plate.glyph, ...(o.plate.count !== undefined ? { count: o.plate.count } : {}) })) } : null,
+            holds: c?.holds?.length ?? 0
         };
     }
 
@@ -345,6 +360,10 @@ export class WorldOverlay {
             }
         }
 
+        const has0 = (tiles: Pos[]) => {
+            const set = new Set(tiles.map(p => `${p.x},${p.y}`));
+            return (x: number, y: number) => set.has(`${x},${y}`);
+        };
         // Loot on the floor: a gold sack (a crate square), outlined in ink.
         for (const l of c.loot ?? []) {
             const [x, y] = mid(l.at), r = S * 0.2;
@@ -362,24 +381,60 @@ export class WorldOverlay {
             ctx.stroke();
         }
 
+        if (c.throwRange?.length) {
+            // Where the bag could go: a dotted gold contour round the tiles it reaches, inset like the noise ring.
+            this.strokeLoops(insetLoops(c.throwRange, withoutHoles(c.throwRange, has0(c.throwRange)), NOISE_INSET / S), alpha(LOOT, 0.75), 1.5, [2, 3], NOISE_RADIUS, ox, oy);
+        }
         if (c.throwArc) {
-            // The bag's flight: a dotted arc rising a tile over the middle, and a ring where it lands.
+            // The bag's flight (§15.1, UI.md "Bag relay"): its shadow straight along the floor, a dotted arc over it rising
+            // with the distance, the bag at the top of the arc, and where it lands: a ring round the teammate who catches
+            // it, or a dashed gold square on the floor.
             const [x0, y0] = mid(c.throwArc.from), [x1, y1] = mid(c.throwArc.to);
+            const rise = Math.min(1.6 * S, 0.35 * Math.hypot(x1 - x0, y1 - y0) + S * 0.4), cx = (x0 + x1) / 2, cy = (y0 + y1) / 2 - 2 * rise;
+            ctx.setLineDash([2, 4]);
+            ctx.lineWidth = 2;
+            ctx.strokeStyle = 'rgba(13, 12, 20, 0.45)';
+            ctx.beginPath();
+            ctx.moveTo(x0, y0 + 4);
+            ctx.lineTo(x1, y1 + 4);
+            ctx.stroke();
             ctx.setLineDash([4, 4]);
             for (const [colour, dy, width] of [[INK, 2, 4], [LOOT, 0, 2]] as const) {
                 ctx.strokeStyle = colour;
                 ctx.lineWidth = width;
                 ctx.beginPath();
-                ctx.moveTo(x0, y0 + dy);
-                ctx.quadraticCurveTo((x0 + x1) / 2, Math.min(y0, y1) - S + dy, x1, y1 + dy);
+                ctx.moveTo(x0, y0 - 6 + dy);
+                ctx.quadraticCurveTo(cx, cy + dy, x1, y1 - 6 + dy);
                 ctx.stroke();
             }
             ctx.setLineDash([]);
-            ctx.strokeStyle = c.throwArc.caught ? pal.safe : LOOT;
+            // The bag at the top of the arc.
+            const bx = (x0 + 2 * cx + x1) / 4, by = (y0 + 2 * cy + y1) / 4 - 6, r = S * 0.16;
+            ctx.fillStyle = LOOT;
+            ctx.strokeStyle = INK;
             ctx.lineWidth = 2;
             ctx.beginPath();
-            ctx.arc(x1, y1, S * 0.3, 0, Math.PI * 2);
+            ctx.ellipse(bx, by + r * 0.3, r, r * 0.9, 0, 0, Math.PI * 2);
+            ctx.fill();
             ctx.stroke();
+            if (c.throwArc.caught) {
+                for (const [style, dy, width] of [[INK, 2, 4], [pal.safe, 0, 2]] as const) {
+                    ctx.strokeStyle = style;
+                    ctx.lineWidth = width;
+                    ctx.beginPath();
+                    ctx.ellipse(x1, y1 + S * 0.25 + dy, S * 0.42, S * 0.2, 0, 0, Math.PI * 2);
+                    ctx.stroke();
+                }
+            } else {
+                const l = left(c.throwArc.to), t = top(c.throwArc.to);
+                ctx.setLineDash([4, 3]);
+                for (const [style, dy] of [[INK, 2], [LOOT, 0]] as const) {
+                    ctx.strokeStyle = style;
+                    ctx.lineWidth = 2;
+                    ctx.strokeRect(l + 4, t + 4 + dy, S - 8, S - 8);
+                }
+                ctx.setLineDash([]);
+            }
         }
 
         /** Each side of a tile in `tiles` that `inside` doesn't continue past: the set's outline, a side at a time. */
@@ -476,6 +531,30 @@ export class WorldOverlay {
             this.strokeLoops(insetLoops(c.noise, withoutHoles(c.noise, has(c.noise)), NOISE_INSET / S), NOISE, 2, [], NOISE_RADIUS, ox, oy);
         }
 
+        // A command's two rings (§10.1, UI.md "Rings"): the panic ring's outer edge dashed amber, then the command ring's
+        // solid steel blue inside it; outlines only (fill is safety's), inset like the noise ring.
+        if (c.rings) {
+            const all = [...c.rings.command, ...c.rings.panic];
+            if (all.length) this.strokeLoops(insetLoops(all, withoutHoles(all, has(all)), NOISE_INSET / S), pal.amber, 2, [6, 4], NOISE_RADIUS, ox, oy);
+            if (c.rings.command.length) this.strokeLoops(insetLoops(c.rings.command, withoutHoles(c.rings.command, has(c.rings.command)), (NOISE_INSET + 4) / S), pal.command, 2.5, [], NOISE_RADIUS, ox, oy);
+        }
+        // Hold rings (§10.3): the room each holder keeps down, dotted steel blue (a hold previewed, brighter).
+        for (const hold of c.holds ?? []) {
+            if (hold.tiles.length) this.strokeLoops(insetLoops(hold.tiles, withoutHoles(hold.tiles, has(hold.tiles)), (NOISE_INSET + 2) / S), alpha(pal.command, hold.preview ? 1 : 0.8), hold.preview ? 2.5 : 2, [2, 4], NOISE_RADIUS, ox, oy);
+        }
+        // A hostage led along: a steel-blue tether from the escort's hand.
+        for (const t of c.tethers ?? []) {
+            const [ax, ay] = mid(t.from), [bx, by] = mid(t.to);
+            for (const [style, dy, width] of [[INK, 2, 3], [pal.command, 0, 1.5]] as const) {
+                ctx.strokeStyle = style;
+                ctx.lineWidth = width;
+                ctx.beginPath();
+                ctx.moveTo(ax, ay - 8 + dy);
+                ctx.lineTo(bx, by - 8 + dy);
+                ctx.stroke();
+            }
+        }
+
         // The target: a bracket in the crew colour round the tile, or across the door's edge.
         if (c.targetTile) {
             const x = left(c.targetTile), y = top(c.targetTile);
@@ -498,7 +577,8 @@ export class WorldOverlay {
 
         // Intents (§4, §6.2): a dotted hairline along the walk, an open chevron on its last step and a pin where it ends.
         for (const intent of c.intents ?? []) {
-            const points = [intent.from, ...intent.path].map(mid), colour = intent.predicted ? INTENT_PREDICTED : INTENT;
+            const points = [intent.from, ...intent.path].map(mid);
+            const colour = intent.tone ? alpha(pal[intent.tone], intent.predicted ? 0.55 : 0.95) : intent.predicted ? INTENT_PREDICTED : INTENT;
             ctx.lineWidth = 2;
             ctx.setLineDash([3, 3]);
             for (const [style, dy] of [[INK, 2], [colour, 0]] as const) {
@@ -550,11 +630,12 @@ export class WorldOverlay {
             return r;
         };
         // A hearer's state plate gives way to its ear badge, which says what it will do.
-        const hearing = new Set((c.hearers ?? []).map(e => e.id));
+        const hearing = new Set([...(c.hearers ?? []).map(e => e.id), ...(c.rings?.outcomes ?? []).map(o => o.id)]);
         for (const b of c.badges ?? []) Object.assign(row(b.pos, b.lying), { faded: b.faded, pips: b.pips }).plates.push(...(hearing.has(b.id) ? [] : b.plates));
         // The one sent to look also wears the pin (Investigating).
         // Face down (commanded, tied): hears it, stays down.
         for (const e of c.hearers ?? []) row(e.pos, e.lying).plates.push({ glyph: 'speaker', signal: e.signal, ...(e.sym ? { sym: e.sym } : {}), ...(e.sent ? { then: 'pin' as const } : e.still ? { then: 'down' as const } : {}) });
+        for (const o of c.rings?.outcomes ?? []) row(o.pos, o.lying).plates.push(o.plate);
         for (const w of c.witnesses ?? []) row(w.pos, w.lying).plates.push(witnessPlate(w));
         for (const cam of c.cameras ?? []) row(cam.pos, true).plates.push(cameraPlate(cam));
         // Evidence the coming world phase notices: a faint dotted line from each certain finder to it, under the plates.

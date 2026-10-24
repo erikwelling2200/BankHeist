@@ -1,6 +1,6 @@
 import type { GlyphName } from '../art/ui/glyphs';
 import {
-    crewPicture, LYING_STATUSES, neutralised, profilesOf, npcObserver, seenTiles, bandAt, type ActionPreview, type CarrierKind, type DeepReadonly, type Effect, effectKind, type Explanation, type FloorTile, TINT_RANK,
+    commandPreview, crewPicture, LYING_STATUSES, type CommandPlan, type CommandTarget, neutralised, profilesOf, npcObserver, seenTiles, bandAt, type ActionPreview, type CarrierKind, type DeepReadonly, type Effect, effectKind, type Explanation, type FloorTile, TINT_RANK,
     type KnownCamera, type KnownView, type MarkerKind, type NpcMarker, type PathSafety, type TileVisibility, VISIBILITY, type Pos, type ReadonlyWorld, type SafeFloor, type Sighting, type State, type TintKind, type Witness
 } from '../sim';
 import { rolePortrait } from './views';
@@ -15,8 +15,8 @@ import { rolePortrait } from './views';
 /** A signal colour of the palette (UI.md "Signal palette"); the colour-blind preset swaps each for its own. */
 export type Signal = 'safe' | 'amber' | 'red' | 'command' | 'cream';
 
-/** One dark plate: a glyph, and a countdown or a symbol after it. */
-export interface PlateVM { glyph: GlyphName; signal: Signal; count?: number; sym?: '?' | '!'; /** A second glyph (Investigating's target pin). */ then?: GlyphName }
+/** One dark plate: a glyph, and a countdown (or a resister's "5%") or a symbol after it. */
+export interface PlateVM { glyph: GlyphName; signal: Signal; count?: number | string; sym?: '?' | '!'; /** A second glyph (Investigating's target pin). */ then?: GlyphName }
 
 /** What one NPC (or a carrier on an object) wears over its head. */
 export interface BadgeVM {
@@ -46,6 +46,22 @@ function radioPlate(state: State, id: string): PlateVM | undefined {
     if (call.ringing !== null) return { glyph: 'radio', signal: 'amber', sym: '!' };
     if (state.bank.alarm) return undefined;
     return { glyph: 'radio', signal: 'cream', count: Math.max(1, call.next - state.turn + 1) };
+}
+
+/**
+ * What a known NPC's intent telegraphs it will do in the coming world phase (§10.5 lapses, §10.8 panic, §10.9): run for
+ * a way out (red runner), hide to phone it in (amber runner to a pin), reach for a weapon (red hand on a gun: it draws
+ * in that phase), tackle a crew member beside it. Read from the intent the crew sees (`NpcMarker.intent`), so it shows
+ * only once the rules have rolled it, and an armed civilian's reach only once he reaches.
+ */
+export function intentPlate(m: Pick<NpcMarker, 'intent'>): PlateVM | undefined {
+    switch (m.intent?.action?.kind) {
+        case 'flee': return { glyph: 'run', signal: 'red' };
+        case 'hide': return { glyph: 'run', signal: 'amber', then: 'pin' };
+        case 'reachForWeapon': return { glyph: 'hand', signal: 'red', then: 'gun' };
+        case 'tackle': return { glyph: 'bang', signal: 'red', then: 'hand' };
+        default: return undefined;
+    }
 }
 
 /** The status plate (§16.5): none for Calm; `?`, `?` with a pin, `!`, a down arrow, a knot, a crosshair. */
@@ -117,6 +133,11 @@ export function npcBadges(_world: ReadonlyWorld, state: State, known: KnownView)
         if (status && live && npc.command) status.count = npc.command.pips;
         // A carrier's plate already says the NPC is raising the alarm.
         if (status && !(carrier && status.glyph === 'bang')) plates.push(status);
+        // Surprised by GO (§9.3): it loses the coming world phase.
+        if (live && npc.surprised === state.turn) plates.push({ glyph: 'star', signal: 'cream' });
+        // A lapse or a panic reaction its intent telegraphs; a runner's own carrier already says it runs.
+        const intent = intentPlate(m);
+        if (intent && !(carrier?.kind === 'escapee' && intent.glyph === 'run' && intent.signal === 'red')) plates.push(intent);
         const pips = live ? Object.entries(npc.suspicion).filter(([crew, n]) => n > 0 && !npc.exposedTo.includes(crew)).map(([crew, n]) => ({ crew, n }))
             .sort((a, b) => state.crew.findIndex(c => c.id === a.crew) - state.crew.findIndex(c => c.id === b.crew)) : [];
         if (!plates.length && !pips.length) continue;
@@ -432,4 +453,53 @@ export function cameraViews(world: ReadonlyWorld, state: State, known: KnownView
         }
         return vm;
     });
+}
+
+// ---------------------------------------------------------------------------------------------------------- Takeover
+
+/** A previewed command's two rings (§10.1, UI.md "Rings"), as the overlay draws them, and each known NPC's outcome. */
+export interface RingsOverlayVM {
+    /** The command ring: within the radius in line of sight (steel blue). */
+    command: Pos[];
+    /** The panic ring beyond it: the rest of the shout's noise (amber). */
+    panic: Pos[];
+    /** Over each NPC the crew knows of in either ring: what it will do, standing in for its state plate. */
+    outcomes: { id: string; pos: Pos; lying: boolean; plate: PlateVM }[];
+}
+
+/** An outcome's plate: face down (with the pips it would have), a resister's chance, ignores it, panics, alerted, still. */
+function outcomePlate(state: State, commandPips: number, t: CommandTarget): PlateVM {
+    switch (t.outcome) {
+        case 'complies': {
+            const npc = state.npcs.find(n => n.id === t.npc);
+            return { glyph: 'down', signal: 'command', count: Math.max(commandPips, npc?.command?.pips ?? 0) };
+        }
+        case 'resists': return { glyph: 'down', signal: 'amber', count: `${Math.round((t.chance ?? 0) * 100)}%` };
+        case 'ignores': return { glyph: 'cross', signal: 'red' };
+        case 'panics': return { glyph: 'drops', signal: 'amber' };
+        case 'alerted': return { glyph: 'bang', signal: 'red' };
+        default: return { glyph: 'down', signal: 'cream' };
+    }
+}
+
+/**
+ * The rings of `plan` (`commandPreview`: only NPCs the crew knows of) over what isn't hidden (sound and sight round a
+ * hidden room would draw its layout), each known NPC's outcome where the crew knows it to stand.
+ */
+export function commandRings(world: ReadonlyWorld, state: State, known: KnownView, plan: CommandPlan): RingsOverlayVM {
+    const outcomes: RingsOverlayVM['outcomes'] = [];
+    for (const t of plan.targets) {
+        const m = known.npcs.find(k => k.id === t.npc);
+        if (!m || m.kind === 'ghost') continue;
+        outcomes.push({ id: t.npc, pos: { x: m.pos.x, y: m.pos.y }, lying: lying(m), plate: outcomePlate(state, world.rules.commandPips, t) });
+    }
+    return { command: unhiddenTiles(known, plan.commandTiles), panic: unhiddenTiles(known, plan.panicTiles), outcomes };
+}
+
+/** A hold's ring (§10.3): the command ring of a crew member holding the room this turn, or of a hold previewed. */
+export interface HoldRingVM { crew: string; tiles: Pos[]; preview: boolean }
+
+/** The rings of everyone holding this turn (`CrewState.holding`), over what isn't hidden. */
+export function holdRings(world: ReadonlyWorld, state: State, known: KnownView): HoldRingVM[] {
+    return state.crew.filter(c => c.holding === state.turn).map(c => ({ crew: c.id, tiles: unhiddenTiles(known, commandPreview(world, state, c.id).commandTiles), preview: false }));
 }

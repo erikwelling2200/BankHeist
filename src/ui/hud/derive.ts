@@ -69,11 +69,13 @@ export function crewWithActionsLeft(crew: readonly CrewVM[]): CrewVM[] {
     return crew.filter(c => c.actionsLeft > 0 && (c.hp === null || c.hp.now > 0));
 }
 
-/** The actions the grid shows: at most `MAX_ACTIONS`, the selected one always among them. */
+/** The actions the grid shows: at most `MAX_ACTIONS` places (GO takes two), the selected one always among them. */
 export function shownActions(actions: readonly ActionVM[]): ActionVM[] {
-    if (actions.length <= MAX_ACTIONS) return [...actions];
-    const shown = actions.slice(0, MAX_ACTIONS), selected = actions.find(a => a.selected);
-    if (selected && !shown.includes(selected)) shown[MAX_ACTIONS - 1] = selected;
+    // GO takes a row of its own (two places).
+    const room = MAX_ACTIONS - (actions.some(a => a.go) ? 1 : 0);
+    if (actions.length <= room) return [...actions];
+    const shown = actions.slice(0, room), selected = actions.find(a => a.selected);
+    if (selected && !shown.includes(selected)) shown[room - 1] = selected;
     return shown;
 }
 
@@ -82,7 +84,8 @@ export const COMMIT_CUES: Record<CommitKind, { icon: HudIcon; words: string }> =
     clean: { icon: 'confirm', words: 'clean' },
     costly: { icon: 'eye', words: 'costs: someone notices' },
     lethal: { icon: 'skull', words: 'lethal' },
-    command: { icon: 'command', words: 'command' }
+    command: { icon: 'command', words: 'command' },
+    go: { icon: 'star', words: 'GO: the takeover' }
 };
 
 /** Confirm's label size: long names shrink, and the longest wrap to two lines, so a name is never cut. */

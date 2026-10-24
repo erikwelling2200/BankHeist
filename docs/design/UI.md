@@ -11,7 +11,8 @@ disagree, GAME_DESIGN.md wins on rules and this file wins on presentation.
 - **Research:** [research/ui-and-touch.md](research/ui-and-touch.md) has the findings, and
   [research/ui-and-touch-claims.md](research/ui-and-touch-claims.md) has every claim, vote and source behind them.
 - **Status:** the stealth HUD is built in `src/ui/hud/` (`mountHud(root, callbacks).update(viewModel)`, view models in
-  `viewModels.ts`), shown alone at `/?scene=hud` with sample states and wired into the game on the default page (`/`).
+  `viewModels.ts`), shown alone at `/?scene=hud` with sample states and wired into the game on the default page (`/`). The takeover boards
+  (GO, the two rings, holds, lapses, the bag relay's throw arc and loot counter) are built too (M2-06).
 
 ## Principles
 

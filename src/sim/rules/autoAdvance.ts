@@ -58,7 +58,7 @@ export const NEAR_TILES = 12;
 
 /** Why auto-advance stopped (or won't start). The interrupt kinds come first, in order of urgency. */
 export type InterruptKind =
-    | 'carrier' | 'alerted' | 'exposed' | 'challenge' | 'moveCut' | 'suspicion' | 'intent' | 'evidence' | 'revealed' | 'arrival' | 'schedule';
+    | 'carrier' | 'alerted' | 'exposed' | 'challenge' | 'jam' | 'moveCut' | 'suspicion' | 'intent' | 'evidence' | 'revealed' | 'arrival' | 'schedule';
 
 export type StopKind = InterruptKind | 'unavailable' | 'arrived' | 'blocked' | 'unsafe' | 'target' | 'lost' | 'cap' | 'cancelled';
 
@@ -73,7 +73,7 @@ export interface AutoStop {
 
 export type Interrupt = AutoStop & { kind: InterruptKind };
 
-const URGENCY: readonly InterruptKind[] = ['carrier', 'alerted', 'exposed', 'challenge', 'moveCut', 'suspicion', 'intent', 'evidence', 'revealed', 'arrival', 'schedule'];
+const URGENCY: readonly InterruptKind[] = ['carrier', 'alerted', 'exposed', 'challenge', 'jam', 'moveCut', 'suspicion', 'intent', 'evidence', 'revealed', 'arrival', 'schedule'];
 
 /** What "Wait for…" waits for. */
 export type WaitTarget =
@@ -316,6 +316,12 @@ export function interruptsOf(world: ReadonlyWorld, before: State, result: Pick<C
                 else add({ kind: 'moveCut', crew: e.crew, at: { x: e.at.x, y: e.at.y }, text: `${crew(e.crew)} found a door ${e.status}` });
                 break;
             case 'suspicionRaised': add({ kind: 'suspicion', text: `${who(e.npc)} grew suspicious of ${crew(e.crew)}`, npc: e.npc, crew: e.crew, ...at(e.npc) }); break;
+            case 'drillJammed': {
+                // A jammed drill stands still until someone fixes it (§15.3): a Wait mustn't sit on it for turns.
+                const device = after.devices.find(d => d.id === e.device);
+                add({ kind: 'jam', text: 'the drill jammed', ...(device ? { at: { x: device.pos.x, y: device.pos.y } } : {}) });
+                break;
+            }
             case 'cameraSaw': add({ kind: 'suspicion', text: `a camera saw ${crew(e.crew)}`, crew: e.crew, at: { x: e.tile.x, y: e.tile.y } }); break;
             case 'evidenceNoticed': add({ kind: 'evidence', text: `${who(e.npc)} noticed something`, npc: e.npc, ...at(e.npc) }); break;
             case 'cameraSawEvidence': add({ kind: 'evidence', text: 'a camera caught something', at: { x: e.tile.x, y: e.tile.y } }); break;

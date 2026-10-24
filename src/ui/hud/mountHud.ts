@@ -3,7 +3,7 @@ import { h, img } from './dom';
 import { iconUrl, portraitUrl } from './icons';
 import {
     DEFAULT_KEYMAP, OVERLAY_IDS, type ActionVM, type CrewVM, type HudCallbacks, type HudHandle, type HudKeymap, type HudOptions, type HudViewModel,
-    type OverlayId, type PortraitName, type ThreatVM
+    type LootVM, type OverlayId, type PortraitName, type RingsVM, type ThreatVM
 } from './viewModels';
 import './hud.css';
 
@@ -66,7 +66,12 @@ export function mountHud(root: HTMLElement, callbacks: HudCallbacks, options: Hu
     const ledgerBtn = h('button.sh-ledger-btn', { 'data-region': 'ledger-button', 'aria-label': 'Threat ledger', 'aria-expanded': 'false', 'aria-controls': 'sh-ledger', 'data-tag': 'Threat ledger' },
         h('span.sh-panel.sh-ledger-face', {}, img(iconUrl('bell')), ledgerCount), keycap(capName(keys.ledger)));
     ledgerBtn.addEventListener('click', () => toggle('ledger'));
-    const top = h('div.sh-top', {}, pill, timeline, turn, ledgerBtn);
+    // The loot counter (§15.1): what the crew carries, shown once it has any.
+    const loot = h('div.sh-panel.sh-loot', { 'data-region': 'loot', role: 'status', hidden: true });
+    const top = h('div.sh-top', {}, pill, timeline, loot, turn, ledgerBtn);
+    // A previewed command's rings counted (§10.1): who goes face down, panics, is alerted or ignores it, and each
+    // resister's chance; a previewed hold's: who it keeps down.
+    const rings = h('div.sh-panel.sh-rings', { 'data-region': 'rings', role: 'status', hidden: true });
 
     // ---------------------------------------------------------------------------------------------- end turn
     const fill = h('span.sh-fill');
@@ -110,7 +115,7 @@ export function mountHud(root: HTMLElement, callbacks: HudCallbacks, options: Hu
     const recap = h('div.sh-recap-back', { hidden: true });
     const tag = h('div.sh-tag', { 'aria-hidden': 'true', hidden: true });
 
-    el.append(top, endTurn, rail, ltools, drawer, actions, undo, confirm, confirmNote, ledger, prompt, recap, tag);
+    el.append(top, rings, endTurn, rail, ltools, drawer, actions, undo, confirm, confirmNote, ledger, prompt, recap, tag);
     root.append(el);
     if (options.textScale) el.style.setProperty('--sh-text', String(options.textScale));
     el.classList.toggle('cb', !!options.colourBlind);
@@ -306,6 +311,8 @@ export function mountHud(root: HTMLElement, callbacks: HudCallbacks, options: Hu
             turn.replaceChildren(h('span.sh-num', {}, String(v.turn)));
             turn.setAttribute('aria-label', `Turn ${v.turn}`);
         }
+        renderLoot(v.loot ?? null);
+        renderRings(v.rings ?? null);
         const n = liveCarriers(v.ledger);
         if (changed(ledgerCount, String(n))) {
             ledgerCount.textContent = n ? String(n) : '';
@@ -347,6 +354,35 @@ export function mountHud(root: HTMLElement, callbacks: HudCallbacks, options: Hu
         put(timeline, track);
     }
 
+    /** "$12k", "$950": money as the counters say it. */
+    const money = (n: number) => (n >= 1000 ? `$${Math.round(n / 100) / 10}k` : `$${n}`);
+
+    function renderLoot(l: LootVM | null): void {
+        if (!changed(loot, JSON.stringify(l))) return;
+        loot.hidden = !l;
+        if (!l) return;
+        loot.className = `sh-panel sh-loot${l.mayBeDyed ? ' unsure' : ''}`;
+        loot.setAttribute('aria-label', `Loot carried: ${money(l.carried)}${l.mayBeDyed ? ', some cash may be dyed' : ''}${l.ruined ? `, ${money(l.ruined)} ruined by dye` : ''}`);
+        put(loot, img(iconUrl('dollar')), h('span.sh-num', {}, money(l.carried)), l.mayBeDyed ? h('span.sh-dye', { title: 'Some cash may be dyed' }, '?') : null,
+            l.ruined ? h('span.sh-ruined', { title: 'Ruined by a dye pack' }, `−${money(l.ruined)}`) : null);
+    }
+
+    function renderRings(r: RingsVM | null): void {
+        if (!changed(rings, JSON.stringify(r))) return;
+        rings.hidden = !r;
+        if (!r) return;
+        const pct = (c: number) => `${Math.round(c * 100)}%`;
+        const count = (cls: string, mark: string, n: number, words: string) => (n ? h(`span.sh-rc.${cls}` as 'span', { title: words }, h('b', {}, mark), String(n)) : null);
+        rings.className = `sh-panel sh-rings ${r.kind}`;
+        rings.setAttribute('aria-label', r.kind === 'hold'
+            ? `Hold keeps ${r.down} face down`
+            : [`${r.down} get down`, r.panics ? `${r.panics} panic` : '', r.alerted ? `${r.alerted} alerted` : '', r.ignores ? `${r.ignores} ignore it` : '',
+                ...r.resisters.map(x => `${x.name} resists ${pct(x.chance)}`)].filter(Boolean).join(', '));
+        put(rings, img(iconUrl(r.kind === 'hold' ? 'hold' : 'command')), count('down', '▼', r.down, r.kind === 'hold' ? 'Kept face down' : 'Get down'),
+            count('panic', '≈', r.panics, 'Panic'), count('alert', '!', r.alerted, 'Alerted'), count('ignore', '×', r.ignores, 'Ignore it'),
+            ...r.resisters.map(x => h('span.sh-resist', { title: `${x.name}: resists ${pct(x.chance)}` }, portrait(x.portrait, x.name, 'sh-p'), h('span.sh-num', {}, pct(x.chance)))));
+    }
+
     function portrait(name: PortraitName | undefined, fallback: string, className: string): HTMLElement {
         const url = name ? portraitUrl(name) : undefined;
         return url ? img(url, className) : h(`span.${className}.sh-initial` as 'span', {}, fallback.slice(0, 1).toUpperCase());
@@ -361,6 +397,9 @@ export function mountHud(root: HTMLElement, callbacks: HudCallbacks, options: Hu
 
     function renderRail(v: HudViewModel): void {
         rail.classList.toggle('compact', v.crew.length > 4);
+        // GO (§9.3): the rail turns gold, while previewed and through the takeover turn.
+        rail.classList.toggle('go', !!v.goRail);
+        rail.classList.toggle('go-preview', v.goRail === 'preview');
         reconcile(rail, v.crew, c => c.id, (c, i) => JSON.stringify([c, i]), key => {
             const card = h('button.sh-crew', { 'data-crew': key });
             card.addEventListener('click', () => callbacks.selectCrew(key));
@@ -370,6 +409,7 @@ export function mountHud(root: HTMLElement, callbacks: HudCallbacks, options: Hu
             for (let k = 0; k < c.actionsMax; k++) pips.append(h(`i${k >= 2 ? '.go' : ''}${k >= c.actionsLeft ? '.off' : '.left'}` as 'i'));
             const status = [c.name, PROFILE_NAMES[c.profile], `${c.actionsLeft} of ${c.actionsMax} actions`, c.hp ? `HP ${c.hp.now} of ${c.hp.max}` : 'HP unknown',
                 c.exposedTo.length ? `exposed to ${c.exposedTo.length}` : '', c.carrying === 'van' ? 'in the van' : c.carrying === 'loot' ? 'carrying loot' : '',
+                c.mayBeDyed ? 'some cash may be dyed' : '',
                 c.ammo ? `${c.ammo.mag} rounds, ${c.ammo.spare} magazines${c.ammo.lastMag ? ', last magazine' : ''}` : ''].filter(Boolean).join(', ');
             card.className = `sh-crew${c.selected ? ' sel' : ''}${c.actionsLeft === 0 ? ' spent' : ''}`;
             card.setAttribute('style', `--c: ${c.colour}`);
@@ -379,7 +419,8 @@ export function mountHud(root: HTMLElement, callbacks: HudCallbacks, options: Hu
             card.dataset.tag = c.name;
             put(card, 
                 h('span.sh-side', {},
-                    c.carrying ? h('span.sh-badge', {}, img(iconUrl(c.carrying === 'van' ? 'car' : 'bag'))) : null,
+                    c.carrying ? h(c.mayBeDyed ? 'span.sh-badge.unsure' : 'span.sh-badge', c.mayBeDyed ? { title: 'Some cash may be dyed' } : {}, img(iconUrl(c.carrying === 'van' ? 'car' : 'bag')),
+                        c.mayBeDyed ? h('span.sh-dye', {}, '?') : null) : null,
                     h(c.profile === 'unknown' ? 'span.sh-badge.unknown' : 'span.sh-badge', { title: PROFILE_NAMES[c.profile] }, c.profile === 'unknown' ? '?' : img(iconUrl(c.profile))),
                     c.ammo ? h(c.ammo.lastMag ? 'span.sh-ammo.last' : 'span.sh-ammo', {}, String(c.ammo.mag)) : null),
                 portrait(c.portrait, c.name, 'sh-face'), pips,
@@ -425,13 +466,14 @@ export function mountHud(root: HTMLElement, callbacks: HudCallbacks, options: Hu
             confirm.replaceChildren(...[c.enabled ? img(iconUrl(cue.icon), 'sh-ic sh-kind') : null, img(iconUrl(c.icon ?? 'confirm')),
                 c.label ? h('span.sh-cname', {}, c.label) : null, c.cost ? cost : null].filter(x => x !== null));
         }
-        const starts = c.enabled ? c.starts ?? [] : [], stops = c.enabled ? c.stops ?? [] : [];
-        if (changed(confirmNote, JSON.stringify([starts, stops]))) {
-            confirmNote.hidden = !starts.length && !stops.length;
+        const starts = c.enabled ? c.starts ?? [] : [], stops = c.enabled ? c.stops ?? [] : [], warns = c.enabled ? c.warns ?? [] : [];
+        if (changed(confirmNote, JSON.stringify([starts, stops, warns]))) {
+            confirmNote.hidden = !starts.length && !stops.length && !warns.length;
             confirmNote.className = `sh-cnote${starts.length ? ' starts' : ' stops'}`;
             put(confirmNote,
                 starts.length ? h('span.sh-cstart', {}, img(iconUrl('bell')), h('span', {}, `this would start: ${starts.join(', ')}`)) : null,
-                stops.length ? h('span.sh-cstop', {}, h('span', {}, `stops: ${stops.join(', ')}`)) : null);
+                stops.length ? h('span.sh-cstop', {}, h('span', {}, `stops: ${stops.join(', ')}`)) : null,
+                warns.length ? h('span.sh-cwarn', {}, img(iconUrl('dollar')), h('span', {}, warns.join(', '))) : null);
         }
         undo.setAttribute('aria-disabled', String(!v.undoEnabled));
         undo.classList.toggle('off', !v.undoEnabled);

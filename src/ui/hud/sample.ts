@@ -109,8 +109,41 @@ export const SAMPLE_STATES: Record<string, () => SampleState> = {
             { id: 'move', label: 'Move', icon: 'move', cost: 1, enabled: true },
             { id: 'wait', label: 'Wait for', icon: 'wait', cost: 0, enabled: true }
         ];
-        vm.confirm = { kind: 'command', label: 'Shout: get down', icon: 'command', cost: 1, enabled: true };
-        return { title: 'GO: masks on, a third action each, a long Confirm label', vm };
+        vm.confirm = { kind: 'go', label: 'GO', icon: 'star', cost: 0, enabled: true };
+        vm.goRail = 'preview';
+        return { title: 'GO previewed: the rail turns gold, masks on, a third action each', vm };
+    },
+    shout: () => {
+        const vm = withCrew(base(), c => { c.actionsMax = 3; c.actionsLeft = c.id === 'dex' ? 2 : 3; c.portrait = `${c.id}-m`; c.selected = c.id === 'dex'; });
+        vm.turn = 14;
+        vm.selected = 'dex';
+        vm.bank = { ...QUIET, go: true };
+        vm.goRail = 'on';
+        vm.actions = [
+            { id: 'move', label: 'Move', icon: 'move', cost: 1, enabled: true },
+            { id: 'command', label: 'Command', icon: 'command', cost: 1, enabled: true, selected: true },
+            { id: 'hold', label: 'Hold', icon: 'hold', cost: 2, enabled: true },
+            { id: 'wait', label: 'Wait', icon: 'wait', cost: 0, enabled: true }
+        ];
+        vm.confirm = { kind: 'command', label: 'Command', icon: 'command', cost: 1, enabled: true };
+        vm.rings = { kind: 'command', down: 11, panics: 3, alerted: 1, ignores: 0, resisters: [{ id: 'guard', name: 'Lobby guard', portrait: 'guard', chance: 0.05 }] };
+        return { title: 'The takeover turn: Dex\'s shout previewed, its rings counted and the guard\'s resist chance', vm };
+    },
+    loot: () => {
+        const vm = base();
+        vm.turn = 22;
+        vm.bank = { status: 'loud', label: 'LOUD', nextAlarmIn: null };
+        vm.crew[1]!.carrying = 'loot';
+        vm.crew[1]!.mayBeDyed = true;
+        vm.crew[2]!.carrying = 'loot';
+        vm.loot = { carried: 48500, ruined: 3000, mayBeDyed: true };
+        vm.ledger = [
+            { id: 'device:drill-1', kind: 'drill', source: 'drill-1', label: 'Drill jammed (3/8): fix it', countdown: 5, halted: null, urgent: true, pos: { x: 4, y: 2 } },
+            { id: 'lapse:dex', kind: 'lapse', source: 'dex', label: 'Lapses: 9 face down (Dex)', countdown: 1, halted: null, pos: { x: 8, y: 6 } },
+            { id: 'lapse:mara', kind: 'lapse', source: 'mara', label: 'Held: 3 face down (Mara)', countdown: 2, halted: 'paused', pos: { x: 3, y: 6 } }
+        ];
+        vm.confirm = { kind: 'costly', label: 'Move', icon: 'move', cost: 1, enabled: true, warns: ['the cash may be dyed'] };
+        return { title: 'Loot carried, some may be dyed; a jammed drill and lapsing commands in the ledger', vm, panel: 'ledger' };
     },
     carriers: () => {
         const vm = base();

@@ -25,12 +25,12 @@ import type { HudIcon as HudIconName } from '../ui/hud/viewModels';
  * - Jammer (§12.2): while the member carries one.
  * - Loot (§15.1, M2-04): Take the loot in reach nobody has (the tapped one, else the first); with loot in the hands, Put
  *   down, Throw (a bag) to a teammate it would reach, and Pass (it, or a body) to a teammate in reach; Inspect a
- *   pocketed stack of cash not yet looked through; Drop ruined cash a dye pack spoilt. Throwing to a floor tile is `window.sim` only until the throw arc
- *   (M2-06).
+ *   pocketed stack of cash not yet looked through; Drop ruined cash a dye pack spoilt. With nobody to catch it, Throw starts at the furthest tile the bag reaches;
+ *   while a throw is previewed a tap on any tile it reaches throws it there (the scene, M2-06).
  * - Hostages and disguises (§10.6, §10.7, §8.14, M2-03): Zip-tie an NPC in reach that can be tied (face down,
  *   surprised, out cold); Lead (escort) one face down or tied (Drop lets go); Coerce a hostage the crew knows of into
  *   opening a drawer or entering the vault code (the first the sim allows); Change clothes from a downed guard or the
- *   staff lockers in reach (the first the sim allows). The polished hostage UI is M2-06's.
+ *   staff lockers in reach (the first the sim allows).
  * - Wait.
  * - The takeover (§9.3, §10.1–10.3, M2-01), after Wait: Command always; Hold while anyone is Commanded; Mask up while
  *   unmasked; GO while it can still be pressed.
@@ -228,9 +228,15 @@ export function actionMenu(world: ReadonlyWorld, state: State, crewId: string, t
     if (held) add('putDown', 'Put down', 'flip', { type: 'dropLoot', crew: crewId });
     const mates = state.crew.filter(c => c.id !== crewId);
     if (held && lootWeight(world, held) === 'heavy') {
-        const reach = new Set(throwTargets(world, state, crewId).map(p => `${p.x},${p.y}`));
+        const tiles = throwTargets(world, state, crewId), reach = new Set(tiles.map(p => `${p.x},${p.y}`));
         const catcher = pick(mates.filter(c => reach.has(`${c.pos.x},${c.pos.y}`)).map(c => c.id));
         if (catcher) add('throw', `Throw to ${state.crew.find(c => c.id === catcher)!.name}`, 'throw', { type: 'throwLoot', crew: crewId, to: { ...state.crew.find(c => c.id === catcher)!.pos } }, catcher);
+        else {
+            // Nobody to catch it: onto the floor, as far as it goes to start with; a tap on another tile it reaches moves it.
+            const d = (p: Pos) => (p.x - member.pos.x) ** 2 + (p.y - member.pos.y) ** 2;
+            const far = tiles.reduce<Pos | undefined>((best, p) => (!best || d(p) > d(best) ? p : best), undefined);
+            if (far) add('throw', 'Throw', 'throw', { type: 'throwLoot', crew: crewId, to: { x: far.x, y: far.y } });
+        }
     }
     if (held || member.dragging !== null) {
         const to = pick(mates.filter(c => inReach(world, state, member.pos, c.pos)).map(c => c.id));
@@ -244,7 +250,7 @@ export function actionMenu(world: ReadonlyWorld, state: State, crewId: string, t
 
     add('wait', 'Wait', 'wait', { type: 'wait', crew: crewId });
 
-    // After Wait, so a full grid drops these first and the stealth entries keep their places (M2-06 gives GO its rail).
+    // After Wait, so a full grid drops these first and the stealth entries keep their places; the HUD puts GO first (views.ts).
     add('command', 'Command', 'command', { type: 'command', crew: crewId });
     if (state.npcs.some(n => n.command !== null)) add('hold', 'Hold', 'hold', { type: 'hold', crew: crewId });
     if (!member.loadout.masked) add('mask', 'Mask up', 'mask', { type: 'maskUp', crew: crewId });

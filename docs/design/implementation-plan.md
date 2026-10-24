@@ -614,6 +614,8 @@ Each package lists its goal, the design sections it covers, the files, what it d
 
 ### M2: Takeover and control
 
+M2 is complete: every package below has landed.
+
 - [x] **M2-01 Command rings, Hold, lapses and GO.**
   - **Covers:** §9.3, §10.1–10.5, §6.3 (Mask up).
   - **Work:** Threat from the weapon table; the command, panic and noise rings; Commanded pips; Hold; Twitchy NPCs with a telegraphed intent rolled on lapse; resisters (the chance is shown, and rolled on commit); GO (+1 action, free masks, ×1.5, Surprised).
@@ -842,11 +844,48 @@ Each package lists its goal, the design sections it covers, the files, what it d
       and smashing it, and the CCTV room and counting room breaches (M3–M4, with charges); the deposit box that holds
       intel (M6); safes; the threat ledger's drill jams and "Wait" stopping at one (M2-06); NPCs noticing a code
       entered or a reader hacked beyond the illegal act itself.
-- [ ] **M2-06 M2 interface.**
+- [x] **M2-06 M2 interface.**
   - **Covers:** UI.md "Alarm and takeover" boards.
   - **Work:** the gold GO rail; the two-ring command preview with outcome badges and resist chances; Hold rings; lapse markers; loot counters; the throw arc.
   - **Depends on:** M2-01 to M2-04.
   - **Accept:** e2e screenshot of the §3 takeover turn.
+  - **Notes (done):** view models in `src/game/views.ts` and `worldUi.ts`, drawn by the HUD (`src/ui/hud/`) and the
+    overlay (`src/scenes/bank/overlay.ts`); everything shown is a rules reading the crew may see.
+    - **GO:** heads the action grid, a gold row of its own (`ActionVM.go`; `shownActions` counts it as two places);
+      Confirm turns gold (`CommitKind` 'go'). While previewed the rail turns gold (dashed) and each card shows the crew
+      member as GO leaves them (masked portrait, a third gold pip) from `Session.preview`, crew fields only
+      (`crewCards(…, go)`); the pill reads GO. On the takeover turn the rail stays gold (`HudViewModel.goRail`).
+    - **Command:** a previewed shout draws its two rings (`commandRings`: the panic ring dashed amber round the command
+      ring in steel blue, outlines over unhidden tiles only) and over each known NPC its outcome in place of its state
+      plate (face down with its pips, a resister's "5%" in amber, ignores, panics, alerted, still); the cones and noise
+      ring step aside. A chip under the top strip counts them with each resister's portrait and chance (`RingsVM`).
+      Confirm is steel blue for Command, Hold and Coerce. GO's Surprised wear a star.
+    - **Hold:** a previewed hold draws its ring and the chip counts who it keeps; the rings of everyone holding this
+      turn stay on the map, dotted (`holdRings`). Commanded NPCs lie face down (the `prone` pose, hands on the head);
+      a hostage led along walks on its feet behind its escort, tethered in steel blue.
+    - **Lapses and panic:** a known NPC's intent shows what was rolled (`intentPlate`): a red runner with a red run
+      path to the way out, a hider's amber runner and path, a red hand on a gun (draws next phase), a tackle. The
+      ledger counts each crew member's face-down NPCs to the soonest lapse (paused while a hold keeps them all).
+    - **Vault work:** the ledger lists each drill and charge with its work, phases left and jam odds (none with Steady
+      Hands in reach); a jammed drill is amber, "fix it". Auto-advance (Wait for, Go) stops on a jam (`InterruptKind`
+      'jam').
+    - **Loot:** a gold counter in the top strip (`LootVM`: carried, ruined by dye) once the crew carries any; uninspected
+      cash in a bank with dye packs marks the counter and the crew card with a hatched amber "?", and a move carrying it
+      out says "the cash may be dyed" beside Confirm (`ActionPreview.mayBeDyed`): never whether it is.
+    - **Throw:** while a throw is previewed every tile the bag reaches is outlined in dotted gold, the arc rises with the
+      distance with its shadow on the floor and the bag at the top, and lands in a green ring on the catcher or a dashed
+      gold square on the floor; a tap on any tile in reach throws there (a teammate's tile too), again commits. With
+      nobody to catch, Throw starts at the furthest tile.
+    - **Inspect:** a long-pressed NPC is named in a tag (with its cones); a hero within 3 tiles of a crew member is
+      tagged "Bold" (§16.2); nothing else (an off-duty cop has no tells).
+    - **Tests:** `tests/game/takeoverUi.test.ts` (the GO rail from the preview, rings and outcomes only for known NPCs,
+      the resister's chance, lapse and hold rows, intent plates, the star, drills, loot), the jam stop in
+      `tests/sim/vault.test.ts`; e2e "the §3 takeover turn" (`screenshots/play-takeover.png`, `play-takeover-held.png`)
+      and a tap retargeting a throw (`play-throw.png`); HUD samples `go`, `shout` and `loot` at `/?scene=hud`; setups
+      `takeover-go`, `takeover`, `takeover-held`, `takeover-lapse`, `inspect-guard`.
+    - **Deferred:** the van's loot counter and the contract target on it (M3-08); dye packs flagged by intel (M6); the
+      negotiator, release and trade UI (M3-07). The command ring's tiles are geometry on the true state (M2-01's
+      decision), so a door not seen this turn is read as it stands.
 
 ### M3: Loud
 

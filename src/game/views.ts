@@ -1,9 +1,10 @@
 import {
-    CARRIERS, crewLook, DASH_ACTIONS, knownCarriers, lootOf, markerKind, walkingToAlarm, MOVE_ACTIONS, nextDriveBy, type CarrierChanges, type CarrierPreview, type Command, type ReadonlyWorld, type SimEvent, type State
+    CARRIERS, crewLoot, crewLook, DASH_ACTIONS, holdPreview, inReach, isKnownNow, knownCarriers, lootOf, markerKind, mayBeDyed, walkingToAlarm, MOVE_ACTIONS, nextDriveBy, type CarrierChanges, type CarrierPreview,
+    type CommandPlan, type Command, type ReadonlyWorld, type SimEvent, type State
 } from '../sim';
 import {
-    CREW_COLOURS, OVERLAY_IDS, type ActionVM, type BankStatus, type CommitKind, type ConfirmVM, type HudIcon, type BankStatusVM, type CrewVM, type HudViewModel, MAX_ACTIONS, type OverlayId, type RecapEventVM,
-    type RecapVM, type ThreatVM
+    CREW_COLOURS, OVERLAY_IDS, type ActionVM, type BankStatus, type CommitKind, type ConfirmVM, type HudIcon, type BankStatusVM, type CrewVM, type HudViewModel, type LootVM, MAX_ACTIONS, type OverlayId,
+    type RecapEventVM, type RecapVM, type RingsVM, type ThreatVM
 } from '../ui/hud/viewModels';
 import { actionMenu, cameraName, VERBS } from './actions';
 import type { UiState } from './session';
@@ -60,7 +61,7 @@ const phasesUntil = (state: State, at: number): number => Math.max(1, at - state
 
 /** The ledger's clocks that aren't carriers (see `threatLedger`). */
 function clocks(world: ReadonlyWorld, state: State): ThreatVM[] {
-    const out: ThreatVM[] = [];
+    const out: ThreatVM[] = [...lapseClocks(world, state), ...deviceClocks(world, state)];
     const r = state.response;
     if (r) {
         out.push({ id: 'police', kind: 'reinforcement', source: 'police', label: r.policeIn > 0 ? 'Police arrive' : 'Police on site', countdown: r.policeIn, halted: null,
@@ -100,6 +101,41 @@ function clocks(world: ReadonlyWorld, state: State): ThreatVM[] {
     return out;
 }
 
+/**
+ * When the crew's commands lapse (§10.2, §10.5): per crew member, the Commanded NPCs they put face down that the crew
+ * knows of, counted down to the soonest whose pips run out (a pip goes every world phase; at 0 it is Twitchy, and one
+ * that stayed down rolls again after the next). Paused while a hold this turn keeps them all.
+ */
+function lapseClocks(world: ReadonlyWorld, state: State): ThreatVM[] {
+    const out: ThreatVM[] = [];
+    for (const c of state.crew) {
+        const down = state.npcs.filter(n => n.status === 'commanded' && n.command?.by === c.id && isKnownNow(world, state, n.id));
+        if (!down.length) continue;
+        const kept = new Set(c.holding === state.turn ? holdPreview(world, state, c.id) : []), loose = down.filter(n => !kept.has(n.id));
+        const soonest = (loose.length ? loose : down).reduce((a, n) => (Math.max(1, n.command!.pips) < Math.max(1, a.command!.pips) ? n : a));
+        const at = state.knowledge.npcs[soonest.id]?.at ?? soonest.pos;
+        out.push({
+            id: `lapse:${c.id}`, kind: 'lapse', source: c.id, label: `${loose.length ? 'Lapses' : 'Held'}: ${down.length} face down (${c.name})`,
+            countdown: Math.max(1, soonest.command!.pips), halted: loose.length ? null : 'paused', pos: { x: at.x, y: at.y }, targetId: soonest.id
+        });
+    }
+    return out;
+}
+
+/**
+ * The drills and thermite at work (§15.3): the world phases each has left; a running drill's jam odds as the crew phase
+ * begins (none with Steady Hands in reach); a jammed one stands still until fixed, and wants the crew now.
+ */
+function deviceClocks(world: ReadonlyWorld, state: State): ThreatVM[] {
+    return state.devices.map(d => {
+        const left = d.needed - d.done, name = d.kind === 'drill' ? 'Drill' : 'Thermite', work = `${d.done}/${d.needed}`;
+        const steady = d.kind === 'drill' && state.crew.some(c => c.traits.includes('steadyHands') && inReach(world, state, c.pos, d.pos));
+        const label = d.jammed ? `${name} jammed (${work}): fix it`
+            : d.kind === 'drill' && !steady ? `${name} ${work}: jams ${Math.round(world.rules.drillJamChance * 100)}%` : `${name} ${work}`;
+        return { id: `device:${d.id}`, kind: 'drill', source: d.id, label, countdown: left, halted: null, pos: { x: d.pos.x, y: d.pos.y }, ...(d.jammed ? { urgent: true } : {}) } satisfies ThreatVM;
+    });
+}
+
 /** Where the police come from: the middle of the patrol car's lane, else the middle of the map. */
 function policePos(world: ReadonlyWorld): { x: number; y: number } {
     const lane = world.patrol?.lane ?? [];
@@ -111,7 +147,7 @@ function policePos(world: ReadonlyWorld): { x: number; y: number } {
  * The state pill (§20.3): "QUIET", "QUIET: alarm in 2" with a carrier running, "ALARM: police in 6" once the Alarm is
  * up (§9.2), "LOUD". Heat is a placeholder until the police arrive (M3): Heat 1 from then.
  */
-export function bankView(state: State): BankStatusVM {
+export function bankView(state: State, goPreview = false): BankStatusVM {
     const running = threatLedger(state).filter(t => !t.halted);
     const nextAlarmIn = state.bank.alarm ? null : running.length ? running[0]!.countdown : null;
     const status: BankStatus = state.bank.alarm ? 'alarm' : state.bank.loud ? 'loud' : 'quiet';
@@ -120,7 +156,9 @@ export function bankView(state: State): BankStatusVM {
         ? r ? (r.policeIn > 0 ? `ALARM: police in ${r.policeIn}` : 'ALARM: police on site') : 'ALARM'
         : status === 'loud' ? 'LOUD' : nextAlarmIn !== null ? `QUIET: alarm in ${nextAlarmIn}` : 'QUIET';
     const heat = r && r.policeIn <= 0 ? { level: r.heat.level, ticks: r.heat.tick, next: null } : null;
-    return { status, label, nextAlarmIn, ...(r ? { policeEta: r.policeIn, heat } : {}) };
+    // GO (§9.3): the takeover turn, or GO previewed.
+    const go = goPreview || state.takeover === state.turn;
+    return { status, label, nextAlarmIn, ...(r ? { policeEta: r.policeIn, heat } : {}), ...(go ? { go: true } : {}) };
 }
 
 /** Each crew member's colour, from their place in the crew's order. */
@@ -135,24 +173,57 @@ const portraitOf = (c: State['crew'][number]): { portrait?: string } =>
 /** What the crew card shows carried: loot, in the hands or pocketed (a body only raises the profile, §7.4). */
 const carriedOf = (state: State, c: State['crew'][number]): CrewVM['carrying'] => (lootOf(state, c.id).length ? 'loot' : null);
 
+/** Whether some cash a crew member carries may be dyed (`mayBeDyed`: uninspected, in a bank with dye packs), never whether it is. */
+const unsureOf = (world: ReadonlyWorld, state: State, c: State['crew'][number]): boolean => lootOf(state, c.id).some(id => mayBeDyed(world, state, id));
+
 const exposedTo = (state: State, crew: string): string[] => state.npcs.filter(n => n.exposedTo.includes(crew)).map(n => n.id);
 
-export function crewCards(world: ReadonlyWorld, state: State, selected: string | null): CrewVM[] {
-    return state.crew.map((c, i) => ({
-        id: c.id,
-        name: c.name,
-        colour: crewColour(i),
-        ...portraitOf(c),
-        actionsLeft: c.actionsLeft,
-        // The takeover turn's third action (§9.3).
-        actionsMax: world.rules.actionsPerTurn + (state.takeover === state.turn ? 1 : 0),
-        // The profile from what shows (§7.4), before any observer's reading; the same look the safe floor reads.
-        profile: crewLook(c).profile,
-        exposedTo: exposedTo(state, c.id),
-        hp: null,
-        selected: c.id === selected,
-        carrying: carriedOf(state, c)
-    }));
+/**
+ * The crew rail's cards. With `go` (the state GO would leave, while it is previewed) each card shows that crew member as
+ * GO leaves them, mask, actions and look, and nothing else of that state: what NPCs make of it is the preview's.
+ */
+export function crewCards(world: ReadonlyWorld, state: State, selected: string | null, go?: State): CrewVM[] {
+    const takeover = (go ?? state).takeover === state.turn;
+    return state.crew.map((now, i) => {
+        const c = go?.crew.find(x => x.id === now.id) ?? now;
+        return {
+            id: c.id,
+            name: c.name,
+            colour: crewColour(i),
+            ...portraitOf(c),
+            actionsLeft: c.actionsLeft,
+            // The takeover turn's third action (§9.3).
+            actionsMax: world.rules.actionsPerTurn + (takeover ? 1 : 0),
+            // The profile from what shows (§7.4), before any observer's reading; the same look the safe floor reads.
+            profile: crewLook(c).profile,
+            exposedTo: exposedTo(state, c.id),
+            hp: null,
+            selected: c.id === selected,
+            carrying: carriedOf(state, c),
+            ...(unsureOf(world, state, c) ? { mayBeDyed: true } : {})
+        };
+    });
+}
+
+/** The loot counter (§15.1): what the crew carries, what a dye pack ruined, whether some may be dyed; null for none. */
+export function lootView(world: ReadonlyWorld, state: State): LootVM | null {
+    const { carried, ruined } = crewLoot(world, state);
+    if (!carried && !ruined) return null;
+    return { carried, ruined, mayBeDyed: state.crew.some(c => unsureOf(world, state, c)) };
+}
+
+/**
+ * A previewed command's rings counted (§10.1), from `commandPreview` (the NPCs the crew knows of, each resister's chance
+ * the one the commit rolls with); or a previewed hold's (`holdPreview`): how many it keeps face down.
+ */
+export function ringsView(world: ReadonlyWorld, plan: CommandPlan | { held: readonly string[] }): RingsVM {
+    if ('held' in plan) return { kind: 'hold', down: plan.held.length, panics: 0, alerted: 0, ignores: 0, resisters: [] };
+    const count = (o: string) => plan.targets.filter(t => t.outcome === o).length;
+    const resisters = plan.targets.filter(t => t.outcome === 'resists').map(t => {
+        const person = world.people.find(p => p.id === t.npc), portrait = person && rolePortrait(person.role);
+        return { id: t.npc, name: person?.name ?? t.npc, ...(portrait ? { portrait } : {}), chance: t.chance ?? 0 };
+    });
+    return { kind: 'command', down: count('complies'), panics: count('panics'), alerted: count('alerted'), ignores: count('ignores'), resisters };
 }
 
 /** What the Session knows beyond the state that the HUD shows. */
@@ -169,6 +240,12 @@ export interface HudExtras {
     costOf?: (cmd: Command) => number | undefined;
     /** What the pending command does to the alarm carriers, as the crew may know it (`Session.carrierChanges`). */
     carriers?: CarrierChanges;
+    /** The pending command's uninspected cash it would carry out (`ActionPreview.mayBeDyed`). */
+    mayBeDyed?: readonly string[];
+    /** GO is previewed: the state after it (`Session.preview`), for the gold rail's masks and third actions. */
+    goPreview?: State;
+    /** The pending command's rings (`Session.commandRings`) or the pending hold's (`Session.holdRing`). */
+    rings?: CommandPlan | { held: readonly string[] };
 }
 
 /**
@@ -231,12 +308,15 @@ export function actionsView(world: ReadonlyWorld, state: State, ui: UiState, ext
         // Hold spends whatever is left (§10.3), at least 1.
         const fallback = e.command.type === 'hold' ? Math.max(1, member.actionsLeft) : describeCommand(e.command, world).cost;
         const cost = e.command.type === 'wait' ? 0 : (!e.reason && extras.costOf?.(e.command)) || fallback;
-        out.push({
+        const vm: ActionVM = {
             id: e.id, label: e.label, icon: e.icon, cost, enabled: !e.reason, ...(e.reason ? { reason: e.reason } : {}), selected: sameCommand(pending, e.command),
             ...(e.progress ? { progress: e.progress } : {})
-        });
+        };
+        // GO (§9.3) heads the grid, wide and gold (a row of its own), so a full grid never drops it.
+        if (e.command.type === 'go') out.unshift({ ...vm, go: true });
+        else out.push(vm);
     }
-    return out.slice(0, MAX_ACTIONS);
+    return out.slice(0, MAX_ACTIONS - (out[0]?.go ? 1 : 0));
 }
 
 /** Events in a preview that give the crew away, or are an illegal act seen or not (§8.4): Confirm turns amber. */
@@ -250,8 +330,12 @@ const carrierText = (c: Pick<CarrierPreview, 'label' | 'countdown'>): string => 
  * "Confirm's colour"): amber when someone hears or sees it, or it is an illegal act; cream otherwise. Dimmed while
  * nothing is previewed.
  */
+/** Commands to people (§10): Confirm in steel blue (UI.md "Confirm's colour"). */
+const COMMANDS: ReadonlySet<string> = new Set(['command', 'hold', 'coerce']);
+
 export function confirmView(
-    ui: UiState, previewEvents: readonly SimEvent[] = [], costOf?: (cmd: Command) => number | undefined, carriers?: CarrierChanges, world?: ReadonlyWorld
+    ui: UiState, previewEvents: readonly SimEvent[] = [], costOf?: (cmd: Command) => number | undefined, carriers?: CarrierChanges, world?: ReadonlyWorld,
+    mayBeDyed: readonly string[] = []
 ): ConfirmVM {
     const cmd = ui.pendingCommand;
     if (!cmd || cmd.type === 'endTurn') return { kind: 'clean', label: '', cost: 0, enabled: false };
@@ -260,18 +344,31 @@ export function confirmView(
     // A carrier it would start, at once or in the coming world phase, is a cost the player must see (§8.8).
     const starts = carriers ? [...carriers.starts, ...carriers.worldPhase].map(carrierText) : [];
     const stops = carriers ? carriers.stops.map(c => CARRIERS[c.kind].label) : [];
-    const kind: CommitKind = starts.length || previewEvents.some(e => COSTLY_EVENTS.has(e.type)) ? 'costly' : 'clean';
-    return { kind, label: action.label.toUpperCase(), icon: action.icon, cost, enabled: true, ...(starts.length ? { starts } : {}), ...(stops.length ? { stops } : {}) };
+    const kind: CommitKind = cmd.type === 'go' ? 'go' : COMMANDS.has(cmd.type) ? 'command'
+        : starts.length || previewEvents.some(e => COSTLY_EVENTS.has(e.type)) ? 'costly' : 'clean';
+    // Cash nobody has looked through, carried out (§15.1): it may be dyed. The preview can't say, so neither does this.
+    const warns = mayBeDyed.length ? [mayBeDyed.length === 1 ? 'the cash may be dyed' : `${mayBeDyed.length} stacks of cash may be dyed`] : [];
+    return {
+        kind, label: action.label.toUpperCase(), icon: action.icon, cost, enabled: true, ...(starts.length ? { starts } : {}), ...(stops.length ? { stops } : {}),
+        ...(warns.length ? { warns } : {})
+    };
 }
 
 export function hudView(world: ReadonlyWorld, state: State, ui: UiState, extras: HudExtras = {}): HudViewModel {
+    // GO previewed (§9.3, UI.md "GO previewed"): the rail turns gold and shows the crew as GO leaves them, masked with a
+    // third action each; on the takeover turn it stays gold.
+    const goNow = state.takeover === state.turn, previewing = !!extras.goPreview && ui.pendingCommand?.type === 'go';
+    const crew = crewCards(world, state, ui.selected, previewing ? extras.goPreview : undefined);
     return {
         turn: state.turn,
-        bank: bankView(state),
-        crew: crewCards(world, state, ui.selected),
+        bank: bankView(state, previewing),
+        crew,
         selected: ui.selected,
         actions: actionsView(world, state, ui, extras),
-        confirm: confirmView(ui, extras.previewEvents, extras.costOf, extras.carriers, world),
+        confirm: confirmView(ui, extras.previewEvents, extras.costOf, extras.carriers, world, extras.mayBeDyed),
+        goRail: previewing ? 'preview' : goNow ? 'on' : null,
+        rings: extras.rings ? ringsView(world, extras.rings) : null,
+        loot: lootView(world, state),
         undoEnabled: extras.undoEnabled ?? false,
         ledger: threatLedger(state, world),
         overlays: Object.fromEntries(OVERLAY_IDS.map(id => [id, extras.overlays?.[id] ?? false])) as Record<OverlayId, boolean>,

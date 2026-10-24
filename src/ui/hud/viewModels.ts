@@ -93,6 +93,8 @@ export interface CrewVM {
     selected: boolean;
     /** Carried loot, or sitting in the van. */
     carrying?: 'loot' | 'van' | null;
+    /** Some of the cash carried is uninspected in a bank with dye packs (§15.1): it may be dyed. Never whether it is. */
+    mayBeDyed?: boolean;
     /** Rounds in the magazine and spare magazines; `lastMag` warns on the last one (§20.3). */
     ammo?: { mag: number; spare: number; lastMag: boolean } | null;
 }
@@ -124,9 +126,9 @@ export const MAX_ACTIONS = 8;
 /**
  * What kind of commitment Confirm makes, which sets its colour and glyph (UI.md "Confirm's colour"): `clean` cream (no
  * suspicion, no noise anyone hears), `costly` amber (a pip, an exposed tile, a noise someone hears), `lethal` red,
- * `command` steel blue (commands and Watch).
+ * `command` steel blue (commands and Watch), `go` gold (GO, §9.3).
  */
-export type CommitKind = 'clean' | 'costly' | 'lethal' | 'command';
+export type CommitKind = 'clean' | 'costly' | 'lethal' | 'command' | 'go';
 
 export interface ConfirmVM {
     kind: CommitKind;
@@ -138,6 +140,8 @@ export interface ConfirmVM {
     starts?: string[];
     /** The carriers it would stop (a dead panel, an answered radio). */
     stops?: string[];
+    /** What else the preview warns of that it can't settle ("cash may be dyed": `ActionPreview.mayBeDyed`). */
+    warns?: string[];
     /** False while nothing is previewed: Confirm is dimmed. */
     enabled: boolean;
 }
@@ -213,6 +217,38 @@ export interface RecapVM {
     threats: ThreatVM[];
 }
 
+// ---------------------------------------------------------------------------------------------------------- Takeover
+
+/** Someone who would resist a command (§10.4), with the chance the commit rolls with. */
+export interface ResisterVM {
+    id: string;
+    name: string;
+    portrait?: PortraitName;
+    /** The chance to resist, 0–1, as the rules give it (shown as a whole percentage). */
+    chance: number;
+}
+
+/**
+ * A previewed command's two rings, counted (§10.1, UI.md "GO previewed"): how many go face down, panic, are alerted or
+ * ignore it, and each resister's chance; or a previewed Hold's ring (`held`). Only NPCs the crew knows of.
+ */
+export interface RingsVM {
+    kind: 'command' | 'hold';
+    /** Command: go face down (or keep their pips). Hold: kept face down. */
+    down: number;
+    panics: number;
+    alerted: number;
+    ignores: number;
+    resisters: ResisterVM[];
+}
+
+/** The crew's loot counter (§15.1): what it carries, in dollars; cash a dye pack ruined; whether some may be dyed. */
+export interface LootVM {
+    carried: number;
+    ruined: number;
+    mayBeDyed: boolean;
+}
+
 // ---------------------------------------------------------------------------------------------------------- The HUD
 
 export interface HudViewModel {
@@ -236,6 +272,12 @@ export interface HudViewModel {
     overlays: Record<OverlayId, boolean>;
     /** Whether the camera shows the tactical map. */
     mapOn?: boolean;
+    /** The GO rail (§9.3, UI.md "GO previewed"): `preview` while GO is previewed, `on` on the takeover turn. */
+    goRail?: 'preview' | 'on' | null;
+    /** A previewed command's or hold's rings, counted. */
+    rings?: RingsVM | null;
+    /** The loot counter; absent or null while the crew has none. */
+    loot?: LootVM | null;
     /** Shown over everything until the player resumes. */
     recap?: RecapVM | null;
 }

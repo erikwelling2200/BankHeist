@@ -1,7 +1,7 @@
 import { expect, test, type Page } from '@playwright/test';
 import { effectKind, TINT_RANK, type Effect } from '../src/sim';
 import { M1_INSIDE, M1_OPENING } from './m1Run';
-import { ALARM_HELPERS, HATCHED_SETUP, PAGE_HELPERS, SAFE_FLOOR_SETUP } from './setups';
+import { ALARM_HELPERS, HATCHED_SETUP, PAGE_HELPERS, SAFE_FLOOR_SETUP, TAKEOVER, takeoverShout } from './setups';
 
 /** `npm run test:smoke` runs only the tests tagged `@smoke`. */
 const SMOKE = { tag: '@smoke' };
@@ -647,7 +647,45 @@ test('the takeover: GO masks up and gives a third action, a command puts the NPC
     if (target.outcome === 'complies') expect(npc).toMatchObject({ status: 'commanded', command: { pips: 2, by: 'mara' } });
     expect(await page.evaluate(() => (window as any).sim.state.bank.loud)).toBe(true);
     await page.waitForTimeout(300);
+    await page.screenshot({ path: 'screenshots/play-command.png' });
+    expect(errors).toEqual([]);
+});
+
+test('the §3 takeover turn: GO turns the rail gold, the shout shows both rings, each outcome and the guard\'s resist chance (M2-06)', { tag: ['@smoke', '@layout'] }, async ({ page }) => {
+    const errors = await boot(page);
+    const setup = await restartWith<{ at: Pos; guard: string }>(page, TAKEOVER);
+    expect(setup).not.toBeNull();
+    // GO previewed: the rail turns gold (dashed), masks on and a third action each, before anything is committed.
+    await page.locator('.sh-rail .sh-crew').nth(0).click();
+    await page.locator('.sh-actions button[data-action="go"]').click();
+    await expect(page.locator('.sh-rail')).toHaveClass(/go-preview/);
+    await expect(page.locator('.sh-state')).toHaveClass(/go/);
+    expect(await page.locator('.sh-rail .sh-crew').nth(0).locator('.sh-ap i').count()).toBe(3);
+    expect(await page.evaluate(() => (window as any).sim.state.takeover)).toBeNull();
+    await page.locator('.sh-rail .sh-crew').nth(0).click();
+    // GO, then the shout previewed: the rings and outcomes the overlay draws are the rules' own (`commandRings`).
+    await takeoverShout(page, setup!);
+    const rings = await page.evaluate(() => (window as any).sim.commandRings('mara'));
+    const drawn = (await play(page)).rings;
+    expect(drawn.command).toBeGreaterThan(0);
+    expect(drawn.outcomes.map((o: any) => o.id).sort()).toEqual(rings.targets.map((t: any) => t.npc).filter((id: string) => drawn.outcomes.some((o: any) => o.id === id)).sort());
+    const guard = rings.targets.find((t: any) => t.npc === setup!.guard);
+    expect(guard).toMatchObject({ outcome: 'resists' });
+    // Surprised (10%), halved by an Intimidating shouter: 5%, on his head and in the rings' chip.
+    expect(guard.chance).toBeCloseTo(0.05);
+    expect(drawn.outcomes.find((o: any) => o.id === setup!.guard)).toMatchObject({ count: '5%' });
+    await expect(page.locator('.sh-rings')).toContainText('5%');
+    await expect(page.locator('.sh-rail')).toHaveClass(/\bgo\b/);
+    await expect(page.locator('.sh-confirm')).toHaveClass(/command/);
+    await page.waitForTimeout(300);
     await page.screenshot({ path: 'screenshots/play-takeover.png' });
+    // Committed: those who complied lie face down, and a hold previewed shows its ring.
+    await page.locator('.sh-confirm').click();
+    await idle(page);
+    await page.locator('.sh-actions button[data-action="hold"]').click();
+    await expect.poll(async () => (await play(page)).holds).toBe(1);
+    await expect(page.locator('.sh-rings')).toContainText('▼');
+    await page.screenshot({ path: 'screenshots/play-takeover-held.png' });
     expect(errors).toEqual([]);
 });
 
@@ -691,6 +729,15 @@ test('loot: Mara takes a bag through the grid and throws it to Jun, who catches 
     await expect(page.locator('.sh-confirm')).toContainText('THROW');
     // The bag's arc, previewed: from Mara to Jun, who catches it.
     const mara = (await page.evaluate(() => (window as any).sim.state.crew[0].pos)) as Pos;
+    await expect.poll(async () => (await play(page)).throwArc).toEqual({ from: mara, to: setup!.jun, caught: true });
+    // Every tile the bag reaches is outlined; a tap on another one throws it there instead, onto the floor; a tap on
+    // Jun's tile throws it back to him.
+    const range = (await play(page)).throwRange as Pos[];
+    const floor = range.find(p => !(p.x === setup!.jun.x && p.y === setup!.jun.y) && !(p.x === mara.x && p.y === mara.y));
+    expect(floor).toBeDefined();
+    await tapTile(page, floor!);
+    await expect.poll(async () => (await play(page)).throwArc).toEqual({ from: mara, to: floor, caught: false });
+    await tapTile(page, setup!.jun);
     await expect.poll(async () => (await play(page)).throwArc).toEqual({ from: mara, to: setup!.jun, caught: true });
     await page.waitForTimeout(300);
     await page.screenshot({ path: 'screenshots/play-throw.png' });
