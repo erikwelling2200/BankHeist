@@ -446,7 +446,9 @@ function playOne(run: Run, state: State, timing: boolean): State {
         && (!TAKEOVER.has(c.type) || (run.omniscient && !run.stealth)));
     if (!options.length) return state;
     const kinds = [...new Set(options.map(c => c.type))], looting = kinds.filter(k => LOOT_COMMANDS.has(k));
-    const kind = run.loot && looting.length && rng.chance(0.7) ? rng.pick(looting) : rng.pick(kinds);
+    // Doors and interactions are offered rarely: take each the first few times it is, so every sample plays them.
+    const rare = RARE_COMMANDS.find(k => kinds.includes(k) && (probe.stats[`command ${k}`] ?? 0) < 5);
+    const kind = rare ?? (run.loot && looting.length && rng.chance(0.7) ? rng.pick(looting) : rng.pick(kinds));
     const ofKind = options.filter(c => c.type === kind);
     const toMates = ofKind.filter(c => c.type === 'throwLoot' && state.crew.some(m => m.pos.x === c.to.x && m.pos.y === c.to.y));
     const cmd = run.loot && toMates.length && rng.chance(0.5) ? rng.pick(toMates) : rng.pick(ofKind);
@@ -522,6 +524,9 @@ function heldByHolds(world: ReadonlyWorld, state: State): Set<string> {
     return out;
 }
 
+/** Actions offered too rarely for the floors to rest on chance (`playOne` takes each the first few times). */
+const RARE_COMMANDS: readonly Command['type'][] = ['door', 'interact'];
+
 /** The takeover's commands (M2-01). */
 const TAKEOVER = new Set(['command', 'go', 'maskUp', 'hold']);
 /** The hostages' commands (M2-03), played in the takeover game. */
@@ -534,6 +539,7 @@ const HOSTAGE_COMMANDS = new Set(['zipTie', 'escort', 'coerce']);
 function checkCommand(run: Run, state: State, crew: string, r: CommitResult): void {
     const { world, probe } = run;
     const plan = commandPlan(world, state, crew), shown = commandPreview(world, state, crew);
+    for (const e of r.events) if (e.type === 'panicked') probe.bump('panicked');
     const known = plan.targets.filter(t => isKnownNow(world, state, t.npc));
     if (JSON.stringify(shown.targets) !== JSON.stringify(known)) probe.fail(`${run.label}: command preview ${JSON.stringify(shown.targets)}, known ${JSON.stringify(known)}`);
     const noise = r.events.find(e => e.type === 'noise' && e.cause === `command ${crew}`) as Extract<SimEvent, { type: 'noise' }> | undefined;
@@ -1230,12 +1236,12 @@ describe('previews (property, §8.8)', () => {
         if (VERBOSE) console.log(JSON.stringify(probe.stats, null, 1));
         expect(probe.failures).toEqual([]);
         // Every outcome of the rings, and holds that keep and that don't.
-        for (const k of ['command command complies', 'command command resists', 'command panic alerted', 'command panic panics', 'commanded held', 'commanded not held']) {
+        for (const k of ['command command complies', 'command command resists', 'command panic alerted', 'command panic panics', 'commanded held', 'commanded not held', 'panicked']) {
             expect(probe.stats[k] ?? 0, k).toBeGreaterThan(5);
         }
         for (const k of ['command zipTie', 'command escort']) expect(probe.stats[k] ?? 0, k).toBeGreaterThan(5);
         // M2-02: every panic reaction, and each telegraphed act it leads to (checked by `checkTelegraphs`).
-        for (const k of ['panic reaction cower', 'panic reaction flee', 'panic reaction hide', 'panic reaction reach', 'panicked', 'telegraphed draw', 'telegraphed escape', 'telegraphed tackle', 'telegraphed call']) {
+        for (const k of ['panic reaction cower', 'panic reaction flee', 'panic reaction hide', 'panic reaction reach', 'telegraphed draw', 'telegraphed escape', 'telegraphed tackle', 'telegraphed call']) {
             expect(probe.stats[k] ?? 0, k).toBeGreaterThan(0);
         }
         // A guard whose command lapsed reaches for his weapon and ignores the next one.

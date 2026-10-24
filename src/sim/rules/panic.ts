@@ -50,8 +50,8 @@ import { canPanic, panicNpc, startPanic, type Panic, type PanicReaction } from '
  * - **Calming down:** a Commanded or tied NPC is no longer Panicked (`commandNpc`; face down otherwise, as intents are
  *   committed); one knocked out neither.
  * - **The escapee's counters** (§9.1): commanding or knocking out the runner (the source), **blocking its route** (a
- *   carrier check: no way to any way out past the crew as they stand counters it; a runner cut off from its own exit
- *   runs for another still open, and one with none left gives up and cowers as it would set off again), and
+ *   carrier check: no way to its way out past the crew as they stand counters it; as it sets off again the runner runs
+ *   for another way out still open, with a fresh carrier at that way's count, or with none left gives up and cowers), and
  *   **tackling** it (`tackle { crew, npc }`: 1 action, in
  *   reach, on someone running for it; an illegal act seen on both tiles; it goes face down, Commanded by the tackler).
  *   Barricades and vehicles are M3–M4's.
@@ -221,14 +221,15 @@ function nearestCrew(state: State, npc: DeepReadonly<NpcState>): string {
 /** Whether the crew, standing where they stand, block every way from a runner to this exit (or a tile next to it). */
 export const routeBlocked = (world: ReadonlyWorld, state: State, npc: DeepReadonly<NpcState>, exit: DeepReadonly<Pos>): boolean => !canWalkTo(world, state, npc, exit);
 
-// Block the route (§9.1): an escapee whose runner can't get past the crew to any way out is countered. One with
-// another way out still open runs for it instead (command.ts).
+// Block the route (§9.1): an escapee whose runner can't get past the crew to the way out it runs for is countered. With
+// another way out still open, it runs for that as it sets off again, with a fresh carrier at that way's count
+// (command.ts); with none, it gives up.
 registerCarrierCheck('route', (world, state, carrier) => {
     if (carrier.kind !== 'escapee') return null;
     const npc = state.npcs.find(n => n.id === carrier.source);
     if (!npc || !isPresent(npc) || npc.lapse?.kind !== 'flee') return null;
     const live = state as unknown as State;
-    return routeBlocked(world, live, npc, npc.lapse.exit) && !wayOut(world, live, npc, true) ? { halt: 'countered', why: 'route blocked' } : null;
+    return routeBlocked(world, live, npc, npc.lapse.exit) ? { halt: 'countered', why: 'route blocked' } : null;
 });
 
 /** Why a crew member can't tackle this NPC now (§9.1), or undefined. */

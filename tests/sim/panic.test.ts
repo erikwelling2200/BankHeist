@@ -229,6 +229,35 @@ describe('the escapee (§9.1, §16.4)', () => {
         expect(of(off.events, 'gaveUp')).toEqual([]);
     });
 
+    it('counts a re-routed run from scratch: the old carrier is countered, a fresh one fits the new way out', () => {
+        // A corridor: the near way out 4 tiles west of the runner, the far one 25 tiles east.
+        const T = 'T'.repeat(30), map = [T, '.'.repeat(30), T, '.'.repeat(30), '.'.repeat(30)];
+        const walker = person('walker', 'passer-by', 'civilian', P(4, 1), 'n', {}, P(0, 1));
+        const clerk = person('clerk', 'clerk', 'staff', P(15, 4), 'n', {}, P(29, 1));
+        const { world, state } = setup(map, [walker, clerk], [{ id: 'jun', pos: P(15, 3) }, { id: 'mara', pos: P(2, 1) }]);
+        // Running for (0, 1), its escapee at 2.
+        const w = npc(state, 'walker');
+        w.lapse = { kind: 'flee', exit: P(0, 1) };
+        w.panic = { since: { turn: 0, phase: 'world' }, crew: null, tile: P(4, 1), reaction: { kind: 'flee' } };
+        w.status = 'panicked';
+        w.intent = { path: [P(3, 1)], action: { kind: 'flee', exit: P(0, 1) } };
+        w.goal = { kind: 'flee', tile: P(0, 1) };
+        state.carriers.push({ id: 'c1', kind: 'escapee', source: 'walker', pos: P(4, 1), countdown: 2, started: { turn: 0, phase: 'world' }, halted: null });
+        // Mara stands in the corridor: the near way is cut off and the carrier countered.
+        const blocked = commit(world, state, { type: 'wait', crew: 'mara' });
+        expect(of(blocked.events, 'carrierStopped')).toMatchObject([{ carrier: 'c1', why: 'route blocked' }]);
+        const off = endTurn(world, blocked.state);
+        expect(npc(off.state, 'walker').lapse).toEqual({ kind: 'flee', exit: P(29, 1) });
+        const fresh = of(off.events, 'carrierStarted');
+        expect(fresh).toMatchObject([{ kind: 'escapee', holder: 'walker' }]);
+        const left = 29 - npc(off.state, 'walker').pos.x;
+        expect(fresh[0]!.countdown).toBe(Math.max(2, Math.ceil(left / 8)));
+        expect(fresh[0]!.countdown).toBeGreaterThan(2);
+        // No Alarm while the runner is still far inside.
+        const next = endTurn(world, off.state);
+        expect(of(next.events, 'alarmRaised')).toEqual([]);
+    });
+
     it('is countered by a tackle: 1 action, in reach, and the runner goes face down', () => {
         const { world, state } = running();
         const at = npc(state, 'walker').pos;
@@ -278,6 +307,10 @@ describe('the way out (a runner\'s exit)', () => {
         const holder = wayOut(world, state, at(state, 'card'));
         expect(holder?.exit).toEqual(P(7, 0));
         expect(fresh?.exit).toEqual(P(0, 8));
+        // Either order: after the holder (the order a cache got wrong), and before it.
         expect(wayOut(world, state, at(state, 'none'))).toEqual(fresh);
+        const later = initialState(world, { seed: 1, crew: [{ id: 'jun', pos: P(13, 8) }] });
+        expect(wayOut(world, later, at(later, 'card'))).toEqual(holder);
+        expect(wayOut(world, later, at(later, 'none'))).toEqual(fresh);
     });
 });

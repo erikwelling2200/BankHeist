@@ -11,6 +11,7 @@ import { DEAF_STATUSES, makeNoise, noiseRadius, npcsInside, soundRing } from '..
 import { lacksActions, registerAction } from './actions/act';
 import { releaseBody } from './actions/body';
 import { startEscapee } from './alarms';
+import { stopCarrier } from './carriers';
 import { npcMoveOptions, isPresent, personOf } from './npc/walk';
 import { reconsider } from './npc/intent';
 import { bodyPos, draggedBy } from './place';
@@ -418,8 +419,9 @@ registerWorldHook('passiveNpcs', 'command.draw', (ctx, phase) => {
  * Running for it (§10.5, §9.1 escapee), after the passive walks: a runner still up that walked its committed flee starts
  * the escapee carrier as it sets off (max(2, ⌈the way left ÷ 8⌉), alarms.ts `startEscapee`; one per runner), and one at
  * the way out (or a tile next to it) leaves the map for good. Telegraphed by the flee intent a phase before. With its
- * way out cut off by the crew it runs for another still open (re-planned as the intents are committed); with none
- * left it gives up and cowers (§9.1 "block the route", rules/panic.ts).
+ * way out cut off by the crew it runs for another still open (re-planned as the intents are committed), its old
+ * carrier countered and a fresh one started at the new way's count; with none left it gives up and cowers (§9.1 "block
+ * the route", rules/panic.ts). The count is always of the way to the exit it runs for.
  */
 registerWorldHook('passiveNpcs', 'command.flee', (ctx, phase) => {
     const { world, state } = ctx;
@@ -429,6 +431,8 @@ registerWorldHook('passiveNpcs', 'command.flee', (ctx, phase) => {
         const npc = state.npcs.find(n => n.id === id)!;
         if (isEyesDown(npc) || !isPresent(npc) || npc.lapse?.kind !== 'flee') continue;
         const out = Math.max(Math.abs(npc.pos.x - action.exit.x), Math.abs(npc.pos.y - action.exit.y)) <= 1;
+        // Its carrier is seen for a crew phase with the runner still on the map, where the counters reach it (§9.1).
+        const running = state.carriers.some(c => c.kind === 'escapee' && c.source === npc.id);
         let left: number | undefined;
         if (!out && routeBlocked(world, state, npc, action.exit)) {
             const open = wayOut(world, state, npc, true);
@@ -436,12 +440,13 @@ registerWorldHook('passiveNpcs', 'command.flee', (ctx, phase) => {
                 giveUp(ctx, npc);
                 continue;
             }
+            // A new way out, a new run: the carrier for the old one is countered (panic.ts's route check, and here should
+            // the block have come since) and a fresh one starts at the new way's count, the flight its telegraph.
+            for (const c of state.carriers.filter(c => c.kind === 'escapee' && c.source === npc.id)) stopCarrier(ctx, c, 'route blocked');
             npc.lapse = { kind: 'flee', exit: open.exit };
             left = open.tiles;
         }
-        // Its carrier is seen for a crew phase with the runner still on the map, where the counters reach it (§9.1).
-        const running = state.carriers.some(c => c.kind === 'escapee' && c.source === npc.id);
-        startEscapee(ctx, npc, out ? 0 : left ?? wayOut(world, state, npc)?.tiles ?? 0);
+        startEscapee(ctx, npc, out ? 0 : left ?? tilesTo(world, state, npc, npc.lapse.exit));
         if (!out || !(running || state.bank.alarm)) continue;
         // Gone for good: its lapse keeps it away (behaviour.ts).
         npc.status = 'away';
@@ -535,6 +540,13 @@ export function wayOut(world: ReadonlyWorld, state: State, npc: DeepReadonly<Npc
         t => exits.some(e => reach(t.pos, e))).stopped;
     const exit = found && exits.find(e => reach(found.pos, e));
     return found && exit && { exit, tiles: Math.ceil(found.cost / HALF_STEPS_PER_TILE) };
+}
+
+/** How far a runner has to its own way out, in tiles (through people, as `wayOut`): what its escapee counts down. */
+function tilesTo(world: ReadonlyWorld, state: State, npc: DeepReadonly<NpcState>, exit: DeepReadonly<Pos>): number {
+    const found = reachable(world, state, { x: npc.pos.x, y: npc.pos.y }, (world.width + world.height) * 4 * HALF_STEPS_PER_TILE,
+        { ...npcMoveOptions(world, npc), ignorePeople: true }, t => samePos(t.pos, exit)).stopped;
+    return found ? Math.ceil(found.cost / HALF_STEPS_PER_TILE) : 0;
 }
 
 /** Carries out the decision of a lapse (see the header); its intent is planned by `reconsider` straight after. */
