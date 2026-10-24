@@ -645,7 +645,8 @@ Each package lists its goal, the design sections it covers, the files, what it d
       checks each hold against its ring; a dedicated takeover game (`takeoverGame`, open floors with a crowd, a guard,
       a teller and a manager) has floors for every outcome. World-phase comparisons stop at the first `lapsed` event
       (rolled). The perception property test
-      leaves the takeover out (its own test is above). Save shape hash now `316d74ac88af5399`.
+      leaves the takeover out (its own test is above). Save shape hash after the review fixes (`State.held`, with
+      M2-04's fields) `99f980cc1950cf4c`.
     - **Deferred:** what a panicking civilian does (cower, flee, hide, the phone), heroes and tackle, police outside
       shifting lapses toward fleeing, blocking an escapee's route as a counter (M2-02); a resister drawing and shooting
       (M3: Hostile does nothing yet); flashbangs' 10% (M3). Until M2-02 a civilian in the panic ring reacts as to any loud

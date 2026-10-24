@@ -249,7 +249,7 @@ export function behaviourGoal(world: ReadonlyWorld, state: State, npc: DeepReado
     // A lapsed command's intent (§10.5) comes before anything it wants: it was rolled and shown.
     if (npc.lapse?.kind === 'flee') return { kind: 'flee', tile: { x: npc.lapse.exit.x, y: npc.lapse.exit.y } };
     if (npc.lapse?.kind === 'reach') return { kind: 'reach', crew: npc.lapse.crew };
-    if (npc.lapse?.kind === 'phone' && !npc.reported.includes(npc.lapse.crew)) return { kind: 'phone', crew: npc.lapse.crew };
+    if (npc.lapse?.kind === 'phone') return { kind: 'phone', crew: npc.lapse.crew };
     const top = topWant(npc);
     // Reacting to an Exposed crew member comes first, then major evidence, then the crew wants, then minor evidence.
     const evidence = top?.kind === 'react' ? null : evidenceGoal(world, state, npc);

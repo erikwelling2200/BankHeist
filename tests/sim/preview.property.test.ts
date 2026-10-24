@@ -4,7 +4,7 @@ import { cachedBank } from '../bankCache';
 import { PLOTS, TIERS } from '../../src/gen/model';
 import { Rng } from '../../src/gen/rng';
 import {
-    actionPreview, commandPlan, commandPreview, hasLineOfSight, holdTargets, ITEMS, reachable, pathTo, addsTo, carriersStarted, DEAF_STATUSES, clonePlain, commit, crewBudget, crewMoveOptions, decodeBits, doorDoubt, effectKind, effectOf, encodeBits, explain, FACINGS, hearing,
+    actionPreview, CARRY_WEIGHT, commandPlan, commandPreview, hasLineOfSight, holdTargets, ITEMS, reachable, pathTo, addsTo, carriersStarted, DEAF_STATUSES, clonePlain, commit, crewBudget, crewMoveOptions, decodeBits, doorDoubt, effectKind, effectOf, encodeBits, explain, FACINGS, hearing,
     isKnownNow, fixtureWorld, initialState, hashOf, legalActions, noiseRadius, npcsInside, onFloor, pathSafety, pendingCarriers, planningState, previewCertain, previewPicture,
     projectCarriers, projectEvents, projectPreviewEvents, safeFloor, safeFloorJob, sightDoubted, soundRing, teammateEffects, throwPlan, TINT_RANK, tintOf, validatePath, withDoubtedShut,
     worldFromBank,
@@ -484,6 +484,31 @@ function playOne(run: Run, state: State, timing: boolean): State {
     return r.state;
 }
 
+/**
+ * A crew member's command radius from the weapon table (§10.1, §12.1), worked out here: the best Threat in hand (only
+ * sidearms with a Very heavy carry, §15.1), unarmed 1, ×1.5 rounded down on the takeover turn.
+ */
+function tableRadius(state: State, member: State['crew'][number]): number {
+    const carrying = member.loadout.carrying, sidearms = carrying !== null && (CARRY_WEIGHT as Record<string, string>)[carrying] === 'very heavy';
+    const table = ITEMS as Record<string, { threat?: number; slot: string }>;
+    const threat = Math.max(1, ...member.loadout.items.map(id => (!sidearms || table[id]?.slot === 'sidearm' ? table[id]?.threat ?? 0 : 0)));
+    return state.takeover === state.turn ? Math.floor(threat * 1.5) : threat;
+}
+
+/** The Commanded NPCs a hold keeps this world phase (§10.3), worked out here: within a holder's radius and sight. */
+function heldByHolds(world: ReadonlyWorld, state: State): Set<string> {
+    const out = new Set<string>();
+    for (const c of state.crew) {
+        if (c.holding !== state.turn) continue;
+        const radius = tableRadius(state, c);
+        for (const n of state.npcs) {
+            const dx = n.pos.x - c.pos.x, dy = n.pos.y - c.pos.y;
+            if (n.command !== null && dx * dx + dy * dy <= radius * radius && hasLineOfSight(world, state, c.pos, n.pos)) out.add(n.id);
+        }
+    }
+    return out;
+}
+
 /** The takeover's commands (M2-01). */
 const TAKEOVER = new Set(['command', 'go', 'maskUp', 'hold']);
 
@@ -503,8 +528,7 @@ function checkCommand(run: Run, state: State, crew: string, r: CommitResult): vo
     if (JSON.stringify(ring.tiles.map(t => t.pos).filter(p => !inCommand.has(`${p.x},${p.y}`))) !== JSON.stringify(plan.panicTiles)) probe.fail(`${run.label}: panic ring tiles differ`);
     // The ring itself, worked out here from the weapon table and line of sight, not from the rules' own helpers.
     const member = state.crew.find(c => c.id === crew)!;
-    const threat = Math.max(1, ...member.loadout.items.map(id => (ITEMS as Record<string, { threat?: number }>)[id]?.threat ?? 0));
-    const radius = state.takeover === state.turn ? Math.floor(threat * 1.5) : threat;
+    const radius = tableRadius(state, member);
     if (plan.radius !== radius) probe.fail(`${run.label}: command radius ${plan.radius}, the weapon table says ${radius}`);
     for (const n of state.npcs) {
         const dx = n.pos.x - member.pos.x, dy = n.pos.y - member.pos.y;
@@ -566,8 +590,11 @@ function endTurn(run: Run, state: State): State {
         probe.bump('stay checks');
     }
     const pending = projectCarriers(world, state, pendingCarriers(world, state));
-    // Hold (§10.3): what each holder's ring shows as the crew phase ends is exactly who keeps their pips.
-    const held = new Set(state.crew.filter(c => c.holding === state.turn).flatMap(c => holdTargets(world, state, c.id)));
+    // Hold (§10.3): who is within a holder's ring as the crew phase ends is exactly who keeps their pips; the ring the
+    // preview draws (`holdTargets`) is that too.
+    const held = heldByHolds(world, state);
+    const shown = new Set(state.crew.filter(c => c.holding === state.turn).flatMap(c => holdTargets(world, state, c.id)));
+    if ([...held].sort().join() !== [...shown].sort().join()) probe.fail(`${run.label} t${state.turn}: hold ring ${[...shown]}, within reach ${[...held]}`);
     const r = endPhase(world, state);
     for (const e of r.events) {
         if (e.type !== 'commandPips') continue;

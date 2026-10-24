@@ -230,6 +230,9 @@ describe('the manager phones it in (§16.2 "phone 40")', () => {
             expect(m.intent).toEqual({ path: [], action: { kind: 'raiseAlarm', carrier: 'phoneCall', crew: 'jun' } });
             const called = step(world, lapsed.state, { type: 'endTurn' });
             expect(called.events.find(e => e.type === 'carrierStarted')).toMatchObject({ kind: 'phoneCall', holder: 'manager', countdown: 2 });
+            // The call made, the lapse is done: she watches, and calls no more.
+            expect(npc(called.state, 'manager').lapse).toBe(null);
+            expect(npc(called.state, 'manager').intent.action?.kind).not.toBe('raiseAlarm');
         }
         expect(found).toBe(true);
     });

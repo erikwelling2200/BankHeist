@@ -85,6 +85,8 @@ declare module '../core/types' {
     interface State {
         /** The takeover turn (§9.3 GO), or null while GO hasn't been pressed. */
         takeover: number | null;
+        /** The Commanded NPCs a hold keeps this world phase (§10.3), by id; empty between world phases. */
+        held: string[];
     }
     interface Rules {
         /** Pips a command gives (§10.2). */
@@ -142,6 +144,7 @@ registerCrewInit('command', (_world, _start, member) => {
 
 registerStateInit('takeover', (_world, state) => {
     state.takeover = null;
+    state.held = [];
 });
 
 // ---------------------------------------------------------------------------------------------------------- Threat
@@ -421,15 +424,18 @@ registerWorldHook('passiveNpcs', 'command.flee', (ctx, phase) => {
     }
 }, { order: 6 });
 
-// Who is held this world phase (§10.3), by the draft state of the `endTurn` command playing it.
-const HELD = new WeakMap<State, Set<string>>();
+// A phone lapse is done once the call is made (rules/alarms.ts, just before): the NPC only watches the crew member now.
+registerWorldHook('passiveNpcs', 'command.called', ctx => {
+    for (const npc of ctx.state.npcs) if (npc.lapse?.kind === 'phone' && npc.reported.includes(npc.lapse.crew)) npc.lapse = null;
+}, { order: 6 });
 
 // A hold covers what `holdTargets` says as the crew phase ends: the radius of that turn (×1.5 on the takeover turn)
-// and the sight as the holder gave it, before anyone walks. The pips are counted at the end of the world phase.
+// and the sight as the holder gave it, before anyone walks (`State.held`). The pips are counted at the end of the world
+// phase.
 registerWorldHook('passiveNpcs', 'command.hold', ctx => {
     const { world, state } = ctx, held = new Set<string>();
     for (const c of state.crew) if (c.holding === state.turn) for (const id of holdTargets(world, state, c.id)) held.add(id);
-    HELD.set(state, held);
+    state.held = [...held].sort();
 }, { order: -200 });
 
 /**
@@ -439,8 +445,8 @@ registerWorldHook('passiveNpcs', 'command.hold', ctx => {
  */
 registerWorldHook('crewPhase', 'command.lapse', ctx => {
     const { state } = ctx;
-    const holds = HELD.get(state) ?? new Set<string>();
-    HELD.delete(state);
+    const holds = new Set(state.held);
+    state.held = [];
     const lapsing: NpcState[] = [];
     for (const npc of state.npcs) {
         if (npc.command === null) continue;
