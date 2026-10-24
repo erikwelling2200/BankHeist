@@ -52,7 +52,9 @@ describe('movement as the player picks it', () => {
     it('shows movement as one grid entry, and Confirm costs a Dash 2 pips', () => {
         const { world, state } = corridor();
         const ui: UiState = { selected: 'jun', camera: null, pendingCommand: { type: 'dash', crew: 'jun', path: along(8) } };
-        expect(actionsView(world, state, ui).map(a => [a.id, a.label, a.cost, !!a.selected])).toEqual([['move', 'Dash', 2, true], ['wait', 'Wait', 0, false]]);
+        expect(actionsView(world, state, ui).map(a => [a.id, a.label, a.cost, !!a.selected])).toEqual([
+            ['move', 'Dash', 2, true], ['wait', 'Wait', 0, false], ['command', 'Command', 1, false], ['mask', 'Mask up', 1, false], ['go', 'GO', 0, false]
+        ]);
         expect(confirmView(ui)).toMatchObject({ label: 'DASH', cost: 2, enabled: true });
         expect(confirmView({ ...ui, pendingCommand: { type: 'move', crew: 'jun', path: along(2) } })).toMatchObject({ label: 'MOVE', cost: 1 });
     });

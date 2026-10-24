@@ -22,9 +22,9 @@ import { neutralised } from './cctv';
  * - **Counters** are checks (`registerCarrierCheck`) run after every command and before the devices tick: a check
  *   may counter a carrier (it is removed: `carrierStopped`) or pause it (it doesn't tick: `carrierPaused`, and
  *   `carrierResumed` when nothing pauses it any more). This module's own check is the source: a carrier whose NPC is
- *   out cold, dead, tied, stashed or dragged off is countered; a commanded one is paused (§10.2, M2). Others: the dead
- *   alarm panel (alarms.ts), a jammer (alarms.ts), the neutralised operator (here too, being the source), answering
- *   the radio (checkins.ts, as an action).
+ *   out cold, dead, tied, stashed or dragged off is countered; a commanded one is paused (§10.2, rules/command.ts,
+ *   which counters a runner's escapee). Others: the dead alarm panel (alarms.ts), a jammer (alarms.ts), the
+ *   neutralised operator (here too, being the source), answering the radio (checkins.ts, as an action).
  * - **Previews** (§8.8, "this would start: Teller button (2)"): `carrierPreview(world, before, result)` names the
  *   carriers a previewed command starts or stops at once, and those the coming world phase would start that it
  *   wouldn't have started without the command (`pendingCarriers`: the world phase's own reducers on a copy, so the
@@ -47,15 +47,15 @@ export interface CarrierDef {
 export const CARRIERS: Readonly<Record<CarrierKind, CarrierDef>> = {
     tellerButton: {
         label: 'Teller button', wired: true, radio: false,
-        counters: [{ name: 'knock out', now: true }, { name: 'disable the alarm panel', now: true }, { name: 'command', now: 'M2' }, { name: 'zip-tie', now: 'M2' }]
+        counters: [{ name: 'knock out', now: true }, { name: 'disable the alarm panel', now: true }, { name: 'command', now: true }, { name: 'zip-tie', now: 'M2' }]
     },
     managerButton: {
         label: 'Manager button', wired: true, radio: false,
-        counters: [{ name: 'knock out', now: true }, { name: 'disable the alarm panel', now: true }, { name: 'command', now: 'M2' }, { name: 'zip-tie', now: 'M2' }]
+        counters: [{ name: 'knock out', now: true }, { name: 'disable the alarm panel', now: true }, { name: 'command', now: true }, { name: 'zip-tie', now: 'M2' }]
     },
     guardRadio: {
         label: 'Guard radio', wired: false, radio: true,
-        counters: [{ name: 'knock out', now: true }, { name: 'jammer', now: true }, { name: 'command', now: 'M2' }, { name: 'kill', now: 'M3' }]
+        counters: [{ name: 'knock out', now: true }, { name: 'jammer', now: true }, { name: 'command', now: true }, { name: 'kill', now: 'M3' }]
     },
     operatorCamera: {
         label: 'Operator verifies', wired: true, radio: false,
@@ -63,11 +63,11 @@ export const CARRIERS: Readonly<Record<CarrierKind, CarrierDef>> = {
     },
     phoneCall: {
         label: 'Phone call', wired: false, radio: true,
-        counters: [{ name: 'knock out', now: true }, { name: 'jammer (mobiles)', now: true }, { name: 'command', now: 'M2' }, { name: 'cut the phone line (landlines)', now: 'M4' }]
+        counters: [{ name: 'knock out', now: true }, { name: 'jammer (mobiles)', now: true }, { name: 'command', now: true }, { name: 'cut the phone line (landlines)', now: 'M4' }]
     },
     escapee: {
         label: 'Escapee', wired: false, radio: false,
-        counters: [{ name: 'knock out', now: true }, { name: 'block the route', now: 'M2' }, { name: 'command', now: 'M2' }, { name: 'tackle', now: 'M2' }]
+        counters: [{ name: 'knock out', now: true }, { name: 'block the route', now: 'M2' }, { name: 'command', now: true }, { name: 'tackle', now: 'M2' }]
     },
     missedCheckIn: {
         label: 'Missed check-in', wired: false, radio: true,
@@ -241,7 +241,7 @@ export function settleCarriers(ctx: Ctx): void {
 }
 
 // The source (§9.1 "knock out", "neutralise the operator"): a carrier whose NPC is down for good is countered; one
-// whose NPC is commanded is paused (the holder is face down, M2). Non-NPC sources ('dispatch', 'patrol') pass.
+// whose NPC is commanded is paused (the holder is face down, rules/command.ts). Non-NPC sources ('dispatch', 'patrol') pass.
 registerCarrierCheck('source', (_world, state, carrier) => {
     const npc = state.npcs.find(n => n.id === carrier.source);
     if (!npc) return null;

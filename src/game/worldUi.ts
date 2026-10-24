@@ -112,6 +112,8 @@ export function npcBadges(_world: ReadonlyWorld, state: State, known: KnownView)
         } else if (live && npc.warned.length) plates.push({ glyph: 'hand', signal: 'amber' });
         if (live && npc.exposedTo.length) plates.push({ glyph: 'eye', signal: 'red' });
         const status = statusPlate(m.status);
+        // Command pips (§10.2) count down on the face-down plate; at 0 it is Twitchy (§10.5).
+        if (status && live && npc.command) status.count = npc.command.pips;
         // A carrier's plate already says the NPC is raising the alarm.
         if (status && !(carrier && status.glyph === 'bang')) plates.push(status);
         const pips = live ? Object.entries(npc.suspicion).filter(([crew, n]) => n > 0 && !npc.exposedTo.includes(crew)).map(([crew, n]) => ({ crew, n }))

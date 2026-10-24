@@ -16,7 +16,7 @@ import {
  *
  * - every carrier starts at 2 or more, and is first seen in a crew phase at 2 or more unless the crew started it;
  * - `pendingCarriers` names exactly the carriers ending the turn starts, and each was telegraphed (an NPC's committed
- *   alarm intent, a camera report, a ringing radio, a drive-by due);
+ *   alarm or flee intent, a camera report, a ringing radio, a drive-by due);
  * - every running carrier has a counter that still works mid-countdown (tried on copies: the holder knocked out, the
  *   panel dead, a jammer on it, the operator down; answering for a missed check-in);
  * - projections: `carrierStarted` and `projectCarriers` never name a holder the crew doesn't know, and drop nothing;
@@ -101,18 +101,21 @@ describe('M1-08 fuzz on generated banks', () => {
                 try {
                     const pv = preview(world, state, cmd);
                     r = commit(world, state, cmd);
-                    if (cmd.type !== 'endTurn' && hashOf(pv.state) !== hashOf(r.state)) failures.push(`${label} preview!=commit ${cmd.type}`);
+                    // A roll the preview stopped at (a resister's chance) leaves its state short of the commit.
+                    if (cmd.type !== 'endTurn' && !pv.pending && hashOf(pv.state) !== hashOf(r.state)) failures.push(`${label} preview!=commit ${cmd.type}`);
                 } catch (e) { bump(`refused ${cmd.type}`); return false; }
                 log.push(cmd);
                 for (const e of r.events) if (e.type === 'carrierStarted') {
                     if (e.countdown < 2) failures.push(`${label} ${e.kind} started at ${e.countdown}`);
                     if (cmd.type !== 'endTurn') { bump(`crewPhaseStart ${e.kind}`); }
                 }
-                // Projection leak: carrierStarted naming an NPC the crew doesn't know.
+                // Projection leak: carrierStarted naming an NPC the crew doesn't know (nor saw during the command: a runner
+                // seen running out of the map, M2-01).
+                const seenDuring = (id: string): boolean => Object.hasOwn(r.state.knowledge.npcs, id) && r.state.knowledge.npcs[id]!.tick > state.knowledge.tick;
                 const proj = projectEvents(world, r.state, r.events, state);
                 for (const e of proj) {
                     if (e.type === 'carrierStarted' && e.holder !== null && world.people.some(p => p.id === e.holder) && !isKnownNow(world, r.state, e.holder)
-                        && !isKnownNow(world, state, e.holder)) failures.push(`${label} carrierStarted names unknown holder (${e.kind})`);
+                        && !isKnownNow(world, state, e.holder) && !seenDuring(e.holder)) failures.push(`${label} carrierStarted names unknown holder (${e.kind})`);
                 }
                 const shown = proj.filter(e => e.type === 'carrierStarted').length, started = r.events.filter(e => e.type === 'carrierStarted').length;
                 if (shown !== started) failures.push(`${label} ${started - shown} carrierStarted hidden by the projection`);
@@ -193,6 +196,7 @@ describe('M1-08 fuzz on generated banks', () => {
                     const action = npc?.intent.action;
                     let telegraphed = false;
                     if (action && (action.kind === 'raiseAlarm' || action.kind === 'reportEvidence') && action.carrier === c.kind) telegraphed = true;
+                    if (c.kind === 'escapee' && action?.kind === 'flee') telegraphed = true;
                     if (c.kind === 'operatorCamera' && (before.cameraReports.length || r.events.some(e => e.type === 'cameraSaw'))) telegraphed = true;
                     if (c.kind === 'missedCheckIn' && Object.values(before.radio.calls).some(cl => cl.ringing !== null)) telegraphed = true;
                     if (c.kind === 'patrolCar' && driveByDue(world, before, before.turn)) telegraphed = true;

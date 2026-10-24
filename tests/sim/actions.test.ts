@@ -90,8 +90,11 @@ describe('doors', () => {
     it('are offered by legalActions only where they can be used', () => {
         const { world, state } = doorWorld();
         expect(legalActions(world, state, 'jun')).toEqual([
+            { type: 'command', crew: 'jun' },
             { type: 'door', crew: 'jun', door: 'd', action: 'open' },
             { type: 'door', crew: 'jun', door: 'd', action: 'lock' },
+            { type: 'go', crew: 'jun' },
+            { type: 'maskUp', crew: 'jun' },
             { type: 'wait', crew: 'jun' }
         ]);
     });

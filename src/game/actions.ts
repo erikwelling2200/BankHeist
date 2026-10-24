@@ -1,5 +1,5 @@
 import {
-    besideDoor, crewPicture, doorStatus, DRAGGABLE, draggedBy, inReach, interactionVerbs, isKnownNow, JAMMER, legalActions, LOOP_FROM, reachesObject, STASH_KINDS,
+    besideDoor, crewPicture, doorStatus, DRAGGABLE, draggedBy, goBlocked, inReach, interactionVerbs, isKnownNow, JAMMER, legalActions, LOOP_FROM, reachesObject, STASH_KINDS,
     whyNot, type Command, type Pos, type ReadonlyWorld, type State
 } from '../sim';
 import type { HudIcon as HudIconName } from '../ui/hud/viewModels';
@@ -20,7 +20,9 @@ import type { HudIcon as HudIconName } from '../ui/hud/viewModels';
  * - Loop feed (§7.2, §8.12): at the CCTV desk or a server rack, for a camera the crew knows of: the tapped one, else
  *   the first it can loop; tapping the entry again cycles through them (the scene's `nextCamera`).
  * - Jammer (§12.2): while the member carries one.
- * - Wait, always last.
+ * - Wait.
+ * - The takeover (§9.3, §10.1–10.3, M2-01), after Wait: Command always; Hold while anyone is Commanded; Mask up while
+ *   unmasked; GO while it can still be pressed.
  */
 
 /** One entry of the grid: its id (stable while the target is), what it shows and the command it gives. */
@@ -165,7 +167,14 @@ export function actionMenu(world: ReadonlyWorld, state: State, crewId: string, t
 
     if (member.loadout.items.includes(JAMMER)) add('jammer', 'Jammer', 'radio', { type: 'placeJammer', crew: crewId });
 
+
     add('wait', 'Wait', 'wait', { type: 'wait', crew: crewId });
+
+    // After Wait, so a full grid drops these first and the stealth entries keep their places (M2-06 gives GO its rail).
+    add('command', 'Command', 'command', { type: 'command', crew: crewId });
+    if (state.npcs.some(n => n.command !== null)) add('hold', 'Hold', 'hold', { type: 'hold', crew: crewId });
+    if (!member.loadout.masked) add('mask', 'Mask up', 'mask', { type: 'maskUp', crew: crewId });
+    if (!goBlocked(state)) add('go', 'GO', 'star', { type: 'go', crew: crewId });
     return out;
 }
 

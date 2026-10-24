@@ -12,6 +12,7 @@ import { HEAVY_ARMOUR_ITEM } from './movement';
  *   An item with `cased` carries its own case; anything else needs a duffel, which holds one long gun and one armour
  *   piece (§7.3).
  * - **Holstered** pistols count as Clean under a guard's uniform (§8.14); the disguise package reads `holsterable`.
+ * - **Threat** (§12.1 Thr) is a weapon's command radius in tiles (§10.1); unarmed is `UNARMED_THREAT`.
  */
 
 export type Profile = 'clean' | 'concealed' | 'armed' | 'heavy';
@@ -40,6 +41,8 @@ export interface ItemDef {
     duffel?: 'longGun' | 'armour';
     /** A pistol that counts as Clean when holstered under a guard's uniform (§8.14). */
     holsterable?: boolean;
+    /** A weapon's Threat (§12.1): the radius in tiles of a command given with it in hand (§10.1). */
+    threat?: number;
 }
 
 /** What a packed item shows as, at most: its case or the duffel (§7.3). */
@@ -50,15 +53,15 @@ export const DUFFEL_ITEM = 'duffel';
 
 export const ITEMS = {
     // Weapons (§12.1). Unarmed is no item.
-    taser: { slot: 'sidearm', profile: 'clean' },
-    pistol: { slot: 'sidearm', profile: 'concealed', holsterable: true },
-    suppressedPistol: { slot: 'sidearm', profile: 'concealed', holsterable: true },
-    machinePistol: { slot: 'sidearm', profile: 'concealed' },
-    smg: { slot: 'primary', profile: 'armed', duffel: 'longGun' },
-    shotgun: { slot: 'primary', profile: 'armed', duffel: 'longGun' },
-    assaultRifle: { slot: 'primary', profile: 'armed', duffel: 'longGun' },
-    dmr: { slot: 'primary', profile: 'armed', duffel: 'longGun', cased: true },
-    lmg: { slot: 'primary', profile: 'heavy', duffel: 'longGun' },
+    taser: { slot: 'sidearm', profile: 'clean', threat: 2 },
+    pistol: { slot: 'sidearm', profile: 'concealed', holsterable: true, threat: 3 },
+    suppressedPistol: { slot: 'sidearm', profile: 'concealed', holsterable: true, threat: 3 },
+    machinePistol: { slot: 'sidearm', profile: 'concealed', threat: 4 },
+    smg: { slot: 'primary', profile: 'armed', duffel: 'longGun', threat: 4 },
+    shotgun: { slot: 'primary', profile: 'armed', duffel: 'longGun', threat: 5 },
+    assaultRifle: { slot: 'primary', profile: 'armed', duffel: 'longGun', threat: 5 },
+    dmr: { slot: 'primary', profile: 'armed', duffel: 'longGun', cased: true, threat: 5 },
+    lmg: { slot: 'primary', profile: 'heavy', duffel: 'longGun', threat: 6 },
     // Armour (§12.3).
     lightVest: { slot: 'armour', profile: 'concealed', duffel: 'armour' },
     mediumArmour: { slot: 'armour', profile: 'armed', duffel: 'armour' },
@@ -95,6 +98,9 @@ export function itemDef(id: string): ItemDef {
     if (!isItem(id)) throw new Error(`No item '${id}'`);
     return ITEMS[id];
 }
+
+/** Unarmed's Threat (§12.1): a bare-handed command reaches the tiles next to the shouter. */
+export const UNARMED_THREAT = 1;
 
 /** Wearing a mask sets the profile to Heavy (§6.3, §7.4). */
 export const MASK_PROFILE: Profile = 'heavy';

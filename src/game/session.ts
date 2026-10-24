@@ -1,5 +1,5 @@
 import {
-    actionPreview, assertPlainJson, autoStep, clonePlain, explain, pathSafety, safeFloor, safeFloorJob, type ActionPreview, type CarrierChanges, type Explanation, type FloorBand, type FloorJob,
+    actionPreview, assertPlainJson, autoStep, clonePlain, commandPreview, explain, holdPreview, type CommandPlan, pathSafety, safeFloor, safeFloorJob, type ActionPreview, type CarrierChanges, type Explanation, type FloorBand, type FloorJob,
     type PathSafety, type SafeFloor, commit, deepFreeze, hashOf, noticedUnseen, popUndo, preview, previewCertain, projectEvents, projectPreviewEvents, RECENT_EVENTS, recordUndo, SaveFormatError, stableJson,
     type AutoOptions, type AutoStepResult, type AutoStop, type Command, type CommitResult, type Pos, type PreviewResult, type ReadonlyWorld, type Routes, type SimEvent, type State,
     type UndoStack, withLayoutCameras
@@ -383,6 +383,19 @@ export class Session {
         return explain(this.world, this._state, crew, tile, path ? { path } : {});
     }
 
+    /**
+     * A command's two rings as the crew sees them (§10.1, UI.md "Rings"): the command and panic tiles, each known NPC's
+     * outcome and a resister's chance (the one the commit rolls with).
+     */
+    commandRings(crew: string): CommandPlan {
+        return commandPreview(this.world, this._state, crew);
+    }
+
+    /** The Commanded NPCs the crew knows of that a hold by `crew` would keep down (§10.3). */
+    holdRing(crew: string): string[] {
+        return holdPreview(this.world, this._state, crew);
+    }
+
     /** The actions `cmd` spends, from its preview (the engine's: what the commit spends), or undefined when refused. */
     costOf(cmd: Command): number | undefined {
         const crew = (cmd as { crew?: string }).crew;
@@ -390,7 +403,8 @@ export class Session {
         if (!before) return undefined;
         try {
             const after = this.preview(cmd).state.crew.find(c => c.id === crew);
-            return after ? before.actionsLeft - after.actionsLeft : undefined;
+            // GO gives an action rather than spending one (§9.3): it costs nothing.
+            return after ? Math.max(0, before.actionsLeft - after.actionsLeft) : undefined;
         } catch {
             return undefined;
         }

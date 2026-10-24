@@ -144,7 +144,8 @@ export function crewCards(world: ReadonlyWorld, state: State, selected: string |
         colour: crewColour(i),
         ...portraitOf(c),
         actionsLeft: c.actionsLeft,
-        actionsMax: world.rules.actionsPerTurn,
+        // The takeover turn's third action (§9.3).
+        actionsMax: world.rules.actionsPerTurn + (state.takeover === state.turn ? 1 : 0),
         // The profile from what shows (§7.4), before any observer's reading; the same look the safe floor reads.
         profile: crewLook(c).profile,
         exposedTo: exposedTo(state, c.id),
@@ -195,6 +196,10 @@ function describeCommand(cmd: Command, world?: ReadonlyWorld): { label: string; 
         case 'loopFeed': return { label: world ? `Loop ${cameraName(world, cmd.camera)}` : 'Loop feed', icon: 'hack', cost: 1 };
         case 'answerRadio': return { label: 'Answer radio', icon: 'chat', cost: 1 };
         case 'placeJammer': return { label: 'Jammer', icon: 'radio', cost: 1 };
+        case 'command': return { label: 'Command', icon: 'command', cost: 1 };
+        case 'hold': return { label: 'Hold', icon: 'hold', cost: 1 };
+        case 'maskUp': return { label: 'Mask up', icon: 'mask', cost: 1 };
+        case 'go': return { label: 'GO', icon: 'star', cost: 0 };
         default: return { label: cmd.type, icon: 'interact', cost: 1 };
     }
 }
@@ -337,12 +342,28 @@ export function describeEvent(world: ReadonlyWorld, state: State, event: SimEven
         case 'evidenceNoticed': return `${name(event.npc)} noticed ${EVIDENCE_NAMES[event.kind] ?? event.kind}`;
         case 'bark': return `${name(event.npc)}: “${barkText(world, state, event)}”`;
         case 'toldEvidence': return `${name(event.npc)} told ${name(event.guard)}`;
+        case 'commanded': return `${name(event.npc)} got down for ${name(event.crew)}`;
+        case 'resisted': return `${name(event.npc)} resisted ${name(event.crew)}`;
+        case 'ignoredCommand': return `${name(event.npc)} ignored ${name(event.crew)}`;
+        case 'lapsed': return `${name(event.npc)} is twitchy: ${LAPSE_TEXT[event.outcome]}`;
+        case 'drewWeapon': return `${name(event.npc)} drew a weapon`;
+        case 'holding': return `${name(event.crew)} holds the room`;
+        case 'tookOver': return `GO: ${name(event.crew)} starts the takeover`;
+        case 'surprised': return `${name(event.npc)} is surprised`;
+        case 'maskedUp': return `${name(event.crew)} masked up`;
         default: return event.type;
     }
 }
 
+/** What a lapsed command rolled (§10.5), as the log says it. */
+const LAPSE_TEXT: Readonly<Record<string, string>> = {
+    stayDown: 'stays down', flee: 'about to run for it', alarm: 'about to go for the alarm', reachForWeapon: 'reaching for a weapon'
+};
+
 /** Why a carrier stopped, as the log says it. */
-const STOP_WHY: Readonly<Record<string, string>> = { panel: 'the alarm panel is dead', 'source down': 'its holder is down', answered: 'the radio was answered', alarm: 'the alarm is up' };
+const STOP_WHY: Readonly<Record<string, string>> = {
+    panel: 'the alarm panel is dead', 'source down': 'its holder is down', answered: 'the radio was answered', alarm: 'the alarm is up', commanded: 'its holder is face down'
+};
 
 const capitalise = (text: string): string => text.charAt(0).toUpperCase() + text.slice(1);
 

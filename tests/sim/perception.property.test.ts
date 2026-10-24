@@ -156,6 +156,9 @@ function predict(state: State, crew: string, sightings: readonly Sighting[]): Ef
  * predicted from the state the action leaves (the target down, the door moved): the witnesses of an illegal act, then
  * the end-of-action check, read by the design's words (`predict`).
  */
+/** The takeover's commands (M2-01), left to the preview property test. */
+const TAKEOVER = new Set(['command', 'go', 'maskUp', 'hold']);
+
 function playAction(world: ReadonlyWorld, state: State, cmd: Command, failures: string[], at: string): State {
     const seen = preview(world, state, cmd);
     const result = commit(world, state, cmd);
@@ -232,7 +235,9 @@ describe('perception previews (property)', () => {
                     if (member.actionsLeft < 1) continue;
                     // Someone with a body in hand mostly walks with it (the overlay's drag case).
                     if (rng.chance(member.dragging !== null ? 0.2 : 0.45)) {
-                        const options = legalActions(world, state, member.id).filter(c => c.type !== 'wait' || rng.chance(0.2));
+                        // Stealth perception: the takeover (commands, GO, masks, holds; M2-01) has its own property test
+                        // in preview.property.test.ts, where rolled outcomes are told apart.
+                        const options = legalActions(world, state, member.id).filter(c => (c.type !== 'wait' || rng.chance(0.2)) && !TAKEOVER.has(c.type));
                         if (!options.length) continue;
                         // A kind of action first, then one of its commands: every kind gets played, however many
                         // commands another offers.

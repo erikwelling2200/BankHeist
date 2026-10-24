@@ -4,11 +4,11 @@ import { cachedBank } from '../bankCache';
 import { PLOTS, TIERS } from '../../src/gen/model';
 import { Rng } from '../../src/gen/rng';
 import {
-    actionPreview, addsTo, carriersStarted, DEAF_STATUSES, clonePlain, commit, crewBudget, crewMoveOptions, decodeBits, doorDoubt, effectKind, effectOf, encodeBits, explain, FACINGS, hearing,
+    actionPreview, commandPlan, commandPreview, addsTo, carriersStarted, DEAF_STATUSES, clonePlain, commit, crewBudget, crewMoveOptions, decodeBits, doorDoubt, effectKind, effectOf, encodeBits, explain, FACINGS, hearing,
     isKnownNow, fixtureWorld, initialState, hashOf, legalActions, noiseRadius, npcsInside, onFloor, pathSafety, pendingCarriers, planningState, previewCertain, previewPicture,
     projectCarriers, projectEvents, projectPreviewEvents, safeFloor, safeFloorJob, sightDoubted, soundRing, teammateEffects, TINT_RANK, tintOf, validatePath, withDoubtedShut,
     worldFromBank,
-    type CameraDef, type Command, type CrewStart, type DoorStatus, type Effect, type TeammateEffect, type FixtureWall, type FloorTile, type ObserverClass, type PersonDef, type Pos, type ReadonlyWorld,
+    type CameraDef, type Command, type CommitResult, type CrewStart, type DoorStatus, type Effect, type TeammateEffect, type FixtureWall, type FloorTile, type ObserverClass, type PersonDef, type Pos, type ReadonlyWorld,
     type SafeFloor, type ScheduleBlock, type SimEvent, type State, type WorldObject
 } from '../../src/sim';
 import { dashRing, judgeFor } from '../../src/sim/preview/floor';
@@ -202,6 +202,16 @@ function matesOf(
     return out;
 }
 
+/**
+ * The end of the turn, its events up to the first lapse rolled (§10.5, M2-01): a Twitchy NPC's lapse is rolled as the
+ * next crew phase begins, the world phase's last word, so what follows it is luck no preview promises.
+ */
+function endPhase(world: ReadonlyWorld, state: State): CommitResult {
+    const r = commit(world, state, { type: 'endTurn' });
+    const i = r.events.findIndex(e => e.type === 'lapsed');
+    return i < 0 ? r : { ...r, events: r.events.slice(0, i) };
+}
+
 // ---------------------------------------------------------------------------------------------------------- The probe
 
 interface Stats { [k: string]: number }
@@ -240,12 +250,12 @@ function checkMove(run: Run, state: State, crew: string, cmd: Extract<Command, {
         probe.bump('moves turning a known NPC');
         if (turned.some(id => observersOf(tile.now).includes(id))) probe.bump('moves seen by an NPC they turned');
     }
-    const o2 = tile.next || endTurn ? commit(world, o1.state, { type: 'endTurn' }) : null;
+    const o2 = tile.next || endTurn ? endPhase(world, o1.state) : null;
     if (tile.next) {
         const oNext = sure(effectOf(o2!.events, crew, o1.state), tile, npcs, cameras);
         if (show(oNext) !== show(sure(tile.next, tile, npcs, cameras))) probe.fail(`${at}: next ${show(tile.next)}, the rules on the picture ${show(oNext)}`);
         // The teammates' world phase after the move, where it adds to the one without it (exact unless a walk is unsure).
-        const mates = matesOf(crew, picture, o1, o2, commit(world, picture, { type: 'endTurn' }));
+        const mates = matesOf(crew, picture, o1, o2, endPhase(world, picture));
         if (mates.some(t => t.next)) probe.bump('moves that make a teammate\'s world phase worse');
         if (tile.unsure.length) probe.bump('teammate world phases with unsure walks');
         else {
@@ -291,7 +301,7 @@ function checkMove(run: Run, state: State, crew: string, cmd: Extract<Command, {
         }
     }
     if (!endTurn || cut) return r.state;
-    const e = commit(world, r.state, { type: 'endTurn' });
+    const e = endPhase(world, r.state);
     checkWorldPhase(run, state, crew, tile, r.state, e, npcs, cameras, at, { before: o1.state, after: o2!.state, events: o2!.events });
     return e.state;
 }
@@ -415,7 +425,10 @@ function playOne(run: Run, state: State, timing: boolean): State {
         probe.bump(`command ${ps.mode}`);
         return checkMove(run, state, member.id, { type: ps.mode, crew: member.id, path }, ps.end, rng.chance(0.35));
     }
-    const options = legalActions(world, state, member.id).filter(c => (c.type !== 'wait' || rng.chance(0.3)) && !(run.stealth && c.type === 'knockout'));
+    // The takeover (M2-01) only where the crew knows everyone: the picture then holds every NPC, so who complies, resists
+    // and hears is the truth's (an unknown NPC missing from the picture changes who is sent to look, an artefact of it).
+    const options = legalActions(world, state, member.id).filter(c => (c.type !== 'wait' || rng.chance(0.3)) && !(run.stealth && c.type === 'knockout')
+        && (!TAKEOVER.has(c.type) || (run.omniscient && !run.stealth)));
     if (!options.length) return state;
     const kinds = [...new Set(options.map(c => c.type))];
     const kind = rng.pick(kinds);
@@ -425,6 +438,12 @@ function playOne(run: Run, state: State, timing: boolean): State {
     probe.bump('commands');
     probe.bump(`command ${cmd.type}`);
     if (!shown.ok) { probe.fail(`${run.label}: ${cmd.type} refused in preview, committed`); return r.state; }
+    if (cmd.type === 'command') checkCommand(run, state, cmd.crew, r);
+    // A preview that stopped at a roll (a resister's chance) shows the odds, not the rest: `checkCommand` covers it.
+    if (shown.odds) {
+        probe.bump('previews stopped at a roll');
+        return r.state;
+    }
     checkCertainEvents(run, state, cmd, member.id, r);
     // The same rules: the commit with the doors the crew can't vouch for shut, as the preview judges it.
     const projected = projectPreviewEvents(world, state, commit(world, withDoubtedShut(world, state), cmd));
@@ -457,6 +476,43 @@ function playOne(run: Run, state: State, timing: boolean): State {
     return r.state;
 }
 
+/** The takeover's commands (M2-01). */
+const TAKEOVER = new Set(['command', 'go', 'maskUp', 'hold']);
+
+/**
+ * The command's rings (§10.1) are its outcome for everything not rolled, and a resister's shown chance is the chance
+ * rolled with (M2-01): every NPC `commandPlan` (and its projection, `commandPreview`) puts in a ring does what it says.
+ */
+function checkCommand(run: Run, state: State, crew: string, r: CommitResult): void {
+    const { world, probe } = run;
+    const plan = commandPlan(world, state, crew), shown = commandPreview(world, state, crew);
+    const known = plan.targets.filter(t => isKnownNow(world, state, t.npc));
+    if (JSON.stringify(shown.targets) !== JSON.stringify(known)) probe.fail(`${run.label}: command preview ${JSON.stringify(shown.targets)}, known ${JSON.stringify(known)}`);
+    const noise = r.events.find(e => e.type === 'noise' && e.cause === `command ${crew}`) as Extract<SimEvent, { type: 'noise' }> | undefined;
+    if (noise?.radius !== plan.panicRadius) probe.fail(`${run.label}: the shout's radius ${noise?.radius}, shown ${plan.panicRadius}`);
+    const ring = soundRing(world, state, state.crew.find(c => c.id === crew)!.pos, plan.panicRadius);
+    const inCommand = new Set(plan.commandTiles.map(p => `${p.x},${p.y}`));
+    if (JSON.stringify(ring.tiles.map(t => t.pos).filter(p => !inCommand.has(`${p.x},${p.y}`))) !== JSON.stringify(plan.panicTiles)) probe.fail(`${run.label}: panic ring tiles differ`);
+    const after = (id: string) => r.state.npcs.find(n => n.id === id)!, was = (id: string) => state.npcs.find(n => n.id === id)!;
+    const commanded = (id: string) => after(id).status === 'commanded' && after(id).command?.pips === world.rules.commandPips && after(id).command?.by === crew;
+    for (const t of plan.targets) {
+        probe.bump(`command ${t.ring} ${t.outcome}`);
+        if (t.outcome === 'complies' && !commanded(t.npc)) probe.fail(`${run.label}: ${t.npc} shown complying, is ${after(t.npc).status}`);
+        if (t.outcome === 'ignores' && after(t.npc).status === 'commanded') probe.fail(`${run.label}: ${t.npc} shown ignoring, commanded`);
+        if (t.outcome === 'still' && after(t.npc).status !== was(t.npc).status) probe.fail(`${run.label}: ${t.npc} face down, changed`);
+        if (t.outcome === 'alerted' && !after(t.npc).alerted) probe.fail(`${run.label}: ${t.npc} in the panic ring, not Alerted`);
+        if (t.outcome === 'resists') {
+            const roll = r.rolls.find(x => x.reason === `resist ${t.npc}`);
+            if (!roll || roll.p !== t.chance) probe.fail(`${run.label}: ${t.npc} shown ${t.chance} to resist, rolled ${roll?.p}`);
+            else if ((roll.value < t.chance!) === commanded(t.npc)) probe.fail(`${run.label}: ${t.npc} rolled ${roll.value} against ${roll.p}, commanded ${commanded(t.npc)}`);
+        }
+    }
+    // Nobody outside the command ring goes face down.
+    const ringed = new Set(plan.targets.filter(t => t.ring === 'command').map(t => t.npc));
+    for (const n of r.state.npcs) if (!ringed.has(n.id) && n.status === 'commanded' && was(n.id).status !== 'commanded') probe.fail(`${run.label}: ${n.id} commanded outside the ring`);
+    if (r.rolls.some(x => !x.reason.startsWith('resist '))) probe.fail(`${run.label}: a command rolled something besides resisting`);
+}
+
 /** Ends the turn, having checked each crew member's own tile (`stay`): the world phase as the overlay foresaw it. */
 function endTurn(run: Run, state: State): State {
     const { world, probe } = run;
@@ -464,14 +520,14 @@ function endTurn(run: Run, state: State): State {
     const picture = previewPicture(world, state);
     const npcs = knownIds(world, state), cameras = new Set(world.cameras.filter(c => picture.cameras[c.id]?.live).map(c => c.id));
     const stays = state.crew.map(c => ({ crew: c.id, tile: safeFloor(world, state, c.id).at(c.pos)! }));
-    const oracle = commit(world, picture, { type: 'endTurn' });
+    const oracle = endPhase(world, picture);
     for (const { crew, tile } of stays) {
         const o = sure(effectOf(oracle.events, crew, picture), tile, npcs, cameras);
         if (show(o) !== show(sure(tile.next!, tile, npcs, cameras))) probe.fail(`${run.label} t${state.turn} stay ${crew}: next ${show(tile.next)}, the rules on the picture ${show(o)}`);
         probe.bump('stay checks');
     }
     const pending = projectCarriers(world, state, pendingCarriers(world, state));
-    const r = commit(world, state, { type: 'endTurn' });
+    const r = endPhase(world, state);
     const started = projectCarriers(world, state, carriersStarted(r.events));
     if (JSON.stringify(pending) !== JSON.stringify(started)) probe.fail(`${run.label} t${state.turn}: hatched carriers ${JSON.stringify(pending)}, started ${JSON.stringify(started)}`);
     const pic = { before: picture, after: oracle.state, events: oracle.events };
@@ -543,9 +599,9 @@ function checkDoorVariants(run: Run, state: State, crew: string, floor: SafeFloo
         for (const [name, s] of variants) {
             const r = commit(world, s, cmd);
             if (r.events.some(e => e.type === 'moveCut')) { probe.bump('door variants cut'); continue; }
-            const ended = tile.next ? commit(world, r.state, { type: 'endTurn' }) : null;
+            const ended = tile.next ? endPhase(world, r.state) : null;
             const warned = (id: string): boolean => !!tile.teammates.find(t => t.crew === id)?.next;
-            const now = effectOf(r.events, crew, s), mates = matesOf(crew, s, r, ended, ended ? commit(world, s, { type: 'endTurn' }) : null, warned);
+            const now = effectOf(r.events, crew, s), mates = matesOf(crew, s, r, ended, ended ? endPhase(world, s) : null, warned);
             const next = ended ? effectOf(ended.events, crew, r.state) : null;
             const got = tintOf(now, next, 'scouted', false, false, mates), at = `${run.label} t${state.turn} ${crew}→${JSON.stringify(tile.pos)} doors ${name}`;
             probe.bump('door variants checked');

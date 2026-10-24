@@ -25,6 +25,7 @@ import './rules/cameras';
 import './rules/carriers';
 import './rules/cctv';
 import './rules/checkins';
+import './rules/command';
 import './rules/doors';
 import './rules/evidence';
 import './rules/knowledge';
@@ -162,3 +163,9 @@ export {
 } from './preview/floor';
 export { explain, observerName, sightingText, type Explanation } from './preview/explain';
 export { actionPreview, type ActionPreview, type Ear, type NoisePreview, type Witness } from './preview/action';
+export { commandPreview, holdPreview } from './preview/command';
+export {
+    commandNpc, commandPlan, commandRadius, crewThreat, goBlocked, holdTargets, isResister, resistChance,
+    type Commanded, type CommandPlan, type CommandTarget, type Lapse, type LapseOutcome
+} from './rules/command';
+export { PANIC, panicWeights, type PanicWeights } from './data/archetypes';

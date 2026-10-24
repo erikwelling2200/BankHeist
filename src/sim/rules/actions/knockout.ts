@@ -108,6 +108,7 @@ registerAction('knockout', {
         npc.goal = { kind: 'still' };
         npc.route = null;
         npc.search = null;
+        npc.lapse = null;
         ctx.emit({ type: 'knockedOut', crew: member.id, npc: npc.id, wakes: npc.outCold });
         ctx.emit({ type: 'npcStatus', npc: npc.id, status: 'unconscious' });
         makeNoise(ctx, 'knockout', npc.pos, `knockout ${npc.id}`);

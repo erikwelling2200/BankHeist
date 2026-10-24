@@ -608,6 +608,49 @@ test('the alarm panel: work across actions shown as 2/4, and a dead panel kills 
     expect(errors).toEqual([]);
 });
 
+test('the takeover: GO masks up and gives a third action, a command puts the NPC beside her face down (M2-01)', SMOKE, async ({ page }) => {
+    const errors = await boot(page);
+    // Mara beside a calm NPC the crew sees, Jun out of the way.
+    const setup = await restartWith<{ npc: string }>(page, `(() => { ${PAGE_HELPERS}
+        for (const n of sim.state.npcs) {
+            if (n.status !== 'calm') continue;
+            for (const d of AROUND) {
+                const p = { x: n.pos.x + d.x, y: n.pos.y + d.y }, st = clone(sim.state);
+                if (!free(st, p)) continue;
+                st.crew[0].pos = p;
+                know(st, n);
+                if (sim.whyNot({ type: 'go', crew: 'mara' }, st)) continue;
+                return { state: st, info: { npc: n.id } };
+            }
+        }
+        return null;
+    })()`);
+    expect(setup).not.toBeNull();
+    await page.locator('.sh-rail .sh-crew').nth(0).click();
+    await page.waitForTimeout(600);
+    await page.locator('.sh-actions button[data-action="go"]').click();
+    await expect(page.locator('.sh-confirm')).toContainText('GO');
+    await page.locator('.sh-confirm').click();
+    await idle(page);
+    const after = await page.evaluate(() => (window as any).sim.state);
+    expect(after.takeover).toBe(after.turn);
+    expect(after.crew.map((c: any) => [c.actionsLeft, c.loadout.masked])).toEqual([[3, true], [3, true]]);
+    // The command's rings as the crew sees them, then the command itself.
+    const rings = await page.evaluate(() => (window as any).sim.commandRings('mara'));
+    expect(rings.targets.find((t: any) => t.npc === setup!.npc)).toMatchObject({ ring: 'command' });
+    await page.locator('.sh-actions button[data-action="command"]').click();
+    await expect(page.locator('.sh-confirm')).toContainText('COMMAND');
+    await page.locator('.sh-confirm').click();
+    await idle(page);
+    const npc = await page.evaluate(id => (window as any).sim.state.npcs.find((n: any) => n.id === id), setup!.npc);
+    const target = rings.targets.find((t: any) => t.npc === setup!.npc);
+    if (target.outcome === 'complies') expect(npc).toMatchObject({ status: 'commanded', command: { pips: 2, by: 'mara' } });
+    expect(await page.evaluate(() => (window as any).sim.state.bank.loud)).toBe(true);
+    await page.waitForTimeout(300);
+    await page.screenshot({ path: 'screenshots/play-takeover.png' });
+    expect(errors).toEqual([]);
+});
+
 test('a carrier counts down in the ledger with the check-ins, then the Alarm: "ALARM: police in N"', SMOKE, async ({ page }) => {
     // Three world phases and a reload on the sandbox's software renderer.
     test.setTimeout(60000);

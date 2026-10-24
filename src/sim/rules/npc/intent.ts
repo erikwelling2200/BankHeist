@@ -169,6 +169,12 @@ function planGoal(world: ReadonlyWorld, state: State, npc: NpcState, goal: Goal,
             return walkIntent(world, state, npc, { tile: goal.tile!, pace: 'hurry' }, taken, { lookAt: goal.tile });
         case 'escort':
             return walkIntent(world, state, npc, { tile: goal.tile!, pace: 'hurry', keepOut: 'public' }, taken, { lookAt: goal.tile });
+        case 'flee':
+            // At a run for the way out (§10.5), leaving the map from it or a tile next to it (rules/command.ts).
+            return walkIntent(world, state, npc, { tile: goal.tile!, pace: 'run' }, taken, { action: { kind: 'flee', exit: goal.tile! } });
+        case 'reach':
+            // Telegraphed for one world phase, in which he draws (rules/command.ts).
+            return { path: [], action: { kind: 'reachForWeapon', crew: goal.crew! } };
         case 'react': {
             const want = topWant(npc)!;
             const plan = reactionOf(world, state, npc, want);

@@ -42,7 +42,9 @@ import { isPresent, personOf, type Pace } from './walk';
 export type GoalKind =
     | 'still' | 'routine' | 'enter' | 'away' | 'face' | 'watch' | 'search' | 'investigate' | 'challenge' | 'escort' | 'react'
     // Evidence (rules/evidence.ts): walk over to it, look at it, or report it.
-    | 'inspect' | 'look' | 'report';
+    | 'inspect' | 'look' | 'report'
+    // A lapsed command (rules/command.ts, §10.5): run for the way out, or reach for the weapon.
+    | 'flee' | 'reach';
 
 export interface Goal {
     kind: GoalKind;
@@ -102,8 +104,12 @@ registerNpcInit('npc', (_world, _person, npc) => {
 /** Statuses this module sets; any other belongs to another system and is left alone. */
 export const ROUTINE_STATUSES: ReadonlySet<NpcStatus> = new Set<NpcStatus>(['calm', 'curious', 'investigating', 'alerted', 'away']);
 
-/** Whether this module decides the NPC's intent: it is neither eyes down nor in combat. */
-export const decidesFor = (npc: DeepReadonly<NpcState>): boolean => ROUTINE_STATUSES.has(npc.status) && !COMBAT_STATUSES.has(npc.status);
+/**
+ * Whether this module decides the NPC's intent: it is neither eyes down nor in combat, nor Surprised (§9.3: it loses
+ * the coming world phase standing where it is; rules/command.ts).
+ */
+export const decidesFor = (npc: DeepReadonly<NpcState>): boolean =>
+    ROUTINE_STATUSES.has(npc.status) && !COMBAT_STATUSES.has(npc.status) && npc.surprised === null;
 
 const WANT_RANK: Readonly<Record<WantKind, number>> = { react: 5, challenge: 4, escort: 3, investigate: 2, face: 1 };
 
@@ -236,7 +242,13 @@ registerReaction('*', (world, state, npc, want) => {
  * goal, so a crew phase can ask again after every action and re-plan only the NPCs whose goal changed.
  */
 export function behaviourGoal(world: ReadonlyWorld, state: State, npc: DeepReadonly<NpcState>): Goal | null {
-    if (!decidesFor(npc) || !isPresent(npc)) return null;
+    if (!decidesFor(npc)) return null;
+    // A runner who got out (rules/command.ts) doesn't come back.
+    if (npc.lapse?.kind === 'flee' && !isPresent(npc)) return { kind: 'away' };
+    if (!isPresent(npc)) return null;
+    // A lapsed command's intent (§10.5) comes before anything it wants: it was rolled and shown.
+    if (npc.lapse?.kind === 'flee') return { kind: 'flee', tile: { x: npc.lapse.exit.x, y: npc.lapse.exit.y } };
+    if (npc.lapse?.kind === 'reach') return { kind: 'reach', crew: npc.lapse.crew };
     const top = topWant(npc);
     // Reacting to an Exposed crew member comes first, then major evidence, then the crew wants, then minor evidence.
     const evidence = top?.kind === 'react' ? null : evidenceGoal(world, state, npc);
@@ -292,7 +304,7 @@ export const comingPhase = (state: State): number => (state.phase === 'world' ? 
 /** The status badge a goal shows (§16.5), for an NPC whose status this module owns. */
 export function statusFor(npc: DeepReadonly<NpcState>, goal: Goal): NpcStatus {
     if (goal.kind === 'away' || goal.kind === 'enter') return 'away';
-    if (npc.alerted || goal.kind === 'react' || goal.kind === 'report') return 'alerted';
+    if (npc.alerted || goal.kind === 'react' || goal.kind === 'report' || goal.kind === 'flee' || goal.kind === 'reach') return 'alerted';
     if (goal.kind === 'investigate' || goal.kind === 'search' || goal.kind === 'challenge' || goal.kind === 'escort' || goal.kind === 'inspect') return 'investigating';
     if (goal.kind === 'face' || goal.kind === 'watch' || goal.kind === 'look') return 'curious';
     return 'calm';

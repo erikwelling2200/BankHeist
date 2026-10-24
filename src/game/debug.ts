@@ -1,5 +1,5 @@
 import {
-    effectOf, safeFloor, type ActionPreview, type AutoStop, type Effect, type SimEvent, type WaitOption, type WaitTarget, type Explanation, type FloorBand, type PathSafety, type SafeFloor, crewBudget, planMoveOptions, crewPicture, isKnownNow, pathTo, whyNot, reachable, updateKnowledge, type Command, type CommitResult, type Pos, type PreviewResult, type ReadonlyWorld, type State
+    effectOf, safeFloor, type ActionPreview, type AutoStop, type CommandPlan, type Effect, type SimEvent, type WaitOption, type WaitTarget, type Explanation, type FloorBand, type PathSafety, type SafeFloor, crewBudget, planMoveOptions, crewPicture, isKnownNow, pathTo, whyNot, reachable, updateKnowledge, type Command, type CommitResult, type Pos, type PreviewResult, type ReadonlyWorld, type State
 } from '../sim';
 import { evidenceWarnings, type EvidenceWarning } from './evidenceWarning';
 import { AutoRun, waitMenu } from './autoAdvance';
@@ -31,6 +31,8 @@ export interface SimHandle {
     pathSafety(crew: string, path: readonly Pos[], mode?: 'move' | 'dash'): PathSafety;
     /** Who would notice `crew` on `tile` and why (the long-press tag). */
     explain(crew: string, tile: Pos, path?: readonly Pos[]): Explanation[];
+    /** A command's rings as the crew sees them (§10.1): tiles, each known NPC's outcome, resisters' chances. */
+    commandRings(crew: string): CommandPlan;
     commit(cmd: Command): CommitResult;
     endTurn(): CommitResult;
     undo(): boolean;
@@ -92,6 +94,7 @@ export function installDebugHandle(session: Session, target: { sim?: SimHandle }
         safeFloor: (crew, bands, state) => (state ? safeFloor(session.world, state, crew, bands ? { bands } : {}) : session.safeFloor(crew, bands)),
         pathSafety: (crew, path, mode) => session.pathSafety(crew, path, mode),
         explain: (crew, tile, path) => session.explain(crew, tile, path),
+        commandRings: crew => session.commandRings(crew),
         commit: cmd => session.commit(cmd),
         endTurn: () => session.endTurn(),
         undo: () => session.undo(),

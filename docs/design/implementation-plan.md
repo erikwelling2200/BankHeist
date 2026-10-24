@@ -614,11 +614,38 @@ Each package lists its goal, the design sections it covers, the files, what it d
 
 ### M2: Takeover and control
 
-- [ ] **M2-01 Command rings, Hold, lapses and GO.**
+- [x] **M2-01 Command rings, Hold, lapses and GO.**
   - **Covers:** §9.3, §10.1–10.5, §6.3 (Mask up).
   - **Work:** Threat from the weapon table; the command, panic and noise rings; Commanded pips; Hold; Twitchy NPCs with a telegraphed intent rolled on lapse; resisters (the chance is shown, and rolled on commit); GO (+1 action, free masks, ×1.5, Surprised).
   - **Depends on:** M1.
   - **Accept:** the ring preview matches the real outcome for everything not rolled (property test extended); the shown resist chance equals the chance rolled with.
+  - **Notes (done):** `rules/command.ts` (one module: Threat, the rings, Commanded, Hold, lapses, GO, Mask up),
+    `data/archetypes.ts` (the §16.2 panic weights), `preview/command.ts` (the projected rings), `ItemDef.threat` in
+    `data/items.ts`. Decisions 47–52.
+    - **Commands:** `command { crew }` (1 action, illegal act 'command', a loud noise of radius R + 3, the bank Loud),
+      `hold { crew }` (spends what is left, at least 1: `CrewState.holding`), `go { crew }` (free, once, not once Loud:
+      `State.takeover`), `maskUp { crew }` (1 action, 0 on the takeover turn, illegal act). All in `legalActions`.
+    - **The rings** (`commandPlan(world, state, crew)`, the one reading the reducer applies): `radius`, `panicRadius`,
+      `commandTiles`, `panicTiles` and per NPC `{ ring: command | panic, outcome: complies | resists (chance) | ignores |
+      alerted | still }`. `commandPreview` keeps the NPCs the crew knows; `holdPreview` a hold's Commanded NPCs. The
+      compliant go down first, then each resister rolls (`Dice.odds('resist', chance)`): a preview stops at the first, so
+      the rings are what show every chance.
+    - **State:** `NpcState.command { pips, by }` (pips 0: Twitchy), `NpcState.lapse` (`flee { exit }`, `reach { crew }`),
+      `NpcState.surprised` (the turn whose world phase it loses). Intent actions `stayDown`, `flee { exit }`,
+      `reachForWeapon { crew }`; goals `flee`, `reach` (rules/npc). Carriers: a Commanded holder pauses its carrier (as
+      M1-08 had it); a runner's escapee is countered.
+    - **For the UI (M2-06):** `Session.commandRings(crew)` / `holdRing(crew)` (and `window.sim.commandRings`); the grid
+      offers Command, Hold, Mask up and GO after Wait; the Commanded plate counts its pips; the crew card shows 3 actions on
+      the takeover turn. Events: `commanded`, `resisted`, `ignoredCommand`, `commandPips`, `lapsed`, `drewWeapon`,
+      `holding`, `tookOver`, `surprised`, `maskedUp`.
+    - **Tests:** `tests/sim/command.test.ts`; the preview property test plays the takeover in omniscient runs and checks
+      every NPC of `commandPlan` against the commit and each resister's shown chance against the `p` it was rolled with
+      (`checkCommand`); world-phase comparisons stop at the first `lapsed` event (rolled). The perception property test
+      leaves the takeover out (its own test is above). Save shape hash now `316d74ac88af5399`.
+    - **Deferred:** what a panicking civilian does (cower, flee, hide, the phone), heroes and tackle, police outside
+      shifting lapses toward fleeing, blocking an escapee's route as a counter (M2-02); a resister drawing and shooting
+      (M3: Hostile does nothing yet); flashbangs' 10% (M3). Until M2-02 a civilian in the panic ring reacts as to any loud
+      noise (Alerted, reports it).
 - [ ] **M2-02 Panic, civilians and armed civilians.**
   - **Covers:** §10.8, §10.9, §16.2 panic weights, the escapee and phone carriers of §9.1, §16.4 passers-by, tackle.
   - **Work:** structured traits in the generator (replacing the trait strings).
@@ -1036,6 +1063,29 @@ Later milestones: within each milestone, the `∥` notes in §3 apply. UI packag
     floor in view is issued as if the move ended there; ending on Public floor then complies at the deadline (Warned),
     which breaks no rule. NPC walks in the world phase were already one reaction per observer per walk
     (`strongestAlong`). Why: walking through a guard's view is as visible as stopping in it.
+
+47. **Command radius (M2-01).** The Threat ×1.5 on the takeover turn rounds down (an LMG 6 → 9, a pistol 3 → 4).
+    Threat counts only weapons in hand (`Loadout.items`), not one in the duffel or its case; unarmed is 1. The command
+    ring is Euclidean (r² ≤ R²) and needs line of sight from the shouter; the panic and noise ring is the sound flood of
+    R + 3 (§8.9), minus the command ring.
+48. **Resisters (M2-01).** Enforcers resist (guards, the security chief, couriers); a resister already Commanded complies
+    again (its pips refreshed). "2+ crew aiming" counts crew with a weapon in hand within their own command radius and
+    line of sight of the NPC, the shouter included. The chances are 0.4 / 0.1, halved by an Intimidating shouter.
+49. **Lapses (M2-01).** The pip loss and the lapse roll run as the next crew phase begins, after every other world-phase
+    rule (the `crewPhase` step, last): the roll is the world phase's last word, so a preview of the world phase (the
+    hatched carriers, `pendingCarriers`) stops cleanly at it (`Dice.odds`, one chance after another, each the share of
+    what is left). Cower and hide stay down (no hiding place until M2-02); staying down keeps the NPC Commanded at 0 pips
+    and rolls again after the next world phase unless held. Fleeing heads for the nearest way out (a tile anyone's
+    schedule leaves the map by; none reachable: it stays down) and starts the escapee carrier as it sets off, the flee
+    intent being its telegraph (decision 30's pattern); a runner who gets out stays out. Staff going for the alarm are
+    Exposed to whoever commanded them and react by role. An enforcer always reaches for his weapon: the intent is shown
+    for a world phase, then he is Hostile.
+50. **Hold (M2-01)** is the last action: it spends what is left (at least 1), and keeps the pips of every Commanded NPC
+    within the holder's command radius and line of sight at the end of that world phase.
+51. **Surprised (M2-01).** Calm or Curious NPCs when GO is pressed: intent dropped, not re-planned in that crew phase, and
+    they stand through its world phase (they still see and hear; what they decide is committed at its end). A surprised
+    civilian is Commanded with 1 pip ("for one phase"), so it lapses after the takeover's world phase unless commanded.
+52. **GO's masks are witnessed** like Mask up (the illegal act 'maskUp'), and GO itself isn't loud: the first shout is.
 
 ### Critical files for implementation
 
