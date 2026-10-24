@@ -13,7 +13,8 @@ import type { HudIcon as HudIconName } from '../ui/hud/viewModels';
  * - Doors beside them: open or close (whichever the door's state calls for), and lock or unlock; with the kit, pick a
  *   mechanical lock or hack a card reader (its work so far, M2-05).
  * - Vault access (M2-05): the console's Unlock vault, the manager's PC's Hack PC and a deposit wall's Pick a box (as
- *   interactions, with their work so far); Drill and Thermite where the sim allows them, Fix drill for a jammed one.
+ *   interactions, with their work so far), Cut sensors at the console; Drill and Thermite where the sim allows them, Fix
+ *   drill for a jammed one, Take drill to put one back in the kit.
  * - Knockout: an NPC the crew knows of (§8.15), in reach, still on their feet.
  * - Drag: a body (knocked out, dead, tied) in reach; while dragging, Drop and Stash (a stash object in reach, or the
  *   stash room they stand in).
@@ -126,6 +127,7 @@ export const VERBS: Readonly<Record<string, { label: string; icon: HudIconName }
     'recorder.take': { label: 'Take recorder', icon: 'bag' },
     'recorder.destroy': { label: 'Smash recorder', icon: 'attack' },
     'vaultConsole.unlock': { label: 'Unlock vault', icon: 'lock' },
+    'vaultConsole.sensors': { label: 'Cut sensors', icon: 'hack' },
     'managerPc.hack': { label: 'Hack PC', icon: 'hack' },
     'depositBoxes.pick': { label: 'Pick a box', icon: 'lockpick' }
 };
@@ -200,6 +202,7 @@ export function actionMenu(world: ReadonlyWorld, state: State, crewId: string, t
             add(`interact:${verb}`, named?.label ?? verb.charAt(0).toUpperCase() + verb.slice(1), named?.icon ?? 'interact', { type: 'interact', crew: crewId, object, verb }, object);
             if (kind === 'alarmPanel' && verb === 'disable') out.at(-1)!.progress = `${state.objects[object]?.progress ?? 0}/${world.rules.panelActions}`;
             if (kind === 'managerPc') out.at(-1)!.progress = `${state.objects[object]?.progress ?? 0}/${world.rules.pcActions}`;
+            if (kind === 'vaultConsole' && verb === 'sensors') out.at(-1)!.progress = `${state.objects[object]?.progress ?? 0}/${world.rules.sensorActions}`;
             if (kind === 'depositBoxes') out.at(-1)!.progress = `${state.objects[object]?.progress ?? 0}/${world.rules.lockpickActions}`;
         }
     }
@@ -221,6 +224,8 @@ export function actionMenu(world: ReadonlyWorld, state: State, crewId: string, t
     if (charge) add('thermite', 'Thermite', 'charge', charge, charge.door);
     const fix = legal.find((c): c is Extract<Command, { type: 'fixDrill' }> => c.type === 'fixDrill');
     if (fix) add('fixDrill', 'Fix drill', 'drill', fix);
+    const back = legal.find((c): c is Extract<Command, { type: 'takeDrill' }> => c.type === 'takeDrill');
+    if (back) add('takeDrill', 'Take drill', 'drill', back);
 
     const loot = pick(targets.loot);
     if (loot) add('take', `Take ${LOOT_NAME[lootWeight(world, loot)]}`, 'bag', { type: 'takeLoot', crew: crewId, loot }, loot);

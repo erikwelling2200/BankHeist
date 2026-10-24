@@ -615,7 +615,7 @@ function cutSteps(judge: Judge, v: Variant, npc: DeepReadonly<NpcState>): number
     if (!d || !npc.intent.path.length || !isPresent(npc)) return undefined;
     const memo = (v.cuts ??= new WeakMap()), hit = memo.get(npc.intent);
     if (hit !== undefined) return hit < 0 ? undefined : hit;
-    const pass = npcCanPass(personOf(judge.world, npc.id), npc);
+    const pass = npcCanPass(judge.world, personOf(judge.world, npc.id), npc);
     let prev: DeepReadonly<Pos> = npc.pos, k = -1;
     for (let i = 0; i < npc.intent.path.length && k < 0; i++) {
         const p = npc.intent.path[i]!;

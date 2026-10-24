@@ -78,7 +78,7 @@ describe('saving', () => {
  * NpcStatusMap, CarrierKindMap or adds a field must also fill it in below, or a change of shape goes unnoticed.
  */
 const SHAPE_HASHES: Record<number, string> = {
-    1: '6e03e50b0aeea908'
+    1: 'f3b3351d03de6ab8'
 };
 
 /** Paths whose objects are records by id, not structs. */
@@ -160,8 +160,8 @@ describe('the save format', () => {
         full.crew[0]!.notoriety = 2;
         full.edges['eastWest 0 1'] = { material: 'soft', blocksMove: false, blocksSight: false, blocksSound: false, midHeight: false };
         full.doors.staffDoor = { status: 'open', propped: true, work: 1 };
-        full.objects.panel = { disabled: true, open: false, progress: 2, codes: ['manager'] };
-        full.devices = [{ id: 'drill-4', kind: 'drill', at: 'vault', pos: { x: 1, y: 1 }, crew: 'jun', done: 2, needed: 5, jammed: true }];
+        full.objects.panel = { disabled: true, open: false, progress: 2, codes: ['manager'], sensorsCut: true };
+        full.devices = [{ id: 'drill-4', kind: 'drill', at: 'vault', pos: { x: 1, y: 1 }, crew: 'jun', done: 2, needed: 5, jammed: true, noise: 6 }];
         full.codesKnown = ['whole'];
         full.objects.recorder = { taken: 'jun', destroyed: false };
         full.cameras.cam = { facing: 0, live: true, loopedUntil: 3 };
@@ -190,8 +190,8 @@ describe('the save format', () => {
                 building: ['lobby'],
                 locks: [{
                     id: 'vault', name: 'Vault', target: 'd', room: 'lobby', holders: ['guard'], timeLock: { from: 3, until: 5 },
-                    social: { kind: 'code', parts: ['whole'], text: 'code' }, technical: { kind: 'drill', phases: 3, sensors: ['seismic'], text: 'drill' },
-                    violent: { kind: 'thermite', phases: 3, text: 'thermite' }
+                    social: { kind: 'code', parts: ['whole'], text: 'code' }, technical: { kind: 'drill', phases: 3, noise: 6, sensors: ['seismic'], text: 'drill' },
+                    violent: { kind: 'thermite', phases: 3, noise: 6, text: 'thermite' }
                 }],
                 objects: [
                     { id: 'panel', kind: 'alarmPanel', pos: { x: 0, y: 0 }, facing: 's' },

@@ -90,20 +90,20 @@ export type SocialKey = { text: string } & (
 );
 
 /**
- * A lock's technical key (§15.2, §15.3, §7.2): the drill (its phases and the vault's sensors: seismic on Class II, seismic
- * and motion on Class III), the hacking kit on a card reader or at the panel (in actions), or on the mantrap's reader
- * once its camera is looped.
+ * A lock's technical key (§15.2, §15.3, §7.2): the drill (its phases, its noise's radius, and the vault's sensors:
+ * seismic on Class II, seismic and motion on Class III), the hacking kit on a card reader or at the panel (in actions),
+ * or on the mantrap's reader once its camera is looped.
  */
 export type TechnicalKey = { text: string } & (
-    | { kind: 'drill'; phases: number; sensors: ('seismic' | 'motion')[] }
+    | { kind: 'drill'; phases: number; noise: number; sensors: ('seismic' | 'motion')[] }
     | { kind: 'reader'; actions: number }
     | { kind: 'loopedReader'; actions: number }
     | { kind: 'panel'; actions: number }
 );
 
-/** A lock's violent key (§15.2, §14.2): thermite (its phases), a breach (by shotgun or charge), or smashing the panel. */
+/** A lock's violent key (§15.2, §14.2): thermite (its phases and noise), a breach (by shotgun or charge), or smashing the panel. */
 export type ViolentKey = { text: string } & (
-    | { kind: 'thermite'; phases: number }
+    | { kind: 'thermite'; phases: number; noise: number }
     | { kind: 'breach'; tool: 'shotgun' | 'breachCharge' }
     | { kind: 'smash' }
 );

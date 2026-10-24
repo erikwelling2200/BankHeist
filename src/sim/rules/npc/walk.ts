@@ -3,6 +3,7 @@ import { FACING_STEP, FACINGS, facingToward, inBounds, samePos, tileAt } from '.
 import { registerRuleDefaults } from '../../core/state';
 import type { DeepReadonly, DoorDef, DoorStatus, Intent, NpcState, PersonDef, Pos, ReadonlyWorld, State, Zone } from '../../core/types';
 import { DIAGONAL_COST, HALF_STEPS_PER_TILE, ORTHOGONAL_COST } from '../../data/movement';
+import { cardOpens, lockOn } from '../keys';
 import { ABSENT_STATUSES, doorBetween, LYING_STATUSES, occupancy, stepCost, type MoveOptions } from '../../geo/move';
 import { onFloor } from '../place';
 
@@ -65,16 +66,21 @@ export function personOf(world: ReadonlyWorld, id: string): DeepReadonly<PersonD
 
 /**
  * Whether someone of this person's class walks through a door in this state (see the header); with `npc`, a keycard
- * door only while it still has its keycard (a frisk takes it, rules/actions/hostage.ts).
+ * door only while it still has its keycard (a frisk takes it, rules/actions/hostage.ts), and a card door the key graph
+ * names only if their card is one that opens it, as for the crew holding it (rules/keys.ts `cardOpens`, decision 75);
+ * the mantrap's operator buzzes them through.
  */
-export function npcCanPass(person: DeepReadonly<PersonDef>, npc?: DeepReadonly<NpcState>): (door: DeepReadonly<DoorDef>, status: DoorStatus) => boolean {
+export function npcCanPass(world: ReadonlyWorld, person: DeepReadonly<PersonDef>, npc?: DeepReadonly<NpcState>): (door: DeepReadonly<DoorDef>, status: DoorStatus) => boolean {
     const keys = person.observer !== 'civilian', card = npc ? npc.keycard : true;
-    // Nobody walks into the vault on their own (its door is the crew's business, decision 77), unlocked or not.
-    return (door, status) => door.lock !== 'vault' && (status === 'closed' || (status === 'locked' && keys && (card || door.lock !== 'keycard')));
+    // The mantrap's operator buzzes staff through (its social key): they pass it as before; the crew's taken cards don't.
+    const byCard = (door: DeepReadonly<DoorDef>): boolean => card && (lockOn(world, door.id)?.social.kind === 'buzz' || cardOpens(world, person.id, door));
+    // Nobody walks into the vault on their own (its door is the crew's business, decision 75), unlocked or not.
+    return (door, status) => door.lock !== 'vault'
+        && (status === 'closed' || (status === 'locked' && keys && (door.lock === 'mechanical' || byCard(door))));
 }
 
 export function npcMoveOptions(world: ReadonlyWorld, npc: DeepReadonly<NpcState>): MoveOptions {
-    return { mover: npc.id, canPassDoor: npcCanPass(personOf(world, npc.id), npc) };
+    return { mover: npc.id, canPassDoor: npcCanPass(world, personOf(world, npc.id), npc) };
 }
 
 /** Whether an NPC is on the map. */

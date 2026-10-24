@@ -300,9 +300,9 @@ describe('M2-03 review', () => {
         const r = step(world, fresh(knocked), { type: 'zipTie', crew: 'mara', npc: 'guard' });
         expect(r.events).toContainEqual({ type: 'weaponTaken', crew: 'mara', npc: 'guard' });
         const door = world.doors.staffDoor!;
-        expect(npcCanPass(personOf(world, 'guard'), npc(knocked, 'guard'))(door, 'locked')).toBe(true);
-        expect(npcCanPass(personOf(world, 'guard'), npc(r.state, 'guard'))(door, 'locked')).toBe(false);
-        expect(npcCanPass(personOf(world, 'guard'), npc(r.state, 'guard'))({ ...door, lock: 'mechanical' }, 'locked')).toBe(true);
+        expect(npcCanPass(world, personOf(world, 'guard'), npc(knocked, 'guard'))(door, 'locked')).toBe(true);
+        expect(npcCanPass(world, personOf(world, 'guard'), npc(r.state, 'guard'))(door, 'locked')).toBe(false);
+        expect(npcCanPass(world, personOf(world, 'guard'), npc(r.state, 'guard'))({ ...door, lock: 'mechanical' }, 'locked')).toBe(true);
     });
 
     it('changing clothes is refused in sight of an NPC the crew sees', () => {

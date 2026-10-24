@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { archetypesFor } from '../../src/gen/generate';
 import { TIERS, type KeyLock } from '../../src/gen/model';
 import {
-    actionPreview, cctvDesk, clonePlain, commit, doorSides, doorStatus, fixtureWorld, initialState, inReach, interruptsOf, legalActions, lineOfSight, preview, sightMap, tileAt,
+    actionPreview, CARRIERS, cctvDesk, npcCanPass, pathTo, planMoveOptions, reachable, timeLockOpen, clonePlain, commit, doorSides, doorStatus, fixtureWorld, initialState, inReach, interruptsOf, legalActions, lineOfSight, preview, sightMap, tileAt,
     vaultLock, whyNot, worldFromBank, type Command, type CrewStart, type DeepReadonly, type PersonDef, type Pos, type ReadonlyWorld, type State,
     type WorldObject
 } from '../../src/sim';
@@ -42,10 +42,19 @@ function around(world: ReadonlyWorld, state: State, p: DeepReadonly<Pos>, taken:
     return out;
 }
 
-/** The heist's start with everyone on the map tied where they stand (nobody to raise the alarm while the test works). */
+/** The nearest tile to `p` someone could stand on that isn't in reach of it (rings outward). */
+function free(world: ReadonlyWorld, state: State, p: DeepReadonly<Pos>): Pos {
+    for (let r = 2; r < 12; r++) for (let dy = -r; dy <= r; dy++) for (let dx = -r; dx <= r; dx++) {
+        const q = P(p.x + dx, p.y + dy);
+        if (Math.max(Math.abs(dx), Math.abs(dy)) === r && standable(world, state, q)) return q;
+    }
+    throw new Error(`No free tile near ${JSON.stringify(p)}`);
+}
+
+/** The heist's start with everyone on the map out cold for good (nobody to raise the alarm while the test works). */
 function quiet(world: ReadonlyWorld, crew: CrewStart[]): State {
     const state = initialState(world, { seed: 7, crew });
-    for (const n of state.npcs) if (n.status !== 'away') Object.assign(n, { status: 'tied', intent: { path: [] } });
+    for (const n of state.npcs) if (n.status !== 'away') Object.assign(n, { status: 'unconscious', outCold: 9999, intent: { path: [] } });
     return state;
 }
 
@@ -60,37 +69,66 @@ function vaultSides(world: ReadonlyWorld): { outside: Pos; inside: Pos; lock: De
     return tileAt(world, a)!.room === lock.room ? { outside: b, inside: a, lock } : { outside: a, inside: b, lock };
 }
 
-/** Walks the crew member at the vault door's outer tile in, and checks they got there. */
+/** Walks the crew member at the vault door's outer tile in, and checks they got there (and the motion sensor saw them). */
 function walkIn(world: ReadonlyWorld, state: State, crew: string): void {
-    const { outside, inside } = vaultSides(world);
+    const { outside, inside, lock } = vaultSides(world);
     // Scouted: a move is planned against what the crew knows, and nobody has seen into the vault yet.
     const at = scouted(world, place(fresh(state), crew, outside));
     const r = commit(world, at, { type: 'move', crew, path: [inside] });
     expect(r.state.crew.find(c => c.id === crew)!.pos).toEqual(inside);
+    // Not in the window, and not once the seismic sensor (or anything) has raised the Alarm: nothing starts then.
+    const motion = lock.technical.kind === 'drill' && lock.technical.sensors.includes('motion') && !(lock.timeLock && timeLockOpen(world, at.turn)) && !at.bank.alarm;
+    expect(r.state.carriers.some(c => c.kind === 'motionSensor')).toBe(motion);
+    if (motion) routes.add('motion sensor');
+}
+
+/** Walks a crew member to `goal` turn by turn over the scouted map, through the doors their cards open. */
+function walkTo(world: ReadonlyWorld, state: State, crew: string, goal: Pos): State {
+    let s = scouted(world, fresh(state));
+    for (let turns = 0; turns < 40; turns++) {
+        for (let a = 0; a < 2; a++) {
+            const member = s.crew.find(c => c.id === crew)!;
+            if (member.pos.x === goal.x && member.pos.y === goal.y) return s;
+            const path = pathTo(reachable(world, s, member.pos, 100000, planMoveOptions(world, s, member)), goal);
+            expect(path, `a way from ${JSON.stringify(member.pos)} to ${JSON.stringify(goal)}`).toBeDefined();
+            const r = [6, 5, 4, 3, 2, 1].map(k => { try { return commit(world, s, { type: 'move', crew, path: path!.slice(0, k) }); } catch { return undefined; } }).find(x => x);
+            s = scouted(world, r!.state);
+        }
+        s = scouted(world, commit(world, s, { type: 'endTurn' }).state);
+    }
+    throw new Error(`${crew} never got to ${JSON.stringify(goal)}`);
 }
 
 /** The social routes the banks took, to check every kind came up. */
 const routes = new Set<string>();
 
-/** The social key (§15.2), scripted for the bank's kind of vault. */
-function socialKey(world: ReadonlyWorld): State {
+/** A crew member zip-ties the manager, out cold where he lies: the frisk takes his card. */
+function friskManager(world: ReadonlyWorld, state: State, crew: string): State {
+    const manager = world.people.find(p => p.role === 'manager')!, lying = state.npcs.find(n => n.id === manager.id)!.pos;
+    let s = place(state, crew, around(world, state, lying)[0]!);
+    s = run(world, s, { type: 'zipTie', crew, npc: manager.id });
+    expect(s.crew.find(c => c.id === crew)!.keycards).toContain(manager.id);
+    return s;
+}
+
+/** Into the time-lock window, a world phase at a time from just before it (codes are refused until then). */
+function intoWindow(world: ReadonlyWorld, state: State): State {
+    const window = vaultLock(world)!.timeLock;
+    if (!window || state.turn >= window.from) return state;
+    const before = { ...state, turn: window.from - 1 };
+    return commit(world, before, { type: 'endTurn' }).state;
+}
+
+/** The social key (§15.2), scripted for the bank's kind of vault; codes and the card only in the time-lock window. */
+function socialKey(world: ReadonlyWorld, tier: string): State {
     const { lock } = vaultSides(world);
     const console = world.objects.find(o => o.kind === 'vaultConsole')!;
     let state = quiet(world, [{ id: 'mara', pos: P(0, 0), items: ['pistol', 'hackingKit'] }, { id: 'jun', pos: P(0, 0) }]);
-    const window = lock.timeLock;
-    if (lock.social.kind === 'code' && window) {
-        // The time lock: codes are refused before the window, and the vault opens itself as it begins.
-        routes.add('timeLock');
-        state = { ...state, turn: window.from - 1 };
-        const before = commit(world, state, { type: 'endTurn' });
-        expect(before.events).toContainEqual({ type: 'vaultUnlocked', door: lock.target, how: 'timeLock', by: null });
-        return before.state;
-    }
     if (lock.social.kind === 'threeKeys') {
-        // The manager's card, the CCTV room held (its operators tied), in the window.
+        // The manager's card (a frisk takes it), the CCTV room held (its operators out cold), in the window.
         routes.add('threeKeys');
-        state = { ...state, turn: window!.from, crew: state.crew.map(c => (c.id === 'jun' ? { ...c, keycards: [...lock.social.kind === 'threeKeys' ? lock.social.keycard : []] } : c)) };
-        // At the desk is anywhere beside it (cctv.ts): the operator, tied in his chair, may hold the one tile in reach.
+        state = intoWindow(world, friskManager(world, state, 'jun'));
+        // At the desk is anywhere beside it (cctv.ts): the operator, out cold in his chair, may hold the one tile in reach.
         const desk = cctvDesk(world);
         if (desk) state = place(state, 'mara', around(world, state, desk.pos, [], false)[0]!);
         state = place(state, 'jun', around(world, state, console.pos)[0]!);
@@ -99,17 +137,31 @@ function socialKey(world: ReadonlyWorld): State {
     }
     if (lock.social.kind !== 'code') throw new Error(`A vault's social key is '${lock.social.kind}'`);
     if (lock.social.parts.includes('whole')) {
-        // The manager's PC: Mara hacks it (2 actions), then enters the code at the console.
-        routes.add('pc');
+        // The manager's PC: Mara frisks the manager for his card, hacks his PC (2 actions), then walks to the console and
+        // enters the code, in the window.
+        routes.add(`${tier} pc`);
         const pc = world.objects.find(o => o.kind === 'managerPc')!;
+        state = friskManager(world, state, 'mara');
+        state = place(state, 'mara', P(0, 0));
+        // The manager, tied at his desk, may sit on the one tile the PC is reached from: he is moved aside (dragging him
+        // there is body.ts's business, tested on its own).
+        if (!around(world, state, pc.pos).length) {
+            const manager = world.people.find(p => p.role === 'manager')!.id, aside = free(world, state, pc.pos);
+            state = putNpc(state, manager, aside);
+        }
         state = place(state, 'mara', around(world, state, pc.pos)[0]!);
         state = run(world, state, { type: 'interact', crew: 'mara', object: pc.id, verb: 'hack' }, { type: 'interact', crew: 'mara', object: pc.id, verb: 'hack' });
         expect(state.codesKnown).toEqual(['whole']);
-        state = place(state, 'mara', around(world, state, console.pos)[0]!);
+        state = walkTo(world, state, 'mara', around(world, state, console.pos)[0]!);
+        if (lock.timeLock && state.turn < lock.timeLock.from) {
+            expect(whyNot(world, fresh(state), { type: 'interact', crew: 'mara', object: console.id, verb: 'unlock' })).toBe(`The time lock holds the vault shut until turn ${lock.timeLock.from}`);
+        }
+        state = intoWindow(world, state);
         return run(world, state, { type: 'interact', crew: 'mara', object: console.id, verb: 'unlock' });
     }
-    // Dual control: each key-holder, tied beside the console, is made to enter their half.
-    routes.add('dualControl');
+    // Dual control: each key-holder, tied beside the console, is made to enter their half, in the window.
+    routes.add(`${tier} dualControl`);
+    state = intoWindow(world, state);
     for (const role of lock.social.parts) {
         const holder = world.people.find(p => p.role === role)!;
         state = place(state, 'mara', P(0, 0));
@@ -123,43 +175,71 @@ function socialKey(world: ReadonlyWorld): State {
     return state;
 }
 
-/** The drill or thermite at the vault door, worked through every world phase it needs (Steady Hands keeps the drill from jamming). */
+/** The drill (no Steady Hands: its jams fixed as they come, then taken back) or thermite at the vault door, worked through. */
 function deviceKey(world: ReadonlyWorld, kind: 'drill' | 'thermite'): State {
     const { outside, lock } = vaultSides(world);
-    let state = quiet(world, [{ id: 'jun', pos: outside, items: [kind], traits: ['steadyHands'] }]);
+    let state = quiet(world, [{ id: 'jun', pos: outside, items: [kind] }]);
     state = run(world, state, kind === 'drill' ? { type: 'drill', crew: 'jun', at: lock.target } : { type: 'thermite', crew: 'jun', door: lock.target });
     const key = kind === 'drill' ? lock.technical : lock.violent;
     const phases = key.kind === 'drill' || key.kind === 'thermite' ? key.phases : 0;
-    for (let i = 0; i < phases; i++) {
-        expect(doorStatus(world, state, lock.target)).toBe('locked');
-        state = commit(world, state, { type: 'endTurn' }).state;
+    let turns = 0;
+    while (doorStatus(world, state, lock.target) === 'locked' && turns < 60) {
+        const r = commit(world, state, { type: 'endTurn' });
+        state = r.state;
+        turns++;
+        if (r.events.some(e => e.type === 'drillJammed')) {
+            routes.add('drill jammed');
+            state = commit(world, state, { type: 'fixDrill', crew: 'jun', device: state.devices[0]!.id }).state;
+        }
+    }
+    expect(turns).toBe(phases);
+    if (kind === 'drill') {
+        state = run(world, state, { type: 'takeDrill', crew: 'jun', device: state.devices[0]!.id });
+        expect(state.crew[0]!.loadout.items).toEqual(['drill']);
     }
     return state;
 }
 
+/** Opens a bank's vault three ways (see the header). */
+function openEveryWay(tier: string, bank: ReturnType<typeof cachedBank>): void {
+    const world = worldFromBank(bank);
+    const { lock } = vaultSides(world);
+    expect(lock.social.kind === 'threeKeys').toBe(bank.archetype === 'threeKeys');
+    routes.add(`class ${bank.vaultClass}`);
+
+    const social = socialKey(world, tier);
+    expect(doorStatus(world, social, lock.target)).toBe('closed');
+    walkIn(world, social, 'mara');
+
+    const drilled = deviceKey(world, 'drill');
+    expect(doorStatus(world, drilled, lock.target)).toBe('breached');
+    walkIn(world, drilled, 'jun');
+
+    const burnt = deviceKey(world, 'thermite');
+    expect(doorStatus(world, burnt, lock.target)).toBe('breached');
+    walkIn(world, burnt, 'jun');
+}
+
 describe('every generated vault opens to each of its three keys (§15.2)', { timeout: 120000 }, () => {
     for (const tier of TIERS) for (const archetype of archetypesFor(tier)) for (const s of SEEDS) {
-        it(`${tier} ${archetype} ${s}`, () => {
-            const bank = cachedBank({ layout: 3100 + s * 7919, population: s + 11, tier, archetype });
-            const world = worldFromBank(bank);
-            const { lock } = vaultSides(world);
-            expect(lock.social.kind === 'threeKeys').toBe(archetype === 'threeKeys');
-
-            const social = socialKey(world);
-            expect(doorStatus(world, social, lock.target)).toBe('closed');
-            walkIn(world, social, 'mara');
-
-            const drilled = deviceKey(world, 'drill');
-            expect(doorStatus(world, drilled, lock.target)).toBe('breached');
-            walkIn(world, drilled, 'jun');
-
-            const burnt = deviceKey(world, 'thermite');
-            expect(doorStatus(world, burnt, lock.target)).toBe('breached');
-            walkIn(world, burnt, 'jun');
-        });
+        it(`${tier} ${archetype} ${s}`, () => openEveryWay(tier, cachedBank({ layout: 3100 + s * 7919, population: s + 11, tier, archetype })));
     }
-    it('took the time lock, Three Keys and dual control among them (the PC alone is the fixtures\')', () => {
-        expect([...routes].sort()).toEqual(['dualControl', 'threeKeys', 'timeLock']);
+    it('a Class III vault (the first HQ seed that has one), with its motion sensor', () => {
+        const bank = [3, 4, 5, 6, 7, 8, 9, 10].map(s => cachedBank({ layout: 3100 + s * 7919, population: s + 11, tier: 'hq', archetype: 'twoWing' })).find(b => b.vaultClass === 'III');
+        expect(bank).toBeDefined();
+        openEveryWay('hq', bank!);
+        // Opened by its code in the window and left open, the vault is walked into after it: the motion sensor sees that.
+        // No patrol car this time: the bodies the test leaves about would be seen from the street and raise the Alarm.
+        const world = Object.fromEntries(Object.entries(worldFromBank(bank!)).filter(([k]) => k !== 'patrol')) as unknown as ReadonlyWorld;
+        const { outside, lock } = vaultSides(world);
+        let state = place(fresh(socialKey(world, 'hq')), 'mara', outside);
+        state = run(world, state, { type: 'door', crew: 'mara', door: lock.target, action: 'open' });
+        while (timeLockOpen(world, state.turn)) state = commit(world, state, { type: 'endTurn' }).state;
+        expect(doorStatus(world, state, lock.target)).toBe('open');
+        walkIn(world, state, 'mara');
+    });
+    it('took every route among them: the PC on small banks, dual control on HQ, Three Keys; Class III; jams', () => {
+        for (const r of ['small pc', 'hq dualControl', 'threeKeys', 'class III', 'motion sensor', 'drill jammed']) expect(routes, r).toContain(r);
     });
 });
 
@@ -186,8 +266,8 @@ function vaultLockDef(extra: Partial<KeyLock> = {}): KeyLock {
     return {
         id: 'vault', name: 'Vault (class III)', target: 'vaultDoor', room: 'v', holders: ['manager'],
         social: { kind: 'code', parts: ['whole'], text: 'code' },
-        technical: { kind: 'drill', phases: 3, sensors: ['seismic', 'motion'], text: 'drill' },
-        violent: { kind: 'thermite', phases: 2, text: 'thermite' },
+        technical: { kind: 'drill', phases: 3, noise: 6, sensors: ['seismic', 'motion'], text: 'drill' },
+        violent: { kind: 'thermite', phases: 2, noise: 6, text: 'thermite' },
         ...extra
     };
 }
@@ -241,21 +321,31 @@ describe('the console and the manager\'s PC (§15.2)', () => {
         expect(doorStatus(world, r.state, 'vaultDoor')).toBe('closed');
     });
 
-    it('the time lock: codes only in the window, which opens a code vault by itself and shuts it again after', () => {
+    it('the time lock: codes only in the window, where they open the vault; a shut vault locks again outside it', () => {
         const lock = vaultLockDef({ timeLock: { from: 3, until: 5 } });
         const { world, state } = vault([{ id: 'mara', pos: P(1, 1), items: ['pistol'] }], lock);
         const down = run(world, state, { type: 'command', crew: 'mara' });
-        expect(whyNot(world, fresh(down), { type: 'coerce', crew: 'mara', npc: 'manager', at: 'console' })).toBe('The time lock holds the vault shut until turn 3');
-        const two = commit(world, down, { type: 'endTurn' });
-        expect(doorStatus(world, two.state, 'vaultDoor')).toBe('locked');
-        const three = commit(world, { ...two.state, npcs: two.state.npcs.map(n => ({ ...n, status: 'tied' as const, command: null })) }, { type: 'endTurn' });
-        expect(three.events).toContainEqual({ type: 'vaultUnlocked', door: 'vaultDoor', how: 'timeLock', by: null });
-        expect(whyNot(world, three.state, { type: 'coerce', crew: 'mara', npc: 'manager', at: 'console' })).toBe('The vault isn\'t locked');
-        const four = commit(world, three.state, { type: 'endTurn' });
-        const five = commit(world, four.state, { type: 'endTurn' });
-        expect(five.events).toContainEqual({ type: 'timeLockShut', door: 'vaultDoor' });
-        expect(doorStatus(world, five.state, 'vaultDoor')).toBe('locked');
-        expect(whyNot(world, five.state, { type: 'coerce', crew: 'mara', npc: 'manager', at: 'console' })).toBe('The time lock holds the vault shut for the day');
+        const coerce: Command = { type: 'coerce', crew: 'mara', npc: 'manager', at: 'console' };
+        expect(whyNot(world, fresh(down), coerce)).toBe('The time lock holds the vault shut until turn 3');
+        const tied = (s: State): State => ({ ...s, npcs: s.npcs.map(n => ({ ...n, status: 'tied' as const, command: null })) });
+        const three = run(world, tied(down), { type: 'endTurn' }, { type: 'endTurn' });
+        // The window doesn't open the vault: the code does.
+        expect(doorStatus(world, three, 'vaultDoor')).toBe('locked');
+        const r = commit(world, three, coerce);
+        expect(r.events).toContainEqual({ type: 'vaultUnlocked', door: 'vaultDoor', how: 'code', by: 'mara' });
+        // Left shut, it locks again as the first crew phase after the window begins.
+        const five = run(world, r.state, { type: 'endTurn' }, { type: 'endTurn' });
+        expect(doorStatus(world, five, 'vaultDoor')).toBe('locked');
+        expect(whyNot(world, fresh(five), coerce)).toBe('The time lock holds the vault shut for the day');
+        // Opened in the window and shut after it, it locks again as the next crew phase begins.
+        const opened = run(world, place(r.state, 'mara', P(4, 2)), { type: 'door', crew: 'mara', door: 'vaultDoor', action: 'open' });
+        const later = run(world, opened, { type: 'endTurn' }, { type: 'endTurn' }, { type: 'endTurn' });
+        expect(doorStatus(world, later, 'vaultDoor')).toBe('open');
+        const shut = run(world, later, { type: 'door', crew: 'mara', door: 'vaultDoor', action: 'close' });
+        expect(doorStatus(world, shut, 'vaultDoor')).toBe('closed');
+        const next = commit(world, shut, { type: 'endTurn' });
+        expect(next.events).toContainEqual({ type: 'timeLockShut', door: 'vaultDoor' });
+        expect(doorStatus(world, next.state, 'vaultDoor')).toBe('locked');
     });
 
     it('Three Keys: the manager\'s card at the console, in the window, while the crew holds the CCTV room', () => {
@@ -278,9 +368,9 @@ describe('the console and the manager\'s PC (§15.2)', () => {
 
 describe('the drill and thermite (§15.3)', () => {
     it('drills through in its phases, a loud noise each; jams are rolled with their odds shown and fixed in 1 action', () => {
-        const { world, state } = vault([{ id: 'jun', pos: P(4, 2), items: ['drill'] }], vaultLockDef({ technical: { kind: 'drill', phases: 6, sensors: [], text: 'drill' } }), []);
+        const { world, state } = vault([{ id: 'jun', pos: P(4, 2), items: ['drill'] }], vaultLockDef({ technical: { kind: 'drill', phases: 6, noise: 6, sensors: [], text: 'drill' } }), []);
         const set = same(world, state, { type: 'drill', crew: 'jun', at: 'vaultDoor' });
-        expect(set.state.devices).toEqual([{ id: 'drill-1', kind: 'drill', at: 'vaultDoor', pos: P(4, 2), crew: 'jun', done: 0, needed: 6, jammed: false }]);
+        expect(set.state.devices).toEqual([{ id: 'drill-1', kind: 'drill', at: 'vaultDoor', pos: P(4, 2), crew: 'jun', done: 0, needed: 6, jammed: false, noise: 6 }]);
         expect(set.state.crew[0]!.loadout.items).toEqual([]);
         // The end of the turn: the drill works a phase, then the jam is rolled as the crew phase begins.
         const shown = preview(world, set.state, { type: 'endTurn' });
@@ -303,12 +393,16 @@ describe('the drill and thermite (§15.3)', () => {
         // Fixed at once, a jam costs an action, not a phase.
         expect(doorStatus(world, s, 'vaultDoor')).toBe('breached');
         expect(turns).toBe(6);
+        // The drill stays at the door until taken back into the kit.
+        expect(s.devices.map(d => d.id)).toEqual(['drill-1']);
+        s = run(world, s, { type: 'takeDrill', crew: 'jun', device: 'drill-1' });
         expect(s.devices).toEqual([]);
+        expect(s.crew[0]!.loadout.items).toEqual(['drill']);
         expect(s.dice.filter(d => d.reason === 'jam drill-1').filter(d => d.value < 0.15).length).toBe(jams);
     });
 
     it('a jam stops a Wait or a Go where the drill stands', () => {
-        const { world, state } = vault([{ id: 'jun', pos: P(4, 2), items: ['drill'] }], vaultLockDef({ technical: { kind: 'drill', phases: 6, sensors: [], text: 'drill' } }), []);
+        const { world, state } = vault([{ id: 'jun', pos: P(4, 2), items: ['drill'] }], vaultLockDef({ technical: { kind: 'drill', phases: 6, noise: 6, sensors: [], text: 'drill' } }), []);
         const set = same(world, state, { type: 'drill', crew: 'jun', at: 'vaultDoor' }).state;
         const jammed = { ...set, devices: set.devices.map(d => ({ ...d, jammed: true })) };
         expect(interruptsOf(world, set, { state: jammed, events: [{ type: 'drillJammed', device: 'drill-1' }] }))
@@ -333,6 +427,35 @@ describe('the drill and thermite (§15.3)', () => {
         expect(preview(world, set.state, { type: 'endTurn' }).pending).toBeUndefined();
         const done = run(world, set.state, { type: 'endTurn' }, { type: 'endTurn' });
         expect(doorStatus(world, done, 'vaultDoor')).toBe('breached');
+    });
+
+    it('each sensor carrier has at least two counters that work in its countdown: the panel, the console\'s wiring, the window', () => {
+        for (const kind of ['seismicSensor', 'motionSensor'] as const) expect(CARRIERS[kind].counters.filter(c => c.now === true).length, kind).toBeGreaterThanOrEqual(2);
+        const panel: WorldObject = { id: 'panel', kind: 'alarmPanel', pos: P(0, 2), facing: 's', room: 'a' };
+        const world = fixtureWorld(MAP, { zones: ZONES, rooms: ROOMS, walls: VAULT_WALLS, objects: [...OBJECTS, panel], locks: [vaultLockDef({ timeLock: { from: 3, until: 6 } })] });
+        const crew: CrewStart[] = [{ id: 'jun', pos: P(4, 2), items: ['thermite'] }, { id: 'mara', pos: P(1, 1), items: ['hackingKit'] }, { id: 'kit', pos: P(2, 1), items: ['hackingKit'] }];
+        const burning = run(world, initialState(world, { seed: 3, crew }), { type: 'thermite', crew: 'jun', door: 'vaultDoor' });
+        expect(burning.carriers.map(c => c.kind)).toEqual(['seismicSensor']);
+        // The wiring at the console: 4 actions of hacking (two crew members, one crew phase), the carrier stopped.
+        const cut: Command = { type: 'interact', crew: 'mara', object: 'console', verb: 'sensors' }, cut2: Command = { ...cut, crew: 'kit' };
+        let s = run(world, burning, cut, cut, cut2);
+        expect(s.carriers.length).toBe(1);
+        const done = commit(world, fresh(s), cut2);
+        expect(done.events).toContainEqual({ type: 'sensorsCut', crew: 'kit', console: 'console' });
+        expect(done.events).toContainEqual(expect.objectContaining({ type: 'carrierStopped', kind: 'seismicSensor', why: 'sensors cut' }));
+        // Cut, nothing starts them again: stepping into the vault starts no motion carrier.
+        s = scouted(world, { ...done.state, doors: { ...done.state.doors, vaultDoor: { status: 'breached' as const } } });
+        expect(commit(world, place(fresh(s), 'jun', P(4, 2)), { type: 'move', crew: 'jun', path: [P(5, 2)] }).state.carriers).toEqual([]);
+        // The panel, killed in the countdown, counters it too.
+        const panelled = run(world, { ...burning, crew: burning.crew.map(c => (c.id === 'mara' ? { ...c, pos: P(1, 2) } : c)) }, ...Array.from({ length: 4 }, () => ({ type: 'interact', crew: 'mara', object: 'panel', verb: 'disable' }) as Command));
+        expect(panelled.carriers).toEqual([]);
+        // The motion sensor's carrier stops once the time-lock window opens.
+        const inside = scouted(world, { ...initialState(world, { seed: 3, crew }), turn: 2, doors: { vaultDoor: { status: 'breached' as const } } });
+        const seen = commit(world, place(inside, 'jun', P(4, 2)), { type: 'move', crew: 'jun', path: [P(5, 2)] });
+        expect(seen.state.carriers.map(c => c.kind)).toEqual(['motionSensor']);
+        const opens = commit(world, seen.state, { type: 'endTurn' });
+        expect(opens.state.turn).toBe(3);
+        expect(opens.events).toContainEqual(expect.objectContaining({ type: 'carrierStopped', kind: 'motionSensor', why: 'time lock' }));
     });
 
     it('a motion sensor in a Class III vault starts its carrier as the crew steps in, outside the time-lock window', () => {
@@ -383,6 +506,17 @@ describe('card readers, lockpicks and the key graph\'s cards (§15.2, §7.2)', (
         expect(whyNot(world, teller, { type: 'door', crew: 'mara', door: 'office', action: 'open' })).toBeUndefined();
         const guard = { ...state, crew: state.crew.map(c => ({ ...c, keycards: ['guard'] })) };
         expect(whyNot(world, guard, { type: 'door', crew: 'jun', door: 'cctvDoor', action: 'open' })).toBeUndefined();
+    });
+
+    it('NPCs pass a door the key graph names only on a holder\'s card, as the crew does; the mantrap\'s staff are buzzed through', () => {
+        const { world } = setup([]);
+        const door = world.doors.cctvDoor!;
+        const staff = (id: string): PersonDef => ({ id, name: id, role: id, observer: 'staff', pos: P(0, 0), facing: 's', schedule: [] });
+        expect(npcCanPass(world, staff('teller'))(door, 'locked')).toBe(false);
+        expect(npcCanPass(world, { ...staff('guard'), observer: 'enforcer' })(door, 'locked')).toBe(true);
+        const mantrap: KeyLock = { ...cctv, id: 'mantrap', social: { kind: 'buzz', holders: ['op'], text: '' } };
+        const buzzed = fixtureWorld(map, { zones: ZONES, rooms, walls, locks: [mantrap] });
+        expect(npcCanPass(buzzed, staff('teller'))(door, 'locked')).toBe(true);
     });
 
     it('hacks a card reader in 2 actions (Steady Hands 1) and picks a mechanical lock, each an illegal act and a quiet noise', () => {

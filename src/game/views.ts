@@ -127,7 +127,8 @@ function lapseClocks(world: ReadonlyWorld, state: State): ThreatVM[] {
  * begins (none with Steady Hands in reach); a jammed one stands still until fixed, and wants the crew now.
  */
 function deviceClocks(world: ReadonlyWorld, state: State): ThreatVM[] {
-    return state.devices.map(d => {
+    // A finished drill left at its door until taken back is no clock.
+    return state.devices.filter(d => d.done < d.needed).map(d => {
         const left = d.needed - d.done, name = d.kind === 'drill' ? 'Drill' : 'Thermite', work = `${d.done}/${d.needed}`;
         const steady = d.kind === 'drill' && state.crew.some(c => c.traits.includes('steadyHands') && inReach(world, state, c.pos, d.pos));
         const label = d.jammed ? `${name} jammed (${work}): fix it`
@@ -451,9 +452,10 @@ export function describeEvent(world: ReadonlyWorld, state: State, event: SimEven
         case 'hostageFree': return `${name(event.npc)} shook free of ${name(event.crew)}`;
         case 'coerced': return `${name(event.crew)} made ${name(event.npc)} do as told`;
         case 'codeEntered': return event.npc ? `${name(event.npc)} entered their part of the vault code` : `${name(event.crew)} entered ${CODE_PART[event.part]}`;
-        case 'vaultUnlocked': return event.how === 'timeLock' ? 'The time lock opened: the vault is unlocked'
-            : event.how === 'keycard' && event.by ? `${name(event.by)} swiped the card: the vault is unlocked` : 'The code is in: the vault is unlocked';
-        case 'timeLockShut': return 'The time lock shut the vault again';
+        case 'vaultUnlocked': return event.how === 'keycard' && event.by ? `${name(event.by)} swiped the card: the vault is unlocked` : 'The code is in: the vault is unlocked';
+        case 'timeLockShut': return 'The time lock locked the vault again';
+        case 'drillTaken': return `${name(event.crew)} took the drill back`;
+        case 'sensorsCut': return `${name(event.crew)} cut the vault’s sensors`;
         case 'pcHacked': return `${name(event.crew)} got into the manager’s PC: ${event.part ? CODE_PART[event.part] : 'no code'}${event.window ? `; the time lock opens on turns ${event.window.from}–${event.window.until - 1}` : ''}`;
         case 'lockWorked': return `${name(event.crew)} worked on the lock (${event.progress}/${event.needed})`;
         case 'doorWorked': return `${name(event.crew)} worked on the lock of ${doorName(world, event.door)} (${event.progress}/${event.needed})`;

@@ -19,7 +19,7 @@ import type { CodePart, KeyLock } from '../../gen/model';
  *   half, the head teller hers; the crew what the manager's PC told them (`State.codesKnown`). A world without a key
  *   graph (the test fixtures) is dual control.
  * - **The time lock** (decision 77): its window is the timeline's (the armoured car's, or its own); codes and Three
- *   Keys' card work only in it, and a vault whose social key is the code opens itself in it (rules/vault.ts).
+ *   Keys' card work only in it; outside it a shut vault door locks again (rules/vault.ts).
  * - **Unlocking** the vault (`unlockVault`): its door goes from locked to closed, to be walked through or opened.
  */
 
@@ -33,9 +33,9 @@ declare module '../core/types' {
         codes?: CodePart[];
     }
     interface EventMap {
-        /** The vault door unlocked: by its code, Three Keys' card, or its time lock opening (`by` the crew member, if any). */
-        vaultUnlocked: { door: string; how: 'code' | 'keycard' | 'timeLock'; by: string | null };
-        /** The time lock's window ended: a shut vault door locks again. */
+        /** The vault door unlocked: by its code, or Three Keys' card (`by` the crew member, if any). */
+        vaultUnlocked: { door: string; how: 'code' | 'keycard'; by: string | null };
+        /** Outside the time lock's window: a shut vault door locks again. */
         timeLockShut: { door: string };
     }
 }
@@ -97,7 +97,7 @@ export const entered = (state: DeepReadonly<State>, console: string): readonly C
     (Object.hasOwn(state.objects, console) ? state.objects[console]!.codes ?? [] : []);
 
 /** Unlocks the vault door (see the header): callers check that it is locked first. */
-export function unlockVault(ctx: Ctx, how: 'code' | 'keycard' | 'timeLock', by: string | null): void {
+export function unlockVault(ctx: Ctx, how: 'code' | 'keycard', by: string | null): void {
     const vault = vaultLock(ctx.world);
     if (!vault || doorStatus(ctx.world, ctx.state, vault.target) !== 'locked') throw new InvariantError('Only a locked vault door unlocks');
     ctx.state.doors[vault.target] = { ...ctx.state.doors[vault.target], status: 'closed' };

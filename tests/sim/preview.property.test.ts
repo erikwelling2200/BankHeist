@@ -4,7 +4,7 @@ import { cachedBank } from '../bankCache';
 import { PLOTS, TIERS, type KeyLock } from '../../src/gen/model';
 import { Rng } from '../../src/gen/rng';
 import {
-    actionPreview, CARRY_WEIGHT, commandPlan, commandPreview, hasLineOfSight, holdTargets, ITEMS, reachable, pathTo, addsTo, carriersStarted, DEAF_STATUSES, clonePlain, commit, crewBudget, crewMoveOptions, decodeBits, doorDoubt, effectKind, effectOf, encodeBits, explain, FACINGS, hearing,
+    actionPreview, partOf, CARRY_WEIGHT, commandPlan, commandPreview, hasLineOfSight, holdTargets, ITEMS, reachable, pathTo, addsTo, carriersStarted, DEAF_STATUSES, clonePlain, commit, crewBudget, crewMoveOptions, decodeBits, doorDoubt, effectKind, effectOf, encodeBits, explain, FACINGS, hearing,
     isKnownNow, fixtureWorld, initialState, hashOf, legalActions, noiseRadius, npcsInside, onFloor, pathSafety, pendingCarriers, planningState, previewCertain, previewPicture,
     projectCarriers, projectEvents, projectPreviewEvents, safeFloor, safeFloorJob, sightDoubted, soundRing, teammateEffects, throwPlan, TINT_RANK, tintOf, validatePath, withDoubtedShut,
     worldFromBank, cornerEdges, edgeBetween, edgeKey, edgeNow, inBounds, throwTargets, tileAt,
@@ -387,6 +387,7 @@ function classify(
 /** One crew command chosen at random (a move or dash to a safe-floor tile, a drawn path, or an action), checked. */
 function playOne(run: Run, state: State, timing: boolean): State {
     const { world, rng, probe } = run;
+    if (state.devices.some(d => d.jammed)) probe.bump('drill jams');
     if (run.omniscient) state = omniscient(world, state);
     const ready = state.crew.filter(c => c.actionsLeft > 0);
     if (!ready.length) return state;
@@ -528,7 +529,7 @@ function heldByHolds(world: ReadonlyWorld, state: State): Set<string> {
 }
 
 /** Actions offered too rarely for the floors to rest on chance (`playOne` takes each the first few times). */
-const RARE_COMMANDS: readonly Command['type'][] = ['door', 'interact'];
+const RARE_COMMANDS: readonly Command['type'][] = ['door', 'interact', 'fixDrill'];
 
 /** The takeover's commands (M2-01). */
 const TAKEOVER = new Set(['command', 'go', 'maskUp', 'hold']);
@@ -661,7 +662,10 @@ function endTurn(run: Run, state: State): State {
     const shown = new Set(state.crew.filter(c => c.holding === state.turn).flatMap(c => holdTargets(world, state, c.id)));
     if ([...held].sort().join() !== [...shown].sort().join()) probe.fail(`${run.label} t${state.turn}: hold ring ${[...shown]}, within reach ${[...held]}`);
     const r = endPhase(world, state);
-    checkTelegraphs(run, state, commit(world, state, { type: 'endTurn' }));
+    const done = commit(world, state, { type: 'endTurn' });
+    // A jam rolled here, or one rolled by an end of turn played elsewhere (a move's) and still standing.
+    if (done.events.some(e => e.type === 'drillJammed') || state.devices.some(d => d.jammed)) probe.bump('drill jams');
+    checkTelegraphs(run, state, done);
     // An escapee raises the Alarm only once its runner is off the map (§9.1: it got out).
     for (const e of r.events) {
         if (e.type !== 'alarmRaised') continue;
@@ -1030,7 +1034,8 @@ function playLoot(probe: Probe, rng: Rng, n: number): void {
  * card-reader door and a picked lock, before a vault of a random kind (a code, dual control or Three Keys, a time lock
  * or none, sensors or none); a crew with the drill, thermite, a lockpick and a hacking kit, NPCs of every class about
  * (the key-holders among them). The random player sets the drill and the charge, fixes jams, hacks, picks and enters
- * codes among its moves; jams are rolled as the crew phase begins, so the world phase's preview stops at their odds.
+ * codes among its moves; jams (more likely here, 40%) are rolled as the crew phase begins, so the world phase's
+ * preview stops at their odds.
  */
 function playVault(probe: Probe, rng: Rng, n: number): void {
     const map = ['..........', '..........', '..........', '..........', '..........', '..........'];
@@ -1056,32 +1061,34 @@ function playVault(probe: Probe, rng: Rng, n: number): void {
     const lock: KeyLock = {
         id: 'vault', name: 'Vault', target: 'vaultDoor', room: 'v', holders: ['manager', 'head'],
         social: social === 'code' ? { kind: 'code', parts: ['whole'], text: '' } : social === 'dual' ? { kind: 'code', parts: ['headTeller', 'manager'], text: '' } : { kind: 'threeKeys', keycard: ['manager'], text: '' },
-        technical: { kind: 'drill', phases: rng.int(2, 4), sensors: rng.pick([[], ['seismic'], ['seismic', 'motion']] as ('seismic' | 'motion')[][]), text: '' },
-        violent: { kind: 'thermite', phases: rng.int(2, 3), text: '' },
+        technical: { kind: 'drill', phases: rng.int(3, 6), noise: 6, sensors: rng.pick([[], ['seismic'], ['seismic', 'motion']] as ('seismic' | 'motion')[][]), text: '' },
+        violent: { kind: 'thermite', phases: rng.int(2, 3), noise: 6, text: '' },
         ...(social === 'threeKeys' || rng.chance(0.5) ? { timeLock: { from, until: from + 2 } } : {})
     };
     const free: Pos[] = [];
     for (let y = 0; y < 6; y++) for (let x = 0; x < 10; x++) if (!objects.some(o => o.kind !== 'loot' && o.pos.x === x && o.pos.y === y)) free.push({ x, y });
     const at = (x: number, y: number): Pos => free.splice(free.findIndex(p => p.x === x && p.y === y), 1)[0]!;
     const crew: CrewStart[] = [
-        { id: 'c0', pos: at(5, 1), items: ['drill', 'thermite', 'pistol'], ...(rng.chance(0.5) ? { traits: ['steadyHands'] } : {}) },
-        { id: 'c1', pos: at(2, 1), items: ['hackingKit'] },
+        { id: 'c0', pos: at(5, 1), items: ['drill', 'thermite', 'pistol'] },
+        { id: 'c1', pos: at(3, 2), items: ['hackingKit'] },
         { id: 'c2', pos: at(1, 2), items: ['lockpick', 'hackingKit', 'zipTies'], traits: ['steadyHands'] }
     ];
     const take = (): Pos => free.splice(rng.int(0, free.length - 1), 1)[0]!;
     const people: PersonDef[] = [
-        { id: 'manager', name: 'manager', role: 'manager', observer: 'staff', pos: at(3, 1), facing: 's', schedule: [] },
-        { id: 'head', name: 'head', role: 'headTeller', observer: 'staff', pos: at(1, 1), facing: 's', schedule: [] }
+        { id: 'manager', name: 'manager', role: 'manager', observer: 'staff', pos: at(3, 0), facing: 's', schedule: [] },
+        { id: 'head', name: 'head', role: 'headTeller', observer: 'staff', pos: at(2, 1), facing: 's', schedule: [] }
     ];
     for (let i = 0, count = rng.int(0, 2); i < count; i++) {
         const observer = rng.pick(['civilian', 'staff', 'enforcer'] as ObserverClass[]);
         people.push({ id: `n${i}`, name: `n${i}`, role: observer === 'civilian' ? 'customer' : observer === 'staff' ? 'teller' : 'guard', observer, pos: take(), facing: rng.pick(FACINGS), schedule: randomSchedule(rng, free) });
     }
-    const world = fixtureWorld(map, { zones: ['xxxxxxxxxx', 'xxxxxxxxxx', 'xxxxxxxxxx', 'xxxxxxxxxx', 'ssssssxxxx', 'ssssssxxxx'], rooms, walls, people, objects, locks: [lock] });
+    const world = fixtureWorld(map, { zones: ['xxxxxxxxxx', 'xxxxxxxxxx', 'xxxxxxxxxx', 'xxxxxxxxxx', 'ssssssxxxx', 'ssssssxxxx'], rooms, walls, people, objects, locks: [lock], rules: { drillJamChance: 0.4 } });
     let state = initialState(world, { seed: n, crew });
-    // Face down from the start now and then, so codes get coerced.
-    for (const npc of state.npcs) if (rng.chance(0.4)) Object.assign(npc, { status: 'commanded', command: { pips: 3, by: 'c0' } });
-    if (rng.chance(0.3)) state = { ...state, codesKnown: lock.social.kind === 'code' ? [lock.social.parts[0]!] : [] };
+    // Often the takeover's shout first (c0's pistol reaches the key-holders), so codes get coerced; now and then the
+    // crew starts knowing what the manager's PC tells, as if hacked already.
+    if (rng.chance(0.6)) state = commit(world, state, { type: 'command', crew: 'c0' }).state;
+    const pcPart = partOf(world, 'manager');
+    if (pcPart && rng.chance(0.3)) state = { ...state, codesKnown: [pcPart] };
     play({ world, rng, omniscient: n % 2 === 0, label: `vault ${n} ${social}`, tier: 'fixture', probe, vault: true }, state, FIXTURE_TURNS + 3, false);
 }
 
@@ -1415,7 +1422,8 @@ describe('previews (property, §8.8)', () => {
             'moves seen by an NPC they turned', 'hearers whose last tile heard is not the nearest', 'moves that do something to a teammate',
             'moves that make a teammate\'s world phase worse'
         ]) expect(st[k] ?? 0, k).toBeGreaterThan(0);
-        for (const type of ['door', 'knockout', 'drag', 'interact', 'takeLoot', 'dropLoot', 'pass', 'inspectLoot', 'drill', 'thermite', 'coerce']) expect(st[`command ${type}`] ?? 0, type).toBeGreaterThan(0);
+        for (const type of ['door', 'knockout', 'drag', 'interact', 'takeLoot', 'dropLoot', 'pass', 'inspectLoot', 'drill', 'thermite', 'coerce', 'fixDrill', 'takeDrill']) expect(st[`command ${type}`] ?? 0, type).toBeGreaterThan(0);
+        expect(st['drill jams'] ?? 0, 'drill jams').toBeGreaterThan(0);
         for (const k of ['throws caught', 'throws landed']) expect(st[k] ?? 0, k).toBeGreaterThan(0);
     }, 600_000);
     // Long games (the reviewer's harness): a quiet crew (no weapons, no knockouts, no lock work, mostly calm tiles) plays on while

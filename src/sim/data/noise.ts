@@ -54,10 +54,10 @@ export const NOISES = {
     breachCharge: range('loud', 14, 18),
     shapedCharge: fixed('loud', 18),
     vehicleRam: fixed('loud', 16),
-    /** Each world phase it runs. */
-    drill: fixed('loud', 6),
-    /** Each world phase it burns. */
-    thermite: fixed('loud', 6)
+    /** Each world phase it runs; louder in a Three Keys bank (§17.2, the key graph's `noise`). */
+    drill: range('loud', 6, 9),
+    /** Each world phase it burns; as the drill. */
+    thermite: range('loud', 6, 9)
 } as const satisfies Record<string, NoiseDef>;
 
 export type NoiseSource = keyof typeof NOISES;

@@ -91,7 +91,7 @@ describe('lapses, drills and loot', () => {
 
     it('lists a drill with its work and jam odds, and a jammed one as wanting the crew', () => {
         const { world, state } = scene(s => {
-            s.devices = [{ id: 'drill-1', kind: 'drill', at: 'door', pos: P(2, 2), crew: 'jun', done: 3, needed: 8, jammed: false }];
+            s.devices = [{ id: 'drill-1', kind: 'drill', at: 'door', pos: P(2, 2), crew: 'jun', done: 3, needed: 8, jammed: false, noise: 6 }];
         });
         expect(threatLedger(state, world).find(t => t.id === 'device:drill-1')).toMatchObject({ kind: 'drill', countdown: 5, label: `Drill 3/8: jams ${Math.round(world.rules.drillJamChance * 100)}%` });
         state.devices[0]!.jammed = true;

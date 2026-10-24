@@ -76,13 +76,14 @@ export const CARRIERS: Readonly<Record<CarrierKind, CarrierDef>> = {
         label: 'Missed check-in', wired: false, radio: true,
         counters: [{ name: 'neutralise the operator', now: true }, { name: 'answer the radio', now: true }, { name: 'jammer', now: true }]
     },
+    // The vault's wiring is reached at its console until M5-04 places the wiring box (rules/vault.ts, decision 81).
     seismicSensor: {
         label: 'Seismic sensor', wired: true, radio: false,
-        counters: [{ name: 'disable the alarm panel', now: true }, { name: 'disable at the wiring box', now: 'M2' }]
+        counters: [{ name: 'disable the alarm panel', now: true }, { name: 'cut the sensors at the vault console', now: true }]
     },
     motionSensor: {
         label: 'Motion sensor', wired: true, radio: false,
-        counters: [{ name: 'disable the alarm panel', now: true }, { name: 'disable at the wiring box', now: 'M2' }]
+        counters: [{ name: 'disable the alarm panel', now: true }, { name: 'cut the sensors at the vault console', now: true }, { name: 'the time-lock window', now: true }]
     },
     patrolCar: {
         label: 'Patrol car', wired: false, radio: true,

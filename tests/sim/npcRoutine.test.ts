@@ -134,7 +134,7 @@ describe('NPC routines on generated banks', () => {
                 // As fast as the walk allows: the cost of the route from where it starts, at the hurried pace, plus a phase
                 // at each stop (a phase's walk ends there), and two to spare. Nobody stalls on the way.
                 const start = day.states[block.from - 1]!;
-                const options = { ignorePeople: true, canPassDoor: npcCanPass(guard) };
+                const options = { ignorePeople: true, canPassDoor: npcCanPass(day.world, guard) };
                 let cost = 0, at: Pos = start.npcs.find(n => n.id === guard.id)!.pos;
                 for (const stop of block.route!) {
                     cost += reachAt(reachable(day.world, start, at, day.world.width * day.world.height * 3, options), stop)!.cost;

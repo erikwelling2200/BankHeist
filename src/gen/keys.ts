@@ -19,6 +19,9 @@ interface Ctx {
     timeline: TimelineEvent[];
 }
 
+/** The drill's and thermite's noise each phase (§15.3: a loud 6), and Three Keys' louder one (§17.2). */
+const DEVICE_NOISE = 6, LOUDER_NOISE = 9;
+
 /** Actions of hacking a card reader takes (§7.2: 2, Steady Hands 1). */
 const READER_ACTIONS = 2;
 
@@ -40,7 +43,9 @@ export function keyGraph(ctx: Ctx): KeyLock[] {
     const locks: KeyLock[] = [];
     const vault = room('vault'), vaultDoor = doorInto('vault');
     if (vault && vaultDoor) {
-        const drill = DRILL_PHASES[ctx.vaultClass], thermite = ctx.vaultClass === 'III' ? 5 : 3;
+        // Three Keys: "the drill and thermite still work, slower and louder" (§17.2): half as long again, a radius of 9.
+        const three = ctx.archetype === 'threeKeys', slower = (n: number) => (three ? Math.ceil(n * 1.5) : n), noise = three ? LOUDER_NOISE : DEVICE_NOISE;
+        const drill = slower(DRILL_PHASES[ctx.vaultClass]), thermite = slower(ctx.vaultClass === 'III' ? 5 : 3);
         const sensors: ('seismic' | 'motion')[] = ctx.vaultClass === 'III' ? ['seismic', 'motion'] : ctx.vaultClass === 'II' ? ['seismic'] : [];
         const window = ctx.timeLock ? timeWindow(ctx.timeline) : undefined;
         // The code is split only among the people the bank has: dual control needs a manager and a head teller.
@@ -53,22 +58,20 @@ export function keyGraph(ctx: Ctx): KeyLock[] {
         if (window && social.kind === 'code') social.text = `${social.text}; codes only work in the time-lock window, when the vault opens itself`;
         locks.push({
             id: 'vault', name: `Vault (class ${ctx.vaultClass})`, target: vaultDoor.id, room: vault.id, social,
-            technical: { kind: 'drill', phases: drill, sensors, text: `Drill: ${drill} phases${sensors.length ? ', seismic sensor starts an alarm carrier' : ''}` },
-            violent: { kind: 'thermite', phases: thermite, text: `Thermite: ${thermite} phases, loud, scorches loot near the door` },
+            technical: { kind: 'drill', phases: drill, noise, sensors, text: `Drill: ${drill} phases${sensors.length ? ', seismic sensor starts an alarm carrier' : ''}` },
+            violent: { kind: 'thermite', phases: thermite, noise, text: `Thermite: ${thermite} phases, loud, scorches loot near the door` },
             holders: social.kind === 'threeKeys' ? social.keycard : parts.length > 1 ? ids('manager', 'headTeller') : ids('manager'),
             ...(window ? { timeLock: window } : {})
         });
     }
+    // Both of the mantrap's doors are one lock's: the first keeps the id 'mantrap', the second is 'mantrap-2'.
     const mantrap = room('mantrap');
-    if (mantrap) {
-        const d = doors.find(x => (x.a === mantrap.id || x.b === mantrap.id) && x.lock === 'keycard');
-        if (d) locks.push({
-            id: 'mantrap', name: 'Mantrap', target: d.id, room: mantrap.id,
-            social: { kind: 'buzz', holders: ids('operator'), text: 'The operator buzzes staff through (a staff uniform and a calm face)' },
-            technical: { kind: 'loopedReader', actions: READER_ACTIONS, text: 'Loop the mantrap camera, then the hacking kit on the reader' },
-            violent: { kind: 'breach', tool: 'breachCharge', text: 'Breach charge on either door' }, holders: ids('operator')
-        });
-    }
+    if (mantrap) doors.filter(x => (x.a === mantrap.id || x.b === mantrap.id) && x.lock === 'keycard').forEach((d, i) => locks.push({
+        id: i ? `mantrap-${i + 1}` : 'mantrap', name: i ? 'Mantrap (inner door)' : 'Mantrap', target: d.id, room: mantrap.id,
+        social: { kind: 'buzz', holders: ids('operator'), text: 'The operator buzzes staff through (a staff uniform and a calm face)' },
+        technical: { kind: 'loopedReader', actions: READER_ACTIONS, text: 'Loop the mantrap camera, then the hacking kit on the reader' },
+        violent: { kind: 'breach', tool: 'breachCharge', text: 'Breach charge on either door' }, holders: ids('operator')
+    }));
     const cctv = room('cctvRoom'), cctvDoor = doorInto('cctvRoom');
     if (cctv && cctvDoor) {
         const holders = ids('operator', 'lobbyGuard', 'patrolGuard', 'chief', 'manager');
@@ -80,10 +83,11 @@ export function keyGraph(ctx: Ctx): KeyLock[] {
     }
     const counting = room('countingRoom'), countingDoor = doorInto('countingRoom');
     if (counting && countingDoor) {
-        const holders = ids('headTeller', 'manager');
+        // The guards' master cards too: their closing sweep goes through every room (§16.3).
+        const holders = ids('headTeller', 'manager', 'lobbyGuard', 'patrolGuard', 'chief');
         locks.push({
             id: 'counting', name: 'Counting room door', target: countingDoor.id, room: counting.id,
-            social: { kind: 'keycard', holders, text: "A keycard: the head teller's or the manager's, or a teller sent with a cash tray" },
+            social: { kind: 'keycard', holders, text: "A keycard: the head teller's, the manager's or a guard's master card, or a teller sent with a cash tray" },
             technical: reader, violent: { kind: 'breach', tool: 'breachCharge', text: 'Breach charge on the steel door (loud)' }, holders
         });
     }
