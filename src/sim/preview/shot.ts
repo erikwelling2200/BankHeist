@@ -4,7 +4,7 @@ import { OVERPENETRATION } from '../data/weapons';
 import { BODY_RADIUS, brokenFabric, copyFabric, coverAgainst, hasCover, INDESTRUCTIBLE, traceBullet, type Body, type BulletStop, type ShotStep, type ShotView } from '../geo/shot';
 import { crewPicture, isKnownNow, VISIBILITY, visibilityMap } from '../rules/knowledge';
 import { decodeBits } from '../rules/knowledgeBits';
-import { shotArcs, shotScene, type Shot } from '../rules/shot';
+import { leanOptions, shotArcs, shotScene, type Lean, type Shot } from '../rules/shot';
 
 /*
  * The shot preview (GAME_DESIGN §11.7): the geometry of an attack before Confirm, never its outcome. It is the truth
@@ -201,20 +201,29 @@ export function previewShot(world: ReadonlyWorld, state: DeepReadonly<State>, sh
 /**
  * The shot preview the player may see (§8.15, decision 92): `previewShot` on the crew's picture, with only the NPCs the
  * crew sees or predicts on the map (a hostage led by a crew member stays), every door not seen this turn as last seen,
- * and the map as the crew knows it (`ShotView`): the fan stops ('unknown') where it would enter a tile neither on the
+ * and the map as the crew knows it (`crewShotView`): the fan stops ('unknown') where it would enter a tile neither on the
  * blueprint nor ever seen, a hidden aimed-at tile says nothing of its height, and panes, teller glass's hits and
- * cover's wear show only where the crew has seen them (as built elsewhere; no cover on hidden tiles). A target the
+ * cover's wear show only where the crew sees them this turn (as built elsewhere; no cover on hidden tiles). A target the
  * crew doesn't know is refused like any missing one. The outcome may still meet someone or something unknown: that is
  * the risk of firing into what the crew can't see.
  */
 export function crewShotPreview(world: ReadonlyWorld, state: State, shot: Shot): ShotPreview {
     const picture = crewPicture(world, state);
     const led = state.npcs.filter(n => !picture.npcs.includes(n) && state.crew.some(c => c.dragging === n.id) && isKnownNow(world, state, n.id));
-    const n = world.width * world.height, visibility = visibilityMap(world, state);
-    const hidden = new Uint8Array(n), seen = decodeBits(state.knowledge.seen, n).slice(), fresh = decodeBits(state.knowledge.fresh, n);
-    for (let i = 0; i < n; i++) {
-        if (VISIBILITY[visibility[i]!] === 'hidden') hidden[i] = 1;
-        if (fresh[i]) seen[i] = 1;
-    }
-    return previewShot(world, led.length ? { ...picture, npcs: [...picture.npcs, ...led] } : picture, shot, { hidden, seen });
+    return previewShot(world, led.length ? { ...picture, npcs: [...picture.npcs, ...led] } : picture, shot, crewShotView(world, state));
 }
+
+/**
+ * The map as the crew knows it for a shot (`ShotView`): its hidden tiles, and the tiles it sees this turn, the only
+ * ones whose panes and cover show as they are now (decision 92).
+ */
+export function crewShotView(world: ReadonlyWorld, state: State): ShotView {
+    const n = world.width * world.height, visibility = visibilityMap(world, state);
+    const hidden = new Uint8Array(n), seen = decodeBits(state.knowledge.fresh, n).slice();
+    for (let i = 0; i < n; i++) if (VISIBILITY[visibility[i]!] === 'hidden') hidden[i] = 1;
+    return { hidden, seen };
+}
+
+/** The tiles a crew member can be seen to lean out to (`leanOptions` on what the crew knows): what aim mode offers. */
+export const crewLeanOptions = (world: ReadonlyWorld, state: State, crew: string): Lean[] =>
+    leanOptions(world, crewPicture(world, state), crew, crewShotView(world, state).hidden);

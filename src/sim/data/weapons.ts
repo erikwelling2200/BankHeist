@@ -35,6 +35,8 @@ export interface WeaponDef {
     precision?: true;
     /** Knocks out what it hits instead of dealing damage (the taser). */
     knockout?: true;
+    /** It can Brace on a bipod (§6.3, §12.1: the DMR and the LMG). */
+    brace?: true;
 }
 
 /** §12.1, canonical. Slugs are the pump shotgun's other ammunition (M3-02 picks which is loaded). */
@@ -47,8 +49,8 @@ export const WEAPONS = {
     shotgun: { aim: 20, recoil: 0, bullets: 6, damage: 2, pierce: 0, range: 8, moved: 1, mag: 6, noise: 12, close: { within: 3, damage: 1 } },
     shotgunSlug: { aim: 4, recoil: 0, bullets: 1, damage: 6, pierce: 2, range: 12, moved: 1, mag: 6, noise: 12 },
     assaultRifle: { aim: 2, recoil: 3, bullets: 3, damage: 4, pierce: 1, range: 20, moved: 2, mag: 30, noise: 14 },
-    dmr: { aim: 1, recoil: 0, bullets: 1, damage: 9, pierce: 3, range: 30, moved: 6, mag: 5, noise: 18, precision: true },
-    lmg: { aim: 6, recoil: 2, bracedRecoil: 1, bullets: 10, damage: 3, pierce: 1, range: 20, moved: 2, mag: 100, noise: 18 }
+    dmr: { aim: 1, recoil: 0, bullets: 1, damage: 9, pierce: 3, range: 30, moved: 6, mag: 5, noise: 18, precision: true, brace: true },
+    lmg: { aim: 6, recoil: 2, bracedRecoil: 1, bullets: 10, damage: 3, pierce: 1, range: 20, moved: 2, mag: 100, noise: 18, brace: true }
 } as const satisfies Record<string, WeaponDef>;
 
 export type WeaponId = keyof typeof WEAPONS;

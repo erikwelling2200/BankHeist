@@ -3,7 +3,7 @@ import {
     atan2Deg, commit, fixtureWorld, initialState, leanOptions, preview, PreviewRollError, previewShot, resolveShot, rotate, sinCosDeg, traceShot,
     type FixtureOptions, type NpcStatus, type PersonDef, type Pos, type ReadonlyWorld, type Shot, type ShotRolls, type ShotTrace, type State
 } from '../../src/sim';
-import { crewShotPreview, tileVisibility } from '../../src/sim';
+import { crewLeanOptions, crewShotPreview, tileVisibility } from '../../src/sim';
 import { registerTestCommand, testCommand } from './helpers';
 
 const P = (x: number, y: number): Pos => ({ x, y });
@@ -197,6 +197,15 @@ describe('leaning', () => {
         expect(previewShot(world, state, { ...guard, shooter: 'cust' }).bodies).toMatchObject([{ id: 'jun', cover: { state: 'flanked' } }]);
     });
 
+    it('steps as people step: not off raised floor without stairs', () => {
+        const walls = [{ between: [P(2, 0), P(2, 1)] as [Pos, Pos], material: 'reinforced' as const }];
+        const flat = setup(['......', '......', '......', '......'], { jun: P(2, 1), walls });
+        expect(leanOptions(flat.world, flat.state, 'jun')).toEqual([{ at: P(3, 1), corner: P(-1, -1) }, { at: P(1, 1), corner: P(1, -1) }]);
+        // On a mezzanine, east of Jun is ground floor a storey down: no lean there, though the wall's end is a corner.
+        const { world, state } = setup(['^^^...', '^^^...', '/.....', '......'], { jun: P(2, 1), walls });
+        expect(leanOptions(world, state, 'jun')).toEqual([{ at: P(1, 1), corner: P(1, -1) }]);
+    });
+
     it('ends with the next crew phase or a move', () => {
         const { world, state } = setup(map, { jun: P(2, 2), walls });
         state.crew[0]!.leaning = { at: P(3, 2), corner: P(-1, -1) };
@@ -242,6 +251,9 @@ describe('resolving a shot', () => {
         expect(() => commit(world, state, testCommand({ type: 'testShoot', shot: { shooter: 'jun', weapon: 'pistol', at: P(0, 1) } } as never))).toThrow(/somewhere to aim/);
         expect(() => commit(world, state, testCommand({ type: 'testShoot', shot: { shooter: 'jun', weapon: 'pistol', at: P(4, 1), bullets: 3 } } as never))).toThrow(/1 to 2/);
         expect(() => commit(world, state, testCommand({ type: 'testShoot', shot: { shooter: 'jun', weapon: 'mask', at: P(4, 1) } } as never))).toThrow(/no weapon/);
+        expect(() => commit(world, state, testCommand({ type: 'testShoot', shot: { shooter: 'jun', weapon: 'pistol', at: P(4, 1), braced: true } } as never))).toThrow(/bipod/);
+        expect(() => commit(world, state, testCommand({ type: 'testShoot', shot: { shooter: 'jun', weapon: 'shotgun', at: P(4, 1), aimFactor: 18 } } as never))).toThrow(/arc/);
+        expect(traceShot(world, state, { shooter: 'jun', weapon: 'lmg', at: P(4, 1), braced: true, moved: true }, straight(10)).arcs).toEqual([6, 7, 8, 9, 10, 11, 12, 13, 14, 15]);
     });
 });
 
@@ -319,6 +331,23 @@ describe('the preview, fixed in review', () => {
                 for (const s of a.fan) expect(s.steps.every(x => x.kind !== 'object')).toBe(true);
             }
         }
+        // Leaning: Jun at (3, 1) beside the wall's end, the doorway's far side (4, 2) unseen. What stands there can't
+        // decide whether a lean is offered: an unknown tile is never open.
+        const lean = (map: string[]) => {
+            const world = fixtureWorld(map, { zones: rooms, rooms, walls: walls.slice(0, 2) });
+            const state = initialState(world, { seed: 3, crew: [{ id: 'jun', pos: P(3, 1) }] });
+            return { world, state };
+        };
+        const open = lean(['..........', '..........', '..........']), column = lean(['..........', '..........', '....T.....']);
+        expect(tileVisibility(open.world, open.state, P(4, 2))).toBe('hidden');
+        expect(leanOptions(open.world, open.state, 'jun')).toEqual([{ at: P(3, 2), corner: P(1, -1) }]);
+        expect(leanOptions(column.world, column.state, 'jun')).toEqual([]);
+        expect(crewLeanOptions(open.world, open.state, 'jun')).toEqual(crewLeanOptions(column.world, column.state, 'jun'));
+        const leaning: Shot = { shooter: 'jun', weapon: 'pistol', at: P(9, 2), lean: P(3, 2) };
+        expect(() => crewShotPreview(open.world, open.state, leaning)).toThrow(/lean/);
+        expect(() => crewShotPreview(column.world, column.state, leaning)).toThrow(/lean/);
+        const plainShot: Shot = { shooter: 'jun', weapon: 'pistol', at: P(9, 2) };
+        expect(crewShotPreview(column.world, column.state, plainShot)).toEqual(crewShotPreview(open.world, open.state, plainShot));
         // The omniscient preview does see the column.
         expect(previewShot(furnished.world, furnished.state, { shooter: 'jun', weapon: 'dmr', at: P(6, 0) }).fan.some(s => s.steps.some(x => x.kind === 'object'))).toBe(true);
         expect(crewShotPreview(furnished.world, furnished.state, { shooter: 'jun', weapon: 'dmr', at: P(6, 0) }).fan.map(s => s.stop)).toEqual(['unknown']);

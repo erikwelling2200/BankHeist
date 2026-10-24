@@ -1590,7 +1590,10 @@ Later milestones: within each milestone, the `∥` notes in §3 apply. UI packag
     no furniture, nobody standing there) where their own tile's side toward one perpendicular way is full cover (a wall
     that blocks sight, a full-height object beyond, the map's edge) and the neighbour's same side is open. Leaning,
     their hitbox is on the lean tile, with half cover over the quadrant toward the corner. It ends as their side's next
-    phase begins (the crew's crew phase, NPCs' world phase) or when they move.
+    phase begins (the crew's crew phase, NPCs' world phase) or when they move. The step to the lean tile follows the
+    movement rules (`stepCost`: no raised edge without stairs). What the crew is offered (`crewLeanOptions`, and a lean
+    in `crewShotPreview`) counts only what it knows: a hidden tile is neither full cover nor open and is never leaned
+    to, so an offered lean is one the truth allows (doors as pictured aside).
 91. **Shot-out glass (M3-01, §11.4, §11.6).** A shattered pane (glass on its first hit, teller glass at its 4th) lets
     bullets and sound through freely (`blocksSound` false) and still stops people: getting through is a glass cutter's
     or a charge's job. Teller glass counts every bullet that reaches it, a Pierce 3 one that passes included; the 4th is
@@ -1602,7 +1605,7 @@ Later milestones: within each milestone, the `∥` notes in §3 apply. UI packag
     the same on the crew's picture (only NPCs it sees or predicts, a hostage it leads, doors as last seen) and on the
     map as the crew knows it (`ShotView`): the fan, its `broken` paths and the shields stop ('unknown') where a bullet
     would enter a tile neither on the blueprint nor ever seen (nor its corner's side tiles); a hidden aimed-at tile
-    says nothing of its height; panes, teller glass's hits and cover's wear show only where the crew has seen them, as
+    says nothing of its height; panes, teller glass's hits and cover's wear show as they are only where the crew sees them this turn, as
     built elsewhere, and hidden tiles give no cover. Two banks that differ only inside a room the crew has never seen
     preview alike. M3-09 draws from that. `resolveShot` is not a command (M3-02's
     attack calls it) and applies no damage (M3-03).

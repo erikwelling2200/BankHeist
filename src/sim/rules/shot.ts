@@ -5,7 +5,7 @@ import { edgeNow, newId, registerCrewInit, registerNpcInit, registerRuleDefaults
 import type { CrewState, DeepReadonly, NpcState, Phase, Pos, ReadonlyWorld, State } from '../core/types';
 import { registerEvents } from '../core/undo';
 import { CREW_ARMOUR, NPC_ARMOUR, weaponDef, type WeaponDef } from '../data/weapons';
-import { ABSENT_STATUSES, LYING_STATUSES } from '../geo/move';
+import { ABSENT_STATUSES, LYING_STATUSES, stepCost } from '../geo/move';
 import {
     copyFabric, INDESTRUCTIBLE, NO_COVER, shotFabric, shotMap, tileKey, traceBullet, viewedFabric, type Body, type BulletTrace, type Fabric, type ShotScene, type ShotView
 } from '../geo/shot';
@@ -217,30 +217,34 @@ export function shotBodies(world: ReadonlyWorld, state: DeepReadonly<State>, sho
 const SIDES: readonly Pos[] = [{ x: 0, y: -1 }, { x: 1, y: 0 }, { x: 0, y: 1 }, { x: -1, y: 0 }];
 
 /**
- * The tiles a person can lean out to (§11.4, decision 90): an orthogonal neighbour they could step to (no wall between,
- * nothing on it, nobody standing there) where the side of their own tile toward one perpendicular way is full cover (a
- * wall that blocks sight, or a full-height object beyond it) and the same side of the neighbour is open. Each with the
- * diagonal toward the corner; one per tile, the first corner in north, east, south, west order.
+ * The tiles a person can lean out to (§11.4, decision 90): an orthogonal neighbour they could step to (`stepCost`: no
+ * wall between, no furniture, no raised edge without stairs; nobody standing there) where the side of their own tile
+ * toward one perpendicular way is full cover (a wall that blocks sight, a full-height object beyond it, the map's edge)
+ * and the same side of the neighbour is open. Each with the diagonal toward the corner; one per tile, the first corner
+ * in north, east, south, west order.
+ *
+ * With `hidden` (the crew's hidden tiles, `ShotView`) only what the crew knows counts: a hidden tile is neither full
+ * cover nor open, and is never leaned to, so every lean offered is one the truth allows too (doors as pictured aside).
  */
-export function leanOptions(world: ReadonlyWorld, state: DeepReadonly<State>, id: string): Lean[] {
+export function leanOptions(world: ReadonlyWorld, state: DeepReadonly<State>, id: string, hidden?: Uint8Array): Lean[] {
     const person = personOf(state, id);
     if (!person) throw new Error(`No one is '${id}'`);
     const from = person.kind === 'crew' ? person.crew.pos : person.npc.pos;
     const s = state as State;
-    const blocksSight = (a: Pos, b: Pos): boolean => {
-        if (!inBounds(world, b)) return true;
-        return !!edgeNow(world, s, edgeKey(edgeBetween(a, b)))?.blocksSight || !!tileAt(world, b)!.tall;
-    };
+    const unknown = (p: Pos): boolean => !!hidden && inBounds(world, p) && hidden[p.y * world.width + p.x] === 1;
+    const wall = (a: Pos, b: Pos): boolean => !inBounds(world, b) || !!edgeNow(world, s, edgeKey(edgeBetween(a, b)))?.blocksSight;
+    const fullCover = (a: Pos, b: Pos): boolean => wall(a, b) || (!unknown(b) && !!tileAt(world, b)!.tall);
+    const open = (a: Pos, b: Pos): boolean => !wall(a, b) && !unknown(b) && !tileAt(world, b)!.tall;
     const standing = new Set<string>();
     for (const c of state.crew) if (c.id !== id) standing.add(tileKey(c.pos));
     for (const n of state.npcs) if (n.id !== id && !ABSENT_STATUSES.has(n.status) && !LYING_STATUSES.has(n.status) && n.stashed === null) standing.add(tileKey(n.pos));
     const out: Lean[] = [];
     for (const e of SIDES) {
-        const at = { x: from.x + e.x, y: from.y + e.y }, tile = tileAt(world, at);
-        if (!tile || tile.blocksMove || standing.has(tileKey(at)) || edgeNow(world, s, edgeKey(edgeBetween(from, at)))?.blocksMove) continue;
+        const at = { x: from.x + e.x, y: from.y + e.y };
+        if (!inBounds(world, at) || unknown(at) || standing.has(tileKey(at)) || stepCost(world, s, from, at) === undefined) continue;
         for (const p of SIDES) {
             if (p.x * e.x + p.y * e.y !== 0) continue;
-            if (!blocksSight(from, { x: from.x + p.x, y: from.y + p.y }) || blocksSight(at, { x: at.x + p.x, y: at.y + p.y })) continue;
+            if (!fullCover(from, { x: from.x + p.x, y: from.y + p.y }) || !open(at, { x: at.x + p.x, y: at.y + p.y })) continue;
             out.push({ at, corner: { x: p.x - e.x, y: p.y - e.y } });
             break;
         }
@@ -259,12 +263,12 @@ export function shotArcs(state: DeepReadonly<State>, shot: Shot): number[] {
 }
 
 /** Where a shooter fires from: the lean tile, or where they stand. */
-function originOf(world: ReadonlyWorld, state: DeepReadonly<State>, shot: Shot): Pos {
+function originOf(world: ReadonlyWorld, state: DeepReadonly<State>, shot: Shot, hidden?: Uint8Array): Pos {
     const person = personOf(state, shot.shooter);
     if (!person) throw new IllegalCommand(`No one is '${shot.shooter}'`);
     const pos = person.kind === 'crew' ? person.crew.pos : person.npc.pos;
     if (!shot.lean) return { x: pos.x, y: pos.y };
-    if (!leanOptions(world, state, shot.shooter).some(l => samePos(l.at, shot.lean!))) throw new IllegalCommand(`Nowhere to lean out at (${shot.lean.x}, ${shot.lean.y})`);
+    if (!leanOptions(world, state, shot.shooter, hidden).some(l => samePos(l.at, shot.lean!))) throw new IllegalCommand(`Nowhere to lean out at (${shot.lean.x}, ${shot.lean.y})`);
     return { x: shot.lean.x, y: shot.lean.y };
 }
 
@@ -280,6 +284,9 @@ function checkShot(world: ReadonlyWorld, state: DeepReadonly<State>, shot: Shot)
     if (!Number.isInteger(n) || n < 1 || n > w.bullets) throw new IllegalCommand(`The ${shot.weapon} fires 1 to ${w.bullets} bullets, not ${n}`);
     if (shot.turn !== undefined && (!Number.isInteger(shot.turn) || Math.abs(shot.turn) > 180)) throw new IllegalCommand(`Fine aim turns whole degrees up to 180, not ${shot.turn}`);
     if (shot.aimFactor !== undefined && !(shot.aimFactor > 0)) throw new IllegalCommand(`An aim factor of ${shot.aimFactor}`);
+    if (shot.braced && !w.brace) throw new IllegalCommand(`The ${shot.weapon} has no bipod to brace on`);
+    // An arc is a cone in front of the shooter: the widest must stay under a full turn.
+    if (shotArcs(state, shot)[n - 1]! >= 360) throw new IllegalCommand(`A ${shotArcs(state, shot)[n - 1]}° arc is no aim`);
     if (!inBounds(world, shot.at)) throw new IllegalCommand(`(${shot.at.x}, ${shot.at.y}) is off the map`);
     if (shot.target !== undefined) {
         const person = personOf(state, shot.target);
@@ -292,7 +299,7 @@ function checkShot(world: ReadonlyWorld, state: DeepReadonly<State>, shot: Shot)
 
 /** Everything one attack's bullets read, before the first flies. */
 export function shotScene(world: ReadonlyWorld, state: DeepReadonly<State>, shot: Shot, view?: ShotView): ShotScene {
-    const w = checkShot(world, state, shot), origin = originOf(world, state, shot);
+    const w = checkShot(world, state, shot), origin = originOf(world, state, shot, view?.hidden);
     if (samePos(origin, shot.at)) throw new IllegalCommand('A shot needs somewhere to aim other than where it is fired from');
     const map = shotMap(world, state as State);
     const ax = shot.at.x - origin.x, ay = shot.at.y - origin.y, len = Math.sqrt(ax * ax + ay * ay);

@@ -144,8 +144,9 @@ export interface ShotScene {
 
 /**
  * What the crew knows of the map, for a preview the player sees (preview/shot.ts `crewShotPreview`): `hidden` tiles
- * (neither on the blueprint nor ever seen) and the tiles it has `seen` (1 each, row-major). Past a hidden tile nothing
- * is traced; panes, teller glass's hits and cover's wear show only where a tile beside them was seen.
+ * (neither on the blueprint nor ever seen) and the tiles it sees this turn (`seen`) (1 each, row-major). Past a hidden tile
+ * nothing is traced; panes, teller glass's hits and cover's wear show as they are only where a tile beside them is
+ * seen this turn, and as built elsewhere (what moves or breaks is known only while seen, decision 44).
  */
 export interface ShotView { hidden: Uint8Array; seen: Uint8Array }
 

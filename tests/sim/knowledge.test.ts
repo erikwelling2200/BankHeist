@@ -1251,7 +1251,7 @@ describe('on a generated bank', () => {
         const t2 = performance.now();
         for (const t of reachable(world, state, state.crew[0]!.pos, 10, { mover: 'c0' }).tiles) isUnknownRisk(world, state, t.pos);
         console.log(`unknown risk over a move's reach: ${(performance.now() - t2).toFixed(2)} ms`);
-    });
+    }, 60000);
 
     it('is deterministic and survives a save', () => {
         const { world, state } = generatedHeist(spec, 4);

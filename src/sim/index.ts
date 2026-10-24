@@ -195,4 +195,4 @@ export {
     armourOf, bulletOffset, leanOptions, plainShot, resolveShot, SHOT_WINDOW, shotArcs, shotBodies, shotScene, traceShot, type Lean, type Shot, type ShotHit,
     type ShotRecord, type ShotRolls, type ShotTrace
 } from './rules/shot';
-export { crewShotPreview, previewShot, type CoverView, type FanSegment, type ShotPreview, type ShotPreviewBody } from './preview/shot';
+export { crewLeanOptions, crewShotPreview, crewShotView, previewShot, type CoverView, type FanSegment, type ShotPreview, type ShotPreviewBody } from './preview/shot';

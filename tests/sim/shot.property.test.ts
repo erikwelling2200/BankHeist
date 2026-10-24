@@ -110,7 +110,7 @@ function randomShots(world: ReadonlyWorld, base: State, rng: Rng, shots: number,
         else if (rng.chance(0.2)) shot.turn = rng.chance(0.3) ? rng.pick([180, -180, 179, -179, 178, -175]) : rng.int(-180, 180);
         if (rng.chance(0.3)) shot.bullets = rng.int(1, w.bullets);
         if (rng.chance(0.3)) shot.moved = true;
-        if (rng.chance(0.2)) shot.braced = true;
+        if ('brace' in w && rng.chance(0.4)) shot.braced = true;
         const crewMember = state.crew.find(c => c.id === shooter);
         if (crewMember) {
             const leans = leanOptions(world, state, shooter);
