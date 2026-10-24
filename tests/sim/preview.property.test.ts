@@ -4,7 +4,7 @@ import { cachedBank } from '../bankCache';
 import { PLOTS, TIERS } from '../../src/gen/model';
 import { Rng } from '../../src/gen/rng';
 import {
-    actionPreview, commandPlan, commandPreview, addsTo, carriersStarted, DEAF_STATUSES, clonePlain, commit, crewBudget, crewMoveOptions, decodeBits, doorDoubt, effectKind, effectOf, encodeBits, explain, FACINGS, hearing,
+    actionPreview, commandPlan, commandPreview, hasLineOfSight, holdTargets, ITEMS, reachable, pathTo, addsTo, carriersStarted, DEAF_STATUSES, clonePlain, commit, crewBudget, crewMoveOptions, decodeBits, doorDoubt, effectKind, effectOf, encodeBits, explain, FACINGS, hearing,
     isKnownNow, fixtureWorld, initialState, hashOf, legalActions, noiseRadius, npcsInside, onFloor, pathSafety, pendingCarriers, planningState, previewCertain, previewPicture,
     projectCarriers, projectEvents, projectPreviewEvents, safeFloor, safeFloorJob, sightDoubted, soundRing, teammateEffects, throwPlan, TINT_RANK, tintOf, validatePath, withDoubtedShut,
     worldFromBank,
@@ -501,6 +501,17 @@ function checkCommand(run: Run, state: State, crew: string, r: CommitResult): vo
     const ring = soundRing(world, state, state.crew.find(c => c.id === crew)!.pos, plan.panicRadius);
     const inCommand = new Set(plan.commandTiles.map(p => `${p.x},${p.y}`));
     if (JSON.stringify(ring.tiles.map(t => t.pos).filter(p => !inCommand.has(`${p.x},${p.y}`))) !== JSON.stringify(plan.panicTiles)) probe.fail(`${run.label}: panic ring tiles differ`);
+    // The ring itself, worked out here from the weapon table and line of sight, not from the rules' own helpers.
+    const member = state.crew.find(c => c.id === crew)!;
+    const threat = Math.max(1, ...member.loadout.items.map(id => (ITEMS as Record<string, { threat?: number }>)[id]?.threat ?? 0));
+    const radius = state.takeover === state.turn ? Math.floor(threat * 1.5) : threat;
+    if (plan.radius !== radius) probe.fail(`${run.label}: command radius ${plan.radius}, the weapon table says ${radius}`);
+    for (const n of state.npcs) {
+        const dx = n.pos.x - member.pos.x, dy = n.pos.y - member.pos.y;
+        const inside = dx * dx + dy * dy <= radius * radius && hasLineOfSight(world, state, member.pos, n.pos);
+        const t = plan.targets.find(x => x.npc === n.id);
+        if (t && (t.ring === 'command') !== inside) probe.fail(`${run.label}: ${n.id} in the ${t.ring} ring, within reach ${inside}`);
+    }
     const after = (id: string) => r.state.npcs.find(n => n.id === id)!, was = (id: string) => state.npcs.find(n => n.id === id)!;
     const commanded = (id: string) => after(id).status === 'commanded' && after(id).command?.pips === world.rules.commandPips && after(id).command?.by === crew;
     for (const t of plan.targets) {
@@ -555,7 +566,14 @@ function endTurn(run: Run, state: State): State {
         probe.bump('stay checks');
     }
     const pending = projectCarriers(world, state, pendingCarriers(world, state));
+    // Hold (§10.3): what each holder's ring shows as the crew phase ends is exactly who keeps their pips.
+    const held = new Set(state.crew.filter(c => c.holding === state.turn).flatMap(c => holdTargets(world, state, c.id)));
     const r = endPhase(world, state);
+    for (const e of r.events) {
+        if (e.type !== 'commandPips') continue;
+        probe.bump(e.held ? 'commanded held' : 'commanded not held');
+        if (e.held !== held.has(e.npc)) probe.fail(`${run.label} t${state.turn}: ${e.npc} held ${e.held}, the hold ring says ${held.has(e.npc)}`);
+    }
     const started = projectCarriers(world, state, carriersStarted(r.events));
     if (JSON.stringify(pending) !== JSON.stringify(started)) probe.fail(`${run.label} t${state.turn}: hatched carriers ${JSON.stringify(pending)}, started ${JSON.stringify(started)}`);
     const pic = { before: picture, after: oracle.state, events: oracle.events };
@@ -999,7 +1017,83 @@ function playDoubtedDoors(probe: Probe, rng: Rng, n: number): void {
     }
 }
 
+/**
+ * The takeover on an open floor (M2-01): a crowd and a guard round two armed crew, GO now and then, commands from
+ * wherever the crew walks to, holds, and turns going by so commands lapse, guards reach for their weapons and the
+ * commanded are put down again. Every command is checked against its rings (`checkCommand`), every hold against its
+ * ring (`endTurn`), and the floor and the world phase as everywhere else.
+ */
+function takeoverGame(probe: Probe, n: number): void {
+    const rng = new Rng(SEED + 7919 * n);
+    const taken = new Set<string>(), free = (): Pos => {
+        for (;;) {
+            const p = { x: rng.int(0, 13), y: rng.int(0, 9) }, k = `${p.x},${p.y}`;
+            if (!taken.has(k)) { taken.add(k); return p; }
+        }
+    };
+    const exit = { x: 13, y: 9 };
+    taken.add('13,9');
+    const people: PersonDef[] = [];
+    const roles: [string, ObserverClass][] = [['customer', 'civilian'], ['customer', 'civilian'], ['customer', 'civilian'], ['lobbyGuard', 'enforcer'], ['teller', 'staff'], ['manager', 'staff']];
+    roles.forEach(([role, observer], i) => {
+        const at = free();
+        people.push({ id: `n${i}`, name: `n${i}`, role, observer, pos: at, facing: rng.pick(FACINGS), schedule: [
+            { from: 1, activity: role === 'teller' ? 'window' : role === 'manager' ? 'post' : 'wait', label: 'stands', room: '', at, facing: 'n' },
+            { from: 99, activity: 'leave', label: 'leaves', room: '', at: exit }
+        ] });
+    });
+    const world = fixtureWorld(Array.from({ length: 10 }, () => '..............'), { people });
+    const weapons = ['pistol', 'shotgun', 'lmg', 'smg'];
+    let state = omniscient(world, initialState(world, { seed: n, crew: [
+        { id: 'c0', pos: free(), items: [rng.pick(weapons)], ...(rng.chance(0.3) ? { traits: ['intimidating'] } : {}) },
+        { id: 'c1', pos: free(), items: [rng.pick(weapons)] }
+    ] }));
+    const run: Run = { world, rng, omniscient: true, label: `takeover ${n}`, tier: 'fixture', probe };
+    for (let turn = 0; turn < 6 && !state.bank.alarm; turn++) {
+        if (rng.chance(0.25) && !state.bank.loud) state = commit(world, state, { type: 'go', crew: 'c0' }).state;
+        for (const id of ['c0', 'c1']) {
+            let member = state.crew.find(c => c.id === id)!;
+            if (rng.chance(0.6) && member.actionsLeft > 0) {
+                const reach = reachable(world, state, member.pos, crewBudget(world, member, 'move'), crewMoveOptions(member));
+                const ends = reach.tiles.filter(t => t.canEnd && t.cost > 0);
+                const path = ends.length ? pathTo(reach, rng.pick(ends).pos) : undefined;
+                if (path?.length) state = commit(world, state, { type: 'move', crew: id, path }).state;
+            }
+            member = state.crew.find(c => c.id === id)!;
+            if (member.actionsLeft > 0) {
+                const r = commit(world, state, { type: 'command', crew: id });
+                probe.bump('commands');
+                checkCommand(run, state, id, r);
+                state = r.state;
+            }
+            member = state.crew.find(c => c.id === id)!;
+            if (member.actionsLeft > 0 && rng.chance(0.5) && state.npcs.some(x => x.command !== null)) state = commit(world, state, { type: 'hold', crew: id }).state;
+        }
+        state = endTurn(run, state);
+    }
+}
+
 describe('previews (property, §8.8)', () => {
+    it('show the takeover as it happens: the command rings, resisters\' chances and holds (M2-01)', () => {
+        const probe = new Probe();
+        const games = Math.max(30, Math.round(30 * SCALE));
+        for (let n = 0; n < games; n++) {
+            try {
+                takeoverGame(probe, n);
+            } catch (e) {
+                probe.fail(`takeover ${n}: ${(e as Error).stack ?? e}`);
+            }
+        }
+        if (VERBOSE) console.log(JSON.stringify(probe.stats, null, 1));
+        expect(probe.failures).toEqual([]);
+        // Every outcome of the rings, and holds that keep and that don't.
+        for (const k of ['command command complies', 'command command resists', 'command panic alerted', 'commanded held', 'commanded not held']) {
+            expect(probe.stats[k] ?? 0, k).toBeGreaterThan(5);
+        }
+        // A guard whose command lapsed reaches for his weapon and ignores the next one.
+        expect(probe.stats['command command ignores'] ?? 0).toBeGreaterThan(0);
+    }, 300_000);
+
     it('show what happens: the safe floor, drawn paths, "who and why" and action previews', () => {
         const probe = new Probe();
         const rng = new Rng(SEED);

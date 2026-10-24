@@ -172,6 +172,9 @@ function planGoal(world: ReadonlyWorld, state: State, npc: NpcState, goal: Goal,
         case 'flee':
             // At a run for the way out (§10.5), leaving the map from it or a tile next to it (rules/command.ts).
             return walkIntent(world, state, npc, { tile: goal.tile!, pace: 'run' }, taken, { action: { kind: 'flee', exit: goal.tile! } });
+        case 'phone':
+            // Phones it in where it lies (§16.2 the manager's phone), carried out by rules/alarms.ts.
+            return { path: [], action: { kind: 'raiseAlarm', carrier: 'phoneCall', crew: goal.crew! } };
         case 'reach':
             // Telegraphed for one world phase, in which he draws (rules/command.ts).
             return { path: [], action: { kind: 'reachForWeapon', crew: goal.crew! } };

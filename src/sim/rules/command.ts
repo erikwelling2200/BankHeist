@@ -10,9 +10,7 @@ import { lineOfSight, sightMap, type SightMap } from '../geo/los';
 import { reachable, reachAt } from '../geo/move';
 import { DEAF_STATUSES, makeNoise, noiseRadius, npcsInside, soundRing } from '../geo/sound';
 import { lacksActions, registerAction } from './actions/act';
-import { registerKnockoutWindow } from './actions/knockout';
 import { startEscapee } from './alarms';
-import { registerCarrierCheck } from './carriers';
 import { npcMoveOptions, isPresent, personOf } from './npc/walk';
 import { reconsider } from './npc/intent';
 import { witnessAct } from './perceive';
@@ -37,36 +35,39 @@ import { alertNpc, expose, isEyesDown } from './suspicion';
  *     How a panicking civilian reacts (cower, flee, hide) is M2-02's; until then a civilian reacts as to any loud noise.
  *   The compliant are commanded first, then each resister rolls in resolution order: a preview stops at the first roll
  *   (`Dice.odds`), so `commandPlan` is what shows every chance.
- * - **Commanded** (§10.2): `NpcState.command { pips, by }`, eyes down, carriers it holds paused (carriers.ts); an
- *   escapee carrier is countered (the runner is on the floor). A pip goes at the end of every world phase unless a
- *   crew member **Holds** it (§10.3: `hold { crew }`, their last action, `CrewState.holding`): every Commanded NPC within
- *   the holder's command radius and line of sight keeps its pips that world phase.
+ * - **Commanded** (§10.2): `NpcState.command { pips, by }`, eyes down, and every carrier it holds countered (§9.1
+ *   "command", carriers.ts): a lapse that goes for the alarm again starts a fresh one. A pip goes at the end of every
+ *   world phase unless a crew member **Holds** it (§10.3: `hold { crew }`, their last action, spending what is left,
+ *   `CrewState.holding`): every Commanded NPC within the holder's command radius that turn (×1.5 on the takeover turn)
+ *   and line of sight as the crew phase ends (`holdTargets`, judged as the world phase begins) keeps its pips.
  * - **Lapses** (§10.5): a Commanded NPC whose pips are 0 at the end of a world phase (and nobody holds it) is
  *   **Twitchy**: its next intent is rolled then, as the next crew phase begins, and shown during that crew phase. The
  *   odds are its archetype's panic weights (data/archetypes.ts): cower and hide (no hiding place yet: M2-02) **stay
  *   down** (it stays Commanded at 0 pips, `stayDown` intent, and rolls again after the next world phase); **flee** runs
  *   for the nearest way out, the run path its intent (`flee`), and starts an escapee carrier of max(2, ⌈way left ÷ 8⌉)
- *   as it sets off (decision 30's pattern: the intent is the telegraph, the carrier is seen at its full count); **go for the alarm** (staff) gets up Alerted and Exposed to whoever commanded it, and reacts by role (the
- *   teller's button, the manager's desk, the operator's console, telling a guard). An enforcer whose command lapses
+ *   as it sets off (decision 30's pattern: the intent is the telegraph, the carrier is seen at its full count); one
+ *   at the way out leaves the map a phase after its carrier started, never with it; **go for the alarm** (staff) gets
+ *   up Alerted and Exposed to whoever commanded it, and reacts by role (the teller's button, the operator's console,
+ *   telling a guard), or phones it in where it lies (the manager's "phone", `phone` lapse). An enforcer whose command lapses
  *   **reaches for his weapon**: telegraphed for one world phase (`reachForWeapon`), in which he draws and turns Hostile
  *   (combat is M3); commands no longer work on him, but he can still be knocked out while reaching. Police outside
  *   shifting the odds toward fleeing, heroes and their tackle are M2-02's and M3's.
  * - **GO** (§9.3, `go { crew }`): once per heist while the bank isn't Loud, free. The current crew phase becomes the
  *   takeover turn (`State.takeover`): every crew member masks up (an illegal act seen like any other) and gets +1
  *   action; command radii are ×1.5; every NPC Calm or Curious is **Surprised** (`NpcState.surprised`): its intent is
- *   dropped and it loses the coming world phase standing (it still sees and hears, and acts on it a phase later), a
- *   Surprised Hostile NPC can be knocked out, and a surprised civilian counts as Commanded for one phase (1 pip).
- * - **Mask up** (§6.3, `maskUp { crew }`): 1 action (free on the takeover turn), an illegal act; Heavy.
+ *   dropped and it loses the coming world phase standing (it still sees and hears, and acts on it a phase later), and
+ *   a surprised civilian counts as Commanded for one phase (1 pip). A crew member who already Held gets no third action.
+ * - **Mask up** (§6.3, `maskUp { crew }`): 1 action, an illegal act; Heavy. GO's masks are free.
  */
 
 /** A crew member's hold on the commanded around them (§10.3). */
 export interface Commanded { pips: number; by: string }
 
 /** What a lapse rolled that outlasts the crew phase it is shown in (§10.5). */
-export type Lapse = { kind: 'flee'; exit: Pos } | { kind: 'reach'; crew: string };
+export type Lapse = { kind: 'flee'; exit: Pos } | { kind: 'reach'; crew: string } | { kind: 'phone'; crew: string };
 
 /** What a lapse can roll (§10.5), as the `lapsed` event names it. */
-export type LapseOutcome = 'stayDown' | 'flee' | 'alarm' | 'reachForWeapon';
+export type LapseOutcome = 'stayDown' | 'flee' | 'alarm' | 'phone' | 'reachForWeapon';
 
 declare module '../core/types' {
     interface NpcState {
@@ -142,9 +143,6 @@ registerCrewInit('command', (_world, _start, member) => {
 registerStateInit('takeover', (_world, state) => {
     state.takeover = null;
 });
-
-// A Surprised Hostile NPC is caught off guard (§11.10).
-registerKnockoutWindow('surprised', npc => npc.surprised !== null);
 
 // ---------------------------------------------------------------------------------------------------------- Threat
 
@@ -314,7 +312,8 @@ registerAction('command', {
 });
 
 registerAction('hold', {
-    whyNot: (_world, state, cmd) => lacksActions(crewMember(state, cmd.crew), 1),
+    whyNot: (_world, state, cmd) => lacksActions(crewMember(state, cmd.crew), 1)
+        ?? (state.npcs.some(n => n.command !== null) ? undefined : 'Nobody is face down to hold'),
     candidates: (_world, state, member) => (state.npcs.some(n => n.command !== null) ? [{ type: 'hold', crew: member.id }] : []),
     // Their last action: whatever is left (at least 1).
     cost: (_world, state, cmd) => Math.max(1, crewMember(state, cmd.crew).actionsLeft),
@@ -328,19 +327,16 @@ registerAction('maskUp', {
     whyNot(_world, state, cmd) {
         const member = crewMember(state, cmd.crew);
         if (member.loadout.masked) return `${member.name} is masked already`;
-        return lacksActions(member, maskCost(state));
+        return lacksActions(member, 1);
     },
     candidates: (_world, _state, member) => (member.loadout.masked ? [] : [{ type: 'maskUp', crew: member.id }]),
-    cost: (_world, state) => maskCost(state),
+    cost: () => 1,
     illegal: () => ({ act: 'maskUp' }),
     run(ctx, member) {
         member.loadout.masked = true;
         ctx.emit({ type: 'maskedUp', crew: member.id });
     }
 });
-
-/** Masking up costs 1 action, none on the takeover turn (§6.3). */
-const maskCost = (state: DeepReadonly<State>): number => (state.takeover === state.turn ? 0 : 1);
 
 /** Why GO can't be pressed now (§9.3), or undefined. */
 export function goBlocked(state: DeepReadonly<State>): string | undefined {
@@ -367,7 +363,8 @@ registerAction('go', {
             if (personOf(world, npc.id).observer === 'civilian') commandNpc(ctx, npc, member.id, 1);
         }
         const masking = state.crew.filter(c => !c.loadout.masked);
-        for (const c of state.crew) c.actionsLeft++;
+        // The third action, for everyone whose turn isn't over (a Hold ends it).
+        for (const c of state.crew) if (c.holding !== state.turn) c.actionsLeft++;
         for (const c of masking) {
             c.loadout.masked = true;
             ctx.emit({ type: 'maskedUp', crew: c.id });
@@ -378,13 +375,6 @@ registerAction('go', {
 }, { perceive: false });
 
 // ---------------------------------------------------------------------------------------------------------- Counters
-
-// A runner face down isn't running (§9.1 escapee: "command").
-registerCarrierCheck('command', (_world, state, carrier) => {
-    if (carrier.kind !== 'escapee') return null;
-    const npc = state.npcs.find(n => n.id === carrier.source);
-    return npc?.status === 'commanded' ? { halt: 'countered', why: 'commanded' } : null;
-});
 
 // ---------------------------------------------------------------------------------------------------------- The world phase
 
@@ -420,8 +410,10 @@ registerWorldHook('passiveNpcs', 'command.flee', (ctx, phase) => {
         const npc = state.npcs.find(n => n.id === id)!;
         if (isEyesDown(npc) || !isPresent(npc) || npc.lapse?.kind !== 'flee') continue;
         const out = Math.max(Math.abs(npc.pos.x - action.exit.x), Math.abs(npc.pos.y - action.exit.y)) <= 1;
+        // Its carrier is seen for a crew phase with the runner still on the map, where the counters reach it (§9.1).
+        const running = state.carriers.some(c => c.kind === 'escapee' && c.source === npc.id);
         startEscapee(ctx, npc, out ? 0 : wayOut(world, state, npc)?.tiles ?? 0);
-        if (!out) continue;
+        if (!out || !(running || state.bank.alarm)) continue;
         // Gone for good: its lapse keeps it away (behaviour.ts).
         npc.status = 'away';
         ctx.emit({ type: 'npcLeft', npc: npc.id, at: { x: npc.pos.x, y: npc.pos.y } });
@@ -429,19 +421,26 @@ registerWorldHook('passiveNpcs', 'command.flee', (ctx, phase) => {
     }
 }, { order: 6 });
 
-/** Whether a crew member holds this NPC down this world phase (§10.3). */
-function held(state: State, sight: SightMap, turn: number, npc: DeepReadonly<NpcState>): boolean {
-    return state.crew.some(c => c.holding === turn && inCommandReach(sight, c.pos, commandRadius(state, c), npc.pos));
-}
+// Who is held this world phase (§10.3), by the draft state of the `endTurn` command playing it.
+const HELD = new WeakMap<State, Set<string>>();
+
+// A hold covers what `holdTargets` says as the crew phase ends: the radius of that turn (×1.5 on the takeover turn)
+// and the sight as the holder gave it, before anyone walks. The pips are counted at the end of the world phase.
+registerWorldHook('passiveNpcs', 'command.hold', ctx => {
+    const { world, state } = ctx, held = new Set<string>();
+    for (const c of state.crew) if (c.holding === state.turn) for (const id of holdTargets(world, state, c.id)) held.add(id);
+    HELD.set(state, held);
+}, { order: -200 });
 
 /**
  * Pips and lapses (§10.2–10.5), as the next crew phase begins and after everything else (the roll is the world
  * phase's last word, so a preview of the world phase stops only there): a pip goes from every Commanded NPC nobody
  * holds; one at 0 rolls its lapse. Holds end with it.
  */
-registerWorldHook('crewPhase', 'command.lapse', (ctx, phase) => {
-    const { world, state } = ctx;
-    const sight = sightMap(world, state);
+registerWorldHook('crewPhase', 'command.lapse', ctx => {
+    const { state } = ctx;
+    const holds = HELD.get(state) ?? new Set<string>();
+    HELD.delete(state);
     const lapsing: NpcState[] = [];
     for (const npc of state.npcs) {
         if (npc.command === null) continue;
@@ -450,7 +449,7 @@ registerWorldHook('crewPhase', 'command.lapse', (ctx, phase) => {
             npc.command = null;
             continue;
         }
-        const keep = held(state, sight, phase.turn, npc);
+        const keep = holds.has(npc.id);
         if (!keep && npc.command.pips > 0) npc.command.pips--;
         ctx.emit({ type: 'commandPips', npc: npc.id, pips: npc.command.pips, held: keep });
         if (!keep && npc.command.pips === 0) lapsing.push(npc);
@@ -465,7 +464,7 @@ function rollLapse(ctx: Ctx, npc: NpcState): LapseOutcome {
     const person = personOf(ctx.world, npc.id), weights = panicWeights(person.role, person.observer);
     if (!weights) return 'reachForWeapon';
     // Hiding needs a hiding place (M2-02): it counts as staying down.
-    const options: [LapseOutcome, number][] = [['stayDown', weights.cower + weights.hide], ['flee', weights.flee], ['alarm', weights.special]];
+    const options: [LapseOutcome, number][] = [['stayDown', weights.cower + weights.hide], ['flee', weights.flee], [weights.via ?? 'alarm', weights.special]];
     let left = options.reduce((sum, [, w]) => sum + w, 0);
     for (const [outcome, w] of options) {
         if (w <= 0) continue;
@@ -514,9 +513,11 @@ function lapse(ctx: Ctx, npc: NpcState, rolled: LapseOutcome): void {
         alertNpc(ctx, npc, 'command lapsed');
         npc.lapse = { kind: 'reach', crew: by };
     } else {
-        // Goes for the alarm: it knows who put it on the floor, and reacts by role.
+        // Goes for the alarm (by role: the button, the console, telling a guard) or the phone where it lies (the
+        // manager, §16.2): either way it knows who put it on the floor.
         expose(ctx, npc, by, ['commanded'], crewMember(state, by).pos);
         alertNpc(ctx, npc, 'command lapsed');
+        if (outcome === 'phone') npc.lapse = { kind: 'phone', crew: by };
     }
 }
 

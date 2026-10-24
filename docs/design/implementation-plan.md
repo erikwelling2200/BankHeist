@@ -632,15 +632,19 @@ Each package lists its goal, the design sections it covers, the files, what it d
       the rings are what show every chance.
     - **State:** `NpcState.command { pips, by }` (pips 0: Twitchy), `NpcState.lapse` (`flee { exit }`, `reach { crew }`),
       `NpcState.surprised` (the turn whose world phase it loses). Intent actions `stayDown`, `flee { exit }`,
-      `reachForWeapon { crew }`; goals `flee`, `reach` (rules/npc). Carriers: a Commanded holder pauses its carrier (as
-      M1-08 had it); a runner's escapee is countered.
+      `reachForWeapon { crew }`; goals `flee`, `reach`, `phone` (rules/npc). Carriers: commanding the holder counters its
+      carrier (§9.1 "command"; M1-08 paused it, which let a lapse resume it at 1), so a lapse back to the alarm starts a
+      fresh one at 2, telegraphed by its intent.
     - **For the UI (M2-06):** `Session.commandRings(crew)` / `holdRing(crew)` (and `window.sim.commandRings`); the grid
       offers Command, Hold, Mask up and GO after Wait; the Commanded plate counts its pips; the crew card shows 3 actions on
       the takeover turn. Events: `commanded`, `resisted`, `ignoredCommand`, `commandPips`, `lapsed`, `drewWeapon`,
       `holding`, `tookOver`, `surprised`, `maskedUp`.
     - **Tests:** `tests/sim/command.test.ts`; the preview property test plays the takeover in omniscient runs and checks
       every NPC of `commandPlan` against the commit and each resister's shown chance against the `p` it was rolled with
-      (`checkCommand`); world-phase comparisons stop at the first `lapsed` event (rolled). The perception property test
+      (`checkCommand`, with the ring worked out again from the weapon table and line of sight), and every end of the turn
+      checks each hold against its ring; a dedicated takeover game (`takeoverGame`, open floors with a crowd, a guard,
+      a teller and a manager) has floors for every outcome. World-phase comparisons stop at the first `lapsed` event
+      (rolled). The perception property test
       leaves the takeover out (its own test is above). Save shape hash now `316d74ac88af5399`.
     - **Deferred:** what a panicking civilian does (cower, flee, hide, the phone), heroes and tackle, police outside
       shifting lapses toward fleeing, blocking an escapee's route as a counter (M2-02); a resister drawing and shooting
@@ -1107,15 +1111,20 @@ Later milestones: within each milestone, the `∥` notes in §3 apply. UI packag
     what is left). Cower and hide stay down (no hiding place until M2-02); staying down keeps the NPC Commanded at 0 pips
     and rolls again after the next world phase unless held. Fleeing heads for the nearest way out (a tile anyone's
     schedule leaves the map by; none reachable: it stays down) and starts the escapee carrier as it sets off, the flee
-    intent being its telegraph (decision 30's pattern); a runner who gets out stays out. Staff going for the alarm are
-    Exposed to whoever commanded them and react by role. An enforcer always reaches for his weapon: the intent is shown
-    for a world phase, then he is Hostile.
-50. **Hold (M2-01)** is the last action: it spends what is left (at least 1), and keeps the pips of every Commanded NPC
-    within the holder's command radius and line of sight at the end of that world phase.
+    intent being its telegraph (decision 30's pattern); a runner at the way out leaves a phase after its carrier starts,
+    never with it (so the carrier's counters can still reach it), and a runner who gets out stays out. Staff going for
+    the alarm are Exposed to whoever commanded them and react by role (the button, the console, telling a guard); the
+    manager's special is the phone (§16.2 "phone 40"), a call where she lies. An enforcer always reaches for his weapon:
+    the intent is shown for a world phase, then he is Hostile. Commanding a holder counters its carrier.
+50. **Hold (M2-01)** is the last action: it spends what is left (at least 1), needs someone Commanded, and keeps the pips
+    of every Commanded NPC within the holder's command radius of that turn (×1.5 on the takeover turn: §10.3's Threat
+    radius is the one the holder commands with as they hold) and line of sight as the crew phase ends (`holdTargets`,
+    judged as the world phase begins, before anyone walks). GO gives a holder no third action.
 51. **Surprised (M2-01).** Calm or Curious NPCs when GO is pressed: intent dropped, not re-planned in that crew phase, and
     they stand through its world phase (they still see and hear; what they decide is committed at its end). A surprised
     civilian is Commanded with 1 pip ("for one phase"), so it lapses after the takeover's world phase unless commanded.
 52. **GO's masks are witnessed** like Mask up (the illegal act 'maskUp'), and GO itself isn't loud: the first shout is.
+    Mask up costs 1 action; "free during GO" is GO masking everyone.
 
 53. **Throwing (M2-04).** "2 tiles" is Euclidean like the command ring (r² ≤ 4: straight two, or one diagonal). The bag
     flies as a hand reaches on each hop (`inReach`: no wall, closed door or glass between, one level), over low

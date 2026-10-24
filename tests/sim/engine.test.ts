@@ -168,7 +168,7 @@ describe('the rules engine', () => {
     it('runs the world phase in the order of §6.1 and starts the next crew phase', () => {
         expect(WORLD_STEPS).toEqual(['passiveNpcs', 'combatNpcs', 'devices', 'commitIntents', 'crewPhase']);
         expect(worldHooks()).toEqual({
-            passiveNpcs: ['knowledge.freshBefore', 'evidence.judge', 'perception.world', 'evidence.notice', 'cameras.operator', 'trespass.deadlines', 'npcs.passive', 'alarms.raise', 'command.flee', 'command.draw', 'evidence.tell'], combatNpcs: ['npcs.combat'],
+            passiveNpcs: ['knowledge.freshBefore', 'command.hold', 'evidence.judge', 'perception.world', 'evidence.notice', 'cameras.operator', 'trespass.deadlines', 'npcs.passive', 'alarms.raise', 'command.flee', 'command.draw', 'evidence.tell'], combatNpcs: ['npcs.combat'],
             devices: ['devices.carriers', 'devices.police', 'radio.checkIns', 'patrol.pass', 'test.dice', 'cameras.pan', 'perception.decay', 'knockout.wake', 'evidence.settle', 'doors.swingShut'],
             commitIntents: ['perception.glances', 'command.surprise', 'npcs.intents', 'cameras.pin'], crewPhase: ['crew.actions', 'evidence.forget', 'command.lapse']
         });

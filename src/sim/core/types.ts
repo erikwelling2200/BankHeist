@@ -321,7 +321,7 @@ export interface Carrier {
     /** World phases left; starts at `rules.minCarrierCountdown` or more. */
     countdown: number;
     started: { turn: number; phase: Phase };
-    /** A paused carrier doesn't tick (its holder is commanded, a jammer runs); a countered one never goes off. */
+    /** A paused carrier doesn't tick (a jammer runs); a countered one never goes off. */
     halted: 'paused' | 'countered' | null;
     /** The crew member it is about (the one an NPC exposed), when there is one. */
     about?: string;

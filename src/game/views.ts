@@ -225,7 +225,9 @@ export function actionsView(world: ReadonlyWorld, state: State, ui: UiState, ext
     const stuck = member.actionsLeft === 0 ? 'No actions left' : undefined;
     const out: ActionVM[] = [{ id: 'move', label: move.label, icon: move.icon, cost: move.cost, enabled: !stuck, ...(stuck ? { reason: stuck } : {}), selected: moving }];
     for (const e of actionMenu(world, state, member.id, extras.target)) {
-        const cost = e.command.type === 'wait' ? 0 : (!e.reason && extras.costOf?.(e.command)) || describeCommand(e.command, world).cost;
+        // Hold spends whatever is left (§10.3), at least 1.
+        const fallback = e.command.type === 'hold' ? Math.max(1, member.actionsLeft) : describeCommand(e.command, world).cost;
+        const cost = e.command.type === 'wait' ? 0 : (!e.reason && extras.costOf?.(e.command)) || fallback;
         out.push({
             id: e.id, label: e.label, icon: e.icon, cost, enabled: !e.reason, ...(e.reason ? { reason: e.reason } : {}), selected: sameCommand(pending, e.command),
             ...(e.progress ? { progress: e.progress } : {})
@@ -376,7 +378,8 @@ export function describeEvent(world: ReadonlyWorld, state: State, event: SimEven
 
 /** What a lapsed command rolled (§10.5), as the log says it. */
 const LAPSE_TEXT: Readonly<Record<string, string>> = {
-    stayDown: 'stays down', flee: 'about to run for it', alarm: 'about to go for the alarm', reachForWeapon: 'reaching for a weapon'
+    stayDown: 'stays down', flee: 'about to run for it', alarm: 'about to go for the alarm', phone: 'about to phone it in',
+    reachForWeapon: 'reaching for a weapon'
 };
 
 /** Why a carrier stopped, as the log says it. */

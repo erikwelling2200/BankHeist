@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
-    commandPlan, commandRadius, commit, crewThreat, fixtureWorld, initialState, preview, type CrewStart, type Facing, type ObserverClass, type PersonDef,
+    commandPlan, commandRadius, commit, holdPreview, holdTargets, crewThreat, fixtureWorld, initialState, preview, type CrewStart, type Facing, type ObserverClass, type PersonDef,
     type Pos, type ReadonlyWorld, type ScheduleBlock, type State
 } from '../../src/sim';
 import { step } from './helpers';
@@ -81,12 +81,27 @@ describe('the command', () => {
         expect(npc(commit(world, state, { type: 'command', crew: 'jun' }).state, 'guard').status).toBe('hostile');
     });
 
-    it('pauses the button of a teller it puts down', () => {
+    it('counters the button of a teller it puts down: a lapse back to the alarm starts a fresh one, at 2, as telegraphed', () => {
         const teller = person('teller', 'teller', 'staff', P(5, 4), 'n', [{ from: 1, activity: 'window', label: 'window', room: '', at: P(5, 4), facing: 'n' }]);
-        const { world, state } = setup([teller], [{ id: 'jun', pos: P(4, 4), items: ['pistol'] }]);
-        state.carriers.push({ id: 'c1', kind: 'tellerButton', source: 'teller', pos: P(5, 4), countdown: 2, started: { turn: 1, phase: 'world' }, halted: null });
-        const done = commit(world, state, { type: 'command', crew: 'jun' });
-        expect(done.state.carriers[0]!.halted).toBe('paused');
+        let lapsedToAlarm = 0;
+        for (let seed = 1; seed < 80; seed++) {
+            const { world, state } = setup([teller], [{ id: 'jun', pos: P(4, 4), items: ['pistol'] }, { id: 'mara', pos: P(12, 0) }], seed);
+            // Pressed a phase ago: one world phase from the Alarm.
+            state.carriers.push({ id: 'c1', kind: 'tellerButton', source: 'teller', pos: P(5, 4), countdown: 1, started: { turn: 0, phase: 'world' }, halted: null });
+            const down = commit(world, state, { type: 'command', crew: 'jun' });
+            expect(down.state.carriers).toEqual([]);
+            expect(down.events).toContainEqual({ type: 'carrierStopped', carrier: 'c1', kind: 'tellerButton', why: 'commanded' });
+            const lapsed = step(world, endTurn(world, down.state), { type: 'endTurn' });
+            if (!lapsed.events.some(e => e.type === 'lapsed' && e.outcome === 'alarm')) continue;
+            lapsedToAlarm++;
+            // Nothing comes back: the old button stays countered, and the new press is the intent shown now.
+            expect(lapsed.state.carriers).toEqual([]);
+            expect(npc(lapsed.state, 'teller').intent.action).toEqual({ kind: 'raiseAlarm', carrier: 'tellerButton', crew: 'jun' });
+            const next = step(world, lapsed.state, { type: 'endTurn' });
+            expect(next.state.bank.alarm).toBe(false);
+            expect(next.events.find(e => e.type === 'carrierStarted')).toMatchObject({ kind: 'tellerButton', holder: 'teller', countdown: 2 });
+        }
+        expect(lapsedToAlarm).toBeGreaterThan(0);
     });
 });
 
@@ -104,6 +119,31 @@ describe('Commanded pips, Hold and lapses', () => {
         const after = endTurn(world, held.state);
         expect(npc(after, 'cust').command!.pips).toBe(2);
         expect(after.crew[0]!.holding).toBe(null);
+    });
+
+    it('holds on the takeover turn as far as the ×1.5 radius the preview shows', () => {
+        const { world, state } = setup([customer('cust', P(8, 4))], [{ id: 'jun', pos: P(4, 4), items: ['pistol'] }, { id: 'mara', pos: P(12, 0) }], 3);
+        let s = step(world, state, { type: 'go', crew: 'jun' }).state;
+        s = commit(world, s, { type: 'command', crew: 'jun' }).state;
+        expect(npc(s, 'cust').command).toEqual({ pips: 2, by: 'jun' });
+        // 4 tiles away: outside a pistol's 3, inside the takeover's 4.
+        expect(holdTargets(world, s, 'jun')).toEqual(['cust']);
+        expect(holdPreview(world, s, 'jun')).toEqual(['cust']);
+        s = step(world, s, { type: 'hold', crew: 'jun' }).state;
+        const after = step(world, s, { type: 'endTurn' });
+        expect(after.events).toContainEqual({ type: 'commandPips', npc: 'cust', pips: 2, held: true });
+    });
+
+    it('needs someone face down to hold, and a holder gets no third action from GO', () => {
+        const { world, state } = commanded();
+        const nobody = setup([customer('cust', P(2, 4))], [{ id: 'jun', pos: P(1, 4) }]);
+        expect(() => step(nobody.world, nobody.state, { type: 'hold', crew: 'jun' })).toThrow(/Nobody is face down/);
+        const after = endTurn(world, state);
+        // The command made the bank loud and GO wants it quiet: the rule is checked on a quiet copy.
+        after.bank.loud = false;
+        const held = step(world, after, { type: 'hold', crew: 'mara' }).state;
+        const go = step(world, held, { type: 'go', crew: 'jun' }).state;
+        expect(go.crew.map(c => c.actionsLeft)).toEqual([3, 0]);
     });
 
     it('rolls a Twitchy intent once the pips run out, shown for a crew phase before it is carried out', () => {
@@ -172,6 +212,46 @@ describe('Commanded pips, Hold and lapses', () => {
             expect(t.status).toBe('alerted');
             expect(t.exposedTo).toContain('jun');
             expect(t.intent.path.length).toBeGreaterThan(0);
+        }
+        expect(found).toBe(true);
+    });
+});
+
+describe('the manager phones it in (§16.2 "phone 40")', () => {
+    it('rolls the phone, telegraphs the call where she lies, and makes it a world phase later at 2', () => {
+        const manager = person('manager', 'manager', 'staff', P(5, 4), 'n', [{ from: 1, activity: 'post', label: 'desk', room: '', at: P(9, 7), facing: 'n' }]);
+        let found = false;
+        for (let seed = 1; seed <= 60 && !found; seed++) {
+            const { world, state } = setup([manager], [{ id: 'jun', pos: P(4, 4), items: ['pistol'] }, { id: 'mara', pos: P(12, 0) }], seed);
+            const lapsed = step(world, endTurn(world, commit(world, state, { type: 'command', crew: 'jun' }).state), { type: 'endTurn' });
+            if (!lapsed.events.some(e => e.type === 'lapsed' && e.outcome === 'phone')) continue;
+            found = true;
+            const m = npc(lapsed.state, 'manager');
+            expect(m.intent).toEqual({ path: [], action: { kind: 'raiseAlarm', carrier: 'phoneCall', crew: 'jun' } });
+            const called = step(world, lapsed.state, { type: 'endTurn' });
+            expect(called.events.find(e => e.type === 'carrierStarted')).toMatchObject({ kind: 'phoneCall', holder: 'manager', countdown: 2 });
+        }
+        expect(found).toBe(true);
+    });
+});
+
+describe('a runner at the way out', () => {
+    it('stays on the map for the crew phase its escapee carrier is first seen in', () => {
+        let found = false;
+        for (let seed = 1; seed <= 40 && !found; seed++) {
+            // Two tiles from the way out: one world phase's run gets it there.
+            const { world, state } = setup([customer('cust', P(11, 4))], [{ id: 'jun', pos: P(10, 4), items: ['pistol'] }, { id: 'mara', pos: P(0, 0) }], seed);
+            const lapsed = endTurn(world, endTurn(world, commit(world, state, { type: 'command', crew: 'jun' }).state));
+            if (npc(lapsed, 'cust').intent.action?.kind !== 'flee') continue;
+            found = true;
+            const ran = step(world, lapsed, { type: 'endTurn' });
+            expect(ran.state.carriers.map(c => [c.kind, c.countdown])).toEqual([['escapee', 2]]);
+            expect(npc(ran.state, 'cust').status).toBe('alerted');
+            // Still there to be put down again: that counters it.
+            ran.state.crew[0]!.pos = { x: npc(ran.state, 'cust').pos.x - 1, y: npc(ran.state, 'cust').pos.y };
+            expect(commit(world, ran.state, { type: 'command', crew: 'jun' }).state.carriers).toEqual([]);
+            // Left alone, it is gone the phase after.
+            expect(npc(endTurn(world, ran.state), 'cust').status).toBe('away');
         }
         expect(found).toBe(true);
     });

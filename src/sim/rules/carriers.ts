@@ -22,9 +22,9 @@ import { neutralised } from './cctv';
  * - **Counters** are checks (`registerCarrierCheck`) run after every command and before the devices tick: a check
  *   may counter a carrier (it is removed: `carrierStopped`) or pause it (it doesn't tick: `carrierPaused`, and
  *   `carrierResumed` when nothing pauses it any more). This module's own check is the source: a carrier whose NPC is
- *   out cold, dead, tied, stashed or dragged off is countered; a commanded one is paused (§10.2, rules/command.ts,
- *   which counters a runner's escapee). Others: the dead alarm panel (alarms.ts), a jammer (alarms.ts), the
- *   neutralised operator (here too, being the source), answering the radio (checkins.ts, as an action).
+ *   out cold, dead, tied, stashed or dragged off is countered, and so is one whose NPC is Commanded (§9.1, §10.2,
+ *   rules/command.ts). Others: the dead alarm panel (alarms.ts), a jammer (alarms.ts), the neutralised operator
+ *   (here too, being the source), answering the radio (checkins.ts, as an action).
  * - **Previews** (§8.8, "this would start: Teller button (2)"): `carrierPreview(world, before, result)` names the
  *   carriers a previewed command starts or stops at once, and those the coming world phase would start that it
  *   wouldn't have started without the command (`pendingCarriers`: the world phase's own reducers on a copy, so the
@@ -240,12 +240,13 @@ export function settleCarriers(ctx: Ctx): void {
     }
 }
 
-// The source (§9.1 "knock out", "neutralise the operator"): a carrier whose NPC is down for good is countered; one
-// whose NPC is commanded is paused (the holder is face down, rules/command.ts). Non-NPC sources ('dispatch', 'patrol') pass.
+// The source (§9.1 "knock out", "neutralise the operator", "command"): a carrier whose NPC is down or face down is
+// countered. Commanded is a counter, not a pause: a lapse that goes for the alarm again starts a fresh carrier at its
+// full countdown, telegraphed by its intent (rules/command.ts). Non-NPC sources ('dispatch', 'patrol') pass.
 registerCarrierCheck('source', (_world, state, carrier) => {
     const npc = state.npcs.find(n => n.id === carrier.source);
     if (!npc) return null;
-    if (npc.status === 'commanded') return { halt: 'paused', why: 'commanded' };
+    if (npc.status === 'commanded') return { halt: 'countered', why: 'commanded' };
     return neutralised(state, npc) ? { halt: 'countered', why: 'source down' } : null;
 });
 

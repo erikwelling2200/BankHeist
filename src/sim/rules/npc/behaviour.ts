@@ -44,7 +44,7 @@ export type GoalKind =
     // Evidence (rules/evidence.ts): walk over to it, look at it, or report it.
     | 'inspect' | 'look' | 'report'
     // A lapsed command (rules/command.ts, §10.5): run for the way out, or reach for the weapon.
-    | 'flee' | 'reach';
+    | 'flee' | 'reach' | 'phone';
 
 export interface Goal {
     kind: GoalKind;
@@ -249,6 +249,7 @@ export function behaviourGoal(world: ReadonlyWorld, state: State, npc: DeepReado
     // A lapsed command's intent (§10.5) comes before anything it wants: it was rolled and shown.
     if (npc.lapse?.kind === 'flee') return { kind: 'flee', tile: { x: npc.lapse.exit.x, y: npc.lapse.exit.y } };
     if (npc.lapse?.kind === 'reach') return { kind: 'reach', crew: npc.lapse.crew };
+    if (npc.lapse?.kind === 'phone' && !npc.reported.includes(npc.lapse.crew)) return { kind: 'phone', crew: npc.lapse.crew };
     const top = topWant(npc);
     // Reacting to an Exposed crew member comes first, then major evidence, then the crew wants, then minor evidence.
     const evidence = top?.kind === 'react' ? null : evidenceGoal(world, state, npc);
@@ -304,7 +305,7 @@ export const comingPhase = (state: State): number => (state.phase === 'world' ? 
 /** The status badge a goal shows (§16.5), for an NPC whose status this module owns. */
 export function statusFor(npc: DeepReadonly<NpcState>, goal: Goal): NpcStatus {
     if (goal.kind === 'away' || goal.kind === 'enter') return 'away';
-    if (npc.alerted || goal.kind === 'react' || goal.kind === 'report' || goal.kind === 'flee' || goal.kind === 'reach') return 'alerted';
+    if (npc.alerted || goal.kind === 'react' || goal.kind === 'report' || goal.kind === 'flee' || goal.kind === 'reach' || goal.kind === 'phone') return 'alerted';
     if (goal.kind === 'investigate' || goal.kind === 'search' || goal.kind === 'challenge' || goal.kind === 'escort' || goal.kind === 'inspect') return 'investigating';
     if (goal.kind === 'face' || goal.kind === 'watch' || goal.kind === 'look') return 'curious';
     return 'calm';
