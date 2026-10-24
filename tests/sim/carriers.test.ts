@@ -95,7 +95,7 @@ describe('the alarm panel and the wired carriers', () => {
         const w3 = endTurn(world, w2.state);
         expect(types(w3.events)).toContain('alarmRaised');
         expect(w3.state.bank.alarm).toBe(true);
-        expect(w3.state.response).toEqual({ raised: 3, by: 'tellerButton', policeIn: 6, heat: { level: 1, tick: 0 } });
+        expect(w3.state.response).toEqual({ raised: 3, by: 'tellerButton', policeIn: 6, heat: 0 });
         expect(endTurn(world, w3.state).state.response!.policeIn).toBe(5);
     });
 

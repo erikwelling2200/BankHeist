@@ -78,7 +78,7 @@ describe('saving', () => {
  * NpcStatusMap, CarrierKindMap or adds a field must also fill it in below, or a change of shape goes unnoticed.
  */
 const SHAPE_HASHES: Record<number, string> = {
-    1: 'b62babf5fce9ada6'
+    1: 'e3a77523265d2082'
 };
 
 /** Paths whose objects are records by id, not structs. */
@@ -185,7 +185,16 @@ describe('the save format', () => {
         full.crew[0]!.traits = ['steadyHands'];
         full.jammers = [{ id: 'jammer-3', pos: { x: 1, y: 1 }, crew: 'jun', turn: 2 }];
         full.footage = [{ camera: 'cam', crew: 'jun', tile: { x: 1, y: 1 }, turn: 2 }];
-        full.response = { raised: 3, by: 'guardRadio', policeIn: 5, heat: { level: 1, tick: 0 } };
+        full.response = { raised: 3, by: 'guardRadio', policeIn: 5, heat: 7 };
+        full.heat = { owed: [{ cause: 'staffKilled', victim: 'guard' }], policeKilled: 1, releases: [4], witnesses: [{ victim: 'guard', npcs: ['teller'] }] };
+        full.police = {
+            units: [{ id: 'police-5', kind: 'swat', vehicle: 'van-4', pos: null }, { id: 'police-6', kind: 'patrol', vehicle: null, pos: { x: 1, y: 1 } }],
+            vehicles: [
+                { id: 'van-4', kind: 'van', label: 'SWAT van', staging: 'street-west', pos: { x: 0, y: 2 }, arrived: 4, status: 'arriving' },
+                { id: 'helicopter-7', kind: 'helicopter', label: 'Helicopter', staging: null, pos: { x: 4, y: 1 }, arrived: 5, status: 'parked' }
+            ],
+            mode: { kind: 'negotiate', left: 2, since: { turn: 4, phase: 'world' }, after: 'contain' }, sent: 2, refills: 0
+        };
         full.radio = { calls: { guard: { next: 6, missed: 1, ringing: 4 } }, answers: 1, silentSince: 2, driveBy: 12, heard: 5 };
         const save = JSON.parse(serialise({
             genVersion: 'fixture',
@@ -194,6 +203,7 @@ describe('the save format', () => {
                 intel: { blueprints: true, guardRota: true },
                 patrol: { lane: [{ x: 0, y: 2 }, { x: 1, y: 2 }], turns: [5, 15] },
                 stashRooms: ['closet'],
+                staging: [{ id: 'street-west', name: 'Main street, west end', pos: { x: 0, y: 2 } }],
                 building: ['lobby'],
                 locks: [{
                     id: 'vault', name: 'Vault', target: 'd', room: 'lobby', holders: ['guard'], timeLock: { from: 3, until: 5 },

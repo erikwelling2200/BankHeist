@@ -169,7 +169,7 @@ describe('the rules engine', () => {
         expect(WORLD_STEPS).toEqual(['passiveNpcs', 'combatNpcs', 'devices', 'commitIntents', 'crewPhase']);
         expect(worldHooks()).toEqual({
             passiveNpcs: ['knowledge.freshBefore', 'shot.leanNpcs', 'command.hold', 'evidence.judge', 'perception.world', 'evidence.notice', 'cameras.operator', 'trespass.deadlines', 'npcs.passive', 'alarms.raise', 'panic.act', 'command.called', 'command.flee', 'command.draw', 'panic.spread', 'evidence.tell'], combatNpcs: ['npcs.combat'],
-            devices: ['devices.carriers', 'devices.police', 'radio.checkIns', 'patrol.pass', 'test.dice', 'cameras.pan', 'vault.devices', 'perception.decay', 'knockout.wake', 'evidence.settle', 'hostage.untie', 'doors.swingShut'],
+            devices: ['devices.carriers', 'devices.police', 'heat.track', 'police.director', 'radio.checkIns', 'patrol.pass', 'test.dice', 'cameras.pan', 'vault.devices', 'perception.decay', 'knockout.wake', 'evidence.settle', 'hostage.untie', 'doors.swingShut'],
             commitIntents: ['perception.glances', 'command.surprise', 'panic.calm', 'npcs.intents', 'cameras.pin'], crewPhase: ['shot.leanCrew', 'crew.actions', 'evidence.forget', 'vault.timeLock', 'panic.tackled', 'command.lapse', 'panic.react', 'vault.jams']
         });
         const { world, state } = smallBank();

@@ -32,6 +32,7 @@ import './rules/checkins';
 import './rules/command';
 import './rules/doors';
 import './rules/evidence';
+import './rules/heat';
 import './rules/knowledge';
 import './rules/panic';
 import './rules/panicState';
@@ -41,6 +42,7 @@ import './rules/npc/intent';
 import './rules/npc/schedule';
 import './rules/npc/walk';
 import './rules/perceive';
+import './rules/police';
 import './rules/profile';
 import './rules/shot';
 import './rules/suspicion';
@@ -196,3 +198,9 @@ export {
     type ShotRecord, type ShotRolls, type ShotTrace
 } from './rules/shot';
 export { crewLeanOptions, crewShotPreview, crewShotView, previewShot, type CoverView, type FanSegment, type ShotPreview, type ShotPreviewBody } from './preview/shot';
+export * from './data/police';
+export { addHeat, heatNow, heatOf, releaseBlocked, releaseHeat, releaseRelief, type HeatLevel, type HeatState } from './rules/heat';
+export {
+    bagsSecured, greedPercent, hostagesHeld, modeAfter, modePhases, nextWave, planWave, policeDown, policeModeView, strength,
+    type NextWave, type PlannedVehicle, type PoliceModeView, type PoliceState, type PoliceUnit, type PoliceVehicle, type StagingPoint, type VehicleKind, type WaveReason
+} from './rules/police';

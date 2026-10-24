@@ -17,8 +17,8 @@ import { neutralised } from './cctv';
  * - **Ticking.** The devices step ticks every running carrier once per world phase, never in the world phase that
  *   started it, so one started in a world phase is seen at its full countdown for a whole crew phase. At 0 it raises
  *   the Alarm (§9.2): `bank.alarm`, "Police in N" (`rules.policeEta`, by tier: small 8, city 6, HQ 4) counting down in
- *   `State.response` one per world phase from the next, and heat at Heat 1, tick 0 (§13.1; police arrival is M3). Every
- *   other carrier stops: there is nothing left to raise.
+ *   `State.response` one per world phase from the next, and heat at Heat 1, tick 0 (§13.1: rules/heat.ts; the arrival
+ *   is rules/police.ts's). Every other carrier stops: there is nothing left to raise.
  * - **Counters** are checks (`registerCarrierCheck`) run after every command and before the devices tick: a check
  *   may counter a carrier (it is removed: `carrierStopped`) or pause it (it doesn't tick: `carrierPaused`, and
  *   `carrierResumed` when nothing pauses it any more). This module's own check is the source: a carrier whose NPC is
@@ -98,7 +98,8 @@ export interface AlarmResponse {
     by: CarrierKind;
     /** World phases until the police arrive (M3 brings them); 0 once they are due. */
     policeIn: number;
-    heat: { level: number; tick: number };
+    /** Heat ticks since the Alarm (§13.1): Heat 1, tick 0 at 0; rules/heat.ts keeps it and `heatOf` reads it. */
+    heat: number;
 }
 
 declare module '../core/types' {
@@ -270,13 +271,13 @@ registerWorldHook('devices', 'devices.carriers', (ctx, phase) => {
         state.carriers.splice(state.carriers.indexOf(carrier), 1);
         state.bank.alarm = true;
         ctx.emit({ type: 'alarmRaised', carrier: carrier.id });
-        state.response = { raised: phase.turn, by: carrier.kind, policeIn: ctx.world.rules.policeEta, heat: { level: 1, tick: 0 } };
+        state.response = { raised: phase.turn, by: carrier.kind, policeIn: ctx.world.rules.policeEta, heat: 0 };
         // The Alarm is one event (§4): whatever else was raising it has nothing left to raise.
         for (const other of [...state.carriers]) stopCarrier(ctx, other, 'alarm');
     }
 });
 
-// "Police in N" counts down from the world phase after the Alarm; the arrival itself is M3's.
+// "Police in N" counts down from the world phase after the Alarm; the arrival itself is rules/police.ts's.
 registerWorldHook('devices', 'devices.police', (ctx, phase) => {
     const r = ctx.state.response;
     if (!r || r.raised === phase.turn || r.policeIn <= 0) return;

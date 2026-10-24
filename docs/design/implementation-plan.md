@@ -939,10 +939,28 @@ M2 is complete: every package below has landed.
   - **Covers:** §11.12.
   - **Work:** Hurt crew limp, aim worse, bleed and leave blood trails as evidence; bleeding out over 3 phases; revive and medkits; NPC death, crawling and screaming; arrest.
   - **∥** M3-02.
-- [ ] **M3-04 Heat and the police director.**
+- [x] **M3-04 Heat and the police director.**
   - **Covers:** §13.1–13.4.
   - **Work:** the heat track and its events; levels; arrival and refills; staging points from `GeneratedBank.staging`; perimeter cars and transport vans; the greed scaling; Contain, Negotiate, Assault, Regroup.
   - **∥** M3-01.
+  - **Notes (done):** decisions 120–128 (numbered from 120 so as not to clash with M3-02's, which start at 93).
+    - `data/police.ts` (§13.2's heat events, §13.3's force by level, seats, greed, §13.4's mode lengths),
+      `rules/heat.ts` (`heatOf`, `addHeat`, the per-phase and vault ticks, kills and escapes read off every command,
+      `releaseRelief`/`releaseHeat` for M3-07) and `rules/police.ts` (`planWave`, `nextWave`, waves, vehicles, getting
+      out, the modes, `policeDown` for M3-03/M3-05). `World.staging` from `GeneratedBank.staging` (and a fixture option).
+    - **State:** `State.response.heat` is now the tick count (was `{ level, tick }`); `State.heat` (owed kills, police
+      killed, releases, bystander witnesses); `State.police` (units, vehicles, mode, levels and refills sent). Save
+      shape hash `e3a77523265d2082`.
+    - **Session:** the heat strip's view model (`bankView(state, go, world)`) has the level, the tick and the next step
+      ("Heat 3: SWAT van, main street, east end" in N); the ledger's police row names the mode and the next one; the
+      recap describes the new events. Drawing the units, vehicles and sirens is M3-09's.
+    - **Deferred:** police sight (a kill police see, a hostage killed where they see it ending Negotiate) to M3-05;
+      Release, Trade, Stall and answering the negotiator to M3-07; ramming, wrecks freeing slots, a van that can't
+      leave and the van's hold for greed to M3-08; sniper nests and the helicopter leaving when not needed to M3-05 and
+      M3-06; police cars parking to block the crew vehicle and the Heat 5 roadblock to M3-08.
+    - **Tests:** `tests/sim/police.test.ts` (the track, every heat event, releases, greed, arrival, the mode cycle,
+      the forecast equal to the wave sent, refills, a generated bank of each tier; each command checked against its
+      preview).
 - [ ] **M3-05 Police and guard routine AI.**
   - **Covers:** §13.5, §13.6 patrol routine, §10.10.
   - **Work:** what police know (last known positions, reports); the never-fire-through-a-standing-non-crew-body rule; freeing hostages; arrests; announced breach markers.
@@ -1613,6 +1631,43 @@ Later milestones: within each milestone, the `∥` notes in §3 apply. UI packag
     hidden tiles give no cover. Two banks that differ only inside a room the crew has never seen
     preview alike. M3-09 draws from that. `resolveShot` is not a command (M3-02's
     attack calls it) and applies no damage (M3-03).
+
+120. **One heat number (M3-04, §13.1).** `State.response.heat` counts ticks since the Alarm (0 is Heat 1, tick 0);
+    `heatOf` reads the level, the tick within it and the refills past Heat 5 (each 5 ticks past 20). Heat never falls
+    below 0. The +1 per world phase starts in the phase after the one that raised the Alarm, as "Police in N" does.
+121. **Kills and witnesses (M3-04, §13.2).** Kills are read off the state after every command (an NPC dead now that
+    wasn't), so any later rule that kills counts without calling in. A civilian or a hostage (Commanded, tied, or
+    running in a command's flee lapse) is +5 by any cause. A guard or staff member is +1 when an attentive operator
+    sees it on a live feed (at once), or when the first bystander who saw it (any NPC present and looking) leaves the
+    map, which is reaching the police. Kills before the Alarm are owed and added in the world phase that raises it.
+    Police sight is M3-05's. A drill or charge working on a vault door with a seismic sensor is +1 per world phase.
+122. **Police are not NPCs (M3-04).** They are `State.police.units` (a kind, the vehicle they ride in, then a tile), so
+    no stealth rule (sight, suspicion, the knowledge picture) meets them before M3-05 gives them rules of their own.
+123. **Waves (M3-04, §13.1, §13.3).** A wave is what is missing from a level's strength: the first arrival the force of
+    the level reached when "Police in N" runs out, then each level reached, then each refill past Heat 5. A level
+    reached in the crew phase sends its wave in the next world phase. If heat falls, reaching the level again is a step
+    again (it refills). Units already there stay however far heat falls.
+124. **Greed (M3-04, §13.3).** A bag secured is a Heavy or Very heavy loot item taken, not ruined and out of the
+    building (carried or on the ground): the van's hold is M3-08's. Each kind's count is scaled and rounded half up;
+    the negotiator isn't scaled.
+125. **Vehicles (M3-04, §13.4).** Patrol officers ride 2 to a perimeter car while a staging point has one of its 2 car
+    slots free (the point with the most free slots, ties in the generator's order); everyone else rides 4 to a van, the
+    assault teams (shield, SWAT, heavy) in SWAT vans and the rest (the negotiator, snipers, patrol officers without a
+    car) in police vans, each to the point with the fewest cars (counting the wave's own vans). Vans on the street don't
+    count: they drive off before the next wave, so the forecast holds. Units get out on the nearest free tile reachable
+    from the vehicle without passing a closed door. The helicopter hovers over the middle of the map from Heat 4.
+126. **The modes' cycle (M3-04, §13.4).** Contain (3) starts in the world phase the first units get out. Contain leads
+    to Negotiate only with the negotiator out on scene (Heat 2+), else to Assault; after a Regroup it is Contain (1)
+    and then Assault, and Negotiate follows a Regroup only with hostages held and the negotiator there. A mode counts
+    down once per world phase from the one after it began (as a carrier does) and its length is fixed when it begins.
+    A police officer killed during Negotiate starts an Assault at once.
+127. **The forecast (M3-04, §13.1 "Heat 3 in 2 turns: SWAT van, rear lot").** `nextWave` is `planWave` for the next
+    level on the state as it is, and "in N" counts only the passing phases (5 − the tick): a kill or a release changes
+    it, and the strip shows that at once. The heat strip names the first vehicle that isn't the helicopter and how many
+    more come.
+128. **Hard promises (M3-04, §13.6).** Nothing in the director rolls or decides what the player can't see coming:
+    arrivals show a phase ahead (the siren marker), mode changes are announced with their length, and breaches (which
+    M3-05 announces a phase ahead) and police movement and targets are left to the units as they act.
 
 ### Critical files for implementation
 

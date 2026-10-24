@@ -37,7 +37,7 @@ import { DOOR_KINDS, WALL_MATERIALS } from './materials';
  *   their facings, two for a panning one.
  * - the patrol car's lane along the main street and the timeline's drive-by turns (rules/checkins.ts), and the police
  *   arrival time of the bank's tier (`rules.policeEta`, §9.2), whether it hides dye packs (`rules.dyePacks`, §15.1),
- *   and its guards' armour (`rules.guardArmour`: 1 from City tier, §12.3).
+ *   and its guards' armour (`rules.guardArmour`: 1 from City tier, §12.3); the police staging points (§13.4).
  */
 
 /**
@@ -252,5 +252,7 @@ export function worldFromBank(bank: GeneratedBank): ReadonlyWorld {
     const rules = { ...defaultRules(), policeEta: bank.policeEta, dyePacks: bank.dyePacks, guardArmour: bank.tier === 'small' ? 0 : 1 };
     // The key graph (§15.2): the rules read its keys (rules/keys.ts).
     const locks = clonePlain(bank.locks);
-    return freezeWorld({ width, height, tiles, edges, doors, objects, people, cameras, rules, stashRooms, building, locks, ...(lane.length ? { patrol } : {}) });
+    // The police staging points (§13.4), as the generator chose them.
+    const staging = bank.staging.map(s => ({ id: s.id, name: s.name, pos: { x: s.tx, y: s.ty } }));
+    return freezeWorld({ width, height, tiles, edges, doors, objects, people, cameras, rules, stashRooms, building, locks, staging, ...(lane.length ? { patrol } : {}) });
 }

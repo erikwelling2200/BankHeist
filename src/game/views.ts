@@ -1,5 +1,6 @@
 import {
-    CARRIERS, commandPreview, crewLoot, crewLook, DASH_ACTIONS, hasWeaponInHand, holdPreview, isKnownNow, knownCarriers, lootOf, markerKind, mayBeDyed, steadyHand, walkingToAlarm, MOVE_ACTIONS, nextDriveBy, type CarrierChanges, type CarrierPreview,
+    CARRIERS, commandPreview, crewLoot, crewLook, DASH_ACTIONS, hasWeaponInHand, heatOf, holdPreview, isKnownNow, knownCarriers, lootOf, markerKind, mayBeDyed, MODE_LABELS, nextWave,
+    policeModeView, POLICE_LABELS, steadyHand, walkingToAlarm, MOVE_ACTIONS, nextDriveBy, type CarrierChanges, type CarrierPreview,
     type CommandRings, type Command, type HoldRing, type ReadonlyWorld, type SimEvent, type State
 } from '../sim';
 import {
@@ -66,7 +67,10 @@ function clocks(world: ReadonlyWorld, state: State): ThreatVM[] {
     const out: ThreatVM[] = [...lapseClocks(world, state), ...deviceClocks(world, state)];
     const r = state.response;
     if (r) {
-        out.push({ id: 'police', kind: 'reinforcement', source: 'police', label: r.policeIn > 0 ? 'Police arrive' : 'Police on site', countdown: r.policeIn, halted: null,
+        // On scene, the director's mode and when the next begins (§13.4): "Contain: Negotiate in 2".
+        const mode = policeModeView(state);
+        const label = r.policeIn > 0 ? 'Police arrive' : mode ? `${mode.label}: ${MODE_LABELS[mode.next]} in ${mode.left}` : 'Police on site';
+        out.push({ id: 'police', kind: 'reinforcement', source: 'police', label, countdown: mode && r.policeIn <= 0 ? mode.left : r.policeIn, halted: null,
             pos: policePos(world), portrait: 'police' });
         // After the Alarm nobody calls a guard or drives past to check: the police are coming anyway.
         return out;
@@ -150,11 +154,21 @@ function policePos(world: ReadonlyWorld): { x: number; y: number } {
     return p ? { x: p.x, y: p.y } : { x: Math.floor(world.width / 2), y: Math.floor(world.height / 2) };
 }
 
+/** What the next heat step brings (§13.1 "Heat 3 in 2 turns: SWAT van, rear lot"), for the heat strip. */
+function nextHeatView(world: ReadonlyWorld, state: State): { label: string; inTurns: number } | null {
+    const next = nextWave(world, state);
+    if (!next) return null;
+    const first = next.vehicles.find(v => v.kind !== 'helicopter') ?? next.vehicles[0];
+    const what = first ? `${first.label}${first.staging ? `, ${first.staging.name.charAt(0).toLowerCase()}${first.staging.name.slice(1)}` : ''}` : 'no losses to refill';
+    const more = next.vehicles.length > 1 ? ` +${next.vehicles.length - 1}` : '';
+    return { label: `${next.reason === 'refill' ? 'Reinforcements' : `Heat ${next.level}`}: ${what}${more}`, inTurns: next.inPhases };
+}
+
 /**
  * The state pill (§20.3): "QUIET", "QUIET: alarm in 2" with a carrier running, "ALARM: police in 6" once the Alarm is
- * up (§9.2), "LOUD". Heat is a placeholder until the police arrive (M3): Heat 1 from then.
+ * up (§9.2), "LOUD". Heat shows once the police are on site, with what its next step brings when `world` is given.
  */
-export function bankView(state: State, goPreview = false): BankStatusVM {
+export function bankView(state: State, goPreview = false, world?: ReadonlyWorld): BankStatusVM {
     const running = threatLedger(state).filter(t => !t.halted);
     const nextAlarmIn = state.bank.alarm ? null : running.length ? running[0]!.countdown : null;
     const status: BankStatus = state.bank.alarm ? 'alarm' : state.bank.loud ? 'loud' : 'quiet';
@@ -162,7 +176,8 @@ export function bankView(state: State, goPreview = false): BankStatusVM {
     const label = status === 'alarm'
         ? r ? (r.policeIn > 0 ? `ALARM: police in ${r.policeIn}` : 'ALARM: police on site') : 'ALARM'
         : status === 'loud' ? 'LOUD' : nextAlarmIn !== null ? `QUIET: alarm in ${nextAlarmIn}` : 'QUIET';
-    const heat = r && r.policeIn <= 0 ? { level: r.heat.level, ticks: r.heat.tick, next: null } : null;
+    const level = r ? heatOf(r.heat) : null;
+    const heat = r && level && r.policeIn <= 0 ? { level: level.level, ticks: level.tick, next: world && state.police ? nextHeatView(world, state) : null } : null;
     // GO (§9.3): the takeover turn, or GO previewed.
     const go = goPreview || state.takeover === state.turn;
     return { status, label, nextAlarmIn, ...(r ? { policeEta: r.policeIn, heat } : {}), ...(go ? { go: true } : {}) };
@@ -383,7 +398,7 @@ export function hudView(world: ReadonlyWorld, state: State, ui: UiState, extras:
     const crew = crewCards(world, state, ui.selected, previewing ? extras.goPreview : undefined);
     return {
         turn: state.turn,
-        bank: bankView(state, previewing),
+        bank: bankView(state, previewing, world),
         crew,
         selected: ui.selected,
         actions: actionsView(world, state, ui, extras),
@@ -409,7 +424,7 @@ export function recapView(world: ReadonlyWorld, state: State, recent: readonly S
     const events: RecapEventVM[] = recent.slice(from).map((event, i) => ({ turn: turns[from + i] ?? state.turn, text: describeEvent(world, state, event) }));
     return {
         turn: state.turn,
-        bank: bankView(state),
+        bank: bankView(state, false, world),
         events,
         crew: state.crew.map((c, i) => ({
             id: c.id, name: c.name, colour: crewColour(i), ...portraitOf(c),
@@ -445,6 +460,11 @@ export function describeEvent(world: ReadonlyWorld, state: State, event: SimEven
         case 'carrierResumed': return 'A carrier runs again';
         case 'alarmRaised': return state.response ? `The alarm is raised: police in ${state.response.policeIn}` : 'The alarm is raised';
         case 'policeCountdown': return event.policeIn > 0 ? `Police in ${event.policeIn}` : 'The police are here';
+        case 'heatChanged': return `Heat ${heatOf(event.heat).level} (${event.by > 0 ? '+' : ''}${event.by})`;
+        case 'policeArriving': return `${event.label}${event.units ? ` with ${event.units}` : ''} arriving`;
+        case 'policeDeployed': return `${POLICE_LABELS[event.kind]} on scene`;
+        case 'policeMode': return `Police: ${MODE_LABELS[event.mode]} (${event.phases})`;
+        case 'vehicleLeft': return 'A police van drove off';
         case 'alarmAttempt': return `${name(event.npc)} raises the alarm`;
         case 'alarmDead': return event.kind === 'seismicSensor' || event.kind === 'motionSensor'
             ? `The ${CARRIERS[event.kind].label.toLowerCase()} is dead: nothing happened` : `${name(event.source)} pressed the button: nothing happened`;

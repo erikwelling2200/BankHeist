@@ -130,7 +130,7 @@ const carryWeight = (member: DeepReadonly<CrewState>): Exclude<CarryWeight, 'lig
 export const handsFree = (member: DeepReadonly<CrewState>): boolean => member.loadout.carrying === null && member.dragging === null;
 
 /** Whether a tile is inside the bank's building (§15.1). */
-function inBuilding(world: ReadonlyWorld, p: DeepReadonly<Pos>): boolean {
+export function inBuilding(world: ReadonlyWorld, p: DeepReadonly<Pos>): boolean {
     const room = tileAt(world, p)?.room ?? null;
     if (room === null) return false;
     return world.building ? world.building.includes(room) : true;

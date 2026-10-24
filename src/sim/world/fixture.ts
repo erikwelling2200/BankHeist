@@ -6,6 +6,7 @@ import { type CameraDef, type ClimbSide, type DoorDef, type DoorStart, type Lock
 import { DEFAULT_COVER_HP } from '../data/weapons';
 import { freezeWorld } from './freeze';
 import type { KeyLock } from '../../gen/model';
+import type { StagingPoint } from '../rules/police';
 
 /*
  * Small worlds for unit tests, drawn as text: one character per tile.
@@ -53,6 +54,8 @@ export interface FixtureOptions {
     patrol?: { lane: readonly Pos[]; turns: readonly number[] };
     /** The key graph's locks (rules/keys.ts): the vault's code, time lock, drill and thermite; whose cards open which door. */
     locks?: readonly KeyLock[];
+    /** The police staging points (rules/police.ts). Absent: no police come. */
+    staging?: readonly StagingPoint[];
 }
 
 const ZONES: Readonly<Record<string, Zone>> = { '.': 'public', s: 'staff', x: 'secure' };
@@ -133,6 +136,7 @@ export function fixtureWorld(map: readonly string[], options: FixtureOptions = {
         cameras: clonePlain([...(options.cameras ?? [])]),
         rules: { ...defaultRules(), ...options.rules },
         ...(options.patrol ? { patrol: { lane: clonePlain([...options.patrol.lane]), turns: [...options.patrol.turns] } } : {}),
-        ...(options.locks ? { locks: clonePlain([...options.locks]) } : {})
+        ...(options.locks ? { locks: clonePlain([...options.locks]) } : {}),
+        ...(options.staging ? { staging: clonePlain([...options.staging]) } : {})
     });
 }
