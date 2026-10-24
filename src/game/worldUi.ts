@@ -1,7 +1,7 @@
 import type { GlyphName } from '../art/ui/glyphs';
 import {
     crewPicture, LYING_STATUSES, neutralised, profilesOf, npcObserver, seenTiles, bandAt, type ActionPreview, type CarrierKind, type Explanation,
-    type KnownCamera, type KnownView, type MarkerKind, type NpcMarker, type PathSafety, type TileVisibility, VISIBILITY, type Pos, type ReadonlyWorld, type SafeFloor, type State, type Tint, type TintKind, type Witness
+    type KnownCamera, type KnownView, type MarkerKind, type NpcMarker, type PathSafety, type TileVisibility, VISIBILITY, type Pos, type ReadonlyWorld, type SafeFloor, type Sighting, type State, type Tint, type TintKind, type Witness
 } from '../sim';
 import { rolePortrait } from './views';
 
@@ -240,19 +240,28 @@ export interface PathStepVM { pos: Pos; kind: TintKind; hatched: boolean; doorRi
 /** A drawn or previewed path judged by `pathSafety`: each step's tint, the eye on the first unsafe step, the end's tile. */
 export interface PathVM { steps: PathStepVM[]; eyeAt: number | null; end: FloorTileVM }
 
+/** How a step passed reads from the sightings there (decision 46: as if the move ended there), or null for none. */
+function seenKind(sightings: readonly Sighting[]): TintKind | null {
+    if (!sightings.length) return null;
+    if (sightings.some(x => x.by === 'npc' && (x.outcome === '!' || x.known))) return 'red';
+    if (sightings.some(x => x.by === 'camera')) return 'camera';
+    return sightings.some(x => x.outcome === 'T') && !sightings.some(x => x.outcome === '+1' || x.outcome === '+2') ? 'trespass' : 'amber';
+}
+
 /**
- * Each step passed is red where someone would see a `!` for certain (only `!` counts mid-move; a camera's is the
- * camera's), else unknown risk where a door the crew can't vouch for could let someone known see one (`doubted`), else
- * what the crew knows of it; the end is tinted as the safe floor tints it (hatched when the world phase does it). A
- * certain camera's `!` that a door could make an NPC's too is `doorRisk`.
+ * Each step passed is tinted by who would react to the crew member there for certain, as if the move ended there
+ * (decision 46): red for a `!` or someone who knows them, a camera's `!` the camera's, a challenge the hand, pips amber;
+ * else unknown risk where a door the crew can't vouch for could let someone known react (`doubted`), else what the crew
+ * knows of it; the end is tinted as the safe floor tints it (hatched when the world phase does it). A certain warning
+ * short of red that a door could make worse is `doorRisk`.
  */
 export function pathView(safety: PathSafety): PathVM | undefined {
     if (!safety.ok) return undefined;
     const last = safety.steps.length - 1;
     const steps = safety.steps.map((s, i): PathStepVM => {
         if (i === last) return { pos: { ...s.pos }, kind: safety.end.tint.kind, hatched: safety.end.tint.hatched, doorRisk: safety.end.tint.doorRisk };
-        const seen: TintKind | null = s.sightings.length ? (s.sightings.every(x => x.by === 'camera') ? 'camera' : 'red') : null;
-        const kind: TintKind = seen ?? (s.doubted ? 'unknownRisk' : s.passing === 'hidden' ? 'grey' : s.passing === 'unknownRisk' ? 'unknownRisk' : 'safe');
+        const seen = seenKind(s.sightings);
+        const kind: TintKind = seen ?? (s.doubted ? 'unknownRisk' : s.knowledge === 'hidden' ? 'grey' : s.knowledge === 'unknownRisk' ? 'unknownRisk' : 'safe');
         return { pos: { ...s.pos }, kind, hatched: false, doorRisk: s.doubted && kind !== 'red' };
     });
     return { steps, eyeAt: safety.firstUnsafe, end: tintVM(safety.end.pos, safety.mode, safety.end.tint) };

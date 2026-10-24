@@ -42,7 +42,8 @@ import { bitsCount, decodeBits, encodeBits } from './knowledgeBits';
  *   furniture, cameras) is known; what moves (NPCs, doors) isn't: only the knowledge markers below and the doors as
  *   last seen. A public tile is never hidden.
  * - **NPCs** (§8.15): an NPC is *live* while any crew member sees its tile, and until the next world phase once seen
- *   in this crew phase (NPCs move only in the world phase, so it is still where it was seen); one seen on the way (a crew member's
+ *   in this crew phase (NPCs move only in the world phase, so it is still where it was seen, facing as it turns to look at
+ *   a noise, decision 45); one seen on the way (a crew member's
  *   move, its own walk across the crew's view in the world phase, a bump) is known where it was last seen. Each turn
  *   it is seen counts toward its routine; after `knownRoutineTurns` (3) turns, in stealth and on its routine, its
  *   routine is *known* (for guards, with the Guard rota, `World.intel.guardRota`, from the start and again whenever
@@ -734,6 +735,9 @@ function learnNpcs(
             if (rec.watchedTurn !== turn) { rec.watched++; rec.watchedTurn = turn; }
         } else if (rec) {
             rec.live = false;
+            // Seen this crew phase, it still stands there; only a noise it was sent to look at turns it (decision 45),
+            // and the crew's previews of that noise showed it turning.
+            if (rec.tick > k.phaseTick && rec.at.x === npc.pos.x && rec.at.y === npc.pos.y && rec.facing !== npc.facing) rec.facing = npc.facing;
         }
         if (rec && !rec.routine && (rec.rota || rec.watched >= rules.knownRoutineTurns) && onRoutine(npc) && stealth) {
             rec.routine = true;
@@ -1002,8 +1006,6 @@ export interface UnknownWatcher {
 export interface UnknownOptions {
     /** Judge this look instead of the crew member's own (a loadout change being previewed). */
     look?: CrewLook;
-    /** A tile passed in the middle of a move: only `!` counts (§8.5). */
-    step?: boolean;
 }
 
 /**
@@ -1033,8 +1035,8 @@ function unknownNpcs(world: ReadonlyWorld): readonly { observer: ObserverClass; 
  * uses (`reaction`: the matrix, the profile as read, uniforms, Notoriety, frisk range). At its worst means any class
  * (and the manager or the security chief, who see through a uniform), Alerted (one profile higher; both arcs Core,
  * reaching 6 and 8), facing the tile; or a camera of unknown status, taken as live. The distance from that tile
- * decides the band and frisk range. Trespass counts; on a tile passed mid-move (`step`) only `!` does. Null when
- * nobody unknown could change anything there, or `p` is hidden (grey, which is never safe anyway).
+ * decides the band and frisk range. Trespass counts, on a tile passed mid-move as much as at its end (decision 46).
+ * Null when nobody unknown could change anything there, or `p` is hidden (grey, which is never safe anyway).
  *
  * A reaction only grows as the observer comes nearer (a nearer tile is in every band and range a further one is) and
  * within frisk range, so the worst is that of the nearest NPC's place in sight, of the nearest within frisk range, or of
@@ -1103,7 +1105,7 @@ function worstFrom(world: ReadonlyWorld, state: State, crewId: string, p: Pos, o
                 look, notoriety: member.notoriety, observer, role, camera: by === 'camera', alerted: by === 'npc', band, zone: tile.zone, chebyshev,
                 warnedByThis: false, warnedByAny
             });
-            if (options.step ? r.outcome !== '!' : r.outcome === '-') return;
+            if (r.outcome === '-') return;
             if (!best || OUTCOME_RANK[r.outcome] > OUTCOME_RANK[best.reaction.outcome]) best = { by, observer, role, from, reaction: r, profile: look.profile };
         };
         if (npc) for (const n of unknownNpcs(world)) consider('npc', n.observer, n.role);

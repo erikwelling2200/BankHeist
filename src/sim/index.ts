@@ -122,8 +122,8 @@ export {
 } from './rules/suspicion';
 export { challenge, challengeDeadline, challengerOf, deadlineOutcome, dueChallenge, hasWarned, isWarned } from './rules/trespass';
 export {
-    applySightings, assessEnd, assessPath, assessStep, assessWorldPhase, perceiveEnd, posesAlong, reaction, sightingsAlong,
-    sightsAlongWalk, witness, witnessAct, worldPoses, type AlongOptions, type AssessOptions, type PathAssessment, type PoseAt,
+    applySightings, assessEnd, assessPath, assessWorldPhase, lookSightings, onePerObserver, perceiveEnd, posesAlong, queueLook, reaction,
+    sightingsAlong, sightsAlongWalk, turnLookers, witness, witnessAct, withLookers, worldPoses, type AlongOptions, type AssessOptions, type PoseAt,
     type Reaction, type ReactionInput, type Sighting, type WorldPhaseOptions, type WorldPoses, type Why
 } from './rules/perceive';
 export {

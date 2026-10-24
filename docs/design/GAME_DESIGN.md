@@ -243,7 +243,8 @@ squad-tactics notes].
 
 So if Jun is seen, Mara can still drop the witness in the same crew phase, and the witness never acts. Two crew
 taking down two guards in one turn is the basic stealth move, with no extra system needed. The only exceptions are
-NPCs already Hostile and on a **Watch** wedge (§11.8), whose reaction arc is drawn.
+NPCs already Hostile and on a **Watch** wedge (§11.8), whose reaction arc is drawn, and an NPC that looks at a noise
+or is sent to investigate it, which turns to face it at once (a turn, never a step) and sees what is there (§8.9).
 
 The same holds in the other direction: **anything an NPC decides during a world phase** (a panic reaction, a new
 exposure, a lapsed command's intent) **is shown during the next crew phase and carried out in the next world phase.**
@@ -454,11 +455,13 @@ drawer or box, picking a pocket.
 ### 8.5 Suspicion pips
 
 - Each NPC holds 0–3 pips **per crew member**, shown above its head in that crew member's colour.
-- **When pips are added:** each time a crew member *ends an action* in an NPC's view (crew phase), and once per world
-  phase for each NPC that sees the crew member at any point while moving along its committed path. Each check adds
-  the matrix value.
-- **Moving through view:** passing through tiles in the middle of a move only matters for `!` cells. You can hurry
-  past a curious teller; you can't walk a rifle past a guard.
+- **When pips are added:** each time a crew member *ends an action* in an NPC's view or passes through it during a move
+  (crew phase), and once per world phase for each NPC that sees the crew member at any point while moving along its
+  committed path. Each check adds the matrix value.
+- **Moving through view:** passing through an observer's view during a Move or Dash counts as stopping there. Each NPC
+  or camera that sees the crew member on any tile of the move reacts **once** for that move, with the worst reaction it
+  would have at any of those tiles (as if the move had ended there); ending in view is one of them. You can't hurry
+  past a curious teller, nor walk a rifle past a guard: go round its view, or deal with it.
 - **Decay:** −1 pip per world phase in which that NPC did not see that crew member.
 - **Effects:**
   - **1 pip, Curious:** the NPC turns to face the crew member next phase (its new facing is telegraphed).
@@ -566,7 +569,12 @@ cost nothing. The ring is drawn as exactly the tiles it reaches.
 
 **Two kinds of noise:**
 
-- **Quiet:** NPCs who hear it become Curious. One NPC investigates (walks to the source); the others look.
+- **Quiet:** NPCs who hear it become Curious. One NPC investigates (walks to the source); the others look. Each hearer
+  reacts toward the **last tile of the noise it heard**: for a dash, the last tile whose sound reaches it. Those who look
+  and the one sent turn at once, as the noise is made (during the crew phase too), and turning means seeing: whoever of
+  the crew stands in their new view is judged as ending an action there. The one sent then walks there in the world
+  phase; the look lasts a phase, then they go back to their routine. A hearer already busy with something stronger (a
+  crew member it reacts to, challenges, escorts or investigates) keeps at that and doesn't turn.
 - **Loud:** NPCs who hear it become **Alerted, cause unknown**. Civilians panic, staff go for alarms or hide, guards
   investigate aggressively and radio in (an alarm carrier). Any loud noise makes the bank **Loud**.
 

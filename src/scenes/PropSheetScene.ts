@@ -1,11 +1,13 @@
 import Phaser from 'phaser';
+import { LOOKS, PERSON_HEADINGS, personViews } from '../art/bank/people';
 import { propArt, type PropArt } from '../art/bank/props';
 import { Turn } from '../art/bank/view';
 import { PAL } from '../art/palette';
+import { PixelBitmap } from '../art/PixelBitmap';
 import { CATALOG, propBox, propSize } from '../level/catalog';
 import { TILE } from '../level/constants';
 import type { LevelProp } from '../level/plan';
-import { baseLine, drawLine, FACINGS, frontRow, GLOW_DEPTH, supportOf, turned, type Box, type Facing } from '../level/space';
+import { baseLine, drawLine, FACINGS, frontRow, GLOW_DEPTH, PERSON_SIZE, supportOf, turned, type Box, type Facing } from '../level/space';
 
 const GAP = 10;
 /** The tallest a block of rows gets before the sheet starts another beside it. */
@@ -14,7 +16,7 @@ const MAX_BLOCK_HEIGHT = 1100;
 /** A prop drawn on the sheet: its art, the box it fills and where it comes in the drawing order. */
 interface Piece { art: PropArt; box: Box; order: number; under?: Box }
 
-/** One row of the sheet: a name and the same thing turned to face south, east, north and west. */
+/** One row of the sheet: a name and the same thing turned to face south, east, north and west (people: all eight ways). */
 interface Row { label: string; cells: Piece[][] }
 
 /** One of every kind of prop, with small parameters where a kind takes them. */
@@ -69,10 +71,23 @@ function dressed(under: LevelProp, items: OnTop[], facing: Facing): Piece[] {
     return pieces;
 }
 
+/** Every look of the cast standing in their box, turned s, se, e, ne, n, nw, w, sw (left to right). */
+function cast(): Row[] {
+    return Object.entries(LOOKS).map(([label, spec]) => {
+        const views = personViews(spec), box: Box = { x: 0, y: 0, z: 0, ...PERSON_SIZE, facing: 'south' };
+        return {
+            label, cells: PERSON_HEADINGS.map(h => {
+                const lit = views[h], art = { lit, glow: new PixelBitmap(lit.width, lit.height), lights: [], originX: Math.round(lit.width / 2 - box.w / 2) };
+                return [{ art, box, order: baseLine(box) }];
+            })
+        };
+    });
+}
+
 /**
  * A review sheet: every prop in a row, turned to face south, east, north and west (left to right), lit from the
  * front-left on a plain floor with a tile grid for scale; at the end, the second tier standing on a meeting table and a
- * desk. Open it with `?scene=props`.
+ * desk. Open it with `?scene=props`; `?scene=props&cast` shows the cast instead, each look in its eight headings.
  */
 export class PropSheetScene extends Phaser.Scene {
     private sheetWidth = 0;
@@ -85,7 +100,7 @@ export class PropSheetScene extends Phaser.Scene {
 
     create(): void {
         this.lights.enable().setAmbientColor(0x9a98a8);
-        const rows: Row[] = [
+        const rows: Row[] = new URLSearchParams(location.search).has('cast') ? cast() : [
             ...samples().map(p => ({ label: p.kind, cells: FACINGS.map(f => alone(p, f)) })),
             { label: 'meetingTable dressed', cells: FACINGS.map(f => dressed({ kind: 'meetingTable', tx: 0, ty: 0 }, ON_TABLE, f)) },
             { label: 'desk dressed', cells: FACINGS.map(f => dressed({ kind: 'desk', tx: 0, ty: 0 }, ON_DESK, f)) }
@@ -98,7 +113,7 @@ export class PropSheetScene extends Phaser.Scene {
                 right: Math.max(...pieces.map(({ art }, i) => lefts[i]! + art.lit.width)), bottom: Math.max(...pieces.map(({ art }, i) => tops[i]! + art.lit.height))
             };
         }));
-        const columns = FACINGS.map((_, c) => Math.max(...bounds.map(r => r[c]!.right - r[c]!.left)) + GAP);
+        const columns = rows[0]!.cells.map((_, c) => Math.max(...bounds.map(r => r[c]!.right - r[c]!.left)) + GAP);
         const heights = bounds.map(r => Math.max(...r.map(b => b.bottom - b.top)) + GAP);
         // Rows run down in blocks side by side, so the sheet shot at three screen pixels to one stays inside a canvas.
         const blockWidth = columns.reduce((a, b) => a + b, 0), total = heights.reduce((a, b) => a + b, 0);

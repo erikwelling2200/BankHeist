@@ -3,7 +3,7 @@ import { LampReach, lightBlockers, LIT, tileLight } from '../art/bank/lamps';
 import { buildExposure } from '../art/bank/lightmap';
 import type { BankData } from '../level/bankData';
 import { TILE } from '../level/constants';
-import type { PersonFacing as Facing } from '../level/plan';
+import type { PersonHeading as Facing } from '../art/bank/people';
 import { Atmosphere } from './bank/atmosphere';
 import { Baker, forgetLastBank } from './bank/bake';
 import { BankCamera } from './bank/camera';

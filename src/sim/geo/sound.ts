@@ -72,24 +72,21 @@ export interface Ring {
     /** The same by index (y * width + x). */
     byIndex: Map<number, SoundTile>;
     width: number;
+    /**
+     * The last of `sources` (in the order they were made: a dash's last tile heard) whose own sound reaches `p`, or
+     * undefined when the ring doesn't reach `p`. With one source, that source.
+     */
+    lastHeard(p: Pos): Pos | undefined;
 }
 
 /** The budget in half-steps of a noise of `radius` tiles: costs round down, so 1.5 tiles counts as 1. */
 export const soundBudget = (radius: number): number => radius * HALF_STEPS_PER_TILE + 1;
 
-/** The tiles a noise of `radius` tiles made on `sources` (one tile, or every tile of a dash) reaches. */
-export function soundRing(world: ReadonlyWorld, state: State, sources: Pos | readonly Pos[], radius: number): Ring {
-    const from = (Array.isArray(sources) ? sources : [sources]) as readonly Pos[];
-    const width = world.width, budget = soundBudget(radius);
+/** The cost in half-steps of every tile a sound from `from` reaches within `budget`, by index (`edgeCost` per edge). */
+function flood(world: ReadonlyWorld, edgeCost: (key: EdgeKey) => number, from: readonly Pos[], budget: number): Map<number, number> {
+    const width = world.width;
     const index = (p: Pos): number => p.y * width + p.x;
-    const cost = new Map<number, number>(), settled = new Set<number>();
-    // Each edge's cost once per flood: an edge is looked at from both sides and from four corners.
-    const edgeCache = new Map<EdgeKey, number>();
-    const edgeCost = (key: EdgeKey): number => {
-        let c = edgeCache.get(key);
-        if (c === undefined) edgeCache.set(key, c = edgeSoundCost(world, state, key));
-        return c;
-    };
+    const cost = new Map<number, number>(), settled = new Map<number, number>();
     const buckets: number[][] = [[]];
     for (const p of from) {
         if (!inBounds(world, p) || cost.has(index(p))) continue;
@@ -102,7 +99,7 @@ export function soundRing(world: ReadonlyWorld, state: State, sources: Pos | rea
         bucket.sort((a, b) => a - b);
         for (const i of bucket) {
             if (settled.has(i) || cost.get(i) !== c) continue;
-            settled.add(i);
+            settled.set(i, c);
             const at = { x: i % width, y: (i - (i % width)) / width };
             for (const f of FACINGS) {
                 const d = FACING_STEP[f], next = { x: at.x + d.x, y: at.y + d.y };
@@ -123,9 +120,47 @@ export function soundRing(world: ReadonlyWorld, state: State, sources: Pos | rea
             }
         }
     }
-    const tiles = [...settled].sort((a, b) => a - b)
+    return settled;
+}
+
+/**
+ * The tiles a noise of `radius` tiles made on `sources` (one tile, or every tile of a dash) reaches. Sound costs the
+ * same both ways across every edge and corner, so the sources a tile hears (`lastHeard`) are those a flood from that
+ * tile reaches within the same budget, on the walls and doors as they stood when the noise was made.
+ */
+export function soundRing(world: ReadonlyWorld, state: State, sources: Pos | readonly Pos[], radius: number): Ring {
+    const from = (Array.isArray(sources) ? sources : [sources]) as readonly Pos[];
+    const width = world.width, budget = soundBudget(radius);
+    const index = (p: Pos): number => p.y * width + p.x;
+    // Each edge's cost once per ring: an edge is looked at from both sides and from four corners. Later lookups
+    // (`lastHeard`) read the doors and walls as they were now.
+    const edgeCache = new Map<EdgeKey, number>();
+    let asMade: State | null = null;
+    const edgeCost = (key: EdgeKey): number => {
+        let c = edgeCache.get(key);
+        if (c === undefined) edgeCache.set(key, c = edgeSoundCost(world, asMade ?? state, key));
+        return c;
+    };
+    const cost = flood(world, edgeCost, from, budget);
+    asMade = { ...state, doors: { ...state.doors }, edges: { ...state.edges } };
+    const tiles = [...cost.keys()].sort((a, b) => a - b)
         .map(i => ({ pos: { x: i % width, y: (i - (i % width)) / width }, remaining: budget - cost.get(i)! }));
-    return { sources: from.map(p => ({ x: p.x, y: p.y })), radius, tiles, byIndex: new Map(tiles.map(t => [index(t.pos), t])), width };
+    const byIndex = new Map(tiles.map(t => [index(t.pos), t]));
+    const copies = from.map(p => ({ x: p.x, y: p.y })), heard = new Map<number, Pos | undefined>();
+    const lastHeard = (p: Pos): Pos | undefined => {
+        if (p.x < 0 || p.x >= width || !byIndex.has(index(p))) return undefined;
+        if (copies.length === 1) return { ...copies[0]! };
+        const i = index(p);
+        if (!heard.has(i)) {
+            const back = flood(world, edgeCost, [p], budget);
+            let found: Pos | undefined;
+            for (let k = copies.length - 1; k >= 0 && !found; k--) if (back.has(index(copies[k]!))) found = copies[k];
+            heard.set(i, found);
+        }
+        const found = heard.get(i);
+        return found ? { x: found.x, y: found.y } : undefined;
+    };
+    return { sources: copies, radius, tiles, byIndex, width, lastHeard };
 }
 
 /** Whether a ring reaches `p`. */

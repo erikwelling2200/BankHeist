@@ -143,7 +143,12 @@ are:
   the hatch is what happens however they stand: certain danger always shows, the grey hatch drawn over a warning's
   tint and glyph (green for certain becomes plain hatched grey), never instead of it; red, which can't get worse, isn't
   hatched. A step of a drawn path that such a door could let someone see is hatched the same way, its eye on the first
-  certain `!`. "Who and why" names who sees them for certain and says a door could make it worse.
+  certain warning. "Who and why" names who sees them for certain and says a door could make it worse.
+
+A tile is tinted for the whole move that ends there: passing through someone's view counts as stopping in it, so a
+tile beyond a cone the path crosses wears that observer's reaction (each observer once, the worst tile of the path).
+A dash's tint includes those its noise turns to look, and what they then see. Each step of a drawn path is tinted by
+who would react to the crew member on it (pips amber, a hand, an eye).
 
 The path's eye icon sits on the **first** unsafe tile, and long-pressing that tile answers who and why: the NPC's
 position next phase is ghosted, with its cone and a sightline to the tile. Long-pressing an unknown-risk tile outlines

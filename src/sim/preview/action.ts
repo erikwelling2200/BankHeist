@@ -23,7 +23,7 @@ import { previewPicture } from './picture';
  * - **Noise** (§8.9): every noise's ring (the tiles it reaches, the doors the crew can't vouch for shut) and an ear per
  *   NPC the crew knows inside it, labelled with what it will do (`hearing`, the function the noise hook applies, judged among
  *   the NPCs the crew knows; `still` for one face down). When a door the crew can't vouch for could change who of them
- *   hears it, or how loud, who is sent isn't certain: no ear is marked sent (`sentUnsure`).
+ *   hears it, how loud, or the last tile each heard, who is sent isn't certain: no ear is marked sent (`sentUnsure`).
  * - **Witnesses**: who would notice (Exposed, pips, a challenge, a camera report, or seeing it at all).
  * - **Carriers** (§9.1): those the command starts or stops at once, and those the coming world phase would start
  *   because of it (`carrierPreview`).
@@ -117,7 +117,9 @@ function noisesOf(world: ReadonlyWorld, before: State, result: PreviewResult, sh
         if (states) {
             const open = soundRing(world, states.open, e.sources, e.radius), shut = soundRing(world, states.shut, e.sources, e.radius);
             // Only those who could hear count: the picture keeps the unknown at their real tiles, marked 'away'.
-            unsure = picture.npcs.some(n => !DEAF_STATUSES.has(n.status) && loudness(open, n.pos) !== loudness(shut, n.pos));
+            // Who is sent is judged by the last tile each heard (decision 45): that may change too.
+            unsure = picture.npcs.some(n => !DEAF_STATUSES.has(n.status) && (loudness(open, n.pos) !== loudness(shut, n.pos)
+                || JSON.stringify(open.lastHeard(n.pos)) !== JSON.stringify(shut.lastHeard(n.pos))));
         }
         const ears = e.heard.map((npc): Ear => {
             const h = react.get(npc);

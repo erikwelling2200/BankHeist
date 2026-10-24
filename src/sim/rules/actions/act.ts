@@ -4,7 +4,7 @@ import { crewMember, edgeNow, spendActions } from '../../core/state';
 import type { Command, CommandOf, CommandType, CrewState, DeepReadonly, Pos, ReadonlyWorld, State, Tile } from '../../core/types';
 import type { IllegalAct } from '../../data/matrix';
 import { sightMap } from '../../geo/los';
-import { applySightings, perceiveEnd, witness, witnessAct, type Sighting } from '../perceive';
+import { applySightings, lookSightings, perceiveEnd, turnLookers, witness, witnessAct, type Sighting } from '../perceive';
 
 /*
  * The crew phase's bookkeeping (§6.1, §6.3): every crew member has `rules.actionsPerTurn` (2) actions a turn, spent in
@@ -20,7 +20,10 @@ import { applySightings, perceiveEnd, witness, witnessAct, type Sighting } from 
  * 3. **Do it.**
  * 4. **Witnesses** (§8.4): an illegal act is `!` for everyone who sees it, Core or Peripheral (`witnessAct`), on the
  *    state after the act (a knocked-out guard doesn't witness its own knockout).
- * 5. **Ending an action in view** (§8.5): `perceiveEnd` on where the crew member stands.
+ * 5. **Turning to its noise** (§8.9, decision 45): NPCs its noise sent to look turn now (`turnLookers`), so they
+ *    witnessed the act as they stood before it, and see the crew as they face after it.
+ * 6. **Ending an action in view** (§8.5): `perceiveEnd` on where the crew member stands, with what those who turned see
+ *    of the rest of the crew.
  *
  * What NPCs witness is recorded at once but acted on only in the world phase (§6.2): perception rewrites their intents
  * now, and a witness dropped in the same crew phase never acts (its intent is cleared, knockout.ts).
@@ -68,8 +71,11 @@ export function registerAction<K extends CommandType>(type: K, def: ActionDef<K>
         spendActions(member, cost);
         def.run(ctx, member, cmd);
         if (illegal) witnessActOn(ctx, member.id, illegal.act, illegal.tiles ?? [member.pos]);
+        // Anyone its noise sent to look turns now, after the act was witnessed, and sees.
+        const turned = turnLookers(ctx);
         // An action that spent nothing (waiting with none left) ends nothing in view.
-        if (perceive && cost > 0) perceiveEnd(ctx, member.id);
+        if (perceive && cost > 0) perceiveEnd(ctx, member.id, turned);
+        else if (turned.size) applySightings(ctx, lookSightings(ctx.world, ctx.state, sightMap(ctx.world, ctx.state), turned));
     }, options.replace ? { replace: true } : {});
     ACTIONS.set(type, {
         whyNot: def.whyNot as Entry['whyNot'],

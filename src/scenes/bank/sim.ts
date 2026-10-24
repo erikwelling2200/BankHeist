@@ -1,6 +1,6 @@
 import Phaser from 'phaser';
 import {
-    cameraViews, explainView, floorTiles, npcBadges, npcCone, npcDrawnOn, npcSprites, pathView, unhiddenRuns, unhiddenTiles, previewHearers, previewNoise, previewWitnesses, type CameraVM, type ExplainVM, type FloorTileVM,
+    cameraViews, explainView, floorTiles, npcBadges, npcCone, npcDrawnOn, npcSprites, pathView, unhiddenRuns, unhiddenTiles, previewHearers, previewNoise, previewWitnesses, type CameraVM, type ConeVM, type ExplainVM, type FloorTileVM,
     type PathVM
 } from '../../game/worldUi';
 import {
@@ -9,7 +9,8 @@ import {
 } from '../../game';
 import type { GeneratedBank } from '../../gen/model';
 import { TILE } from '../../level/constants';
-import type { PersonFacing, PersonPose } from '../../level/plan';
+import { headingOf } from '../../art/bank/people';
+import type { PersonPose } from '../../level/plan';
 import {
     COMBAT_STATUSES, crewPicture, dashRefusal, IllegalCommand, knownDoorStatus, knownView, planRoute, VISIBILITY, routeBreak, soundRing, type ActionPreview,
     type AutoStop, type Command, type CrewState, type KnownView, type MarkerKind, type State, type TileVisibility, type Facing, type Pos, type SimEvent
@@ -20,7 +21,7 @@ import { mountHud } from '../../ui/hud/mountHud';
 import { CREW_COLOURS, type HudHandle, type OverlayId } from '../../ui/hud/viewModels';
 import type { BankCamera } from './camera';
 import { MapInput } from './input';
-import { WorldOverlay, type OverlayContent } from './overlay';
+import { OVERLAY_V2, WorldOverlay, type OverlayContent } from './overlay';
 import type { Knowledge } from './knowledge';
 import type { People } from './people';
 import type { Walls } from './walls';
@@ -58,13 +59,6 @@ const OPENING_LIFT = 3;
 const MARKER_ALPHA: Record<MarkerKind, number> = { live: 1, predicted: 0.55, ghost: 0.3 };
 const SPEEDS: readonly PlaybackSpeed[] = ['1x', '2x', 'instant'];
 const SPEED_LABEL: Record<PlaybackSpeed, string> = { '1x': '1×', '2x': '2×', instant: '⏭' };
-
-/** The rules' eight facings as drawn: people are drawn facing the camera or away from it. */
-function drawnFacing(f: Facing, current: PersonFacing): PersonFacing {
-    if (f === 'n' || f === 'ne' || f === 'nw') return 'back';
-    if (f === 's' || f === 'se' || f === 'sw') return 'front';
-    return current;
-}
 
 const centre = (p: Pos): [number, number] => [(p.x + 0.5) * TILE, (p.y + 0.5) * TILE];
 /** Where the colour-blind preset is remembered. */
@@ -128,6 +122,7 @@ export class PlayMode {
     /** Moments drawn for a second or two (a shout's ring, the Alarm's rings), until `until` (performance.now()). */
     private flashes: { at: Pos; kind: 'shout' | 'alarm'; tiles?: Pos[]; until: number }[] = [];
     private camerasFor?: { state: State; cones: string; views: CameraVM[] };
+    private conesFor?: { state: State; key: string; cones: ConeVM[] };
     private recap: boolean;
     /** The path being dragged, and whether it is legal so far. */
     private dragPath?: Pos[];
@@ -565,11 +560,11 @@ export class PlayMode {
         }
         const npc = state.npcs.find(n => n.id === e.npc), index = this.sprite.get(e.npc);
         if (npc && index !== undefined) {
-            const [x, y] = centre(npc.pos), now = this.people.at(index);
+            const [x, y] = centre(npc.pos);
             this.drawnAs.set(npc.id, 'live');
             this.people.setAway(index, false);
             this.people.setAlpha(index, 1);
-            this.people.move(index, x, y, drawnFacing(npc.facing, now.facing));
+            this.people.move(index, x, y, npc.facing);
         }
         this.bark(e.at, "Someone's there!");
     }
@@ -648,7 +643,7 @@ export class PlayMode {
             const [fx, fy] = points[leg]!, [tx, ty] = points[Math.min(leg + 1, last)]!;
             const x = Math.round(fx + (tx - fx) * t), y = Math.round(fy + (ty - fy) * t);
             const now = this.people.at(index);
-            const facing: PersonFacing = ty > fy ? 'front' : ty < fy ? 'back' : now.facing;
+            const facing = headingOf(tx - fx, ty - fy, now.facing);
             if (x !== now.x || y !== now.y || facing !== now.facing) this.people.move(index, x, y, facing);
         }
         if (w.leg >= w.legs) this.walk = undefined;
@@ -681,8 +676,8 @@ export class PlayMode {
         this.drawnAs.clear();
         for (const m of markers.values()) this.drawnAs.set(m.id, m.kind);
         const place = (index: number, pos: Pos, f: Facing) => {
-            const [x, y] = centre(pos), now = this.people.at(index), facing = drawnFacing(f, now.facing);
-            if (now.x !== x || now.y !== y || now.facing !== facing) this.people.move(index, x, y, facing);
+            const [x, y] = centre(pos), now = this.people.at(index);
+            if (now.x !== x || now.y !== y || now.facing !== f) this.people.move(index, x, y, f);
         };
         for (const c of state.crew) {
             const index = this.sprite.get(c.id);
@@ -1287,13 +1282,16 @@ export class PlayMode {
     private knowledgeLayer(): Pick<OverlayContent, 'visibility' | 'ghosts' | 'pings' | 'badges' | 'crewColours' | 'cones' | 'predicted' | 'colourBlind' | 'cameras' | 'flashes'> {
         const view = this.known(), { world, state } = this.session, busy = this.busy;
         const shown = (id: string) => this.people.shown(this.sprite.get(id) ?? -1);
-        // Cones: the one long-pressed, or every NPC's the crew knows of from the overlay drawer (§20.4).
-        const coneIds = this.overlays.cones ? view.npcs.filter(m => m.kind !== 'ghost' && shown(m.id)).map(m => m.id) : this.coneOf ? [this.coneOf] : [];
+        // Cones: the one long-pressed, or every NPC's the crew knows of from the overlay drawer (§20.4); v2 hands the
+        // overlay every NPC's when neither, to draw those that meet the reach or the path (`coneFilter`).
+        const filter = OVERLAY_V2 && !this.overlays.cones && !this.coneOf;
+        const coneIds = this.overlays.cones || filter ? view.npcs.filter(m => m.kind !== 'ghost' && shown(m.id)).map(m => m.id) : this.coneOf ? [this.coneOf] : [];
         return {
             visibility: { width: view.width, codes: view.visibility },
             ghosts: view.npcs.filter(m => m.kind === 'ghost' && shown(m.id)).map(m => ({ pos: m.pos, seenAgo: m.seenAgo })),
             pings: view.pings.map(p => ({ at: p.at })),
             colourBlind: this.colourBlind,
+            ...(filter ? { coneFilter: true } : {}),
             cameras: this.cameras(),
             flashes: this.liveFlashes(),
             crewColours: Object.fromEntries(state.crew.map((c, i) => [c.id, CREW_COLOURS[i % CREW_COLOURS.length]!])),
@@ -1301,9 +1299,18 @@ export class PlayMode {
             ...(busy ? {} : {
                 badges: npcBadges(world, state, view).filter(b => !state.npcs.some(n => n.id === b.id) || shown(b.id)),
                 predicted: view.npcs.filter(m => m.kind === 'predicted' && shown(m.id)).map(m => m.pos),
-                cones: coneIds.flatMap(id => npcCone(world, state, view, id) ?? [])
+                cones: this.conesOf(coneIds)
             })
         };
+    }
+
+    /** The cones of these NPCs as the crew knows them, worked out once per state and choice. */
+    private conesOf(ids: string[]): ConeVM[] {
+        const { world, state } = this.session, key = ids.join(' ');
+        if (this.conesFor?.state !== state || this.conesFor.key !== key) {
+            this.conesFor = { state, key, cones: ids.flatMap(id => npcCone(world, state, this.known(), id) ?? []) };
+        }
+        return this.conesFor.cones;
     }
 
     /**
@@ -1311,7 +1318,7 @@ export class PlayMode {
      * long-pressed. Worked out once per state and choice.
      */
     private cameras(): CameraVM[] {
-        const state = this.session.state, all = !!this.overlays.cameras, cones = all ? '*' : this.coneOf ?? '';
+        const state = this.session.state, all = !!this.overlays.cameras || (OVERLAY_V2 && !!this.overlays.cones), cones = all ? '*' : this.coneOf ?? '';
         if (this.camerasFor?.state !== state || this.camerasFor.cones !== cones) {
             const view = this.known(), long = !all && view.cameras.some(c => c.id === this.coneOf);
             let views = cameraViews(this.session.world, state, view, all || long);

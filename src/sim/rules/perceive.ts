@@ -1,10 +1,10 @@
-import { registerWorldHook, type Ctx } from '../core/engine';
+import { registerCommandHook, registerWorldHook, type Ctx } from '../core/engine';
 import { facingToward, tileAt } from '../core/grid';
 import { clonePlain, samePlain } from '../core/json';
 import { Dice } from '../core/rng';
 import { crewMember } from '../core/state';
 import type {
-    CrewState, DeepReadonly, DoorState, Intent, NpcState, ObserverClass, PersonDef, Pos, ReadonlyWorld, Rules, State, Zone
+    CrewState, DeepReadonly, DoorState, Facing, Intent, NpcState, ObserverClass, PersonDef, Pos, ReadonlyWorld, Rules, State, Zone
 } from '../core/types';
 import { registerEvents } from '../core/undo';
 import { registerMoveHook } from '../crew/movement';
@@ -31,10 +31,16 @@ import { challenge, deadlineOutcome, hasWarned, isWarned } from './trespass';
  * - `reaction` is the §8.4 matrix lookup for one observer and one sighting, with every modifier: Notoriety and on edge
  *   raise the profile; a uniform turns the Staff zone into Public unless the manager or security chief sees through it
  *   in Core; frisk range; Peripheral one step weaker; a Warned crew member's second offence; cameras only `!`.
- * - `assessStep(world, state, sight, crew, tile)`: a tile passed in the middle of a move. Only `!` counts (§8.5).
  * - `assessEnd(world, state, sight, crew, tile)`: ending an action on a tile: every observer's matrix value.
- * - `assessPath(world, state, crew, path)`: a whole move: `assessStep` on the tiles it passes and `assessEnd` on the
- *   last, with the doors the walk opens (`sightsAlongWalk`). The move applies exactly this.
+ * - `assessPath(world, state, crew, path)`: a whole move (§8.5, decision 46): `assessEnd` on every tile of it, with the
+ *   doors the walk opens (`sightsAlongWalk`), and each observer reacts once, with the worst it would have at any tile
+ *   it sees the crew member on (`onePerObserver`): passing through a cone counts as stopping in it. The move applies
+ *   exactly this.
+ * - **Turning to a noise** (§8.9, decision 45): an NPC that hears a noise in a crew phase and looks at it or is sent to
+ *   investigate it (evidence.ts `reactToNoise`, `queueLook`) turns to its last-heard tile within the same command, once the command's own sightings are
+ *   judged (`turnLookers`), and turning means seeing: its sightings of every crew member where they stand
+ *   (`lookSightings`) join the command's, still once per observer and crew member. Only its facing changes: NPCs move
+ *   only in the world phase.
  * - `sightingsAlong(world, state, sight, npc, crew, tile)`: the world phase. The NPC walks its committed intent (its
  *   standing pose, then each step facing along it, then its final facing; doors it walks through open for the rest of
  *   the walk) and adds its strongest sighting of the crew member once. `assessWorldPhase` is that for every NPC plus
@@ -51,8 +57,8 @@ import { challenge, deadlineOutcome, hasWarned, isWarned } from './trespass';
  * commit their new intent at once (npc/intent.ts `reconsider`), so it is telegraphed before the world phase.
  *
  * **Within one move** every sighting is judged against the state before the move, with the doors the walk opens
- * (`assessPath`), and applied together at the end, so a guard who Exposes the crew member mid-move doesn't read the
- * end tile on edge: the overlay judges every tile of a path against the same state.
+ * (`assessPath`), and applied together at the end, so a guard who sees the crew member mid-move doesn't read the end
+ * tile on edge: the overlay judges every tile of a path against the same state.
  * **Within one world phase** likewise: every sighting is judged first, then all are applied.
  *
  * Seeing without effect: in a crew phase it changes nothing and isn't a perception check (the overlay showed it green,
@@ -242,17 +248,23 @@ function sightingFrom(
     return { ...base, readAs: r.readAs, profile: r.profile, cell: r.cell, outcome: r.outcome, why: r.why };
 }
 
-/** Every sighting of the crew member on `tile` by the NPCs where they stand and the cameras where they look now. */
-function sightingsNow(world: ReadonlyWorld, state: State, sight: SightMap, crewId: string, tile: Pos, look: CrewLook | undefined, act?: IllegalAct): Sighting[] {
+/**
+ * Every sighting of the crew member on `tile` by the NPCs where they stand and the cameras where they look now; with
+ * `only`, by those NPCs alone.
+ */
+function sightingsNow(
+    world: ReadonlyWorld, state: State, sight: SightMap, crewId: string, tile: Pos, look: CrewLook | undefined, act?: IllegalAct, only?: ReadonlySet<string>
+): Sighting[] {
     const member = crewMember(state, crewId), seen = look ?? crewLook(member);
     const out: Sighting[] = [];
     for (const npc of state.npcs) {
-        if (isEyesDown(npc)) continue;
+        if (isEyesDown(npc) || (only && !only.has(npc.id))) continue;
         const pose = npcObserver(world, npc);
         if (!pose) continue;
         const s = sightingFrom(world, state, sight, npcWatcher(world, npc), pose, member, seen, tile, act);
         if (s) out.push(s);
     }
+    if (only) return out;
     for (const camera of world.cameras) {
         const pose = cameraObserver(world, state, camera.id);
         if (!pose) continue;
@@ -264,12 +276,7 @@ function sightingsNow(world: ReadonlyWorld, state: State, sight: SightMap, crewI
 
 // ---------------------------------------------------------------------------------------------------------- Assessing
 
-/** A tile passed in the middle of a move (§8.5): only `!` counts. */
-export function assessStep(world: ReadonlyWorld, state: State, sight: SightMap, crewId: string, tile: Pos, options: AssessOptions = {}): Sighting[] {
-    return sightingsNow(world, state, sight, crewId, tile, options.look).filter(s => s.outcome === '!');
-}
-
-/** Ending an action on a tile in view (§8.5): every observer's matrix value that does something. */
+/** Ending an action on a tile in view (§8.5), or passing it in a move: every observer's matrix value that acts. */
 export function assessEnd(world: ReadonlyWorld, state: State, sight: SightMap, crewId: string, tile: Pos, options: AssessOptions = {}): Sighting[] {
     return sightingsNow(world, state, sight, crewId, tile, options.look).filter(s => s.outcome !== '-');
 }
@@ -493,24 +500,85 @@ export function assessWorldPhase(world: ReadonlyWorld, state: State, sight: Sigh
     return out;
 }
 
-/** What a move does (§8.5): the `!`s of the tiles it passes and every observer's value at its end. */
-export interface PathAssessment { steps: Sighting[]; end: Sighting[] }
+/**
+ * One sighting per observer and crew member (decision 46): the worst of theirs (`OUTCOME_RANK`), the later one of
+ * equals, in the order of their first sighting. `sightings` in the order they happened (a move's tiles in walk order).
+ */
+export function onePerObserver(sightings: readonly Sighting[]): Sighting[] {
+    if (sightings.length < 2) return [...sightings];
+    const at = new Map<string, number>(), out: Sighting[] = [];
+    for (const s of sightings) {
+        const key = `${s.by} ${s.observer} ${s.crew}`, i = at.get(key);
+        if (i === undefined) { at.set(key, out.length); out.push(s); }
+        else if (OUTCOME_RANK[s.outcome] >= OUTCOME_RANK[out[i]!.outcome]) out[i] = s;
+    }
+    return out;
+}
 
 /**
- * A crew move along `path` from where the crew member stands: `assessStep` on each tile but the last, with the doors
- * the walk has opened so far (`sightsAlongWalk`), and `assessEnd` on the last, all against the state before the move.
- * The move itself applies exactly this (the `perception` move hook).
+ * A crew move along `path` from where the crew member stands (§8.5, decision 46): `assessEnd` on every tile, with the
+ * doors the walk has opened so far (`sightsAlongWalk`), all against the state before the move, each observer once at
+ * its worst (`onePerObserver`). The move itself applies exactly this (the `perception` move hook).
  */
-export function assessPath(world: ReadonlyWorld, state: State, crewId: string, path: readonly Pos[], options: AssessOptions = {}): PathAssessment {
+export function assessPath(world: ReadonlyWorld, state: State, crewId: string, path: readonly Pos[], options: AssessOptions = {}): Sighting[] {
     const member = crewMember(state, crewId);
     const maps = sightsAlongWalk(world, state, sightMap(world, state), member.pos, path);
-    const steps: Sighting[] = [];
-    let end: Sighting[] = [];
-    path.forEach((p, i) => {
-        if (i < path.length - 1) steps.push(...assessStep(world, state, maps[i]!, crewId, p, options));
-        else end = assessEnd(world, state, maps[i]!, crewId, p, options);
-    });
-    return { steps, end };
+    const all: Sighting[] = [];
+    path.forEach((p, i) => all.push(...assessEnd(world, state, maps[i]!, crewId, p, options)));
+    return onePerObserver(all);
+}
+
+// ------------------------------------------------------------------------------------------------ Turning to a noise
+
+// NPCs a noise sends to look, by the draft state of the command that made it: their new facing (see the header).
+const LOOKS = new WeakMap<State, Map<string, Facing>>();
+
+/** An NPC that heard a noise in a crew phase turns to `facing` once the command's own sightings are judged. */
+export function queueLook(state: State, npcId: string, facing: Facing): void {
+    let looks = LOOKS.get(state);
+    if (!looks) LOOKS.set(state, looks = new Map());
+    looks.set(npcId, facing);
+}
+
+/**
+ * Turns the NPCs queued to look (still looking at or sent to investigate the noise, not face down) and returns those
+ * whose facing changed.
+ */
+export function turnLookers(ctx: Ctx): Set<string> {
+    const looks = LOOKS.get(ctx.state), turned = new Set<string>();
+    if (!looks) return turned;
+    LOOKS.delete(ctx.state);
+    for (const [id, facing] of looks) {
+        const npc = ctx.state.npcs.find(n => n.id === id);
+        if (!npc || isEyesDown(npc) || (npc.goal.kind !== 'look' && npc.goal.kind !== 'inspect') || npc.facing === facing) continue;
+        npc.facing = facing;
+        turned.add(id);
+    }
+    return turned;
+}
+
+/**
+ * What NPCs that just turned see (decision 45): each crew member where they stand (all but `except`), as ending an
+ * action there (`assessEnd`), by those NPCs alone.
+ */
+export function lookSightings(world: ReadonlyWorld, state: State, sight: SightMap, turned: ReadonlySet<string>, except?: string): Sighting[] {
+    if (!turned.size) return [];
+    const out: Sighting[] = [];
+    for (const c of state.crew) {
+        if (c.id === except) continue;
+        out.push(...sightingsNow(world, state, sight, c.id, { x: c.pos.x, y: c.pos.y }, undefined, undefined, turned).filter(s => s.outcome !== '-'));
+    }
+    return out;
+}
+
+/**
+ * Turns the NPCs a command's noise sent to look and adds what they see to `sightings` (the command's own, judged
+ * before they turned): one per observer and crew member (`onePerObserver`).
+ */
+export function withLookers(ctx: Ctx, sightings: readonly Sighting[]): Sighting[] {
+    const turned = turnLookers(ctx);
+    if (!turned.size) return [...sightings];
+    return onePerObserver([...sightings, ...lookSightings(ctx.world, ctx.state, sightMap(ctx.world, ctx.state), turned)]);
 }
 
 // ---------------------------------------------------------------------------------------------------------- Applying
@@ -546,10 +614,13 @@ export function applySightings(ctx: Ctx, sightings: readonly Sighting[]): void {
     reconsider(ctx);
 }
 
-/** A crew member ended an action where they stand (§8.5). Every action calls this after it is done (M1-07). */
-export function perceiveEnd(ctx: Ctx, crewId: string): void {
-    const member = crewMember(ctx.state, crewId);
-    applySightings(ctx, assessEnd(ctx.world, ctx.state, sightMap(ctx.world, ctx.state), crewId, member.pos));
+/**
+ * A crew member ended an action where they stand (§8.5). Every action calls this after it is done (M1-07), once
+ * anyone its noise sent to look has turned (`turned`, `turnLookers`): what those see of the rest of the crew counts too.
+ */
+export function perceiveEnd(ctx: Ctx, crewId: string, turned: ReadonlySet<string> = new Set()): void {
+    const member = crewMember(ctx.state, crewId), sight = sightMap(ctx.world, ctx.state);
+    applySightings(ctx, [...assessEnd(ctx.world, ctx.state, sight, crewId, member.pos), ...lookSightings(ctx.world, ctx.state, sight, turned, crewId)]);
 }
 
 /** A crew member commits an illegal act on `tile` (their own by default): every action that is one calls this. */
@@ -558,18 +629,27 @@ export function witnessAct(ctx: Ctx, crewId: string, act: IllegalAct, tile?: Pos
     applySightings(ctx, witness(ctx.world, ctx.state, sightMap(ctx.world, ctx.state), crewId, act, tile ?? member.pos));
 }
 
-// A move is judged as a whole before its first step (`assessPath`) and applied once it is over.
-const PENDING = new WeakMap<State, PathAssessment>();
+// A move is judged as a whole before its first step (`assessPath`) and applied once it is over, with what anyone its
+// noise turned sees.
+const PENDING = new WeakMap<State, Sighting[]>();
 
 registerMoveHook('perception', {
     start(ctx, member, path) {
         PENDING.set(ctx.state, assessPath(ctx.world, ctx.state, member.id, path));
     },
     end(ctx) {
-        const found = PENDING.get(ctx.state);
+        const found = PENDING.get(ctx.state) ?? [];
         PENDING.delete(ctx.state);
-        if (found) applySightings(ctx, [...found.steps, ...found.end]);
+        applySightings(ctx, withLookers(ctx, found));
     }
+});
+
+// Anyone a command's noise sent to look and no action has turned yet (a command without the end-of-action check)
+// turns now and sees, before what the crew knows is brought up to date.
+registerCommandHook('hearing', ctx => {
+    if (ctx.state.phase !== 'crew') return;
+    const turned = turnLookers(ctx);
+    if (turned.size) applySightings(ctx, lookSightings(ctx.world, ctx.state, sightMap(ctx.world, ctx.state), turned));
 });
 
 // The world phase's sightings (§8.5): every NPC along its committed intent, judged before anyone moves, then applied.

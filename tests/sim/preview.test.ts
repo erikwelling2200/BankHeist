@@ -46,7 +46,9 @@ describe('safe floor', () => {
         const { world, state } = smallBank();
         const floor = safeFloor(world, state, 'mara');
         for (const t of floor.tiles) if (t.knowledge === 'hidden') expect(['grey', 'red', 'amber', 'trespass', 'camera']).toContain(t.tint.kind);
-        expect(floor.tiles.some(t => t.tint.kind === 'grey' || t.tint.kind === 'unknownRisk')).toBe(true);
+        // Past the staff door unknown risk lies under the guard's challenge: passing the doorway in his view counts.
+        expect(floor.tiles.some(t => t.knowledge === 'unknownRisk')).toBe(true);
+        expect(floor.tiles.every(t => t.knowledge !== 'unknownRisk' || t.tint.kind !== 'safe')).toBe(true);
     });
 
     it('puts the eye on the first step a guard would see a rifle on', () => {

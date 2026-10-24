@@ -15,8 +15,8 @@ import {
     doorDoubt, doorMayRefuse, doubtStates, doubtStops, floorKnowledge, narrowDoubt, viewDoubted, viewOpen, type DoorDoubt, type FloorKnowledge
 } from '../rules/knowledge';
 import {
-    applySightings, assessEnd, assessStep, assessWorldPhase, posesAlong, sightsAlongWalk, worldPoses, type CertainWalks, type PoseAt, type Sighting,
-    type WorldPoses
+    applySightings, assessEnd, assessWorldPhase, lookSightings, onePerObserver, posesAlong, sightsAlongWalk, turnLookers, worldPoses, type CertainWalks,
+    type PoseAt, type Sighting, type WorldPoses
 } from '../rules/perceive';
 import { onFloor, placeCrew } from '../rules/place';
 import type { CrewLook } from '../rules/profile';
@@ -30,19 +30,21 @@ import { previewPicture } from './picture';
  * band when a dash is allowed) with what committing that move along the reach's path and then ending the turn would do
  * to them, as far as the crew can know: it judges on the crew's picture (`previewPicture`), never on the truth.
  *
- * - **Now** (solid): the move itself. `assessStep` on every tile passed (only `!` counts mid-move) and `assessEnd` on
- *   the last, each on the sight map with the doors the walk has opened so far, exactly as `assessPath` judges a move
- *   (the reach is a tree, so each tile's sightings are worked out once and shared by every path through it). A dash
- *   that someone of the picture hears first has them react (`reactToNoise`, the hearing hook of `makeNoise`, on a copy:
- *   their new intents). The sightings are then applied to the copy by `applySightings`, the one writer, and the effect
- *   is read off its events (`effectOf`).
+ * - **Now** (solid): the move itself. `assessEnd` on every tile of the path, passed or ended on (decision 46), each on
+ *   the sight map with the doors the walk has opened so far, each observer once at its worst (`onePerObserver`), exactly
+ *   as `assessPath` judges a move (the reach is a tree, so each tile's sightings are worked out once and each node keeps
+ *   its path's worst per observer for every path through it). A dash that someone of the picture hears first has them
+ *   react (`reactToNoise`, the hearing hook of `makeNoise`, on a copy: their new intents), and those sent to look turn
+ *   and see the crew where they stand (`turnLookers`, `lookSightings`, decision 45), as the move hook has them. The
+ *   sightings are then applied to the copy by `applySightings`, the one writer, and the effect is read off its events
+ *   (`effectOf`).
  * - **Next** (hatched): the coming world phase after that move: `assessWorldPhase` on the state the move leaves (the
  *   doors it opened, what it made the NPCs want and so where they walk now), with every NPC's walk worked out once per
  *   door set (`worldPoses`) and only the walks that change walked again. Applied likewise.
  * - **Knowledge**: a hidden tile (decision 44: neither seen nor on the blueprint's layout) is grey and never safe; a
  *   tile where someone the crew doesn't know about could be watching and would react to this crew member
  *   (`floorKnowledge` with the crew member: `unknownRisk`, `unknownWatcher`, decisions 24, 43 and 44: an NPC on a tile a
- *   person can stand on that isn't fresh, a camera on a hidden tile), or reached past one (passing it: only an unknown `!`) or through grey, is hatched
+ *   person can stand on that isn't fresh, a camera on a hidden tile), or reached past one or through grey, is hatched
  *   grey where the known NPCs leave it green; so is one reached through a door the crew can't vouch for that could
  *   turn out locked against them (`doorMayRefuse`: the move would stop before it).
  * - **Doors the crew can't vouch for** (decision 44, `doorDoubt`: not seen this turn, a status something unseen could
@@ -97,8 +99,8 @@ export interface FloorTile {
     /** The tile's own knowledge (§8.15). */
     knowledge: FloorKnowledge;
     /**
-     * The path passes a hidden tile, or one where an unknown observer could see a `!`, before this one, or goes through a
-     * door the crew can't vouch for that could be locked against them.
+     * The path passes a hidden tile, or one an unknown observer could react to the crew member on, before this one, or
+     * goes through a door the crew can't vouch for that could be locked against them.
      */
     unknownPath: boolean;
     /** A door the crew can't vouch for could make it worse than the tint, which is certain (see the header). */
@@ -198,7 +200,7 @@ export interface Judge {
     variants: Map<string, Variant>;
     /** The steps' and ends' sightings, by tile and door set. */
     seen: Map<string, Sighting[]>;
-    /** What the crew knows of each tile for this crew member, by index × 2 (+1 passing it mid-move), on demand. */
+    /** What the crew knows of each tile for this crew member, by index, on demand. */
     knowledge: Map<number, FloorKnowledge>;
     /** Tiles from which a dash's noise could reach an NPC of the picture. */
     near: Uint8Array | null;
@@ -243,15 +245,12 @@ function stepVariant(judge: Judge, v: Variant, from: DeepReadonly<Pos>, to: Deep
     return next;
 }
 
-/**
- * `floorKnowledge` of a tile for the judge's crew member and look, once per judge: ending a move there, or passing it
- * mid-move (`step`: only an unknown observer's `!` makes it unknown risk).
- */
-function knowledgeAt(judge: Judge, p: DeepReadonly<Pos>, step = false): FloorKnowledge {
-    const i = (p.y * judge.world.width + p.x) * 2 + (step ? 1 : 0);
+/** `floorKnowledge` of a tile for the judge's crew member and look, once per judge: passing it or ending a move there. */
+function knowledgeAt(judge: Judge, p: DeepReadonly<Pos>): FloorKnowledge {
+    const i = p.y * judge.world.width + p.x;
     let k = judge.knowledge.get(i);
     if (!k) {
-        const who = { crew: judge.crew, step, ...(judge.look ? { look: judge.look } : {}) };
+        const who = { crew: judge.crew, ...(judge.look ? { look: judge.look } : {}) };
         judge.knowledge.set(i, k = floorKnowledge(judge.world, judge.state, { x: p.x, y: p.y }, who));
     }
     return k;
@@ -294,7 +293,7 @@ export function posesAfter(judge: Judge, v: Variant, scratch: State, tile: Pos):
     return { sight: v.sight, byNpc, walked, paths };
 }
 
-/** Every sighting of ending an action on `tile` in a variant, those that do something (`assessEnd`), cached. */
+/** Every sighting of passing or ending an action on `tile` in a variant, those that do something (`assessEnd`), cached. */
 function endAt(judge: Judge, v: Variant, tile: DeepReadonly<Pos>): Sighting[] {
     const key = `${tile.x},${tile.y} ${v.doors.join(' ')}`;
     let found = judge.seen.get(key);
@@ -302,13 +301,8 @@ function endAt(judge: Judge, v: Variant, tile: DeepReadonly<Pos>): Sighting[] {
     return found;
 }
 
-/** Passing `tile` mid-move: only `!` (`assessStep`), asked only where ending there would see a `!` at all. */
-function stepAt(judge: Judge, v: Variant, tile: DeepReadonly<Pos>): Sighting[] {
-    if (!endAt(judge, v, tile).some(s => s.outcome === '!')) return [];
-    return assessStep(judge.world, v.state, v.sight, judge.crew, { x: tile.x, y: tile.y }, judge.look ? { look: judge.look } : {});
-}
-
 const NOBODY: readonly string[] = [];
+const NONE: readonly Sighting[] = [];
 
 /** One tile's dash ring (it depends on the walls and doors alone), per world and wall state: shared by every state. */
 const RINGS = new WeakMap<ReadonlyWorld, { key: string; rings: Map<number, Ring> }[]>();
@@ -377,7 +371,20 @@ export function dashRing(judge: Judge, v: Variant, path: readonly DeepReadonly<P
         }
     }
     const tiles = [...byIndex.keys()].sort((a, b) => a - b).map(i => byIndex.get(i)!);
-    const ring: Ring = { sources: path.map(p => ({ x: p.x, y: p.y })), radius: noiseRadius('dash'), tiles, byIndex: new Map(tiles.map(t => [t.pos.y * world.width + t.pos.x, t])), width: world.width };
+    const near = nearHearing(judge);
+    // The last tile of the path whose own ring reaches `p`: what `soundRing` of the whole path says too.
+    const lastHeard = (p: Pos): Pos | undefined => {
+        const i = p.y * world.width + p.x;
+        for (let k = path.length - 1; k >= 0; k--) {
+            const q = path[k]!;
+            if (near[q.y * world.width + q.x] && tileRing(world, v.state, v.walls, q).byIndex.has(i)) return { x: q.x, y: q.y };
+        }
+        return undefined;
+    };
+    const ring: Ring = {
+        sources: path.map(p => ({ x: p.x, y: p.y })), radius: noiseRadius('dash'), tiles, byIndex: new Map(tiles.map(t => [t.pos.y * world.width + t.pos.x, t])),
+        width: world.width, lastHeard
+    };
     return { ring, hearers: v.state.npcs.filter(n => hearing.has(n.id)).map(n => n.id) };
 }
 
@@ -405,30 +412,30 @@ export function judgeEnd(
     passed: readonly string[] = NOBODY
 ): Judged {
     const { world, crew } = judge;
-    const nowSightings = [...steps, ...end];
+    const sightings = onePerObserver([...steps, ...end]);
     const noise = mode === 'dash' && path.length ? dashRing(judge, v, path) : null;
     // Who could react to something a doubted door decides: they could see a tile passed or this one, or hear the dash
-    // (then every hearer: who is sent to look depends on who hears).
+    // (then every hearer: who is sent to look depends on who hears), or turn to it and see a crew member through one.
     const atEnd = mode === 'stay' ? NOBODY : nowDoubted(judge, v, tile), heardDoubt = mode === 'dash' && path.length ? dashDoubted(judge, v, path) : NOBODY;
     const skip = new Set([...passed, ...atEnd, ...heardDoubt, ...(heardDoubt.length ? noise?.hearers ?? [] : [])]);
     const certain = judge.doubt ? certainWalks(judge, v, skip) : undefined;
     const options = { ...(judge.look ? { look: judge.look } : {}), ...(certain ? { certain } : {}) };
-    const nowDoubt = skip.size > 0;
-    if (!nowSightings.length && !noise) {
+    if (!sightings.length && !noise) {
+        const nowDoubt = skip.size > 0;
         // Nothing happens now: the world phase from the state with the doors opened, the crew member on `tile`
         // (`assessWorldPhase` moves them there itself and walks again only the walks that changes).
         const poses = posesOf(judge, v);
         const nextSightings = assessWorldPhase(world, v.state, v.sight, crew, tile, { ...options, poses });
         const next = nextSightings.length ? applyWorldSightings({ world }, placeCrew(v.state, crew, tile), crew, nextSightings) : noEffect();
         const doubt = nowDoubt || nextDoubted(judge, v, v.state, tile, poses);
-        return { now: noEffect(), next, nowSightings, nextSightings, heard: [], doubt, unsure: unsureOf(judge, v, v.state, skip) };
+        return { now: noEffect(), next, nowSightings: sightings, nextSightings, heard: [], doubt, unsure: unsureOf(judge, v, v.state, skip) };
     }
-    // The move's own effects on a copy, in the order the move has them: the dash's noise, then the sightings. Hearing
-    // and perception write into the NPCs that hear or see (copied whole), the camera reports and the barks; the intents
-    // they rewrite (`reconsider`) replace an NPC's intent, goal and status and touch its route's `stalled`, so every
-    // other NPC is copied shallowly with its route.
+    // The move's own effects on a copy, in the order the move has them: the dash's noise, those it sends to look turning
+    // and seeing, then the sightings. Hearing and perception write into the NPCs that hear or see (copied whole), the
+    // camera reports and the barks; the intents they rewrite (`reconsider`) replace an NPC's intent, goal and status and
+    // touch its route's `stalled`, so every other NPC is copied shallowly with its route.
     const placed = placeCrew(v.state, crew, tile);
-    const touched = new Set<string>([...nowSightings.map(s => s.observer), ...(noise?.hearers ?? [])]);
+    const touched = new Set<string>([...sightings.map(s => s.observer), ...(noise?.hearers ?? [])]);
     const scratch: State = {
         ...placed,
         npcs: placed.npcs.map(n => (touched.has(n.id) ? clonePlain(n) : { ...n, route: n.route ? { ...n.route } : n.route })),
@@ -436,7 +443,18 @@ export function judgeEnd(
     };
     const { ctx, events } = scratchCtx({ world }, scratch);
     if (noise) reactToNoise(ctx, noise.ring, NOISES.dash.kind, `dash ${crew}`);
-    applySightings(ctx, nowSightings);
+    const turned = turnLookers(ctx);
+    const all = turned.size ? onePerObserver([...sightings, ...lookSightings(world, scratch, v.sight, turned)]) : sightings;
+    const d = turned.size ? doubtOf(judge, v) : null;
+    if (d) {
+        for (const id of turned) {
+            const o = npcObserver(world, scratch.npcs.find(n => n.id === id)!);
+            if (o && scratch.crew.some(c => viewDoubted(world, d, o, c.pos))) skip.add(id);
+        }
+    }
+    const nowDoubt = skip.size > 0;
+    applySightings(ctx, all);
+    const nowSightings = turned.size ? all.filter(s => s.crew === crew) : all;
     const now = effectOf(events, crew, v.state);
     const heard = noise?.hearers ?? [];
     if (now.exposed.length || now.watching.length) return { now, next: null, nowSightings, nextSightings: [], heard, doubt: nowDoubt, unsure: [] };
@@ -478,19 +496,19 @@ const doubtOf = (judge: Judge, v: Variant): DoorDoubt | null =>
 
 /**
  * The observers of the picture whose reaction to the crew member on `tile` during the crew phase a doubted door could
- * decide (as `v` stands): they would see them there through one and do something about it (`assessEnd`; passing it
- * mid-move, `step`, a `!`: nothing else counts mid-move).
+ * decide (as `v` stands): they would see them there, passing or ending on it, through one and do something about it
+ * (`assessEnd`).
  */
-function nowDoubted(judge: Judge, v: Variant, tile: DeepReadonly<Pos>, step = false): readonly string[] {
+function nowDoubted(judge: Judge, v: Variant, tile: DeepReadonly<Pos>): readonly string[] {
     const d = doubtOf(judge, v);
     if (!d) return NOBODY;
-    const i = (tile.y * judge.world.width + tile.x) * 2 + (step ? 1 : 0), memo = (v.nowDoubt ??= new Map());
+    const i = tile.y * judge.world.width + tile.x, memo = (v.nowDoubt ??= new Map());
     let found = memo.get(i);
     if (found === undefined) {
         let ids = judge.doubters.filter(x => viewDoubted(judge.world, d, x.o, tile)).map(x => x.id);
         if (ids.length) {
             const p = { x: tile.x, y: tile.y }, options = judge.look ? { look: judge.look } : {};
-            const acts = (step ? assessStep : assessEnd)(judge.world, v.state, d.open, judge.crew, p, options);
+            const acts = assessEnd(judge.world, v.state, d.open, judge.crew, p, options);
             ids = ids.filter(id => acts.some(s => s.observer === id));
         }
         memo.set(i, found = ids.length ? ids : NOBODY);
@@ -569,9 +587,9 @@ function nextDoubted(judge: Judge, v: Variant, s: State, tile: DeepReadonly<Pos>
 }
 
 /**
- * The NPCs of the picture whose hearing of a dash along `path` a doubted door could change (whether, or how loud): the
- * reach at its tile with the doubted doors open and with them shut (the other doors as the walk leaves them) differs.
- * Only a tile with a doubted door within the dash's radius rings differently.
+ * The NPCs of the picture whose hearing of a dash along `path` a doubted door could change (whether, how loud, or the
+ * last tile heard, decision 45): the reach at its tile with the doubted doors open and with them shut (the other doors
+ * as the walk leaves them) differs. Only a tile with a doubted door within the dash's radius rings differently.
  */
 function dashDoubted(judge: Judge, v: Variant, path: readonly DeepReadonly<Pos>[]): readonly string[] {
     const d = doubtOf(judge, v);
@@ -583,19 +601,20 @@ function dashDoubted(judge: Judge, v: Variant, path: readonly DeepReadonly<Pos>[
         const { open, shut } = doubtStates(world, v.state, d, new Set(v.doors));
         v.doubtRings = { open, shut, openWalls: sightInputs(world, open), shutWalls: sightInputs(world, shut) };
     }
-    const x = v.doubtRings, loud = new Map<number, [number, number]>();
-    for (const p of heard) {
+    const x = v.doubtRings, loud = new Map<number, [number, number]>(), last = new Map<number, [number, number]>();
+    heard.forEach((p, k) => {
         const own = doubtedWithin(d, p, r) ? null : tileRing(world, v.state, v.walls, p);
         const a = own ?? tileRing(world, x.open, x.openWalls, p), b = own ?? tileRing(world, x.shut, x.shutWalls, p);
         for (const n of v.state.npcs) {
             if (DEAF_STATUSES.has(n.status)) continue;
-            const i = n.pos.y * world.width + n.pos.x, was = loud.get(i) ?? [-1, -1];
+            const i = n.pos.y * world.width + n.pos.x, was = loud.get(i) ?? [-1, -1], end = last.get(i) ?? [-1, -1];
             loud.set(i, [Math.max(was[0], a.byIndex.get(i)?.remaining ?? -1), Math.max(was[1], b.byIndex.get(i)?.remaining ?? -1)]);
+            last.set(i, [a.byIndex.has(i) ? k : end[0], b.byIndex.has(i) ? k : end[1]]);
         }
-    }
+    });
     const out = v.state.npcs.filter(n => {
-        const l = loud.get(n.pos.y * world.width + n.pos.x);
-        return !!l && l[0] !== l[1];
+        const i = n.pos.y * world.width + n.pos.x, l = loud.get(i), e = last.get(i);
+        return (!!l && l[0] !== l[1]) || (!!e && e[0] !== e[1]);
     }).map(n => n.id);
     return out.length ? out : NOBODY;
 }
@@ -673,13 +692,13 @@ function jobFor(world: ReadonlyWorld, state: State, crewId: string, options: Flo
         if (!t.parent) node = { v: judge.base, steps: [], unknown: false, unsure: NOBODY, path: [] };
         else {
             const up = nodes.get(index(t.parent))!, isStart = !up.path.length;
-            const passed = isStart ? [] : stepAt(judge, up.v, t.parent);
+            const passed = isStart ? NONE : endAt(judge, up.v, t.parent);
             node = {
                 v: stepVariant(judge, up.v, t.parent, t.pos),
-                steps: passed.length ? [...up.steps, ...passed] : up.steps,
-                unknown: up.unknown || (!isStart && knowledgeAt(judge, t.parent, true) !== 'scouted')
+                steps: passed.length ? onePerObserver([...up.steps, ...passed]) : up.steps,
+                unknown: up.unknown || (!isStart && knowledgeAt(judge, t.parent) !== 'scouted')
                     || doorMayRefuse(judge.world, judge.doubt, judge.member, t.parent, t.pos),
-                unsure: isStart ? up.unsure : joined(up.unsure, nowDoubted(judge, up.v, t.parent, true)),
+                unsure: isStart ? up.unsure : joined(up.unsure, nowDoubted(judge, up.v, t.parent)),
                 path: [...up.path, { x: t.pos.x, y: t.pos.y }]
             };
         }
@@ -741,13 +760,14 @@ function floorTile(judge: Judge, t: ReachTile, node: FloorNode, band: FloorBand)
 /** One step of a drawn path. */
 export interface PathStep {
     pos: Pos;
-    /** The `!`s of passing it mid-move (on the last step: every sighting of ending there). */
+    /**
+     * Every sighting of the crew member on it that does something, passing it or ending there alike (decision 46); the
+     * move counts each observer once, at its worst along the path.
+     */
     sightings: Sighting[];
-    /** What the crew knows of the tile for stopping on it. */
+    /** What the crew knows of the tile for passing or stopping on it. */
     knowledge: FloorKnowledge;
-    /** For passing it mid-move: unknown risk only where someone unknown could see a `!` (decision 24). */
-    passing: FloorKnowledge;
-    /** A door the crew can't vouch for could let someone the crew knows see a `!` here (passing) or anything (the end). */
+    /** A door the crew can't vouch for could let someone the crew knows react to the crew member here. */
     doubted: boolean;
     /**
      * Stopping here instead (the path cut after this step), judged as a floor tile: so a path stopped one short of the
@@ -772,11 +792,11 @@ export type PathSafety =
     };
 
 /**
- * A path the player draws (§8.8 "along the whole drawn path"): the `!`s of each tile passed (only `!` counts mid-move),
- * every sighting at its end, then the coming world phase after it, on the crew's picture. A path within the Move
- * budget is a Move unless `mode` says Dash. The first unsafe step is the first with a `!`, or the end when the end's
- * tint isn't safe. A path dragged onto tiles someone stands on (a mid-drag over a teammate) is judged up to its last
- * tile it can end on; one that can't be walked at all is refused. Each step also says what stopping there would do
+ * A path the player draws (§8.8 "along the whole drawn path"): the sightings of each tile, passed or ended on (decision
+ * 46: each observer once, at its worst), then the coming world phase after it, on the crew's picture. A path within the
+ * Move budget is a Move unless `mode` says Dash. The first unsafe step is the first tile passed that anyone reacts to,
+ * or the end when the end's tint isn't safe. A path dragged onto tiles someone stands on (a mid-drag over a teammate)
+ * is judged up to its last tile it can end on; one that can't be walked at all is refused. Each step also says what stopping there would do
  * (`stop`), unless `stops: false`.
  */
 export function pathSafety(world: ReadonlyWorld, state: State, crewId: string, path: readonly Pos[], options: PathOptions = {}): PathSafety {
@@ -823,8 +843,8 @@ export function judgePath(
     path.forEach((p, i) => {
         if (doorMayRefuse(world, judge.doubt, judge.member, prev, p)) unknown = true;
         v = stepVariant(judge, v, prev, p);
-        const last = i === path.length - 1, knowledge = knowledgeAt(judge, p), here = nowDoubted(judge, v, p, !last), doubted = here.length > 0;
-        const sightings = last ? endAt(judge, v, p) : stepAt(judge, v, p);
+        const last = i === path.length - 1, knowledge = knowledgeAt(judge, p), here = nowDoubted(judge, v, p), doubted = here.length > 0;
+        const sightings = endAt(judge, v, p);
         let stop: FloorTile | null = null;
         if (!last && options.stops !== false && free(p)) {
             const prefix = path.slice(0, i + 1);
@@ -842,10 +862,9 @@ export function judgePath(
             passed.push(...sightings);
             if (sightings.length && firstUnsafe === null) firstUnsafe = i;
         }
-        const passing = knowledgeAt(judge, p, true);
-        if (!last && passing !== 'scouted') unknown = true;
+        if (!last && knowledge !== 'scouted') unknown = true;
         if (!last) unsure = joined(unsure, here);
-        steps.push({ pos: { x: p.x, y: p.y }, sightings, knowledge, passing, doubted, stop });
+        steps.push({ pos: { x: p.x, y: p.y }, sightings, knowledge, doubted, stop });
         prev = p;
     });
     const tile = path[path.length - 1]!;

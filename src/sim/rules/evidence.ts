@@ -1,5 +1,5 @@
 import { preview, registerWorldHook, type Ctx } from '../core/engine';
-import { samePos, tileAt } from '../core/grid';
+import { facingToward, samePos, tileAt } from '../core/grid';
 import { sortedIds } from '../core/json';
 import { newId, registerNpcInit, registerRuleDefaults, registerStateInit } from '../core/state';
 import type { CarrierKind, Command, DeepReadonly, Intent, NpcState, ObserverClass, Phase, Pos, ReadonlyWorld, State } from '../core/types';
@@ -13,7 +13,7 @@ import { bodyAway, draggedBy } from './actions/body';
 import { decidesFor, pickInvestigator } from './npc/behaviour';
 import { activityAt, LEAVING_ACTIVITIES, ROUTE_ACTIVITIES } from './npc/schedule';
 import { isPresent } from './npc/walk';
-import { worldPoses, type WorldPoses } from './perceive';
+import { queueLook, worldPoses, type WorldPoses } from './perceive';
 import { isKnownNow } from './knowledge';
 import { reconsider } from './npc/intent';
 import { alertNpc, EYES_DOWN } from './suspicion';
@@ -46,9 +46,10 @@ import { alertNpc, EYES_DOWN } from './suspicion';
  *   guard is about (`reportEvidence` with `phoneCall`).
  * - **Noises** (§8.9) are heard as evidence too, at once, in the crew phase and the world phase alike (`hearing`, a
  *   noise hook): a quiet one is minor (`quietNoise`: Curious, the one sent walks to the source, the others face it), a
- *   loud one major (`loudNoise`: Alerted, cause unknown, one reports it). In a crew phase the hearers' intents are
- *   rewritten at once (§6.2), so the arrows redraw; `noiseReactions` gives the noise ring's ear badges from the same
- *   function.
+ *   loud one major (`loudNoise`: Alerted, cause unknown, one reports it). Each hearer's source is the last tile it heard
+ *   (a dash's end as far as it carried there, decision 45). In a crew phase the hearers' intents are rewritten at once
+ *   (§6.2), so the arrows redraw, and those who look or investigate turn within the command and see what is there; `noiseReactions`
+ *   gives the noise ring's ear badges from the same function.
  * - **Per occurrence**: once something is gone (a door shut, a body up again) NPCs forget they noticed it
  *   (`evidence.forget`, as each crew phase begins), so the next time is news; every noise is its own.
  * - **First-time barks** (§8.10): each NPC that notices something emits `bark` with the cause; `first` is true until
@@ -436,7 +437,7 @@ export interface Hearing {
     /** The noise, as evidence: one id per noise made. */
     noise: string;
     kind: 'quietNoise' | 'loudNoise';
-    /** The source tile nearest it: where it looks, or goes. */
+    /** The last source tile it heard (`Ring.lastHeard`: a dash's last tile whose sound reaches it): where it looks or goes. */
     tile: Pos;
     /** Quiet: it is the one who goes to look (the others turn to face it). Loud: the one who reports it. */
     sent: boolean;
@@ -447,19 +448,17 @@ export interface Hearing {
 /**
  * What the NPCs who hear a noise make of it (§8.9): a quiet noise makes them Curious and one of them (the nearest of
  * the right role, `pickInvestigator`) goes to the source; a loud one makes them Alerted, cause unknown, and one reports
- * it (a guard's radio, someone telling a guard: the evidence reports, M1-08's carriers). NPCs face down (commanded, tied)
- * hear but don't react. The noise hook applies exactly this; the noise ring's preview labels each ear with `status`.
+ * it (a guard's radio, someone telling a guard: the evidence reports, M1-08's carriers). Each hearer's source is the
+ * last tile of the noise it heard (`Ring.lastHeard`): the end of a dash as far as it carried there. NPCs face down
+ * (commanded, tied) hear but don't react. The noise hook applies exactly this; the noise ring's preview labels each ear
+ * with `status`.
  */
 export function hearing(world: ReadonlyWorld, state: State, ring: Ring, kind: NoiseKind, cause: string): Hearing[] {
     const noise = `noise:${state.turn}:${state.phase}:${cause}`, ev: EvidenceKind = kind === 'loud' ? 'loudNoise' : 'quietNoise';
     const hearers = npcsInside(state, ring).map(id => state.npcs.find(n => n.id === id)!).filter(n => !EYES_DOWN.has(n.status) && isPresent(n));
     const tileFor = (n: DeepReadonly<NpcState>): Pos => {
-        let best = ring.sources[0]!, d = Infinity;
-        for (const p of ring.sources) {
-            const dx = p.x - n.pos.x, dy = p.y - n.pos.y, e = dx * dx + dy * dy;
-            if (e < d) { d = e; best = p; }
-        }
-        return { x: best.x, y: best.y };
+        const p = ring.lastHeard({ x: n.pos.x, y: n.pos.y }) ?? ring.sources[ring.sources.length - 1]!;
+        return { x: p.x, y: p.y };
     };
     const tiles = new Map(hearers.map(n => [n.id, tileFor(n)]));
     const sent = pickInvestigator(world, hearers.filter(n => decidesFor(n)).map(n => ({ npc: n, tile: tiles.get(n.id)! })));
@@ -475,10 +474,16 @@ export function noiseReactions(world: ReadonlyWorld, state: State, what: NoiseSo
     return hearing(world, state, ring, NOISES[what].kind, cause);
 }
 
+/** The goals of a hearer a noise turns to face it at once (decision 45): looking at it, or sent to investigate it. */
+export const LOOKING_GOALS: ReadonlySet<string> = new Set(['look', 'inspect']);
+
 /**
  * What hearing a noise does (the `hearing` noise hook): each hearer reacts as `hearing` says, and in a crew phase the
- * hearers' new intents are committed at once. Exported for previews that put a noise on a copy without the rest of
- * `makeNoise` (the safe floor's dash band, M1-09).
+ * hearers' new intents are committed at once, and those it sends to look at it or to investigate it (`look`,
+ * `inspect`) turn to face their last-heard tile straight away (`queueLook`: the command turns them once its own
+ * perception is judged, and what they then see counts, perceive.ts `turnLookers`); the investigator walks there in the
+ * world phase as before. A hearer whose stronger want wins keeps following it and doesn't turn. Exported for previews that put a noise on a copy without the rest of `makeNoise` (the
+ * safe floor's dash band, M1-09).
  */
 export function reactToNoise(ctx: Ctx, ring: Ring, kind: NoiseKind, cause: string): void {
     const heard = hearing(ctx.world, ctx.state, ring, kind, cause);
@@ -489,8 +494,13 @@ export function reactToNoise(ctx: Ctx, ring: Ring, kind: NoiseKind, cause: strin
         bark(ctx, npc, h.kind, h.noise);
         takeEvidence(ctx, npc, h.kind, h.noise, h.tile);
     }
-    // In a crew phase the hearers' new intents are telegraphed at once (§6.2).
+    // In a crew phase the hearers' new intents are telegraphed at once (§6.2), and those who look turn now.
     reconsider(ctx);
+    if (ctx.state.phase !== 'crew') return;
+    for (const h of heard) {
+        const npc = ctx.state.npcs.find(n => n.id === h.npc)!, facing = facingToward(npc.pos, h.tile);
+        if (LOOKING_GOALS.has(npc.goal.kind) && npc.goal.evidence === h.noise && facing && facing !== npc.facing) queueLook(ctx.state, npc.id, facing);
+    }
 }
 
 registerNoiseHook('hearing', reactToNoise);

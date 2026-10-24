@@ -203,6 +203,12 @@ function checkMove(run: Run, state: State, crew: string, cmd: Extract<Command, {
     const o1 = commit(world, picture, cmd);
     const oNow = effectOf(o1.events, crew, picture);
     if (show(oNow) !== show(tile.now)) probe.fail(`${at}: now ${show(tile.now)}, the rules on the picture ${show(oNow)}`);
+    // A dash's noise turns the known NPCs it sends to look at once (decision 45): what they see is in `now`.
+    const turned = picture.npcs.filter(n => o1.state.npcs.find(m => m.id === n.id)?.facing !== n.facing).map(n => n.id);
+    if (turned.length) {
+        probe.bump('moves turning a known NPC');
+        if (turned.some(id => observersOf(tile.now).includes(id))) probe.bump('moves seen by an NPC they turned');
+    }
     const o2 = tile.next || endTurn ? commit(world, o1.state, { type: 'endTurn' }) : null;
     if (tile.next) {
         const oNext = sure(effectOf(o2!.events, crew, o1.state), tile, npcs, cameras);
@@ -549,17 +555,21 @@ function checkCertainEvents(run: Run, state: State, cmd: Command, crew: string, 
     }
 }
 
-/** The eye sits on the first step with a `!`, or on the end when the end isn't safe; nothing before it acts. */
+/**
+ * The eye sits on the first step passed that anyone reacts to (decision 46: passing counts as ending there, pips and
+ * challenges too), or on the end when the end isn't safe; nothing before it acts.
+ */
 function checkEye(run: Run, ps: Extract<ReturnType<typeof pathSafety>, { ok: true }>, path: readonly Pos[]): void {
-    const firstBang = ps.steps.findIndex((s, i) => i < path.length - 1 && s.sightings.length > 0);
+    const firstSeen = ps.steps.findIndex((s, i) => i < path.length - 1 && s.sightings.length > 0);
     const warns = !['safe', 'grey', 'unknownRisk'].includes(ps.end.tint.kind);
-    const expected = firstBang >= 0 ? firstBang : warns ? path.length - 1 : null;
+    const expected = firstSeen >= 0 ? firstSeen : warns ? path.length - 1 : null;
     if (ps.firstUnsafe !== expected) run.probe.fail(`${run.label}: eye at ${ps.firstUnsafe}, expected ${expected}`);
-    if (ps.steps.some((s, i) => i < path.length - 1 && s.sightings.some(x => x.outcome !== '!'))) run.probe.fail(`${run.label}: a mid-move step counts more than a '!'`);
+    if (ps.steps.some((s, i) => i < path.length - 1 && s.sightings.some(x => x.outcome === '-'))) run.probe.fail(`${run.label}: a step passed counts a sighting that does nothing`);
+    if (firstSeen >= 0 && ps.steps[firstSeen]!.sightings.every(x => x.outcome !== '!')) run.probe.bump('eyes mid-path short of a !');
     if (ps.firstUnsafe !== null) run.probe.bump('eyes');
 }
 
-const observers = (e: Effect | null): string[] =>
+const observersOf = (e: Effect | null): string[] =>
     (e ? [...e.exposed, ...e.watching, ...Object.keys(e.pips), ...(e.challenged ? [e.challenged] : []), ...e.cameras] : []);
 
 /** "Who and why" names exactly the observers behind the tile's effects (all known to the crew), in the right phase. */
@@ -568,11 +578,11 @@ function checkExplain(run: Run, state: State, crew: string, tile: FloorTile): vo
     const { world, probe } = run;
     const lines = explain(world, state, crew, tile.pos);
     const named = [...new Set(lines.flatMap(l => (l.observer ? [l.observer] : [])))].sort();
-    const want = [...new Set([...observers(tile.now), ...observers(tile.next)])].sort();
+    const want = [...new Set([...observersOf(tile.now), ...observersOf(tile.next)])].sort();
     if (JSON.stringify(named) !== JSON.stringify(want)) probe.fail(`${run.label}: explain names ${JSON.stringify(named)}, the effects ${JSON.stringify(want)} at ${JSON.stringify(tile.pos)}`);
     for (const l of lines) {
         if (l.observer === null) continue;
-        if (!observers(l.phase === 'now' ? tile.now : tile.next).includes(l.observer)) probe.fail(`${run.label}: explain puts ${l.observer} in the wrong phase (${l.phase})`);
+        if (!observersOf(l.phase === 'now' ? tile.now : tile.next).includes(l.observer)) probe.fail(`${run.label}: explain puts ${l.observer} in the wrong phase (${l.phase})`);
         if (l.by === 'npc' && !isKnownNow(world, state, l.observer)) probe.fail(`${run.label}: explain names ${l.observer}, unknown to the crew`);
         if (l.by === 'camera' && !state.knowledge.cameras.includes(l.observer)) probe.fail(`${run.label}: explain names camera ${l.observer}, unknown to the crew`);
     }
@@ -611,6 +621,16 @@ function checkDrag(run: Run, state: State, crew: string, tile: FloorTile): void 
     probe.bump('jobs stepped', slices + 1);
 }
 
+/** The tile of `path` nearest `p` (the first of equals). */
+function nearestOf(path: readonly Pos[], p: Pos): Pos {
+    let best = path[0]!, d = Infinity;
+    for (const q of path) {
+        const e = (q.x - p.x) ** 2 + (q.y - p.y) ** 2;
+        if (e < d) { d = e; best = q; }
+    }
+    return { x: best.x, y: best.y };
+}
+
 /** The dash's ring as the safe floor builds it (the union of its tiles' rings, on NPCs' tiles) is `soundRing` of the whole path there, and so are its hearers. */
 function checkRing(run: Run, state: State, crew: string, path: readonly Pos[]): void {
     if (!run.rng.chance(0.3)) return;
@@ -622,6 +642,9 @@ function checkRing(run: Run, state: State, crew: string, path: readonly Pos[]): 
         for (const n of judge.base.state.npcs.filter(x => !DEAF_STATUSES.has(x.status))) {
             const a = real.byIndex.get(n.pos.y * run.world.width + n.pos.x), b = mine.ring.byIndex.get(n.pos.y * run.world.width + n.pos.x);
             if (JSON.stringify(a) !== JSON.stringify(b)) run.probe.fail(`${run.label}: the dash ring of ${JSON.stringify(path)} differs from soundRing at ${n.id}`);
+            // The last tile each hearer heard (decision 45) too.
+            if (JSON.stringify(real.lastHeard(n.pos)) !== JSON.stringify(mine.ring.lastHeard(n.pos))) run.probe.fail(`${run.label}: the dash ring's last tile heard at ${n.id} differs`);
+            else if (a && JSON.stringify(real.lastHeard(n.pos)) !== JSON.stringify(nearestOf(path, n.pos))) run.probe.bump('hearers whose last tile heard is not the nearest');
         }
         if (JSON.stringify(real.sources) !== JSON.stringify(mine.ring.sources)) run.probe.fail(`${run.label}: the dash ring's sources differ`);
     }
@@ -835,7 +858,8 @@ describe('previews (property, §8.8)', () => {
         expect((st['tint trespass'] ?? 0) + (st['tint trespass hatched'] ?? 0), 'trespass').toBeGreaterThan(0);
         for (const k of [
             'truth: move cut by a door', 'floors checked with doubted doors flipped', 'floors with door risk', 'door variants checked', 'door risk tiles with a certain warning',
-            'doubted door moves to door-risk tiles', 'certain sightings kept'
+            'doubted door moves to door-risk tiles', 'certain sightings kept', 'eyes mid-path short of a !', 'moves turning a known NPC',
+            'moves seen by an NPC they turned', 'hearers whose last tile heard is not the nearest'
         ]) expect(st[k] ?? 0, k).toBeGreaterThan(0);
         for (const type of ['door', 'knockout', 'drag', 'interact']) expect(st[`command ${type}`] ?? 0, type).toBeGreaterThan(0);
     }, 600_000);

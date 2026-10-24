@@ -370,7 +370,7 @@ describe('review fixes', () => {
         expect(npc(s, 'cust').exposedTo).toEqual([]);
         npc(s, 'cust').facing = 'w';
         const judged = assessPath(world, s, 'jun', [P(3, 2), P(4, 2)]);
-        expect(judged.steps.map(x => [x.observer, x.band, x.outcome, x.why])).toContainEqual(['cust', 'peripheral', '!', ['illegal']]);
+        expect(judged.map(x => [x.observer, x.band, x.outcome, x.why])).toContainEqual(['cust', 'peripheral', '!', ['illegal']]);
         expect(commit(world, s, { type: 'move', crew: 'jun', path: [P(3, 2), P(4, 2)] }).state.npcs[1]!.exposedTo).toEqual(['jun']);
     });
 

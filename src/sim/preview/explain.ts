@@ -38,7 +38,7 @@ export interface Explanation {
     text: string;
     /**
      * Unknown risk: every tile someone unknown could stand on and react from (`from`), and the tile they would see
-     * (`to`: this line's tile, or for the way there a tile passed, judged as mid-move), the worst first.
+     * (`to`: this line's tile, or for the way there a tile passed), the worst first.
      */
     watchers?: { from: Pos; to: Pos }[];
 }
@@ -173,9 +173,9 @@ export function explain(
         });
     };
     // Where someone unknown could watch `to` from, the worst (`unknownWatcher`'s) first, each once.
-    const watchersOf = (to: readonly Pos[], step: boolean, worst?: Pos): { from: Pos; to: Pos }[] => {
+    const watchersOf = (to: readonly Pos[], worst?: Pos): { from: Pos; to: Pos }[] => {
         const found = new Map<string, { from: Pos; to: Pos }>();
-        for (const t of to) for (const w of unknownWatchers(world, state, crewId, t, { ...who, step })) {
+        for (const t of to) for (const w of unknownWatchers(world, state, crewId, t, who)) {
             const key = `${w.from.x},${w.from.y}`;
             if (!found.has(key)) found.set(key, { from: { ...w.from }, to: { x: t.x, y: t.y } });
         }
@@ -187,21 +187,22 @@ export function explain(
     if (knowledge === 'hidden') unknown(HIDDEN, tile);
     else if (knowledge === 'unknownRisk') {
         const w = unknownWatcher(world, state, crewId, tile, who);
-        if (w) unknown(unknownText(w), tile, watchersOf([tile], false, w.from));
+        if (w) unknown(unknownText(w), tile, watchersOf([tile], w.from));
     }
     if (unknownPath) {
-        // The first tile on the way that the crew can't vouch for: a door into it that could be locked (said on the tile
-        // the move would stop on), grey (no watchers: nobody is placed on no data), or an unknown `!` mid-move, with the
-        // watchers of every tile passed.
+        // The first tile on the way that the crew can't vouch for, grey (no watchers: nobody is placed on no data) or one
+        // someone unknown could react to the crew member on (with the watchers of every tile passed), and a door on the
+        // way that could be locked (said on the tile the move would stop on).
         const doubt = doorDoubt(world, state);
-        let prev: Pos = member.pos;
+        let prev: Pos = member.pos, said = false;
         for (const [i, p] of path.entries()) {
             if (doorMayRefuse(world, doubt, member, prev, p)) { unknown('On the way: a door not seen this turn could be locked', prev); break; }
             prev = p;
             if (i === path.length - 1) break;
-            if (floorKnowledge(world, state, p) === 'hidden') { unknown('On the way: no data, nobody has scouted there', p); break; }
-            const w = unknownWatcher(world, state, crewId, p, { ...who, step: true });
-            if (w) { unknown(unknownText(w, true), p, watchersOf(walked, true, w.from)); break; }
+            if (said) continue;
+            if (floorKnowledge(world, state, p) === 'hidden') { unknown('On the way: no data, nobody has scouted there', p); said = true; continue; }
+            const w = unknownWatcher(world, state, crewId, p, who);
+            if (w) { unknown(unknownText(w, true), p, watchersOf(walked, w.from)); said = true; }
         }
     }
     return out;

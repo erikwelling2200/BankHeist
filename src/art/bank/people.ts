@@ -56,16 +56,34 @@ const H = { hair: 1, face: 0.95, torso: 0.8, arm: 0.85, legs: 0.6, shoes: 0.35 }
 export const PERSON_EDGE: Edge = inner(0.3);
 
 /**
- * Draws one person facing the camera (`front`) or away from it (`back`). Clothes are shaded for light from above and
- * slightly left: shoulders take the light, the right side and the arms sit a step darker. `PERSON_EDGE` edges it. A
- * mask goes over the face; someone with a `pose` is drawn lying down instead, the same for both facings.
+ * One person standing, turned to `heading`, or lying down if they have a `pose` (the same drawing every way). The rig
+ * (`Turned`) wraps the front and back drawings round the body's sections, so all eight views share one set of
+ * measurements; eyes, glasses, nose, shoes, holster and carried things are placed per heading. `PERSON_EDGE` edges it.
  */
-export function person(spec: PersonSpec, facing: 'front' | 'back', edge: Edge = PERSON_EDGE): PixelBitmap {
+export function person(spec: PersonSpec, heading: PersonHeading, edge: Edge = PERSON_EDGE): PixelBitmap {
     if (spec.pose) return lying(spec, spec.pose, edge);
+    return turned(spec, { front: flat(spec, true), back: flat(spec, false) }, heading, edge);
+}
+
+/** Every heading's drawing of one person, the front and back drawings made once. */
+export function personViews(spec: PersonSpec, edge: Edge = PERSON_EDGE): Record<PersonHeading, PixelBitmap> {
+    if (spec.pose) {
+        const b = lying(spec, spec.pose, edge);
+        return Object.fromEntries(PERSON_HEADINGS.map(h => [h, b])) as Record<PersonHeading, PixelBitmap>;
+    }
+    const tex = { front: flat(spec, true), back: flat(spec, false) };
+    return Object.fromEntries(PERSON_HEADINGS.map(h => [h, turned(spec, tex, h, edge)])) as Record<PersonHeading, PixelBitmap>;
+}
+
+/**
+ * The front (`front`) or back drawing a turned person is wrapped from: drawn flat, every part in its own base tone (the
+ * rig shades the side away from the light per heading), without eyes, glasses, shoes, holster or carried bags, which
+ * the rig places per heading.
+ */
+function flat(spec: PersonSpec, front: boolean): PixelBitmap {
     const b = new PixelBitmap(PERSON_WIDTH, PERSON_HEIGHT);
     const s = spec.short ?? 0;
     const top = 1 + s;
-    const front = facing === 'front';
     const { skin, top: cloth } = spec;
     const longTop = spec.topKind === 'coat' || spec.topKind === 'dress';
     const hemY = spec.topKind === 'dress' ? 18 : spec.topKind === 'coat' ? 18 : 14;
@@ -77,22 +95,17 @@ export function person(spec: PersonSpec, facing: 'front' | 'back', edge: Edge = 
     for (let y = 15; y <= 21; y++) {
         const leg = spec.topKind === 'dress' ? skin : spec.legs;
         b.rect(5 - wide, y, 3 + wide, 1, leg[2]!, H.legs);
-        b.rect(8, y, 3 + wide, 1, leg[1]!, H.legs);
+        b.rect(8, y, 3 + wide, 1, leg[2]!, H.legs);
         if (y > 15) b.set(7, y, deepen(leg[1]!, 0.25), H.legs - 0.1);
     }
     if (spec.topKind === 'dress') b.rect(5, 19, 6, 1, deepen(skin[1]!, 0.2), H.legs);
-    b.rect(4 - wide, 22, 4 + wide, 1, spec.shoes[2]!, H.shoes);
-    b.rect(8, 22, 4 + wide, 1, spec.shoes[1]!, H.shoes);
-    b.rect(4 - wide, 23, 8 + 2 * wide, 1, spec.shoes[0]!, H.shoes - 0.1);
-    b.set(7, 23, PAL.ink, H.shoes - 0.2);
-    b.set(8, 23, PAL.ink, H.shoes - 0.2);
 
     // Torso, shoulders and arms.
     const torsoTop = top + 6;
     for (let y = torsoTop; y <= hemY; y++) {
         const flare = longTop && y > 14 ? (spec.topKind === 'dress' ? Math.min(2, y - 14) : 0) : 0;
         for (let x = left - flare; x <= right + flare; x++) {
-            let c = x >= right - 1 ? cloth[1]! : cloth[2]!;
+            let c = cloth[2]!;
             if (y === torsoTop) c = cloth[3]!;
             if (y > 14 && spec.topKind === 'coat' && (x === 7 || x === 8)) c = deepen(cloth[1]!, 0.25);
             b.set(x, y, c, H.torso);
@@ -102,12 +115,12 @@ export function person(spec: PersonSpec, facing: 'front' | 'back', edge: Edge = 
     for (let y = torsoTop + 1; y <= 14; y++) {
         const bare = y - torsoTop > sleeve;
         b.set(left - 1, y, bare ? skin[2]! : sleeves[1]!, H.arm);
-        b.set(right + 1, y, bare ? skin[1]! : sleeves[0]!, H.arm);
+        b.set(right + 1, y, bare ? skin[2]! : sleeves[1]!, H.arm);
     }
     b.set(left - 1, torsoTop, sleeves[2]!, H.arm);
-    b.set(right + 1, torsoTop, sleeves[1]!, H.arm);
+    b.set(right + 1, torsoTop, sleeves[2]!, H.arm);
     b.set(left - 1, 15, hands[2]!, H.arm);
-    b.set(right + 1, 15, hands[1]!, H.arm);
+    b.set(right + 1, 15, hands[2]!, H.arm);
 
     if (front) frontDetails(b, spec, torsoTop, hemY, left, right);
     else backDetails(b, spec, torsoTop, hemY, left, right);
@@ -125,13 +138,14 @@ export function person(spec: PersonSpec, facing: 'front' | 'back', edge: Edge = 
     }
     if (spec.earpiece) {
         // The coil shows pale against the neck and the dark collar behind the right ear.
-        b.set(11, top + 3, PAL.steel[4], H.face);
-        b.set(11, top + 4, PAL.steel[3], H.face);
-        b.set(10, top + 5, PAL.steel[4], H.face);
+        // The right ear is on the left of the front drawing and the right of the back one.
+        const ear = front ? 4 : 11, lead = front ? 5 : 10;
+        b.set(ear, top + 3, PAL.steel[4], H.face);
+        b.set(ear, top + 4, PAL.steel[3], H.face);
+        b.set(lead, top + 5, PAL.steel[4], H.face);
         if (!front) b.set(10, torsoTop, PAL.steel[3], H.torso + 0.05);
     }
-    if (spec.carry && spec.carry !== 'none') drawCarry(b, spec, spec.carry, front);
-    edge(b);
+    if (spec.carry === 'duffel' || spec.carry === 'laptopBag') drawStrap(b, spec.carry, front);
     return b;
 }
 
@@ -338,7 +352,7 @@ function frontDetails(b: PixelBitmap, spec: PersonSpec, torsoTop: number, hemY: 
         }
         case 'vest': {
             b.rect(left, torsoTop, right - left + 1, 1, under[3]!, H.torso);
-            for (let y = torsoTop + 1; y <= 14; y++) { b.set(left - 1, y, under[2]!, H.arm); b.set(right + 1, y, under[1]!, H.arm); }
+            for (let y = torsoTop + 1; y <= 14; y++) { b.set(left - 1, y, under[2]!, H.arm); b.set(right + 1, y, under[2]!, H.arm); }
             b.set(7, torsoTop, under[3]!, H.torso);
             b.set(8, torsoTop, under[3]!, H.torso);
             b.vline(8, torsoTop + 1, 13 - torsoTop, cloth[0]!, H.torso);
@@ -365,7 +379,6 @@ function frontDetails(b: PixelBitmap, spec: PersonSpec, torsoTop: number, hemY: 
             b.set(left - 1, torsoTop + 2, PAL.brass[3], H.arm + 0.05);
             b.rect(left, 14, right - left + 1, 1, PAL.cloth.black[1]!, H.torso + 0.05);
             b.rect(7, 14, 2, 1, PAL.brass[4], H.torso + 0.1);
-            b.rect(right, 14, 2, 3, PAL.cloth.black[0]!, H.torso + 0.1);
             break;
         }
         case 'coat': {
@@ -437,8 +450,6 @@ function frontDetails(b: PixelBitmap, spec: PersonSpec, torsoTop: number, hemY: 
             b.rect(right - 1, torsoTop + 4, 2, 1, PAL.cloth.white[1]!, H.torso + 0.02);
             b.rect(left, 14, right - left + 1, 1, PAL.cloth.black[1]!, H.torso + 0.05);
             b.rect(7, 14, 2, 1, PAL.brass[4], H.torso + 0.1);
-            b.rect(right, 14, 2, 3, PAL.cloth.black[0]!, H.torso + 0.1);
-            b.set(right, 13, PAL.steel[2], H.torso + 0.1);
             break;
         }
         case 'tactical': {
@@ -485,7 +496,6 @@ function backDetails(b: PixelBitmap, spec: PersonSpec, torsoTop: number, hemY: n
         b.rect(left, torsoTop + 4, right - left - 1, 1, PAL.cloth.white[2]!, H.torso + 0.02);
         b.rect(right - 1, torsoTop + 4, 2, 1, PAL.cloth.white[1]!, H.torso + 0.02);
         b.rect(left, 14, right - left + 1, 1, PAL.cloth.black[1]!, H.torso + 0.05);
-        b.rect(left - 1, 14, 2, 3, PAL.cloth.black[0]!, H.torso + 0.1);
     }
     if (spec.topKind === 'tactical') {
         // The back plate, with a drag handle at the top.
@@ -513,13 +523,10 @@ function drawFace(b: PixelBitmap, spec: PersonSpec, top: number, front: boolean)
     const { skin, hair } = spec;
     // Face block, lit from above: forehead light, jaw a step down.
     for (let y = top + 1; y <= top + 4; y++) for (let x = 5; x <= 10; x++) {
-        b.set(x, y, y === top + 4 || x === 10 ? skin[1]! : skin[2]!, H.face);
+        b.set(x, y, y === top + 4 ? skin[1]! : skin[2]!, H.face);
     }
     if (front) {
-        b.set(6, top + 3, PAL.ink, H.face - 0.1);
-        b.set(9, top + 3, PAL.ink, H.face - 0.1);
         b.set(7, top + 4, skin[1]!, H.face);
-        if (spec.glasses) { b.rect(5, top + 3, 2, 1, PAL.steel[1], H.face + 0.05); b.rect(9, top + 3, 2, 1, PAL.steel[1], H.face + 0.05); b.set(8, top + 3, PAL.steel[2], H.face); }
         if (spec.beard && !spec.mask) { b.rect(5, top + 4, 6, 1, hair[1]!, H.face); b.rect(6, top + 5, 4, 1, hair[0]!, H.face); }
         else b.rect(6, top + 5, 4, 1, skin[1]!, H.face);
     } else {
@@ -669,71 +676,372 @@ function drawMask(b: PixelBitmap, spec: PersonSpec, top: number, front: boolean)
     }));
 }
 
-function drawCarry(b: PixelBitmap, spec: PersonSpec, carry: Carry, front: boolean): void {
-    switch (carry) {
+/** A bag's strap across the chest, front only: the duffel's from the right shoulder, the laptop bag's from the left. */
+function drawStrap(b: PixelBitmap, carry: 'duffel' | 'laptopBag', front: boolean): void {
+    if (!front) return;
+    if (carry === 'duffel') for (let i = 0; i < 6; i++) b.set(5 + i, 8 + i, PAL.cloth.black[2]!, 0.9);
+    else for (let i = 0; i < 6; i++) b.set(10 - i, 8 + i, PAL.cloth.black[3]!, 0.9);
+}
+
+/** The eight ways a person can face, as the rules' `Facing`: clockwise from north. */
+export type PersonHeading = 'n' | 'ne' | 'e' | 'se' | 's' | 'sw' | 'w' | 'nw';
+/** In the order previews show them: facing the camera, then turning to the right, round to facing away and back. */
+export const PERSON_HEADINGS: readonly PersonHeading[] = ['s', 'se', 'e', 'ne', 'n', 'nw', 'w', 'sw'];
+const CLOCKWISE: readonly PersonHeading[] = ['n', 'ne', 'e', 'se', 's', 'sw', 'w', 'nw'];
+/** How far each heading is turned from facing the camera, in degrees, towards the east. */
+const TURN: Record<PersonHeading, number> = { s: 0, se: 45, e: 90, ne: 135, n: 180, nw: 225, w: 270, sw: 315 };
+
+/** The heading of a step by (dx, dy), to the nearest of the eight; standing still keeps `current`. */
+export function headingOf(dx: number, dy: number, current: PersonHeading): PersonHeading {
+    if (!dx && !dy) return current;
+    return CLOCKWISE[(Math.round(Math.atan2(dx, -dy) / (Math.PI / 4)) + 8) % 8]!;
+}
+
+/** The middle line of the canvas: the body's axis falls between columns 7 and 8. */
+const MID = 8;
+const W = PERSON_WIDTH, LAST = W - 1;
+
+/** Parts of the body the rig keeps apart, for the shading after painting. */
+const PART = { torso: 0, head: 1, armR: 2, armL: 3, legR: 4, legL: 5, gear: 6 } as const;
+
+/**
+ * One row of a body part, an ellipse in the person's own frame: `across` to their left, `fwd` the way they face, both
+ * in pixels from the body's axis. `bF` and `bB` are its depth in front and behind (a cap's peak juts forward), `aB`
+ * its half-width behind when that differs (a ponytail showing past one side of the face only); `cols`
+ * the columns of the front drawing it is painted from (the back drawing's are their mirror).
+ */
+interface Section { y: number; cA: number; cF: number; a: number; aB?: number; bF: number; bB: number; cols: readonly [number, number]; part: number }
+
+/** A box hung on the body (a holster, a bag), in the same frame, over rows `y0`-`y1`. */
+interface Block {
+    a0: number; a1: number; f0: number; f1: number; y0: number; y1: number;
+    /** Its colour and height on row `y`; `shaded` when the face seen points away from the light. */
+    paint: (y: number, shaded: boolean) => [number, number] | undefined;
+}
+
+/** Every material's ramp, to darken a pixel one step down its own ramp. */
+const RAMPS: readonly Ramp[] = (() => {
+    const out: Ramp[] = [];
+    const walk = (v: unknown): void => {
+        if (Array.isArray(v)) out.push(v as Ramp);
+        else if (v && typeof v === 'object') Object.values(v).forEach(walk);
+    };
+    walk(PAL.cloth);
+    walk(PAL.skin);
+    walk(PAL.hair);
+    walk(PAL);
+    return out;
+})();
+
+/** One step darker along the colour's own ramp, or towards ink if it is on none. */
+function darker(c: number): number {
+    for (const r of RAMPS) {
+        const i = r.indexOf(c);
+        if (i > 0) return r[i - 1]!;
+        if (i === 0) break;
+    }
+    return deepen(c, 0.25);
+}
+
+const clamp = (v: number, lo: number, hi: number): number => Math.max(lo, Math.min(hi, v));
+
+/** Paints body parts turned to a heading, nearest surface first, onto a person-sized bitmap. */
+class Turned {
+    readonly b = new PixelBitmap(PERSON_WIDTH, PERSON_HEIGHT);
+    readonly cos: number;
+    readonly sin: number;
+    private readonly z = new Float32Array(PERSON_WIDTH * PERSON_HEIGHT).fill(-Infinity);
+    readonly part = new Int8Array(PERSON_WIDTH * PERSON_HEIGHT).fill(-1);
+    /** Per part and row, the columns its outline covers in this view. */
+    readonly extent = new Map<string, [number, number]>();
+
+    constructor(readonly heading: PersonHeading) {
+        const t = (TURN[heading] * Math.PI) / 180, snap = (v: number) => (Math.abs(v) < 1e-9 ? 0 : v);
+        this.cos = snap(Math.cos(t));
+        this.sin = snap(Math.sin(t));
+    }
+
+    /** Screen x (from the axis) of a point in the person's frame. */
+    x(across: number, fwd: number): number {
+        return across * this.cos + fwd * this.sin;
+    }
+
+    /** How near the camera a point in the person's frame is. */
+    depth(across: number, fwd: number): number {
+        return -across * this.sin + fwd * this.cos;
+    }
+
+    paint(col: number, y: number, z: number, color: number, height: number, part: number): void {
+        if (col < 0 || col > LAST || y < 0 || y >= PERSON_HEIGHT) return;
+        const i = y * W + col;
+        if (z <= this.z[i]!) return;
+        this.z[i] = z;
+        this.part[i] = part;
+        this.b.set(col, y, color, height);
+    }
+
+    /** Paints a section from the drawing on whichever side of the body each column sees. */
+    wrap(s: Section, tex: Drawings): void {
+        for (let col = 0; col < W; col++) {
+            const hit = this.meet(s, col + 0.5 - MID);
+            if (!hit) continue;
+            const key = `${s.part}:${s.y}`, e = this.extent.get(key);
+            this.extent.set(key, e ? [Math.min(e[0], col), Math.max(e[1], col)] : [col, col]);
+            const [c0, c1] = s.cols, t = hit.front ? tex.front : tex.back;
+            let src = hit.front ? clamp(MID + Math.floor(hit.across), c0, c1) : clamp(MID + Math.floor(-hit.across), LAST - c1, LAST - c0);
+            // Inside the skull (columns 5-10 in every view), a pixel only one side drawn fills from the next one in.
+            if (!t.opaque(src, s.y) && s.part === PART.head && col >= 5 && col <= 10) src += src < MID ? 1 : -1;
+            if (t.opaque(src, s.y)) this.paint(col, s.y, hit.z, t.color(src, s.y), t.heightAt(src, s.y), s.part);
+        }
+    }
+
+    /** Where the line of sight through screen x `X` first meets the section's outline, if it does. */
+    private meet(s: Section, X: number): { across: number; z: number; front: boolean } | undefined {
+        let best: { across: number; z: number; front: boolean } | undefined;
+        for (const half of [1, -1]) {
+            const b = half > 0 ? s.bF : s.bB, a = half > 0 ? s.a : s.aB ?? s.a, x0 = this.x(s.cA, s.cF);
+            const R = Math.hypot(a * this.cos, b * this.sin), t = (X - x0) / R;
+            if (!(Math.abs(t) < 1)) continue;
+            const alpha = Math.atan2(b * this.sin, a * this.cos);
+            for (const phi of [Math.asin(t) - alpha, Math.PI - Math.asin(t) - alpha]) {
+                const c = Math.cos(phi);
+                if (half > 0 ? c < -1e-9 : c > 1e-9) continue;
+                const across = s.cA + a * Math.sin(phi), z = this.depth(across, s.cF + b * c);
+                if (!best || z > best.z) best = { across, z, front: half > 0 };
+            }
+        }
+        return best;
+    }
+
+    /**
+     * Paints a box hung on the body. It is mounted on the surface under it, so it draws over that (`bias`), but the body
+     * still hides it when it hangs on the far side.
+     */
+    block(k: Block, bias = 2): void {
+        const corners: [number, number][] = [[k.a0, k.f0], [k.a1, k.f0], [k.a1, k.f1], [k.a0, k.f1]];
+        // Outward normals of the faces between consecutive corners: behind, the left side, in front, the right side.
+        const normals: [number, number][] = [[0, -1], [1, 0], [0, 1], [-1, 0]];
+        const xs = corners.map(([a, f]) => this.x(a, f)), zs = corners.map(([a, f]) => this.depth(a, f));
+        for (let col = 0; col < W; col++) {
+            const X = col + 0.5 - MID;
+            if (!(X > Math.min(...xs) && X < Math.max(...xs))) continue;
+            let z = -Infinity, face = 0;
+            for (let i = 0; i < 4; i++) {
+                const j = (i + 1) % 4, xi = xs[i]!, xj = xs[j]!;
+                if ((xi - X) * (xj - X) > 0) continue;
+                const at = xi === xj ? Math.max(zs[i]!, zs[j]!) : zs[i]! + ((X - xi) / (xj - xi)) * (zs[j]! - zs[i]!);
+                if (at > z) {
+                    z = at;
+                    face = i;
+                }
+            }
+            const [na, nf] = normals[face]!, shaded = this.x(na, nf) > 0.3;
+            for (let y = k.y0; y <= k.y1; y++) {
+                const c = k.paint(y, shaded);
+                if (c) this.paint(col, y, z + bias, c[0], c[1], PART.gear);
+            }
+        }
+    }
+
+    /** One pixel at a point in the person's frame. */
+    dot(across: number, fwd: number, y: number, color: number, height: number, bias = 0, part: number = PART.gear): void {
+        this.paint(MID + Math.floor(this.x(across, fwd)), y, this.depth(across, fwd) + bias, color, height, part);
+    }
+
+    /** Whether, of a pair of limbs at `across` ±`side`, the left one reads as further from the light: the far one, else the right. */
+    darkerIsLeft(side: number): boolean {
+        const key = (a: number) => this.x(a, 0) - 2 * this.depth(a, 0);
+        return key(side) > key(-side);
+    }
+}
+
+/** The front and back drawings a turned person is wrapped from. */
+interface Drawings { front: PixelBitmap; back: PixelBitmap }
+
+/** Eye columns per heading (row `top + 3`), on the standard head (columns 5-10); the headings facing away show none. */
+const EYES: Partial<Record<PersonHeading, readonly number[]>> = { s: [6, 9], se: [8, 10], e: [10], sw: [5, 7], w: [5] };
+/** Glasses on the eye row from column 4: `L` a lens, `B` the bridge, `T` a temple running back to the ear. */
+const GLASSES: Partial<Record<PersonHeading, string>> = { s: '.LL.BLL.', se: '...LLBL.', e: '....TTL.', sw: '.LBLL...', w: '.LTT....' };
+/** In profile the nose stands a pixel proud of the face, a row under the eye. */
+const NOSE: Partial<Record<PersonHeading, number>> = { e: 11, w: 4 };
+
+/**
+ * Shoes per heading: the two rows under the legs, `L` and `R` the uppers of the feet on the screen's left and right,
+ * `N` the near foot in profile (the far one hidden behind it), `o` the soles, `i` the shadow between the feet.
+ */
+const SHOES: Record<PersonHeading, readonly [string, string]> = {
+    s: ['....LLLLRRRR....', '....oooiiooo....'],
+    se: ['.....LLLRRRR....', '.....ooioooo....'],
+    e: ['......NNNNN.....', '......oooooo....'],
+    ne: ['.....LLLLRRR....', '.....ooooiooo...'],
+    n: ['....LLLLRRRR....', '....oooiiooo....'],
+    nw: ['....LLLRRRR.....', '...oooioooo.....'],
+    w: ['.....NNNNN......', '....oooooo......'],
+    sw: ['....LLLLRRR.....', '....ooooioo.....']
+};
+
+/** Paints a standing person turned to `heading` from their front and back drawings. */
+function turned(spec: PersonSpec, tex: Drawings, heading: PersonHeading, edge: Edge): PixelBitmap {
+    const r = new Turned(heading), { skin } = spec;
+    const top = 1 + (spec.short ?? 0), torsoTop = top + 6;
+    const wide = spec.broad ? 1 : 0, left = 4 - wide, right = 11 + wide;
+    const hemY = spec.topKind === 'coat' || spec.topKind === 'dress' ? 18 : 14;
+    // The front drawing's eyes go: the rig puts them where each heading sees them. A mask's eye holes go with them.
+    for (const x of [6, 9]) if (tex.front.color(x, top + 3) === PAL.ink) tex.front.set(x, top + 3, tex.front.color(7, top + 3), tex.front.heightAt(7, top + 3));
+
+    // Legs: a pair of columns either side of the axis, a little deeper than wide.
+    const leg = 1.5 + wide / 2, rifle = spec.carry === 'rifle';
+    for (let y = 15; y <= 21; y++) {
+        r.wrap({ y, cA: -leg, cF: 0, a: leg, bF: 1.75, bB: 1.75, cols: [5 - wide, 7], part: PART.legR }, tex);
+        r.wrap({ y, cA: leg, cF: 0, a: leg, bF: 1.75, bB: 1.75, cols: [8, 10 + wide], part: PART.legL }, tex);
+    }
+    // The torso, flaring at a dress's hem, and the arms hanging at its sides.
+    for (let y = torsoTop; y <= hemY; y++) {
+        const flare = spec.topKind === 'dress' && y > 14 ? Math.min(2, y - 14) : 0, half = 4 + wide + flare, depth = 2.5 + wide / 2 + flare / 2;
+        r.wrap({ y, cA: 0, cF: 0, a: half, bF: depth, bB: depth, cols: [left - flare, right + flare], part: PART.torso }, tex);
+    }
+    const arm = 4.5 + wide;
+    for (let y = torsoTop; y <= 15; y++) {
+        if (!rifle || y <= 10) r.wrap({ y, cA: -arm, cF: 0, a: 0.5, bF: 1, bB: 1, cols: [left - 1, left - 1], part: PART.armR }, tex);
+        if (!rifle || y <= 11) r.wrap({ y, cA: arm, cF: 0, a: 0.5, bF: 1, bB: 1, cols: [right + 1, right + 1], part: PART.armL }, tex);
+    }
+    // The head, row by row as wide as the drawings make it: a hat's brim or long hair wider than the skull.
+    for (let y = top - 2; y < torsoTop; y++) {
+        const half = (t: PixelBitmap) => {
+            let a = 0;
+            for (let x = 0; x < W; x++) if (t.opaque(x, y)) a = Math.max(a, x < MID ? MID - x : x + 1 - MID);
+            return a;
+        };
+        const aF = half(tex.front), aB = half(tex.back), a = aF || aB;
+        if (!a) continue;
+        let b = Math.min(a, 3), bF = b, cF = 0;
+        if (spec.hairStyle === 'bun' && y === top - 2) {
+            cF = -1;
+            b = bF = 1.2;
+        }
+        if (spec.hairStyle === 'cap' && y === top + 1) bF = a + 0.5;
+        if (spec.hairStyle === 'policeCap' && y === top + 1) bF = 4;
+        if (spec.hairStyle === 'helmet' && y <= top + 2) b = bF = a;
+        r.wrap({ y, cA: 0, cF, a, aB: aB || a, bF, bB: b, cols: [3, 12], part: PART.head }, tex);
+    }
+    gear(r, spec, wide, arm);
+
+    // Face: eyes, glasses and the nose where this heading sees them, on the head only.
+    const onHead = (x: number, y: number) => r.part[y * W + x] === PART.head;
+    if (!spec.glasses) for (const x of EYES[heading] ?? []) if (onHead(x, top + 3)) r.b.set(x, top + 3, PAL.ink, H.face - 0.1);
+    const glasses = spec.glasses ? GLASSES[heading] : undefined;
+    if (glasses) [...glasses].forEach((k, i) => {
+        if (k === '.' || !onHead(4 + i, top + 3)) return;
+        r.b.set(4 + i, top + 3, k === 'L' ? PAL.steel[1] : PAL.steel[2], k === 'L' ? H.face + 0.05 : k === 'B' ? H.face : H.face + 0.02);
+    });
+    const nose = NOSE[heading];
+    if (nose !== undefined && !spec.mask && onHead(nose === 11 ? 10 : 5, top + 4)) r.paint(nose, top + 4, Infinity, skin[1]!, H.face, PART.head);
+
+    shade(r, spec, top, torsoTop, hemY, arm, leg);
+    shoes(r, spec, wide, leg);
+    edge(r.b);
+    return r.b;
+}
+
+/**
+ * Light from above and a little left, as on the drawings: the two columns of the torso furthest right and the head's
+ * last column a step darker, and of each pair of limbs the one further from the light.
+ */
+function shade(r: Turned, spec: PersonSpec, top: number, torsoTop: number, hemY: number, arm: number, leg: number): void {
+    const cloth = spec.top, legs = spec.topKind === 'dress' ? spec.skin : spec.legs;
+    const at = (x: number, y: number) => r.part[y * W + x];
+    for (let y = torsoTop; y <= hemY; y++) {
+        const e = r.extent.get(`${PART.torso}:${y}`);
+        if (e) for (let x = e[1] - 1; x <= e[1]; x++) if (at(x, y) === PART.torso && r.b.color(x, y) === cloth[2]) r.b.set(x, y, cloth[1]!, r.b.heightAt(x, y));
+    }
+    // The skull is round, so its last column is 10 in every view, inside long hair or an earpiece.
+    for (let y = top + 1; y <= top + 3; y++) if (at(10, y) === PART.head && r.b.color(10, y) === spec.skin[2]) r.b.set(10, y, spec.skin[1]!, r.b.heightAt(10, y));
+    const darkArm = r.darkerIsLeft(arm) ? PART.armL : PART.armR, darkLeg = r.darkerIsLeft(leg) ? PART.legL : PART.legR;
+    for (let y = 0; y < PERSON_HEIGHT; y++) for (let x = 0; x < W; x++) {
+        if (at(x, y) === darkArm) r.b.set(x, y, darker(r.b.color(x, y)), r.b.heightAt(x, y));
+        if (at(x, y) === darkLeg && r.b.color(x, y) === legs[2]) r.b.set(x, y, legs[1]!, r.b.heightAt(x, y));
+    }
+}
+
+/** The shoes under the legs, from the heading's piece; a broad build's a pixel wider each side. */
+function shoes(r: Turned, spec: PersonSpec, wide: number, leg: number): void {
+    // The darker foot is the darker leg's; `L` and `R` are by screen side.
+    const rightDark = r.darkerIsLeft(leg) === r.x(leg, 0) > r.x(-leg, 0);
+    SHOES[r.heading].forEach((row, i) => {
+        const y = 22 + i, keys = [...row];
+        if (wide) {
+            const l = keys.findIndex(k => k !== '.'), rr = keys.length - 1 - [...keys].reverse().findIndex(k => k !== '.');
+            keys[l - 1] = keys[l]!;
+            keys[rr + 1] = keys[rr]!;
+        }
+        keys.forEach((k, x) => {
+            if (k === '.') return;
+            if (k === 'o') r.b.set(x, y, spec.shoes[0]!, H.shoes - 0.1);
+            else if (k === 'i') r.b.set(x, y, PAL.ink, H.shoes - 0.2);
+            else r.b.set(x, y, k === 'N' || (k === 'L') === rightDark ? spec.shoes[2]! : spec.shoes[1]!, H.shoes);
+        });
+    });
+}
+
+/** What hangs on the body: the holster on the left hip, carried bags, the carbine, each in the person's own frame. */
+function gear(r: Turned, spec: PersonSpec, wide: number, arm: number): void {
+    const black = PAL.cloth.black, hip = 3 + wide, hand = arm + 0.5;
+    const solid = (c: number, h: number) => (): [number, number] => [c, h];
+    // A box's top row a step lit, its far-from-the-light face a step dark.
+    const ramped = (ramp: Ramp, body: number, topRow: number, lit: number, height: number) => (y: number, shaded: boolean): [number, number] =>
+        y === topRow ? [ramp[lit]!, height + 0.05] : [ramp[shaded ? Math.max(0, body - 1) : body]!, height];
+    if (spec.topKind === 'uniform' || spec.topKind === 'police') {
+        r.block({ a0: hip, a1: hip + 2, f0: -2.5, f1: -0.5, y0: 14, y1: 16, paint: solid(black[0]!, H.torso + 0.1) });
+        if (spec.topKind === 'police') r.block({ a0: hip, a1: hip + 1, f0: -1.5, f1: -0.5, y0: 13, y1: 13, paint: solid(PAL.steel[2], H.torso + 0.1) });
+    }
+    switch (spec.carry) {
         case 'briefcase':
-            b.rect(12, 16, 4, 3, PAL.walnut[1], 0.7);
-            b.hline(12, 16, 4, PAL.walnut[3], 0.75);
-            b.set(13, 15, PAL.brass[3], 0.7);
+            // In the left hand, its broad side along the body.
+            r.block({ a0: hand - 1, a1: hand + 2, f0: -1.8, f1: 1.8, y0: 16, y1: 18, paint: ramped(PAL.walnut, 1, 16, 3, 0.7) });
+            r.block({ a0: hand, a1: hand + 1, f0: -0.5, f1: 0.5, y0: 15, y1: 15, paint: solid(PAL.brass[3], 0.7) });
+            break;
+        case 'cashCase':
+            // An armoured courier's steel case, chained to the left wrist.
+            r.block({ a0: hand - 1, a1: hand + 3, f0: -1.5, f1: 1.5, y0: 16, y1: 19, paint: ramped(PAL.steel, 3, 16, 5, 0.75) });
+            r.block({ a0: hand - 1, a1: hand, f0: -0.5, f1: 0.5, y0: 15, y1: 15, paint: solid(PAL.steel[4], 0.75) });
             break;
         case 'handbag':
-            b.rect(1, 13, 3, 3, PAL.cloth.burgundy[2]!, 0.7);
-            b.hline(1, 13, 3, PAL.cloth.burgundy[3]!, 0.75);
-            b.set(2, 12, PAL.brass[3], 0.7);
+            // Hung on the right forearm.
+            r.block({ a0: -hand - 2.5, a1: -hand + 0.5, f0: -1, f1: 1, y0: 13, y1: 15, paint: ramped(PAL.cloth.burgundy, 2, 13, 3, 0.7) }, 2.2);
+            r.block({ a0: -hand - 1.5, a1: -hand - 0.5, f0: -0.5, f1: 0.5, y0: 12, y1: 12, paint: solid(PAL.brass[3], 0.7) }, 2.2);
             break;
-        case 'duffel': {
-            // Strap across the chest, bag riding on the hip opposite the strap's shoulder.
-            const strap = PAL.cloth.black[2]!;
-            if (front) for (let i = 0; i < 6; i++) b.set(5 + i, 8 + i, strap, 0.9);
-            const bx = front ? 10 : 1;
-            b.rect(bx, 13, 5, 4, PAL.cloth.olive[1]!, 0.75);
-            b.hline(bx, 13, 5, PAL.cloth.olive[2]!, 0.8);
-            b.hline(bx + 1, 15, 3, PAL.cloth.olive[0]!, 0.7);
+        case 'duffel':
+            // On the left hip, its strap over the right shoulder.
+            r.block({
+                a0: 2.2 + wide, a1: 6.8 + wide, f0: -2, f1: 2, y0: 13, y1: 16,
+                paint: (y, shaded) => (y === 13 ? [PAL.cloth.olive[2]!, 0.8] : y === 15 ? [PAL.cloth.olive[0]!, 0.7] : [PAL.cloth.olive[shaded ? 0 : 1]!, 0.75])
+            });
             break;
-        }
-        case 'laptopBag': {
-            // A slim black messenger bag on a strap across the body: a flap with a buckle, riding on the hip.
-            const strap = PAL.cloth.black[3]!;
-            if (front) for (let i = 0; i < 6; i++) b.set(10 - i, 8 + i, strap, 0.9);
-            const bx = front ? 1 : 11;
-            b.rect(bx, 13, 4, 4, PAL.cloth.black[1]!, 0.72);
-            b.hline(bx, 13, 4, PAL.cloth.black[3]!, 0.78);
-            b.hline(bx, 14, 4, PAL.cloth.black[2]!, 0.76);
-            b.set(bx + 2, 15, PAL.steel[3], 0.8);
-            break;
-        }
-        case 'cashCase':
-            // An armoured courier's steel cash case, chained to the wrist.
-            b.rect(12, 16, 4, 4, PAL.steel[3], 0.75);
-            b.hline(12, 16, 4, PAL.steel[5], 0.8);
-            b.vline(15, 17, 3, PAL.steel[2], 0.7);
-            b.set(13, 18, PAL.cloth.mustard[3]!, 0.8);
-            b.set(12, 15, PAL.steel[4], 0.75);
+        case 'laptopBag':
+            // A slim messenger bag on the right hip, a flap and a buckle, its strap over the left shoulder.
+            r.block({
+                a0: -6.8 - wide, a1: -3.2 - wide, f0: -1, f1: 1.4, y0: 13, y1: 16,
+                paint: y => (y === 13 ? [black[3]!, 0.78] : y === 14 ? [black[2]!, 0.76] : y === 15 ? [PAL.steel[3], 0.8] : [black[1]!, 0.72])
+            });
             break;
         case 'rifle': {
             // A carbine across the chest at the low ready: the stock in the right shoulder, the muzzle down past the left
-            // hip, the right hand on the grip and the left under the handguard; the arms bend in to hold it. From behind
-            // only the muzzle shows, past the left arm.
-            const dark = PAL.cloth.black[0]!, height = H.arm + 0.1;
-            if (!front) {
-                b.set(2, 14, dark, height);
-                b.set(1, 15, dark, height);
-                break;
+            // hip; the right hand on the grip, the left under the handguard. Its lit top a row above its dark underside.
+            const sleeves = sleeveRamp(spec), hands = handRamp(spec), h = H.arm + 0.1;
+            for (let u = 0; u <= 9; u++) {
+                const across = -3.5 + u, fwd = 3.2 + u * 0.05, y = 9 + Math.floor(u / 2);
+                r.dot(across, fwd, y, PAL.steel[3], h + 0.04, 0.2);
+                r.dot(across, fwd, y + 1, black[0]!, h);
             }
-            const sleeves = sleeveRamp(spec), hands = handRamp(spec);
-            for (let y = 11; y <= 15; y++) b.clear(3, y);
-            for (let y = 13; y <= 15; y++) b.clear(12, y);
-            // From x = 3, y = 9: `L` the gun's lit top, `D` its dark underside and magazine, `a` the forearm, `g` `h` the hands.
-            const colors: Record<string, [number, number]> = {
-                L: [PAL.steel[3], height + 0.04], D: [dark, height], a: [sleeves[1]!, H.arm + 0.04], g: [hands[2]!, height + 0.06], h: [hands[1]!, height + 0.06]
-            };
-            ['.LL.........', 'aDDLL.......', '.aagDLL.....', '.....DDLLh..', '.....D..DLL.', '...........D'].forEach((row, ry) => [...row].forEach((key, rx) => {
-                const entry = colors[key];
-                if (entry) b.set(3 + rx, 9 + ry, entry[0], entry[1]);
-            }));
+            r.dot(6.5, 3.7, 14, black[0]!, h);
+            r.dot(0.5, 3.4, 13, black[0]!, h);
+            r.dot(-3.5, 1.5, 11, sleeves[1]!, H.arm + 0.04, 0, PART.armR);
+            r.dot(-2.5, 2.5, 11, sleeves[1]!, H.arm + 0.04, 0, PART.armR);
+            r.dot(-1.5, 3.6, 11, hands[2]!, h + 0.06, 1);
+            r.dot(4.5, 1.5, 12, hands[1]!, h + 0.06, 1);
             break;
         }
-        case 'none':
+        default:
             break;
     }
 }

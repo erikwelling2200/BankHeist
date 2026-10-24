@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { Rng } from '../../src/gen/rng';
 import {
     assessEnd, assessPath, assessWorldPhase, carriersStarted, clonePlain, commit, pendingCarriers, type SimEvent, type WorldObject, crewBudget, crewMoveOptions, dashRefusal, dueChallenge, evidenceWorldPhase, EYES_DOWN, FACINGS,
-    fixtureWorld, hashOf, initialState, legalActions, preview, sightMap, validatePath, witnessOn, type CameraDef, type Command, type CrewStart,
+    fixtureWorld, hashOf, initialState, legalActions, lookSightings, onePerObserver, preview, sightMap, validatePath, witnessOn, type CameraDef, type Command, type CrewStart,
     type FixtureWall, type Intent, type ObserverClass, type PersonDef, type Pos, type ReadonlyWorld, type ScheduleBlock, type Sighting, type State
 } from '../../src/sim';
 import { scouted } from './helpers';
@@ -20,7 +20,8 @@ import { scouted } from './helpers';
  * stashing bodies, waiting): each one's preview must equal its commit, and a door's or a knockout's effect on perception
  * is predicted from the witnesses and the end-of-action check on the state the action leaves; before each world phase
  * `evidenceWorldPhase` must name exactly the evidence the NPCs and cameras then notice. Dashes are played too: their
- * noise makes hearers react at once, so a dash's overlay is judged on its preview, as M1-09's overlay must; moves while
+ * noise makes hearers react at once, those sent to look turning and seeing the dasher where the dash ends (decision 45),
+ * so a dash's overlay is judged on its preview, as M1-09's overlay must; moves while
  * dragging a body keep the body with the crew member in the overlay.
  * M1-08's carriers: some worlds have an operator at a CCTV desk with a recorder, an alarm panel, crew with a hacking kit
  * (Steady Hands now and then) or a jammer, so the panel, looping, the recorder, answering and the jammer are played.
@@ -173,10 +174,10 @@ function playAction(world: ReadonlyWorld, state: State, cmd: Command, failures: 
             scratch.doors[cmd.door] = { status: result.state.doors[cmd.door]!.status };
         }
         const sight = sightMap(world, scratch);
-        const sightings = [
-            ...(cmd.type === 'knockout' ? witnessOn(world, scratch, member.id, 'knockout', [member.pos, state.npcs.find(n => n.id === cmd.npc)!.pos]) : []),
-            ...assessEnd(world, scratch, sight, member.id, member.pos)
-        ];
+        const witnesses = cmd.type === 'knockout' ? witnessOn(world, scratch, member.id, 'knockout', [member.pos, state.npcs.find(n => n.id === cmd.npc)!.pos]) : [];
+        // Those the knockout's noise sent to look turn once the act is witnessed, and see the crew (decision 45).
+        for (const n of scratch.npcs) n.facing = result.state.npcs.find(r => r.id === n.id)!.facing;
+        const sightings = [...witnesses, ...assessEnd(world, scratch, sight, member.id, member.pos)];
         const expected = predict(scratch, member.id, sightings), got = effectOf(result.state, member.id);
         if (JSON.stringify(expected) !== JSON.stringify(got)) failures.push(`${at} ${JSON.stringify(cmd)}: expected ${JSON.stringify(expected)}, got ${JSON.stringify(got)}`);
     }
@@ -252,8 +253,16 @@ describe('perception previews (property)', () => {
                         if (!run.length || !validatePath(world, state, member.pos, run, crewBudget(world, member, 'dash'), crewMoveOptions(member)).ok) continue;
                         const cmd = { type: 'dash' as const, crew: member.id, path: run };
                         const judged = assessPath(world, state, member.id, run);
-                        const expected = predict(state, member.id, [...judged.steps, ...judged.end]);
                         const after = preview(world, state, cmd).state, tile = run[run.length - 1]!;
+                        // Those its noise sent to look turn at once and see the dasher where the dash ends (decision 45):
+                        // the state before it with the dasher there, the doors it opened and the new facings.
+                        const turned = new Set(state.npcs.filter(n => after.npcs.find(a => a.id === n.id)!.facing !== n.facing).map(n => n.id));
+                        const looked = clonePlain(state);
+                        looked.crew.find(c => c.id === member.id)!.pos = { ...tile };
+                        looked.doors = clonePlain(after.doors);
+                        for (const n of looked.npcs) n.facing = after.npcs.find(a => a.id === n.id)!.facing;
+                        const looks = lookSightings(world, looked, sightMap(world, looked), turned).filter(x => x.crew === member.id);
+                        const expected = predict(state, member.id, onePerObserver([...judged, ...looks]));
                         const pre = { crew: member.id, found: assessWorldPhase(world, after, sightMap(world, after), member.id, tile) };
                         const evidencePre = JSON.stringify(evidenceWorldPhase(world, state, sightMap(world, state), { move: cmd }));
                         const result = commit(world, state, cmd);
@@ -271,8 +280,7 @@ describe('perception previews (property)', () => {
                     const path = randomPath(rng, world, member.pos, rng.int(1, 6), occupiedBy(state));
                     if (!path.length || !validatePath(world, state, member.pos, path, crewBudget(world, member, 'move'), crewMoveOptions(member)).ok) continue;
                     if (member.dragging !== null) dragMoves++;
-                    const judged = assessPath(world, state, member.id, path);
-                    const all = [...judged.steps, ...judged.end];
+                    const all = assessPath(world, state, member.id, path);
                     const expected = predict(state, member.id, all);
                     // The hatched overlay of a planned path is judged on the move's preview (the doors it opens, what
                     // its steps make NPCs want); asked about the bare tile it would miss a `!` mid-path (M1-09).

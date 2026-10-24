@@ -57,7 +57,7 @@ src/ui/hud/   the HTML HUD from UI.md
 
 ### 2.2 How previews stay exact (§8.8)
 
-- **One set of functions.** A move is resolved by calling `assessStep` on each tile of the path and `assessEnd` on the last one. The world phase calls `sightingsAlong(intent)`. The safe-floor overlay calls exactly these functions, the same way, directly per tile and never through `preview()` (see Overlay speed in §5). There is no second copy of any rule.
+- **One set of functions.** A move is resolved by calling `assessEnd` on each tile of the path, each observer counted once at its worst (`assessPath`, decision 46). The world phase calls `sightingsAlong(intent)`. The safe-floor overlay calls exactly these functions, the same way, directly per tile and never through `preview()` (see Overlay speed in §5). There is no second copy of any rule.
 - **No dice in previews.** The `rng` handle only works in commit mode. In preview mode, rolling throws an error. An action that rolls dice (a resister, a shot, a drill jam) returns its odds or its geometry for the preview and rolls only on confirm. The roll is saved in the state and the log, so reopening the game can't reroll it (§11.2).
 - **Property test (M1-09).**
   - Over many seeds, using pinned generated banks and the test fixtures, play random legal crew commands.
@@ -985,6 +985,38 @@ Later milestones: within each milestone, the `∥` notes in §3 apply. UI packag
     (`unknownPath`). Unknown NPCs may stand on stale or hidden tiles; unknown cameras only on hidden ones. Why: a clear
     visual of what is and isn't known; immobile is known, mobile is unknown when not seen this turn; and uncertainty may
     only add a warning, never hide a certain one (a hatch over a red eye would hide the danger the player most needs).
+45. **Hearing: the last tile heard, and looking at once (§8.9, §6.2).** Each NPC that hears a noise reacts toward the
+    last of its sources whose sound reaches it (`Ring.lastHeard`: the source tiles a flood from the hearer reaches within
+    the noise's budget, through doors and soft walls as when it was made; for a dash, its last tile heard there), not the
+    source nearest it; the one sent walks to its own last-heard tile, and who is sent is judged by those tiles. In a
+    crew phase, those who look (goal `look`) and the one sent to investigate (`inspect`, which still walks there in the
+    world phase) turn to face their last-heard tile within the same command (`queueLook`, applied by
+    `turnLookers` once the command's own perception is judged: after a move's or dash's sightings are worked out, after
+    an act is witnessed), and turning means seeing: their sightings of every crew member where they stand
+    (`lookSightings`, ending an action there) join the command's own, still one per observer and crew member, through
+    `applySightings`. A hearer whose stronger want wins (react, challenge, escort, investigate a crew member) keeps
+    following it and doesn't turn for the noise. Only the facing changes; positions still change only in the world phase, so the fresh-tile model
+    holds; a live knowledge marker takes the new facing (`learnNpcs`); a predicted NPC that hears leaves its routine as
+    before. The `look` evidence expires as before (`evidence.settle`). The safe floor and every preview run the same
+    steps on their copies (`judgeEnd`: `reactToNoise`, `turnLookers`, `lookSightings`; the dash band's ring gives the
+    same `lastHeard` from its per-tile rings); a turned NPC that could see a crew member through a door not seen this
+    turn counts as uncertain (`viewDoubted` on its new pose: door risk, its world-phase sightings skipped), as does
+    every hearer of a dash whose hearing such a door could change (`dashDoubted`, as before). Unknown observers are
+    already judged facing the tile at their worst, so unknown risk is unchanged. Why: an NPC that hears footsteps
+    looks where they stopped, not where they first passed, and it looks then, not a turn later: a dash that ends in
+    the view it turns to costs what it should.
+46. **Passing through a cone counts like stopping in it (§8.5).** During a Move or Dash each observer (NPC or camera)
+    that sees the crew member on any tile of it reacts once for the move, with the worst reaction it would have at any
+    of those tiles as if the move had ended there (`assessPath`: `assessEnd` on every tile, `onePerObserver`; ties go to
+    the later tile, so the last known tile is the last seen); ending in view is one of those tiles. Before, only `!`
+    counted mid-move (`assessStep`, now gone) and every `!` tile of a move was its own sighting. The same everywhere:
+    the safe floor's Now (each node keeps its path's worst per observer), a drawn path's steps and eye (the first step
+    anyone reacts to; each step tinted by who reacts there), `explain`, unknown risk (`unknownWatcher` has no mid-move
+    option: an unknown observer's pip or challenge on a tile passed hatches the tiles beyond, `unknownPath`), the
+    doubted-door test (`nowDoubted`), and auto-advance through the previews. A challenge from passing through Staff
+    floor in view is issued as if the move ended there; ending on Public floor then complies at the deadline (Warned),
+    which breaks no rule. NPC walks in the world phase were already one reaction per observer per walk
+    (`strongestAlong`). Why: walking through a guard's view is as visible as stopping in it.
 
 ### Critical files for implementation
 

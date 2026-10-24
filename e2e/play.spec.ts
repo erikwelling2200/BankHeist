@@ -1,6 +1,6 @@
 import { expect, test, type Page } from '@playwright/test';
 import { effectKind, TINT_RANK, type Effect } from '../src/sim';
-import { ALARM_HELPERS, PAGE_HELPERS } from './setups';
+import { ALARM_HELPERS, HATCHED_SETUP, PAGE_HELPERS, SAFE_FLOOR_SETUP } from './setups';
 
 /** `npm run test:smoke` runs only the tests tagged `@smoke`. */
 const SMOKE = { tag: '@smoke' };
@@ -781,44 +781,6 @@ test.describe('on a phone', () => {
     });
 });
 
-/**
- * A scene for the safe floor (§8.8): Mara two tiles from an NPC the crew sees, with the bank scouted round her, armed or
- * not, wherever her Move band shows the most kinds of tile (green, amber, red, hatched, a challenge).
- */
-const SAFE_FLOOR_SETUP = `(() => { ${PAGE_HELPERS}
-    const cheb = (p, q) => Math.max(Math.abs(p.x - q.x), Math.abs(p.y - q.y));
-    const ABC = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
-    const scout = (st, at, r) => {
-        let s = '';
-        for (let i = 0; i < w.width * w.height; i += 6) {
-            let v = 0;
-            for (let j = 0; j < 6 && i + j < w.width * w.height; j++) if (cheb({ x: (i + j) % w.width, y: Math.floor((i + j) / w.width) }, at) <= r) v |= 1 << j;
-            s += ABC[v];
-        }
-        st.knowledge.seen = st.knowledge.fresh = s;
-    };
-    const present = sim.state.npcs.filter(n => n.status !== 'away');
-    const OUT = [{ x: 0, y: 2 }, { x: 2, y: 0 }, { x: -2, y: 0 }, { x: 0, y: -2 }, { x: 2, y: 2 }, { x: -2, y: 2 }];
-    let best = null;
-    for (const n of present) for (const item of [null, 'pistol', 'assaultRifle']) for (const d of OUT) {
-        const p = { x: n.pos.x + d.x, y: n.pos.y + d.y }, st = clone(sim.state);
-        if (!free(st, p)) continue;
-        st.crew[0].pos = p;
-        st.crew[1].pos = { ...sim.state.crew[1].pos };
-        if (item) st.crew[0].loadout.items.push(item);
-        for (const o of present) if (cheb(o.pos, p) <= 7) know(st, o);
-        scout(st, p, 7);
-        const floor = sim.safeFloor('mara', ['stay', 'move'], st), kinds = new Set();
-        for (const t of floor.tiles) if (t.band === 'move') kinds.add(t.tint.kind + (t.tint.hatched ? ' hatched' : ''));
-        const WEIGHT = { safe: 1, red: 1, amber: 4, trespass: 2, camera: 2 };
-        // Room to show it: a few points for a wide Move band.
-        const score = [...kinds].reduce((n, k) => n + (k.endsWith('hatched') ? 3 : WEIGHT[k] ?? 0), 0) + Math.min(floor.tiles.length, 40) / 10;
-        if (!kinds.has('safe') || !(kinds.has('red') || kinds.has('camera'))) continue;
-        if (!best || score > best.score) best = { score, st, info: { npc: n.id, npcAt: n.pos, at: p, kinds: [...kinds] } };
-    }
-    return best && { state: best.st, info: best.info };
-})()`;
-
 test('the safe floor: tints as the sim judges them, a drawn path\'s eye, who and why on a long-press', SMOKE, async ({ page }) => {
     test.setTimeout(60000);
     const errors = await boot(page);
@@ -896,22 +858,6 @@ test('the safe floor: tints as the sim judges them, a drawn path\'s eye, who and
     expect(errors).toEqual([]);
 });
 
-/** Jun armed with a rifle, the bank scouted 5 tiles round him and nothing beyond: unknown risk all round his Move band. */
-const HATCHED_SETUP = `(() => { ${PAGE_HELPERS}
-    const ABC = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/', st = clone(sim.state), at = st.crew[1].pos;
-    st.crew[1].loadout.items.push('assaultRifle');
-    let s = '';
-    for (let i = 0; i < w.width * w.height; i += 6) {
-        let v = 0;
-        for (let j = 0; j < 6 && i + j < w.width * w.height; j++) {
-            const x = (i + j) % w.width, y = Math.floor((i + j) / w.width);
-            if (Math.max(Math.abs(x - at.x), Math.abs(y - at.y)) <= 5) v |= 1 << j;
-        }
-        s += ABC[v];
-    }
-    st.knowledge.seen = st.knowledge.fresh = s;
-    return { state: st, info: { at } };
-})()`;
 
 test('holding a hatched tile marks where someone unknown could watch it from', async ({ page }) => {
     const errors = await boot(page);

@@ -1,9 +1,9 @@
 import type Phaser from 'phaser';
 import { bakeLighting } from '../../art/bank/lamps';
-import { LOOKS, person, PERSON_HEIGHT } from '../../art/bank/people';
+import { headingOf, LOOKS, PERSON_HEIGHT, personViews, type PersonHeading as Facing } from '../../art/bank/people';
 import { PixelBitmap } from '../../art/PixelBitmap';
 import { TILE } from '../../level/constants';
-import type { LevelPerson, PersonFacing as Facing, PersonPose } from '../../level/plan';
+import type { LevelPerson, PersonPose } from '../../level/plan';
 import { baseLine, PERSON_SIZE, px, type Box } from '../../level/space';
 import { AMBIENT, EVERYWHERE, footprintPoints, type Baker } from './bake';
 import type { Heights } from './heights';
@@ -83,17 +83,13 @@ export class People {
             if (!look) throw new Error(`No look named '${p.look}'`);
             // A mask or a pose set on the person is drawn over their look.
             const spec = { ...look, mask: p.mask ?? look.mask, pose: p.pose ?? look.pose };
-            const view = (facing: Facing) => {
-                const bitmap = person(spec, facing);
-                return { bitmap, normals: bitmap.normalMap() };
-            };
-            const views = { front: view('front'), back: view('back') };
-            const key = `person-${i}`, { width, height } = views.front.bitmap;
+            const views = viewsOf(spec);
+            const key = `person-${i}`, { width, height } = views.s.bitmap;
             const texture = textures.exists(key) ? (textures.get(key) as Phaser.Textures.CanvasTexture) : textures.createCanvas(key, width, height);
             if (!texture) throw new Error(`Failed to create texture '${key}'`);
             const x = (p.tx + 0.5) * TILE, y = (p.ty + 0.5) * TILE;
             this.sprites.push({
-                person: p, views, texture, x, y, facing: p.facing, light: 0, left: 0, top: 0, index: i,
+                person: p, views, texture, x, y, facing: p.facing === 'back' ? 'n' : 's', light: 0, left: 0, top: 0, index: i,
                 image: add.image(0, 0, key).setOrigin(0, 0),
                 shadow: add.image(0, 0, p.pose ? KEY.lyingShadow : KEY.shadow).setDepth(DEPTH.shadows).setAlpha(0.55),
                 patrol: patrolOf(p, x, y),
@@ -153,13 +149,9 @@ export class People {
         if (!p) throw new Error(`No person ${index} in the bank`);
         if (p.person.pose === pose) return;
         const look = LOOKS[p.person.look]!, spec = { ...look, mask: p.person.mask ?? look.mask, pose };
-        const view = (facing: Facing) => {
-            const bitmap = person(spec, facing);
-            return { bitmap, normals: bitmap.normalMap() };
-        };
         p.person = { ...p.person, pose };
-        p.views = { front: view('front'), back: view('back') };
-        const { width, height } = p.views.front.bitmap;
+        p.views = viewsOf(spec);
+        const { width, height } = p.views.s.bitmap;
         if (p.texture.width !== width || p.texture.height !== height) p.texture.setSize(width, height);
         if (pose && !this.scene.textures.exists(KEY.lyingShadow)) {
             const shadow = lyingShadow();
@@ -271,9 +263,8 @@ export class People {
             }
             [[fx, fy], [tx, ty]] = leg(patrol.leg);
         }
-        const heading = patrol.dir * (ty - fy);
         const x = Math.round(fx + (tx - fx) * patrol.t), y = Math.round(fy + (ty - fy) * patrol.t);
-        const facing: Facing = heading > 0 ? 'front' : heading < 0 ? 'back' : p.facing;
+        const facing = headingOf(patrol.dir * (tx - fx), patrol.dir * (ty - fy), p.facing);
         if (x !== p.x || y !== p.y || facing !== p.facing) this.move(this.sprites.indexOf(p), x, y, facing);
     }
 
@@ -301,6 +292,12 @@ export class People {
         this.baker.addPixels(key, rgba, w, h);
         return key;
     }
+}
+
+/** A person's drawing and its normals for each of the eight headings. */
+function viewsOf(spec: Parameters<typeof personViews>[0]): PersonSprite['views'] {
+    const views = Object.entries(personViews(spec)).map(([h, bitmap]) => [h, { bitmap, normals: bitmap.normalMap() }]);
+    return Object.fromEntries(views) as PersonSprite['views'];
 }
 
 /** A person's patrol as pixel waypoints: their tile, then their route's tiles or their patrol's end. */

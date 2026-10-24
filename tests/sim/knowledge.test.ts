@@ -526,16 +526,15 @@ describe('doors not seen this turn (decision 44)', () => {
         expect(tile.path).toEqual(path);
         expect(tile.unknownPath).toBe(true);
         expect(tile.tint.kind).toBe('unknownRisk');
-        // The tile before the door isn't reached through it.
-        expect(safeFloor(locked.world, locked.state, 'jun').at(P(9, 3))!.unknownPath).toBe(false);
+        // The tile before the door isn't reached through it (its way is hatched only for who could watch it unseen).
+        expect(explain(locked.world, locked.state, 'jun', P(9, 3)).map(l => l.text)).not.toContain('On the way: a door not seen this turn could be locked');
         const drawn = pathSafety(locked.world, locked.state, 'jun', path);
         if (!drawn.ok) throw new Error(drawn.reason);
-        expect(drawn.steps[3]!.stop!.unknownPath).toBe(false);
         expect(drawn.end.unknownPath).toBe(true);
         expect(explain(locked.world, locked.state, 'jun', P(9, 4)).map(l => l.text)).toContain('On the way: a door not seen this turn could be locked');
         // A door with no lock opens whichever way it stands: nothing to hatch for it.
         const plain = build('none');
-        expect(safeFloor(plain.world, plain.state, 'jun').at(P(9, 4))!.unknownPath).toBe(false);
+        expect(explain(plain.world, plain.state, 'jun', P(9, 4)).map(l => l.text)).not.toContain('On the way: a door not seen this turn could be locked');
     });
 
     it('marks the unsafe tiles of a route the same however the door really stands', () => {
@@ -570,7 +569,8 @@ describe('doors not seen this turn (decision 44)', () => {
         expect(reached(locked).unknownPath).toBe(true);
         expect(step(locked.world, locked.state, { type: 'move', crew: 'jun', path: reached(locked).path }).events)
             .toContainEqual(expect.objectContaining({ type: 'moveCut', reason: 'door', status: 'locked' }));
-        expect(reached(build('none', '.')).unknownPath).toBe(false);
+        const plain = build('none', '.');
+        expect(explain(plain.world, plain.state, 'jun', P(6, 1)).map(l => l.text)).not.toContain('On the way: a door not seen this turn could be locked');
         // Between hidden tiles only, even whether it locks is unknown; nothing is planned into them either.
         const hidden = build('none', 's');
         expect(tileVisibility(hidden.world, hidden.state, P(4, 1))).toBe('hidden');
@@ -580,7 +580,7 @@ describe('doors not seen this turn (decision 44)', () => {
 
     // A corridor split by a wall at 20|21 with a door at row 1 (no lock, built closed, never seen). The rota predicts two
     // guards: one at (24, 1) looking west down row 1 through the doorway, one at (10, 1) looking east. Masked jun saw up to
-    // x = 19 from (6, 1) at the end of the world phase and now stands at (16, 1): neither side of the door is fresh.
+    // x = 19 from (6, 1) at the end of the world phase and now stands at (18, 1): neither side of the door is fresh.
     const doorway = (door: 'open' | 'closed', seen = false): { world: ReadonlyWorld; state: State } => {
         const walls: FixtureOptions['walls'] = [0, 1, 2].map(y => ({
             between: [P(20, y), P(21, y)] as [Pos, Pos], ...(y === 1 ? { door: { id: 'd', start: 'closed' as const } } : {})
@@ -592,7 +592,7 @@ describe('doors not seen this turn (decision 44)', () => {
         const world = freezeWorld({ ...(clonePlain(fixtureWorld(Array.from({ length: 3 }, () => '.'.repeat(26)), { walls, people })) as World), intel: { guardRota: true } });
         const start = initialState(world, { seed: 1, crew: [{ id: 'jun', pos: P(6, 1), masked: true }] });
         let state = patch(start, s => {
-            s.crew[0]!.pos = P(16, 1);
+            s.crew[0]!.pos = P(18, 1);
             s.doors.d = { status: door };
         });
         // What jun sees from there, as after a step.
@@ -655,7 +655,7 @@ describe('doors not seen this turn (decision 44)', () => {
             ];
             const world = freezeWorld({ ...(clonePlain(fixtureWorld(rows, { walls, people, zones: rows })) as World), intel: { guardRota: true } });
             const start = initialState(world, { seed: 1, crew: [{ id: 'jun', pos: P(6, 1), items: ['pistol'] }] });
-            return { world, state: patch(start, s => { s.crew[0]!.pos = P(16, 1); s.doors.d = { status: door }; }) };
+            return { world, state: patch(start, s => { s.crew[0]!.pos = P(19, 1); s.doors.d = { status: door }; }) };
         };
         const open = build('open'), shut = build('closed');
         const a = safeFloor(open.world, open.state, 'jun'), b = safeFloor(shut.world, shut.state, 'jun');
@@ -943,17 +943,14 @@ describe('unknown risk for a crew member (decision 24)', () => {
         expect(lines.map(l => [l.observer, l.by, l.text])).toEqual([
             [null, 'unknown', 'An unseen guard could see you here (Armed)'], [null, 'unknown', 'An unseen guard could see you on the way (Armed)']
         ]);
-        // Mid-move only `!` counts: Armed in Public is `!` to an Alerted guard, so a path past it is unknown too.
-        expect(unknownWatcher(world, state, 'jun', P(7, 0), { step: true })).not.toBeNull();
     });
 
     it('hatches Clean without a uniform in the Staff zone', () => {
         const { world, state } = build();
         expect(at(world, state, P(6, 1))).toBe('unknownRisk');
         expect(at(world, state, P(3, 1))).toBe('scouted');
-        // A trespass to anyone of staff; an Alerted guard reads Clean as Concealed, which is `!` back here, mid-move too.
+        // A trespass to anyone of staff; an Alerted guard reads Clean as Concealed, which is `!` back here.
         expect(unknownWatcher(world, state, 'jun', P(6, 1))!.reaction).toMatchObject({ outcome: '!', readAs: 'staff' });
-        expect(unknownWatcher(world, state, 'jun', P(6, 1), { step: true })).not.toBeNull();
         expect(explain(world, state, 'jun', P(6, 1))[0]!.text).toBe('An unseen guard could see you here (Clean, Staff zone)');
         // In a staff uniform the zone reads as Public, but the manager or the security chief sees through it in Core:
         // with nobody of the roster to say which class they are, either is taken as anyone, and it is still `!`.
@@ -992,7 +989,7 @@ describe('unknown risk for a crew member (decision 24)', () => {
  */
 function watchersAgree(world: ReadonlyWorld, state: State, crew: string, p: Pos, options: UnknownOptions = {}): number {
     const w = unknownWatcher(world, state, crew, p, options), all = unknownWatchers(world, state, crew, p, options);
-    const where = `${crew} at (${p.x}, ${p.y})${options.step ? ' mid-move' : ''}`;
+    const where = `${crew} at (${p.x}, ${p.y})`;
     expect(all.length > 0, where).toBe(!!w);
     if (w) {
         expect(all.some(a => a.from.x === w.from.x && a.from.y === w.from.y), where).toBe(true);
@@ -1063,8 +1060,6 @@ describe('every tile an unknown observer could react from', () => {
         expect(near.length).toBeGreaterThan(0);
         expect(near.every(w => Math.abs(w.from.x - 12) <= world.rules.friskRange && w.reaction.outcome === '+1')).toBe(true);
         expect(unknownWatchers(world, state, 'jun', P(7, 0))).toEqual([]);
-        // Mid-move only `!` counts, and a pip isn't one.
-        expect(unknownWatchers(world, state, 'jun', P(12, 0), { step: true })).toEqual([]);
     });
 
     it('picks the worst on a tie as before: an NPC over a camera, the nearest over the nearest within frisk range', () => {
@@ -1142,7 +1137,7 @@ describe('every tile an unknown observer could react from', () => {
                 x.crew[0]!.notoriety = start.notoriety ?? 0;
                 if (start.uniform) x.crew[0]!.loadout.uniform = start.uniform as never;
             });
-            for (let y = 0; y < 2; y++) for (let x = 0; x < 40; x++) for (const step of [false, true]) found += watchersAgree(world, state, 'jun', P(x, y), { step });
+            for (let y = 0; y < 2; y++) for (let x = 0; x < 40; x++) found += watchersAgree(world, state, 'jun', P(x, y));
         }
         expect(found).toBeGreaterThan(0);
     });
@@ -1156,7 +1151,7 @@ describe('every tile an unknown observer could react from', () => {
         for (let turn = 0; turn < 2; turn++) {
             for (const c of state.crew) {
                 const reach = reachable(world, crewPicture(world, state), c.pos, 10, { mover: c.id });
-                for (const t of reach.tiles) for (const step of [false, true]) found += watchersAgree(world, state, c.id, t.pos, { step });
+                for (const t of reach.tiles) found += watchersAgree(world, state, c.id, t.pos);
                 const to = reach.tiles.filter(t => t.canEnd).sort((a, b) => a.pos.y - b.pos.y || a.cost - b.cost)[0];
                 const path = to && pathTo(reach, to.pos);
                 if (path?.length) state = commit(world, state, { type: 'move', crew: c.id, path }).state;
@@ -1174,7 +1169,7 @@ describe('every tile an unknown observer could react from', () => {
         // The way there passes tiles an unseen guard could also see: their watchers, each with the tile it would see.
         const way = lines[1]!.watchers!;
         expect(way.length).toBeGreaterThan(0);
-        expect(way[0]!.from).toEqual(unknownWatcher(world, state, 'jun', lines[1]!.to, { step: true })!.from);
+        expect(way[0]!.from).toEqual(unknownWatcher(world, state, 'jun', lines[1]!.to)!.from);
         expect(way.every(w => w.to.x < 7 && w.from.x >= 14)).toBe(true);
     });
 });
@@ -1338,11 +1333,12 @@ describe('nothing shown comes from what stands on a hidden tile (decision 44)', 
 
 describe('who a noise sends to look', () => {
     it('marks sent the one NPC the commit sends, whoever is already investigating', () => {
-        // Guard a is sent by jun's dash; mara's dash is heard by a and by b, nearer: b is sent, a goes back to looking.
+        // Guard a is sent by jun's dash; mara's dash is heard by a and by b, nearer the last tile each heard (13, 2): b is
+        // sent, a goes back to looking.
         const guard = (id: string, pos: Pos): PersonDef => clerk(pos, {
             id, role: 'guard', observer: 'enforcer', facing: 's', schedule: [{ from: 1, activity: 'post', label: 'post', room: '', at: pos, facing: 's' }]
         });
-        const world = fixtureWorld(Array.from({ length: 3 }, () => '.'.repeat(30)), { people: [guard('a', P(12, 0)), guard('b', P(15, 1))] });
+        const world = fixtureWorld(Array.from({ length: 3 }, () => '.'.repeat(30)), { people: [guard('a', P(12, 0)), guard('b', P(14, 1))] });
         const start = initialState(world, { seed: 1, crew: [{ id: 'jun', pos: P(8, 0) }, { id: 'mara', pos: P(16, 2) }] });
         const state = step(world, start, { type: 'dash', crew: 'jun', path: [P(9, 0), P(10, 0), P(11, 0)] }).state;
         expect(state.npcs.find(n => n.id === 'a')!.status).toBe('investigating');

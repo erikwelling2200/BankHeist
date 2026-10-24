@@ -2,8 +2,8 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import {
-    assessEnd, assessPath, assessStep, assessWorldPhase, checkLoadout, commit, crewLook, fixtureWorld, friskFinds, hashOf, initialState, preview,
-    reaction, sightingsAlong, sightMap, witness, witnessAct, type CameraDef, type Command, type CrewStart, type Facing,
+    assessEnd, assessPath, assessWorldPhase, checkLoadout, commit, crewLook, fixtureWorld, friskFinds, hashOf, initialState, preview,
+    placeCrew, reaction, sightingsAlong, sightMap, witness, witnessAct, type CameraDef, type Command, type CrewStart, type Facing,
     type FixtureWall, type ObserverClass, type Outcome, type PersonDef, type Pos, type Profile, type ReadonlyWorld, type SimEvent,
     type State, type Zone
 } from '../../src/sim';
@@ -291,7 +291,6 @@ describe('eyes down (§8.7)', () => {
         state.npcs[0]!.status = status;
         const sight = sightMap(world, state);
         expect(assessEnd(world, state, sight, 'jun', P(3, 7))).toEqual([]);
-        expect(assessStep(world, state, sight, 'jun', P(3, 7))).toEqual([]);
         expect(witness(world, state, sight, 'jun', 'knockout', P(3, 7))).toEqual([]);
         expect(sightingsAlong(world, state, sight, 'g', 'jun', P(3, 7))).toBeNull();
         const after = step(world, state, { type: 'endTurn' }).state;
@@ -329,24 +328,28 @@ describe('a crew move', () => {
     const lobby = (people: PersonDef[] = [person('teller', 'staff', P(7, 2), 'w')], extra: { walls?: FixtureWall[]; cameras?: CameraDef[] } = {}) =>
         fixtureWorld(['.....sssss', '.....sssss', '.....sssss', '.....sssss', '.....sssss'], { people, ...extra });
 
-    it('counts only ! cells mid-move, and the matrix value at the end', () => {
+    it('counts passing through view as stopping there: each observer once, at its worst tile (decision 46)', () => {
         const world = lobby();
-        let state = initialState(world, { seed: 1, crew: [{ id: 'jun', pos: P(9, 0), items: ['pistol'] }] });
-        // Through the teller's Core (Concealed in Staff: +2, which doesn't count mid-move) to its Peripheral view (+1).
-        const past = step(world, state, { type: 'move', crew: 'jun', path: [P(8, 1), P(7, 1), P(6, 1), P(6, 0)] });
-        expect(past.state.npcs[0]!.suspicion).toEqual({ jun: 1 });
-        // ...but walking on, out of its view, adds nothing more.
-        state = initialState(world, { seed: 1, crew: [{ id: 'jun', pos: P(5, 4), items: ['pistol'] }] });
-        const by = step(world, state, { type: 'move', crew: 'jun', path: [P(6, 3), P(7, 3), P(8, 3), P(9, 3)] });
-        expect(by.state.npcs[0]!.suspicion).toEqual({});
-        expect(by.undoable).toBe(true);
+        const state = initialState(world, { seed: 1, crew: [{ id: 'jun', pos: P(9, 0), items: ['pistol'] }] });
+        // Through the teller's Core (Concealed in Staff: +2) to its Peripheral view (+1): one reaction, the +2.
+        const path = [P(8, 1), P(7, 1), P(6, 1), P(6, 0)];
+        const past = step(world, state, { type: 'move', crew: 'jun', path });
+        expect(past.state.npcs[0]!.suspicion).toEqual({ jun: 2 });
+        expect(events(past.events, 'suspicionRaised')).toEqual([{ type: 'suspicionRaised', npc: 'teller', crew: 'jun', added: 2, total: 2, why: [] }]);
+        expect(events(past.events, 'perceptionCheck')).toHaveLength(1);
+        // The same as ending the move on that tile.
+        const stopped = step(world, state, { type: 'move', crew: 'jun', path: path.slice(0, 3) });
+        expect(stopped.state.npcs[0]!.suspicion).toEqual({ jun: 2 });
+        // Ending in view is one of the tiles: crossing Core and ending in it is still one reaction.
+        const through = step(world, state, { type: 'move', crew: 'jun', path: [P(8, 1), P(7, 1), P(6, 1), P(6, 2)] });
+        expect(events(through.events, 'suspicionRaised')).toEqual([{ type: 'suspicionRaised', npc: 'teller', crew: 'jun', added: 2, total: 2, why: [] }]);
     });
 
     it("can't walk a rifle past a guard", () => {
         const world = lobby([person('guard', 'enforcer', P(2, 0), 's')]);
         const state = initialState(world, { seed: 1, crew: [{ id: 'jun', pos: P(0, 3), items: ['assaultRifle'] }] });
         const sight = sightMap(world, state);
-        expect(assessStep(world, state, sight, 'jun', P(2, 3)).map(s => s.outcome)).toEqual(['!']);
+        expect(assessEnd(world, state, sight, 'jun', P(2, 3)).map(s => s.outcome)).toEqual(['!']);
         const result = step(world, state, { type: 'move', crew: 'jun', path: [P(1, 3), P(2, 3), P(3, 3), P(4, 4)] });
         expect(result.state.npcs[0]!.exposedTo).toEqual(['jun']);
         expect(events(result.events, 'exposed')).toEqual([{ type: 'exposed', npc: 'guard', crew: 'jun', why: [] }]);
@@ -382,18 +385,19 @@ describe('a crew move', () => {
         expect(result.state.doors.d!.status).toBe('closed');
         const through = step(world, state, { type: 'move', crew: 'jun', path: [P(3, 2), P(4, 2), P(5, 2), P(4, 2)] });
         expect(through.state.doors.d!.status).toBe('open');
-        // Mid-move in Staff and back in the lobby at the end, seen through the open door: Exposed (Armed in Staff mid-move).
+        // Mid-move in Staff and back in the lobby at the end, seen through the open door: Exposed (Armed in Staff mid-move),
+        // one reaction for the whole move.
         expect(through.state.npcs[0]!.exposedTo).toEqual(['jun']);
-        expect(events(through.events, 'perceptionCheck')).toHaveLength(2);
+        expect(events(through.events, 'perceptionCheck')).toHaveLength(1);
     });
 
     it('is judged as a whole by assessPath, which a camera reports once', () => {
         const world = lobby([person('guard', 'enforcer', P(2, 0), 's')], { cameras: [{ id: 'cam', pos: P(0, 0), facings: ['se'], room: null }] });
         const state = initialState(world, { seed: 1, crew: [{ id: 'jun', pos: P(0, 3), items: ['assaultRifle'] }] });
         const path = [P(1, 3), P(2, 3), P(3, 3)];
+        // Each observer once, at its worst along the move: `!` from every tile, the last of them.
         const judged = assessPath(world, state, 'jun', path);
-        expect(judged.steps.map(s => [s.observer, s.tile])).toEqual([['guard', P(1, 3)], ['cam', P(1, 3)], ['guard', P(2, 3)], ['cam', P(2, 3)]]);
-        expect(judged.end.map(s => s.observer)).toEqual(['guard', 'cam']);
+        expect(judged.map(s => [s.observer, s.outcome, s.tile])).toEqual([['guard', '!', P(3, 3)], ['cam', '!', P(3, 3)]]);
         const result = step(world, state, { type: 'move', crew: 'jun', path });
         expect(events(result.events, 'cameraSaw')).toHaveLength(1);
         expect(result.state.cameraReports).toHaveLength(1);
@@ -434,9 +438,9 @@ describe('suspicion pips', () => {
         expect(state.npcs[0]!.wants[0]!.decided).toEqual({ turn: 1, phase: 'world' });
         expect(state.npcs[0]!.intent).toEqual({ path: [P(4, 7)], facing: 's', action: { kind: 'frisk', crew: 'jun' } });
         // Into the dark behind the guard: one pip a world phase. Losing the trail, it searches where it stands for two
-        // world phases, looking round, then goes back to its routine.
-        state = step(world, state, { type: 'move', crew: 'jun', path: [P(3, 9), P(2, 10), P(1, 11)] }).state;
-        state = step(world, state, { type: 'move', crew: 'jun', path: [P(0, 12)] }).state;
+        // world phases, looking round, then goes back to its routine. (Put there: every way out from beside him passes
+        // his Core within frisk range, which counts as stopping there, decision 46.)
+        state = placeCrew(state, 'jun', P(0, 12));
         expect(state.npcs[0]!.suspicion).toEqual({ jun: 2 });
         const world2 = step(world, state, { type: 'endTurn' });
         expect(world2.state.npcs[0]!.suspicion).toEqual({ jun: 1 });
