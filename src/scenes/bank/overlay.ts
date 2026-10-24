@@ -10,30 +10,32 @@ import { insetLoops, sideRuns, withoutHoles, type Corner, type Side } from './co
 /**
  * The world UI layer (UI.md "Two layers", "Visual language", M1-14): a canvas over the game's at twice the art's
  * resolution (one UI pixel is half an art pixel), drawn with a margin round the view and slid along as the view moves,
- * redrawn when what it shows changes or the view nears the drawing's edge (`draw`). Hairlines with
- * a 1px ink drop shadow, muted signal colours, faint scanline fills, dark plates with a thin border in the signal
- * colour; every state also has a shape or a pattern, and the colour-blind preset swaps the palette (UI.md "Signal
- * palette"). It takes no input: taps go through to the map. Drawn, bottom to top:
+ * redrawn when what it shows changes or the view nears the drawing's edge (`draw`). Hairlines with a 1px ink drop
+ * shadow, muted signal colours, dark plates with a thin border in the signal colour; every state also has a shape or a
+ * pattern, and the colour-blind preset swaps the palette (UI.md "Signal palette"). One visual channel per kind of
+ * information: tile fill is safety only, the diagonal hatch is "could be worse than shown" only, each reach band is one
+ * contour. It takes no input: taps go through to the map. Drawn, bottom to top:
  *
  * - **Floor:** a grey veil on tiles not seen this turn (hidden ones are the scene's opaque blocks); sound pings; the
- *   selected crew member's movement range, XCOM style, with the
- *   safe floor (§8.8) in it: each tile filled with the move's tint (scanlines on Move's tiles, a sparser dotted fill on
- *   those only a Dash reaches; grey hatched where it could be worse than shown) and a glyph for what it warns of (pips,
- *   a hand, an eye, a camera, `?`), the coming world phase's verdict when worse a corner marker, and the band edges over them (Move's solid steel blue, Dash's dashed gold), so both read
- *   at once; before the floor arrives a band is filled steel blue or hatched gold; an NPC's cones on long-press and the
- *   known cameras' (`drawViews`: all as one area, exactly the tiles any of them sees, outlined inset with rounded
- *   corners in pale white over ink; stronger when someone is Alerted or a camera on the operator's monitors), under
- *   the band edges; a previewed noise's ring (dotted, faint fill); a moment's flashes (a guard's shout ring, the
- *   Alarm's rings).
+ *   selected crew member's movement range, XCOM style, with the safe floor (§8.8) in it: each tile a flat fill in the
+ *   move's tint, whichever band (grey hatched where it could be worse than shown); the cones (`drawViews`: of the
+ *   observers who react to the crew member where they could go or on the drawn path, every NPC's and camera's from
+ *   the drawer, or one long-pressed; all as one area, exactly the tiles any of them sees, outlined inset with rounded
+ *   corners in pale white over ink; stronger when someone is Alerted or a camera on the operator's monitors); over
+ *   them each band's outer edge (Move's solid steel blue, Dash's dashed gold); a previewed noise's ring (a rounded
+ *   lilac contour inset in its tiles); a moment's flashes (a guard's shout ring, the Alarm's rings).
  * - **Paths:** NPC intents (a dotted hairline, an open chevron and a pin where the walk ends; fainter when predicted);
  *   predicted markers (a dashed footprint); the previewed or dragged path, each step tinted by its safety (the floor
  *   underneath dimmed), ending on a tile outline in the crew colour (doubled for a dash; steps past the first bad one
- *   red), the eye's plate on its first unsafe step; a long-pressed tile's "who and why" sightlines.
- * - **Over heads:** state plates and carrier countdowns, a downed guard's radio, suspicion pips in each crew member's
- *   colour, the ear badges of a noise's hearers naming what they'll do, the witnesses of a preview, ghosts' "seen N
- *   turns ago", each known camera's plate (`?` unknown feed, `!` on the monitors, a looped feed's phases left), and on
- *   evidence the coming world phase notices next turn's eye plate (`!` certain, `?` and hatched when someone could), a
- *   faint dotted line from each certain finder to it.
+ *   red), the eye's plate on its first unsafe step.
+ * - **Glyphs:** on every tile of the reach, previews included, what it warns of (pips, a hand, an eye, a camera) on a
+ *   dark plate, and the coming world phase's verdict when worse as a corner marker; on the path, its end's.
+ * - **Over heads:** state plates and carrier countdowns (a hearer's give way to its ear badge), a downed guard's radio,
+ *   suspicion pips in each crew member's colour, the ear badges of a noise's hearers naming what they'll do, the
+ *   witnesses of a preview, ghosts' "seen N turns ago", each known camera's plate (`?` unknown feed, `!` on the
+ *   monitors, a looped feed's phases left), and on evidence the coming world phase notices next turn's eye plate (`!`
+ *   certain, `?` and hatched when someone could), a faint dotted line from each certain finder to it; the stay tile;
+ *   a long-pressed tile's "who and why" sightlines.
  */
 
 /** A known camera's plate: `?` while its feed status is unknown, `!` on the monitors, a looped feed's phases left. */
@@ -57,15 +59,7 @@ const NEXT_GLYPHS = {
 /** UI pixels per art pixel. */
 const UI_SCALE = 2;
 
-/**
- * The cleaner overlay mockup (`?overlay=v2`, read once at boot), one visual channel per kind of information: tile fill
- * is safety only, the diagonal hatch is "could be worse than shown" only, each reach band is one contour (Move solid,
- * Dash dashed), the noise ring a rounded contour inset in the tiles in its own colour, cones faint outlines shown only
- * where they meet the reach or the path, the glyphs drawn last over the floor, and a hearer's state plate gives way to
- * its ear badge. Temporary: for comparing screenshots.
- */
-export const OVERLAY_V2 = typeof location !== 'undefined' && new URLSearchParams(location.search).get('overlay') === 'v2';
-/** v2's noise ring: a colour no other layer uses, inset in the tiles so it never sits on a band's edge (UI pixels). */
+/** The noise ring: a colour no other layer uses, inset in the tiles so it never sits on a band's edge (UI pixels). */
 const NOISE = '#c49cff';
 /** The cones' edge: a pale white no other layer uses (the bands are gold and steel blue, the safety tints their own). */
 const VIEW = '#eef0f6';
@@ -122,7 +116,7 @@ export interface OverlayContent {
     predicted?: Pos[];
     /** The safe floor (§8.8, UI.md "Safe floor"): the reach's tiles tinted, drawn under the band edges. */
     safeFloor?: FloorTileVM[];
-    /** A path is previewed or drawn: the floor steps back (fainter, no glyphs) and the path's own tints lead. */
+    /** A path is previewed or drawn: the floor steps back (fainter) and the path's own tints lead. */
     floorDim?: boolean;
     /** The path's safety (`pathSafety`): each step's tint and the eye on the first unsafe one. */
     pathSafety?: PathVM;
@@ -132,9 +126,9 @@ export interface OverlayContent {
     colourBlind?: boolean;
     /** The selected crew member's own tile: what ending the turn there does, drawn round them and as a plate over the head. */
     stay?: FloorTileVM;
-    /** v2: draw only the cones (NPCs' and cameras') that meet the reach or the drawn path. */
+    /** Draw only the cones (NPCs' and cameras') of the `reactors`. */
     coneFilter?: boolean;
-    /** v2: the observers that react to the selected crew member where they could go (or on the drawn path): whose cones show. */
+    /** The observers that react to the selected crew member where they could go (or on the drawn path): whose cones show. */
     reactors?: string[];
     /** Evidence the coming world phase notices (src/game/evidenceWarning.ts): a next-phase plate on each, hatched when uncertain. */
     found?: readonly EvidenceWarning[];
@@ -155,12 +149,9 @@ const alpha = (hex: string, a: number): string => {
 /** How far above a tile's top edge the head of someone standing on it reaches, and of someone lying (UI pixels). */
 const HEAD = 30, LYING = 10;
 
-/** Move's range: steel blue ("your control"), a flat tint and a solid edge. */
-const WALK = 'rgba(138, 182, 214, 0.3)';
+/** Move's range: a solid steel blue edge ("your control"). */
 const WALK_EDGE = 'rgba(138, 182, 214, 0.9)';
-/** Dash's band: gold, hatched, with a dashed edge. */
-const RUN = 'rgba(242, 201, 76, 0.1)';
-const RUN_HATCH = 'rgba(242, 201, 76, 0.42)';
+/** Dash's band: a dashed gold edge. */
 const RUN_EDGE = 'rgba(242, 201, 76, 0.95)';
 const INK = 'rgba(13, 12, 20, 0.85)';
 const CREAM = '#f2e6c8';
@@ -235,7 +226,9 @@ export class WorldOverlay {
         return {
             safeFloor: c?.safeFloor ?? [], floorDim: !!c?.floorDim, pathSafety: c?.pathSafety ?? null, explain: c?.explain ?? null,
             found: (c?.found ?? []).map(w => ({ pos: w.pos, level: w.level })),
-            badges: c?.badges?.length ?? 0, hearers: c?.hearers?.length ?? 0, cones: c?.cones?.length ?? 0, colourBlind: !!c?.colourBlind,
+            badges: c?.badges?.length ?? 0, hearers: c?.hearers?.length ?? 0, colourBlind: !!c?.colourBlind,
+            // The NPC cones drawn: with `coneFilter`, only the `reactors`'.
+            cones: c?.cones?.filter(v => !c.coneFilter || c.reactors?.includes(v.id)).length ?? 0,
             cameras: c?.cameras?.length ?? 0, cameraCones: c?.cameras?.filter(v => v.core.length + v.peripheral.length > 0).length ?? 0, flashes: c?.flashes?.length ?? 0,
             path: c?.path ?? [], reach: c?.reach?.move.length ?? 0, dashReach: c?.reach?.dash.length ?? 0,
             range: { walk: c?.reach?.move ?? [], run: c?.reach?.dash ?? [] }, dash: !!c?.dash, noise: c?.noise?.length ?? 0, witnesses: c?.witnesses?.length ?? 0,
@@ -375,51 +368,30 @@ export class WorldOverlay {
             ctx.setLineDash([]);
         };
 
-        // The band edges, and the default overlay's floor glyphs, wait for the cones: those go over the fills, under them.
+        // The band edges wait for the cones: those go over the fills, under them.
         let overCones = () => {};
         if (c.reach) {
             // The mover's own tile counts as inside, so the edge doesn't box them in.
             // Tiles with someone lying on them (a dragged body) keep their edge but no tint, so the body shows.
-            const bare = has(c.reach.unfilled ?? []), tinted = has((c.safeFloor ?? []).map(t => t.pos));
-            const filled = (tiles: Pos[]) => tiles.filter(p => !bare(p.x, p.y) && !tinted(p.x, p.y));
+            const bare = has(c.reach.unfilled ?? []);
             const { at } = c.reach, move = c.reach.move, dash = c.reach.dash, inMove = has([...move, ...(at ? [at] : [])]), inAll = has([...move, ...dash, ...(at ? [at] : [])]);
-            // Until the safe floor arrives (the Dash band a frame after the Move band): Dash's band a faint tint and a
-            // diagonal hatch in gold, Move's a flat steel blue.
-            if (OVERLAY_V2) {
-                // v2: the safety fill alone (glyphs come last, over everything on the floor), then one contour per band.
-                if (c.safeFloor?.length) this.drawSafeFloor(c.safeFloor.filter(t => !bare(t.pos.x, t.pos.y)), pal, left, top, S, c.floorDim ? 0.5 : 1, false);
-                // Each band's outer edge only: small holes in it (furniture, someone standing) read by having no fill.
-                const all = [...move, ...dash, ...(at ? [at] : [])], moved = at ? [...move, at] : move;
-                overCones = () => {
-                    this.strokeRuns(sideRuns(dash, withoutHoles(all, inAll)), RUN_EDGE, 2, [6, 4], ox, oy);
-                    this.strokeRuns(sideRuns(moved, withoutHoles(moved, inMove)), WALK_EDGE, 2, [], ox, oy);
-                };
-            } else {
-                ctx.fillStyle = RUN;
-                for (const p of filled(dash)) ctx.fillRect(left(p), top(p), S, S);
-                // Lines at 45°, every 8 UI pixels (where x + y is a multiple of 8), running on across neighbouring tiles.
-                ctx.fillStyle = this.pattern('run', RUN_HATCH);
-                for (const p of filled(dash)) ctx.fillRect(left(p), top(p), S, S);
-                ctx.fillStyle = WALK;
-                for (const p of filled(move)) ctx.fillRect(left(p), top(p), S, S);
-                const tiles = (c.safeFloor ?? []).filter(t => !bare(t.pos.x, t.pos.y));
-                this.drawSafeFloor(tiles, pal, left, top, S, c.floorDim ? 0.45 : 1, false);
-                overCones = () => {
-                    // The range's outer edge, dashed gold; then Move's edge, solid steel blue: where a step costs a second
-                    // action; the glyphs over them, but while a path leads.
-                    stroke(dash, inAll, RUN_EDGE, 2, [6, 4]);
-                    stroke(move, inMove, WALK_EDGE, 2, []);
-                    if (!c.floorDim) for (const t of tiles) this.drawGlyph(t, left(t.pos), top(t.pos), S, pal);
-                };
-            }
+            // The safety fill alone (glyphs come last, over everything on the floor), then one contour per band; until
+            // the safe floor arrives (the Dash band a frame after the Move band) a band is its contour alone.
+            if (c.safeFloor?.length) this.drawSafeFloor(c.safeFloor.filter(t => !bare(t.pos.x, t.pos.y)), pal, left, top, S, c.floorDim ? 0.5 : 1);
+            // Each band's outer edge only: small holes in it (furniture, someone standing) read by having no fill.
+            const all = [...move, ...dash, ...(at ? [at] : [])], moved = at ? [...move, at] : move;
+            overCones = () => {
+                this.strokeRuns(sideRuns(dash, withoutHoles(all, inAll)), RUN_EDGE, 2, [6, 4], ox, oy);
+                this.strokeRuns(sideRuns(moved, withoutHoles(moved, inMove)), WALK_EDGE, 2, [], ox, oy);
+            };
         }
 
-        // v2: a cone shows when its observer reacts to the selected crew member on the drawn path (any step, its end, the
+        // A cone shows when its observer reacts to the selected crew member on the drawn path (any step, its end, the
         // world phase after) or on the stay tile, or with no path anywhere they could go (or the drawer shows all, or it
         // was long-pressed). A hatch is about watchers the crew hasn't seen, so it pulls in no known observer's cone.
         const reacting = new Set(c.reactors ?? []);
         const relevant = (id: string) => !c.coneFilter || reacting.has(id);
-        // Cones, NPCs' and cameras' (v2: only those `relevant`): all of them as one area, the tiles any of them sees,
+        // Cones, NPCs' and cameras' (only those `relevant`): all of them as one area, the tiles any of them sees,
         // outlined inset in pale white (no colour any other layer uses), stronger when someone is Alerted or a camera is
         // on the operator's monitors. A looped camera reports nothing and a panning camera's next facing is still to
         // come, so neither is part of it. Who sees a tile is the long-press's "who and why".
@@ -455,13 +427,9 @@ export class WorldOverlay {
             }
         }
 
-        if (c.noise?.length && OVERLAY_V2) {
-            // v2: no fill (fill is safety's), a rounded contour inset in the tiles in the noise's own colour.
+        if (c.noise?.length) {
+            // No fill (fill is safety's): a rounded contour inset in the tiles in the noise's own colour.
             this.strokeLoops(insetLoops(c.noise, withoutHoles(c.noise, has(c.noise)), NOISE_INSET / S), NOISE, 2, [], NOISE_RADIUS, ox, oy);
-        } else if (c.noise?.length) {
-            ctx.fillStyle = alpha(pal.amber, 0.2);
-            for (const p of c.noise) ctx.fillRect(left(p), top(p), S, S);
-            stroke(c.noise, has(c.noise), pal.amber, 3, [2, 2]);
         }
 
         // The target: a bracket in the crew colour round the tile, or across the door's edge.
@@ -537,8 +505,8 @@ export class WorldOverlay {
             if (!r) rows.set(key, r = { pos, lying, faded: false, plates: [], pips: [] });
             return r;
         };
-        // v2: a hearer's state plate gives way to its ear badge, which says what it will do.
-        const hearing = new Set(OVERLAY_V2 ? (c.hearers ?? []).map(e => e.id) : []);
+        // A hearer's state plate gives way to its ear badge, which says what it will do.
+        const hearing = new Set((c.hearers ?? []).map(e => e.id));
         for (const b of c.badges ?? []) Object.assign(row(b.pos, b.lying), { faded: b.faded, pips: b.pips }).plates.push(...(hearing.has(b.id) ? [] : b.plates));
         // The one sent to look also wears the pin (Investigating).
         // Face down (commanded, tied): hears it, stays down.
@@ -563,6 +531,7 @@ export class WorldOverlay {
             }
             ctx.setLineDash([]);
         }
+        // Drawn after the floor's glyphs (below), so nothing on the floor covers a plate.
         const overHeads = () => {
             const heights = new Map<string, number>();
             for (const r of rows.values()) {
@@ -579,21 +548,16 @@ export class WorldOverlay {
                 this.drawFound(f, x, y, pal);
             }
         };
-        // v2 draws them after the floor's glyphs, so nothing on the floor covers a plate.
-        if (!OVERLAY_V2) {
-            overHeads();
-            if (c.stay) this.drawStay(c.stay, left, top, mid, S, pal);
-        }
 
         for (const r of c.routes ?? []) this.drawRoute(r, mid, pal);
 
         if (c.from && c.path?.length && !(c.routeDrag && c.badFrom === undefined)) {
             const points = [c.from, ...c.path].map(mid), bad = c.badFrom ?? Infinity, safety = c.pathSafety;
             // The path's own tints (§8.8 "along the whole drawn path"), at full strength over the dimmed floor; its end
-            // as the floor tints it, glyph and all.
+            // as the floor tints it (its glyph with the floor's, below).
             if (safety) {
-                for (const step of safety.steps.slice(0, -1)) this.tintTile(step.kind, false, 'move', left(step.pos), top(step.pos), S, pal, 1.25, step.doorRisk);
-                this.drawSafeFloor([safety.end], pal, left, top, S, 1.25, !OVERLAY_V2);
+                for (const step of safety.steps.slice(0, -1)) this.tintTile(step.kind, left(step.pos), top(step.pos), S, pal, 1.25, step.doorRisk);
+                this.drawSafeFloor([safety.end], pal, left, top, S, 1.25);
             }
             const stepColour = (i: number): string => {
                 const k = safety?.steps[i]?.kind;
@@ -633,16 +597,14 @@ export class WorldOverlay {
             }
         }
 
-        if (OVERLAY_V2) {
-            // The floor's glyphs on every tile of the reach, over the floor, cones, paths and intents; the path's own
-            // steps show its verdict instead (its tint, the eye plate), its end the path's own glyph.
-            const path = c.from && c.path?.length ? c.pathSafety : undefined, end = path?.end;
-            const steps = has(path ? path.steps.slice(0, -1).map(t => t.pos) : []), bare = has(c.reach?.unfilled ?? []);
-            const tiles = c.reach ? (c.safeFloor ?? []).filter(t => !bare(t.pos.x, t.pos.y) && !steps(t.pos.x, t.pos.y) && !(end && t.pos.x === end.pos.x && t.pos.y === end.pos.y)) : [];
-            for (const t of end ? [...tiles, end] : tiles) this.drawGlyph(t, left(t.pos), top(t.pos), S, pal);
-            overHeads();
-            if (c.stay) this.drawStay(c.stay, left, top, mid, S, pal);
-        }
+        // The floor's glyphs on every tile of the reach, over the floor, cones, paths and intents; the path's own steps
+        // show its verdict instead (its tint, the eye plate), its end the path's own glyph.
+        const path = c.from && c.path?.length ? c.pathSafety : undefined, end = path?.end;
+        const steps = has(path ? path.steps.slice(0, -1).map(t => t.pos) : []), bare = has(c.reach?.unfilled ?? []);
+        const tiles = c.reach ? (c.safeFloor ?? []).filter(t => !bare(t.pos.x, t.pos.y) && !steps(t.pos.x, t.pos.y) && !(end && t.pos.x === end.pos.x && t.pos.y === end.pos.y)) : [];
+        for (const t of end ? [...tiles, end] : tiles) this.drawGlyph(t, left(t.pos), top(t.pos), S, pal);
+        overHeads();
+        if (c.stay) this.drawStay(c.stay, left, top, mid, S, pal);
 
         if (c.explain) this.drawExplain(c.explain, left, top, mid, S, pal);
     }
@@ -663,7 +625,7 @@ export class WorldOverlay {
         ctx.fillStyle = alpha(colour, hatched ? 0.3 : 0.6);
         ctx.fill('evenodd');
         if (hatched) {
-            ctx.fillStyle = this.pattern('duo', alpha(t.doorRisk && t.now.kind !== 'unknownRisk' ? GREY : colour, 0.95), 'rgba(13, 12, 20, 0.85)');
+            ctx.fillStyle = this.hatch(alpha(t.doorRisk && t.now.kind !== 'unknownRisk' ? GREY : colour, 0.95), 'rgba(13, 12, 20, 0.85)');
             ctx.fill('evenodd');
         }
         ctx.lineWidth = 1;
@@ -716,7 +678,7 @@ export class WorldOverlay {
         ctx.lineTo(half + 3, 1);
         ctx.lineTo(half - 5, 1);
         ctx.closePath();
-        ctx.fillStyle = certain ? pal.red : this.pattern('duo', alpha(pal.red, 0.95), 'rgba(13, 12, 20, 0.85)');
+        ctx.fillStyle = certain ? pal.red : this.hatch(alpha(pal.red, 0.95), 'rgba(13, 12, 20, 0.85)');
         ctx.fill();
         ctx.restore();
     }
@@ -790,7 +752,7 @@ export class WorldOverlay {
         ctx.stroke();
     }
 
-    /** v2: chained sides (`sideRuns`) stroked over a 1px ink drop shadow, each side at its own tile's lift. */
+    /** Chained sides (`sideRuns`) stroked over a 1px ink drop shadow, each side at its own tile's lift. */
     private strokeRuns(runs: Side[][], colour: string, width: number, dash: number[], ox: number, oy: number): void {
         const ctx = this.ctx, px = (x: number, y: number, t: Pos): [number, number] => [(x * TILE - ox) * UI_SCALE, (y * TILE - this.lift(t.x, t.y) - oy) * UI_SCALE];
         ctx.lineWidth = width;
@@ -812,7 +774,7 @@ export class WorldOverlay {
         ctx.setLineDash([]);
     }
 
-    /** v2: closed inset loops (`insetLoops`) stroked over an ink shadow, their corners rounded by `radius` UI pixels. */
+    /** Closed inset loops (`insetLoops`) stroked over an ink shadow, their corners rounded by `radius` UI pixels. */
     private strokeLoops(loops: Corner[][], colour: string, width: number, dash: number[], radius: number, ox: number, oy: number): void {
         const ctx = this.ctx, px = (p: Corner): [number, number] => [(p.x * TILE - ox) * UI_SCALE, (p.y * TILE - this.lift(p.tile.x, p.tile.y) - oy) * UI_SCALE];
         ctx.lineWidth = width;
@@ -1063,21 +1025,17 @@ export class WorldOverlay {
      * a shape: amber's pips (one square per pip), a challenge's hand, the eye of someone who Exposes them, a camera's
      * glyph; unknown risk is grey hatched, with no glyph, and a tint a door not seen this turn could make worse
      * (`doorRisk`) has the same grey hatch over it, glyph and all: the hatch means only "could be worse than shown".
-     * Move's tiles in scanlines, the Dash band's in a sparser dotted fill (its edge says so too). The tint and glyph are
-     * the move's own; the coming world phase's, when worse, is a corner marker (`drawNext`). `strength` scales the fill
-     * (a dimmed floor while a path leads); `glyphs` false leaves the shapes off, the corner marker with them.
+     * A flat fill whichever band (the band's edge says which). The tint and glyph are the move's own; the coming world
+     * phase's, when worse, is a corner marker (`drawNext`). This draws the fills; the glyphs go over the rest of the
+     * floor (`drawGlyph`). `strength` scales the fill (a dimmed floor while a path leads).
      */
-    private drawSafeFloor(tiles: readonly FloorTileVM[], pal: Record<Signal, string>, left: (p: Pos) => number, top: (p: Pos) => number, S: number, strength = 1, glyphs = true): void {
-        for (const t of tiles) {
-            const x = left(t.pos), y = top(t.pos);
-            this.tintTile(t.now.kind, false, t.band, x, y, S, pal, strength, t.doorRisk);
-            if (glyphs) this.drawGlyph(t, x, y, S, pal);
-        }
+    private drawSafeFloor(tiles: readonly FloorTileVM[], pal: Record<Signal, string>, left: (p: Pos) => number, top: (p: Pos) => number, S: number, strength = 1): void {
+        for (const t of tiles) this.tintTile(t.now.kind, left(t.pos), top(t.pos), S, pal, strength, t.doorRisk);
     }
 
     /**
-     * A safe-floor tile's glyph (see `drawSafeFloor`) on the tile at (x, y), the move's own, and the coming world phase's
-     * corner marker when that is worse; v2 sets the glyph, pips too, on a darker plate.
+     * A safe-floor tile's glyph (see `drawSafeFloor`) on the tile at (x, y), the move's own, on a dark plate so it reads
+     * on any tint, and the coming world phase's corner marker when that is worse.
      */
     private drawGlyph(t: FloorTileVM, x: number, y: number, S: number, pal: Record<Signal, string>): void {
         const ctx = this.ctx, kind = t.now.kind, colour = this.tintColour(kind, pal);
@@ -1088,15 +1046,14 @@ export class WorldOverlay {
         if (glyph) {
             const g = glyphSize(GLYPHS[glyph]);
             // A small dark plate under the glyph, so it reads on any tint.
-            ctx.fillStyle = OVERLAY_V2 ? 'rgba(12, 11, 15, 0.78)' : 'rgba(12, 11, 15, 0.55)';
+            ctx.fillStyle = 'rgba(12, 11, 15, 0.78)';
             ctx.fillRect(x + Math.floor((S - g.w) / 2) - 2, y + Math.floor((S - g.h) / 2) - 2, g.w + 4, g.h + 4);
             drawRows(ctx, GLYPHS[glyph], x + Math.floor((S - g.w) / 2), y + Math.floor((S - g.h) / 2), colour);
         } else if (kind === 'amber') {
-            const n = Math.max(1, Math.min(3, t.now.pips)), x0 = x + Math.round(S / 2 - (n * 7 - 3) / 2), py = OVERLAY_V2 ? y + S / 2 - 2 : y + 14;
-            if (OVERLAY_V2) {
-                ctx.fillStyle = 'rgba(12, 11, 15, 0.78)';
-                ctx.fillRect(x0 - 3, py - 3, n * 7 + 3, 10);
-            }
+            // The pips, centred, on the same plate.
+            const n = Math.max(1, Math.min(3, t.now.pips)), x0 = x + Math.round(S / 2 - (n * 7 - 3) / 2), py = y + S / 2 - 2;
+            ctx.fillStyle = 'rgba(12, 11, 15, 0.78)';
+            ctx.fillRect(x0 - 3, py - 3, n * 7 + 3, 10);
             for (let i = 0; i < n; i++) {
                 ctx.fillStyle = 'rgba(8, 7, 10, 0.8)';
                 ctx.fillRect(x0 + i * 7 + 1, py + 1, 4, 4);
@@ -1112,80 +1069,38 @@ export class WorldOverlay {
     }
 
     /**
-     * Fills one tile with a tint (see `drawSafeFloor`), and unknown risk's grey hatch over it when a door could make it
-     * worse (`doorRisk`); returns the tint's colour.
+     * Fills one tile with a tint (see `drawSafeFloor`): a flat fill in the safety colour; unknown risk fainter under its
+     * hatch, two-tone lines (a dark pixel beside each grey one, so it reads on pale floors too, where a grey hatch alone
+     * fades into the pavement: it has no glyph to fall back on); the same grey hatch over the tint when a door could make
+     * it worse (`doorRisk`). The hatch is anchored to the canvas, so it runs on across neighbouring tiles.
      */
-    private tintTile(kind: TintKind, hatched: boolean, band: 'move' | 'dash', x: number, y: number, S: number, pal: Record<Signal, string>, strength: number, doorRisk = false): string {
-        const ctx = this.ctx;
-        const colour = this.tintColour(kind, pal);
-        const a = (kind === 'safe' ? 0.26 : kind === 'grey' || kind === 'unknownRisk' ? 0.3 : 0.5) * strength;
-        if (OVERLAY_V2) {
-            // v2: a flat fill in the safety colour, whichever band; the one hatch (unknown risk's two-tone lines, in the
-            // tint's own colour for the coming world phase) only where it could be worse than shown.
-            const could = kind === 'unknownRisk' || hatched;
-            ctx.fillStyle = alpha(colour, a * (could ? 0.3 : 0.7));
-            ctx.fillRect(x, y, S, S);
-            if (could) {
-                const ink = Math.min(1, a * 1.5);
-                ctx.fillStyle = this.pattern('duo', alpha(colour, ink), `rgba(13, 12, 20, ${(ink * 0.9).toFixed(3)})`);
-                ctx.fillRect(x, y, S, S);
-            }
-        }
-        // The coming world phase (and unknown risk): a faint wash and a diagonal hatch; Dash's band dotted; Move's in
-        // scanlines. Patterns are anchored to the canvas, so they run on across neighbouring tiles.
-        // Unknown risk's hatch is two-tone (a dark pixel beside each grey one), so it reads on pale floors too, where a
-        // grey hatch alone fades into the pavement: it has no glyph to fall back on.
-        const [wash, style, ink] = kind === 'unknownRisk' ? [0.25, 'duo', 1.5] as const : hatched ? [0.25, 'hatch', 1.5] as const
-            : band === 'dash' ? [0.3, 'dots', 1.4] as const : [0.35, 'scan', 1] as const;
-        if (!OVERLAY_V2) {
-            ctx.fillStyle = alpha(colour, a * wash);
-            ctx.fillRect(x, y, S, S);
-            ctx.fillStyle = this.pattern(style, alpha(colour, Math.min(1, a * ink)), `rgba(13, 12, 20, ${(Math.min(1, a * ink) * 0.9).toFixed(3)})`);
+    private tintTile(kind: TintKind, x: number, y: number, S: number, pal: Record<Signal, string>, strength: number, doorRisk = false): void {
+        const ctx = this.ctx, unknown = kind === 'unknownRisk';
+        const a = (kind === 'safe' ? 0.26 : kind === 'grey' || unknown ? 0.3 : 0.5) * strength;
+        ctx.fillStyle = alpha(this.tintColour(kind, pal), a * (unknown ? 0.3 : 0.7));
+        ctx.fillRect(x, y, S, S);
+        if (unknown || doorRisk) {
+            const ink = Math.min(1, 0.45 * strength);
+            ctx.fillStyle = this.hatch(alpha(GREY, ink), `rgba(13, 12, 20, ${(ink * 0.9).toFixed(3)})`);
             ctx.fillRect(x, y, S, S);
         }
-        if (doorRisk && kind !== 'unknownRisk') {
-            // Unknown risk's hatch at its own strength; over a hatched tint it runs between that tint's lines (3 pixels on).
-            const grey = 0.3 * strength * 1.5, shift = hatched ? 3 : 0;
-            ctx.fillStyle = this.pattern('duo', alpha(GREY, Math.min(1, grey)), `rgba(13, 12, 20, ${(Math.min(1, grey) * 0.9).toFixed(3)})`);
-            ctx.translate(shift, 0);
-            ctx.fillRect(x - shift, y, S, S);
-            ctx.translate(-shift, 0);
-        }
-        return colour;
     }
 
-    /** The fill patterns of the safe floor, made once per style and colour. */
+    /** The hatch's patterns, made once per colour pair. */
     private readonly patterns = new Map<string, CanvasPattern | string>();
 
-    private pattern(style: 'scan' | 'dots' | 'hatch' | 'duo' | 'run', colour: string, dark = INK): CanvasPattern | string {
-        const key = `${style} ${colour} ${style === 'duo' ? dark : ''}`;
+    /** The hatch: lines at 45° every 6 UI pixels, a pixel of `colour` beside a `dark` one. */
+    private hatch(colour: string, dark = INK): CanvasPattern | string {
+        const key = `${colour} ${dark}`;
         let found = this.patterns.get(key);
         if (found) return found;
-        const size = style === 'scan' ? [1, 2] : style === 'dots' ? [4, 8] : style === 'run' ? [8, 8] : [6, 6];
         const tile = document.createElement('canvas');
-        tile.width = size[0]!;
-        tile.height = size[1]!;
+        tile.width = tile.height = 6;
         const t = tile.getContext('2d')!;
         t.fillStyle = colour;
-        if (style === 'scan') t.fillRect(0, 0, 1, 1);
-        else if (style === 'dots') {
-            t.fillRect(0, 1, 2, 2);
-            t.fillRect(2, 5, 2, 2);
-        } else if (style === 'run') {
-            // One pixel where x + y is a multiple of 8: Dash's hatch before the safe floor arrives.
-            for (let k = 0; k < 8; k++) t.fillRect((8 - k) % 8, k, 1, 1);
-        } else if (style === 'duo') {
-            // Lines at 45° every 6: a pixel of the colour beside a dark one.
-            for (let k = 0; k < 6; k++) t.fillRect((6 - k) % 6, k, 1, 1);
-            t.fillStyle = dark;
-            for (let k = 0; k < 6; k++) t.fillRect((7 - k) % 6, k, 1, 1);
-        } else {
-            // Lines at 45°, two pixels wide, every 6.
-            for (let k = 0; k < 6; k++) {
-                t.fillRect((6 - k) % 6, k, 1, 1);
-                t.fillRect((7 - k) % 6, k, 1, 1);
-            }
-        }
+        for (let k = 0; k < 6; k++) t.fillRect((6 - k) % 6, k, 1, 1);
+        t.fillStyle = dark;
+        for (let k = 0; k < 6; k++) t.fillRect((7 - k) % 6, k, 1, 1);
         found = this.ctx.createPattern(tile, 'repeat') ?? colour;
         this.patterns.set(key, found);
         return found;

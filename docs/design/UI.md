@@ -78,8 +78,9 @@ the player never has to memorise icons.
 The tone is gritty, not cartoonish (§1), and the UI wears the game's own look: the HUD matches `src/style.css`, and
 every mockup frame is rendered by the game itself (the example bank, its lighting and its people), with the world UI
 drawn over it. World UI uses hairline strokes with a 1px ink drop shadow instead of fat outlines, muted signal colours,
-faint scanline fills where an edge already carries the meaning, and dark plates with a thin border in the signal colour
-instead of filled stickers. HUD panels are night-blue glass (`rgba(11, 13, 23, 0.72)`) with a thin cream border and
+and dark plates with a thin border in the signal colour instead of filled stickers. Each kind of information on the
+floor has one visual channel: a tile's fill is safety only, a diagonal hatch only "could be worse than shown", and a
+reach band, a cone or a noise ring is an outline, never a fill. HUD panels are night-blue glass (`rgba(11, 13, 23, 0.72)`) with a thin cream border and
 soft 6–8px corners. Labels and numbers use the system monospace (`ui-monospace, Menlo, Consolas`) with a hard drop
 shadow, as the game's buttons do, and reading text uses the system sans. Pixel fonts were rejected because their 2 and
 5 read as S and 8 in countdowns.
@@ -125,8 +126,13 @@ Every tile is in one of three states (implementation plan decision 44):
 
 ### Safe floor (§8.8)
 
-Shown for the selected crew member when nothing else is previewed, and along the path while one is. The tile states
-are:
+Shown for the selected crew member across their movement range, XCOM style, and along the path while one is
+previewed or dragged (the floor dimmed under it, its glyphs kept). Each tile is a flat fill in its tint, whichever
+band it is in; the range is drawn as one contour per band, its outer edge only (small holes, furniture or someone
+standing, read by having no fill): Move's solid steel blue, Dash's dashed gold. Until the Dash band's floor is judged
+(a frame or two after the Move band's) a band is its contour alone. Every tile of the range carries its glyph on a
+small dark plate, drawn over the cones and paths; a path's own steps show its verdict instead (their tint, the eye
+plate), its end its own glyph. The tile states are:
 
 - **Safe:** green tint.
 - **+1 pip** and **+2 pips:** amber tint with that many pips.
@@ -179,7 +185,7 @@ A dark plate, a glyph and, when there is a clock, a countdown. The states are:
 - **Commanded:** a down arrow.
 - **Tied:** cuffs.
 - **Surprised:** a star.
-- **Hears:** a noise badge naming the outcome.
+- **Hears:** a noise badge naming the outcome; while it shows, it stands in for the hearer's state plate.
 - **Hostile:** a crosshair.
 - **Will be found** (§8.10): on major evidence the crew knows of (a body, a tied person, a hole, something on the
   floor) that the coming world phase notices, above its own plates: next turn's plate, drawn as the stay tile's (three
@@ -203,8 +209,16 @@ blue. A dashed line in the crew colour links a new pip to its cause during the w
 
 ### Rings, cones and wedges
 
-- **Noise rings** are the exact flood-filled tiles (§8.9), drawn as a thin outline with a faint fill. Everyone inside
-  wears an ear badge naming what they'll do.
+- **Noise rings** are the exact flood-filled tiles (§8.9), drawn without a fill as a lilac contour (`#c49cff`, a
+  colour no other layer uses) inset in those tiles with rounded corners, so it never sits on a band's edge. Everyone
+  inside wears an ear badge naming what they'll do.
+- **Vision cones**, NPCs' and cameras', are drawn as one area, exactly the tiles any of them sees, outlined inset with
+  rounded corners in pale white over ink (stronger when someone is Alerted or a camera is on the operator's
+  monitors), under the band edges; a lone cone fades faintly from its watcher. Shown are the cones of the observers
+  who react to the selected crew member somewhere they could go, or, with a path, on any of its steps, at its end or
+  in the world phase after, or on their own tile; a hatch is about watchers the crew hasn't seen, so it pulls in no
+  known observer's cone. The drawer's Cones toggle shows every known NPC's and camera's, its Cameras toggle every
+  camera's, and long-pressing an NPC its own. A looped camera and a panning camera's next facing are not part of it.
 - **Shot cones** are nested arcs, one per bullet (§11.2). No hit percentages: the cone is the odds, and the fire
   selector (1–6 rounds) narrows it.
 - **Watch wedges:** the crew's are steel blue and dragged into place, and police wedges are red and simply visible.
@@ -293,7 +307,8 @@ The canvas has five pages. Each board shows one decision or one moment.
 ### Map, planning and campaign
 
 - **Tactical map and overlay drawer.** At this zoom a tile is too small to tap, so everything actionable becomes a
-  large pin. The drawer toggles zones, all cones, cameras, cover, the sound map and wall materials.
+  large pin. The drawer toggles zones, all cones (NPCs' and cameras'), cameras, cover, the sound map and wall
+  materials.
 - **Planning screen.** The plot is drawn as a blueprint: known rooms are solid and unscouted ones are outlines with
   `?`. It also shows each crew member's loadout and start, and the assets with their prices.
 - **City map and the Squeeze.** Laid out like XCOM 2's Geoscape: the dossier top left, the Squeeze top centre with

@@ -1,9 +1,9 @@
 import type { Pos } from '../../sim';
 
 /*
- * Tile-set outlines for the world overlay's v2 mockup (`?overlay=v2`): a set's sides chained into runs, so a dashed
- * edge flows round corners instead of restarting on every tile, and inset loops for rings drawn inside the tiles.
- * Everything here is in tile units; the overlay turns it into pixels.
+ * Tile-set outlines for the world overlay (its band edges, cones and noise ring): a set's sides chained into runs, so
+ * a dashed edge flows round corners instead of restarting on every tile, and inset loops for rings drawn inside the
+ * tiles. Everything here is in tile units; the overlay turns it into pixels.
  */
 
 /** One side of a tile, walked with the tile on its right (screen coordinates, y down). */

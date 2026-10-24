@@ -536,9 +536,10 @@ test('draws the world UI: badges and pips, cones on long-press, a noise ring wit
     expect((await play(page)).cones).toBe(1);
     await page.screenshot({ path: 'screenshots/play-cones.png' });
     await tapTile(page, setup!.aAt);
-    // That tap cleared the cones and previewed a knockout of the curious one: its noise ring, and who hears it.
+    // That tap dropped the long-pressed cones (only those of observers reacting to the crew member stay) and previewed a
+    // knockout of the curious one: its noise ring, and who hears it.
     shown = await play(page);
-    expect(shown.cones).toBe(0);
+    expect(shown.coneOf).toBeNull();
     expect(shown.pending).toMatchObject({ type: 'knockout', npc: setup!.a });
     expect(shown.noise).toBeGreaterThan(0);
     expect(shown.hearers).toBeGreaterThan(0);

@@ -22,7 +22,7 @@ import { mountHud } from '../../ui/hud/mountHud';
 import { CREW_COLOURS, type HudHandle, type OverlayId } from '../../ui/hud/viewModels';
 import type { BankCamera } from './camera';
 import { MapInput } from './input';
-import { OVERLAY_V2, WorldOverlay, type OverlayContent } from './overlay';
+import { WorldOverlay, type OverlayContent } from './overlay';
 import type { Knowledge } from './knowledge';
 import type { People } from './people';
 import type { Walls } from './walls';
@@ -1144,8 +1144,8 @@ export class PlayMode {
         // The floor is judged whenever someone is selected: their own tile (what ending the turn there does) shows even
         // with no actions left or the range stepped aside.
         const judged = this.floor(member), floor = range ? judged : undefined, stay = this.floorFor?.stay;
-        // v2's cones: those of the observers reacting to them somewhere they could go (with a path, on it: below).
-        const reactors = (path?: PathSafety) => (OVERLAY_V2 ? { reactors: reactingObservers(this.floorFor?.job, path) } : {});
+        // The cones shown: those of the observers reacting to them somewhere they could go (with a path, on it: below).
+        const reactors = (path?: PathSafety) => ({ reactors: reactingObservers(this.floorFor?.job, path) });
         const base = {
             colour, intents, ...layer, ...reactors(), ...(stay ? { stay } : {}), ...(range ? { reach: { move: unhiddenTiles(this.known(), range.walk), dash: unhiddenTiles(this.known(), range.run), at: member.pos, unfilled: bodies } } : {}),
             ...(floor ? { safeFloor: floor } : {}), ...(this.explained ? { explain: this.explained } : {})
@@ -1289,9 +1289,9 @@ export class PlayMode {
     private knowledgeLayer(): Pick<OverlayContent, 'visibility' | 'ghosts' | 'pings' | 'badges' | 'crewColours' | 'cones' | 'predicted' | 'colourBlind' | 'cameras' | 'flashes' | 'found'> {
         const view = this.known(), { world, state } = this.session, busy = this.busy;
         const shown = (id: string) => this.people.shown(this.sprite.get(id) ?? -1);
-        // Cones: the one long-pressed, or every NPC's the crew knows of from the overlay drawer (§20.4); v2 hands the
-        // overlay every NPC's when neither, to draw those that meet the reach or the path (`coneFilter`).
-        const filter = OVERLAY_V2 && !this.overlays.cones && !this.coneOf;
+        // Cones: the one long-pressed, or every NPC's the crew knows of from the overlay drawer (§20.4); when neither,
+        // every NPC's, for the overlay to draw those of the observers reacting to the crew member (`coneFilter`).
+        const filter = !this.overlays.cones && !this.coneOf;
         const coneIds = this.overlays.cones || filter ? view.npcs.filter(m => m.kind !== 'ghost' && shown(m.id)).map(m => m.id) : this.coneOf ? [this.coneOf] : [];
         return {
             visibility: { width: view.width, codes: view.visibility },
@@ -1322,11 +1322,11 @@ export class PlayMode {
     }
 
     /**
-     * The known cameras (§8.12): a plate each, with their cones when the drawer's Cameras overlay is on, or the one
-     * long-pressed. Worked out once per state and choice.
+     * The known cameras (§8.12): a plate each, with their cones when the drawer's Cameras or Cones overlay is on, or the
+     * one long-pressed. Worked out once per state and choice.
      */
     private cameras(): CameraVM[] {
-        const state = this.session.state, all = !!this.overlays.cameras || (OVERLAY_V2 && !!this.overlays.cones), cones = all ? '*' : this.coneOf ?? '';
+        const state = this.session.state, all = !!this.overlays.cameras || !!this.overlays.cones, cones = all ? '*' : this.coneOf ?? '';
         if (this.camerasFor?.state !== state || this.camerasFor.cones !== cones) {
             const view = this.known(), long = !all && view.cameras.some(c => c.id === this.coneOf);
             let views = cameraViews(this.session.world, state, view, all || long);

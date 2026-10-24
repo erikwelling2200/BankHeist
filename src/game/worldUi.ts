@@ -283,7 +283,7 @@ function tileObservers(t: FloorTile, out: Set<string>): void {
 }
 
 /**
- * The observers whose cones the overlay shows (v2): those that react to the crew member somewhere it could go. With a
+ * The observers whose cones the overlay shows: those that react to the crew member somewhere it could go. With a
  * path, anyone reacting on any of its steps (decision 46), at its end or in the world phase after, or on the stay tile;
  * without, anyone reacting on any tile of the safe floor (the stay tile among them).
  */
