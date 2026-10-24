@@ -3,7 +3,7 @@ import {
     atan2Deg, commit, fixtureWorld, initialState, leanOptions, preview, PreviewRollError, previewShot, resolveShot, rotate, sinCosDeg, traceShot,
     type FixtureOptions, type NpcStatus, type PersonDef, type Pos, type ReadonlyWorld, type Shot, type ShotRolls, type ShotTrace, type State
 } from '../../src/sim';
-import { crewLeanOptions, crewShotPreview, tileVisibility } from '../../src/sim';
+import { crewLeanOptions, crewShotPreview, crewShotView, doubtOf, shotMap, tileVisibility } from '../../src/sim';
 import { registerTestCommand, testCommand } from './helpers';
 
 const P = (x: number, y: number): Pos => ({ x, y });
@@ -351,6 +351,37 @@ describe('the preview, fixed in review', () => {
         // The omniscient preview does see the column.
         expect(previewShot(furnished.world, furnished.state, { shooter: 'jun', weapon: 'dmr', at: P(6, 0) }).fan.some(s => s.steps.some(x => x.kind === 'object'))).toBe(true);
         expect(crewShotPreview(furnished.world, furnished.state, { shooter: 'jun', weapon: 'dmr', at: P(6, 0) }).fan.map(s => s.stop)).toEqual(['unknown']);
+    });
+
+    it('previews a pane or cover the crew can\'t see this turn as possibly broken, never as it truly is', () => {
+        // Jun at (0, 1) in the lit lobby; from x = 7 the bank is dark, seen only within 6 tiles, so the teller window
+        // between (7, 1) and (8, 1) and the desk at (10, 0) are seen by nobody this turn: Jun is too far, and Mara at
+        // (19, 1), beyond them, too.
+        const dark = [0, 1, 2].flatMap(y => Array.from({ length: 14 }, (_, k) => P(7 + k, y)));
+        const build = (shattered: boolean, deskHp: number) => {
+            const world = fixtureWorld(['..........#..........', '.....................', '.....................'], {
+                dark, walls: [{ between: [P(7, 1), P(8, 1)], material: 'tellerGlass' }]
+            });
+            const state = initialState(world, { seed: 3, crew: [{ id: 'jun', pos: P(0, 1) }, { id: 'mara', pos: P(19, 1) }] });
+            if (shattered) state.edges['northSouth 8 1'] = { shattered: true, blocksSound: false };
+            state.cover['10 0'] = deskHp;
+            return { world, state };
+        };
+        const intact = build(false, 6), broken = build(true, 0);
+        for (const p of [P(7, 1), P(8, 1), P(10, 0)]) expect(tileVisibility(intact.world, intact.state, p)).toBe('stale');
+        const shot: Shot = { shooter: 'jun', weapon: 'assaultRifle', at: P(19, 1) };
+        // The pane was shot out earlier: the bullets pass and hit Mara.
+        expect(traceShot(broken.world, broken.state, shot, straight(3)).hits.map(h => h.id)).toEqual(['mara']);
+        expect(traceShot(intact.world, intact.state, shot, straight(3)).hits).toEqual([]);
+        const a = crewShotPreview(intact.world, intact.state, shot), b = crewShotPreview(broken.world, broken.state, shot);
+        // The same whatever the pane's and the desk's true state, and Mara shows, as reached if the glass is broken.
+        expect(b).toEqual(a);
+        expect(a.bodies).toMatchObject([{ id: 'mara', ifBroken: true }]);
+        // The omniscient preview tells them apart.
+        expect(previewShot(broken.world, broken.state, shot)).not.toEqual(previewShot(intact.world, intact.state, shot));
+        // The desk the crew can't see may be broken too.
+        const view = crewShotView(intact.world, intact.state), map = shotMap(intact.world, intact.state);
+        expect(doubtOf(intact.world, map, view).tiles[10]).toBe(1);
     });
 
     it('wears cover per piece, whoever stands behind it', () => {

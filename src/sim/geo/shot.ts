@@ -140,6 +140,8 @@ export interface ShotScene {
      * one ('unknown'); outcomes never set it.
      */
     hidden?: Uint8Array;
+    /** What a crew preview can't vouch for (`doubtOf`): may already be broken. Outcomes never set it. */
+    doubt?: Doubt;
 }
 
 /**
@@ -441,11 +443,16 @@ export function hasCover(map: ShotMap, fabric: Fabric, body: Body, origin: Pos):
 /**
  * The fabric as it could stand once an attack of `bullets` bullets has broken all it might (§11.7: nobody is hit by
  * surprise): every pane shattered, teller glass shattered where `bullets` more hits reach its 4th, and the cover those
- * bullets could destroy (each blocked at most once per bullet, by the bullet's most damage) gone. A taser breaks
- * nothing. Later bullets of an attack meet the fabric somewhere between this and the one it started with.
+ * bullets could destroy (each blocked at most once per bullet, by the bullet's most damage) gone; and, with `doubt`,
+ * every pane and destructible cover the crew can't vouch for gone too, as it may already be. A taser breaks nothing.
+ * Later bullets of an attack meet the fabric somewhere between this and the one it started with.
  */
-export function brokenFabric(map: ShotMap, fabric: Fabric, bullets: number, bullet: BulletSpec): Fabric {
+export function brokenFabric(map: ShotMap, fabric: Fabric, bullets: number, bullet: BulletSpec, doubt?: Doubt): Fabric {
     const out = copyFabric(fabric);
+    if (doubt) {
+        doubt.edges.forEach((d, i) => { if (d) out.shattered[i] = 1; });
+        doubt.tiles.forEach((d, i) => { if (d) out.cover[i] = NO_COVER; });
+    }
     if (bullet.knockout) return out;
     map.edges.forEach((e, i) => {
         if (e.material === 'glass' || (e.material === 'tellerGlass' && fabric.hits[i]! + bullets >= TELLER_GLASS.hits)) out.shattered[i] = 1;
@@ -453,6 +460,25 @@ export function brokenFabric(map: ShotMap, fabric: Fabric, bullets: number, bull
     const most = bullets * (bullet.damage + (bullet.close?.damage ?? 0));
     for (let i = 0; i < out.cover.length; i++) if (out.cover[i]! > 0 && out.cover[i]! <= most) out.cover[i] = NO_COVER;
     return out;
+}
+
+/**
+ * What the crew can't vouch for (`ShotView`): panes (glass, teller glass) with no tile beside them seen this turn, and
+ * destructible cover on tiles not seen this turn. They may have broken since (a shot the crew fired, or anyone's), so a
+ * preview counts them as possibly broken (`brokenFabric`), never as surely standing, and never says how they stand.
+ */
+export interface Doubt { edges: Uint8Array; tiles: Uint8Array }
+
+export function doubtOf(world: ReadonlyWorld, map: ShotMap, view: ShotView): Doubt {
+    const seen = (i: number): boolean => i >= 0 && view.seen[i] === 1;
+    const edges = new Uint8Array(map.edges.length), tiles = new Uint8Array(world.width * world.height);
+    map.edges.forEach((e, i) => {
+        if ((e.material === 'glass' || e.material === 'tellerGlass') && !seen(e.sides[0]) && !seen(e.sides[1])) edges[i] = 1;
+    });
+    world.tiles.forEach((t, i) => {
+        if (t.halfCover && t.coverHp !== undefined && !seen(i) && !view.hidden[i]) tiles[i] = 1;
+    });
+    return { edges, tiles };
 }
 
 /**

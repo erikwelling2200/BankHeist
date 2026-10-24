@@ -126,7 +126,7 @@ export function previewShot(world: ReadonlyWorld, state: DeepReadonly<State>, sh
         cut(middle + spread);
     }
     cuts.sort((a, b) => a - b);
-    const broken = brokenFabric(map, scene.fabric, arcs.length, scene.bullet);
+    const broken = brokenFabric(map, scene.fabric, arcs.length, scene.bullet, scene.doubt);
     const fan: FanSegment[] = [];
     let from = cuts[0]!;
     for (const to of cuts.slice(1)) {

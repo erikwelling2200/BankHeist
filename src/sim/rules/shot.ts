@@ -7,7 +7,7 @@ import { registerEvents } from '../core/undo';
 import { CREW_ARMOUR, NPC_ARMOUR, weaponDef, type WeaponDef } from '../data/weapons';
 import { ABSENT_STATUSES, LYING_STATUSES, stepCost } from '../geo/move';
 import {
-    copyFabric, INDESTRUCTIBLE, NO_COVER, shotFabric, shotMap, tileKey, traceBullet, viewedFabric, type Body, type BulletTrace, type Fabric, type ShotScene, type ShotView
+    copyFabric, doubtOf, INDESTRUCTIBLE, NO_COVER, shotFabric, shotMap, tileKey, traceBullet, viewedFabric, type Body, type BulletTrace, type Fabric, type ShotScene, type ShotView
 } from '../geo/shot';
 import { hasTrait } from './alarms';
 import { draggedBy } from './place';
@@ -319,7 +319,8 @@ export function shotScene(world: ReadonlyWorld, state: DeepReadonly<State>, shot
     const atHidden = view.hidden[shot.at.y * world.width + shot.at.x] === 1;
     return {
         map, fabric: viewedFabric(world, map, fabric, view), bodies: shotBodies(world, state, shot.shooter, shot.target),
-        origin, aim: [ax / len, ay / len], rangeSq: w.range * w.range, high: raised(origin) || (!atHidden && raised(shot.at)), bullet, hidden: view.hidden
+        origin, aim: [ax / len, ay / len], rangeSq: w.range * w.range, high: raised(origin) || (!atHidden && raised(shot.at)), bullet, hidden: view.hidden,
+        doubt: doubtOf(world, map, view)
     };
 }
 

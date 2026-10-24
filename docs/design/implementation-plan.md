@@ -1605,8 +1605,11 @@ Later milestones: within each milestone, the `∥` notes in §3 apply. UI packag
     the same on the crew's picture (only NPCs it sees or predicts, a hostage it leads, doors as last seen) and on the
     map as the crew knows it (`ShotView`): the fan, its `broken` paths and the shields stop ('unknown') where a bullet
     would enter a tile neither on the blueprint nor ever seen (nor its corner's side tiles); a hidden aimed-at tile
-    says nothing of its height; panes, teller glass's hits and cover's wear show as they are only where the crew sees them this turn, as
-    built elsewhere, and hidden tiles give no cover. Two banks that differ only inside a room the crew has never seen
+    says nothing of its height; panes, teller glass's hits and cover's wear show as they are only where the crew sees them this turn; elsewhere
+    a pane or destructible cover is drawn as built but counted as possibly broken already (`doubtOf`, in the `broken`
+    paths), so a body beyond a pane shot out earlier shows as `ifBroken`, never hidden, and nothing tells how it
+    really stands (the crew keeps no record of panes it saw broken, so seen-broken counts as "may be broken" too);
+    hidden tiles give no cover. Two banks that differ only inside a room the crew has never seen
     preview alike. M3-09 draws from that. `resolveShot` is not a command (M3-02's
     attack calls it) and applies no damage (M3-03).
 
