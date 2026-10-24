@@ -12,8 +12,8 @@ import { previewPicture } from './picture';
  * "Who and why" (§8.8): long-press a tile of the safe floor (or the end of a drawn path) to see who would notice the
  * crew member there and why: the NPC's or camera's portrait, the sightline, and a line like "Guard: sees Armed". Built
  * from the very sightings the tint was judged from, on the crew's picture, so it never names someone the crew doesn't
- * know. What the move does to a teammate (someone its noise turned sees them) gets a line naming them ("Mara: +1
- * (teller)"). Tiles the crew can't vouch for (grey, unknown risk, or reached through such) also say why, after any lines:
+ * know. What the move does to a teammate (someone its noise turned sees them, or what the world phase then does to
+ * them) gets a line naming them ("Mara: +1 (teller)", "Mara next phase: Exposed (teller)"). Tiles the crew can't vouch for (grey, unknown risk, or reached through such) also say why, after any lines:
  * unknown risk names the worst an unseen observer could do there (`unknownWatcher`, decision 24), and every tile one
  * could stand on to do anything (`unknownWatchers`); a door not seen this turn says it could make it worse
  * than the lines say (`doorRisk`: the lines are what happens however it stands), or that it could be locked on the way
@@ -120,11 +120,16 @@ function acted(s: Sighting, effect: Effect | null): boolean {
         || effect.challenged === s.observer;
 }
 
-/** The line of a sighting of a teammate: "Mara: +1 (teller)". */
-export function teammateText(world: ReadonlyWorld, state: State, s: Sighting): string {
-    const name = state.crew.find(c => c.id === s.crew)?.name ?? s.crew;
-    const what = s.known ? 'seen again' : s.outcome === '!' ? 'exposed' : s.outcome === 'T' ? 'challenged' : s.outcome;
-    return `${name}: ${what} (${observerName(world, s).toLowerCase()})`;
+/**
+ * The line of a sighting of a teammate by what it does to them (`effect`): "Mara: +1 (teller)", in the world phase
+ * "Mara next phase: Exposed (teller)".
+ */
+export function teammateText(world: ReadonlyWorld, state: State, s: Sighting, effect: Effect, phase: 'now' | 'next' = 'now'): string {
+    const name = state.crew.find(c => c.id === s.crew)?.name ?? s.crew, id = s.observer;
+    const what = s.by === 'camera' ? 'on camera' : effect.exposed.includes(id) ? 'exposed' : effect.watching.includes(id) ? 'seen again'
+        : effect.challenged === id ? 'challenged' : `+${effect.pips[id] ?? 0}`;
+    return phase === 'now' ? `${name}: ${what} (${observerName(world, s).toLowerCase()})`
+        : `${name} next phase: ${capital(what)} (${observerName(world, s).toLowerCase()})`;
 }
 
 function entries(world: ReadonlyWorld, picture: State, crew: string, judged: Judged): Explanation[] {
@@ -136,7 +141,7 @@ function entries(world: ReadonlyWorld, picture: State, crew: string, judged: Jud
         if (out.some(e => e.observer === s.observer && e.phase === phase && (e.crew ?? crew) === s.crew)) return;
         out.push({
             observer: s.observer, by: s.by, phase, from: s.band === null ? null : { ...s.from }, to: { ...s.tile }, outcome: s.outcome,
-            known: s.known, why: [...s.why], text: mate ? teammateText(world, picture, s) : sightingText(world, picture, s, crew),
+            known: s.known, why: [...s.why], text: mate ? teammateText(world, picture, s, effect!, phase) : sightingText(world, picture, s, crew),
             ...(mate ? { crew: s.crew } : {})
         });
     };
@@ -145,6 +150,7 @@ function entries(world: ReadonlyWorld, picture: State, crew: string, judged: Jud
     for (const s of byRank(judged.nowSightings)) push(s, 'now', judged.now);
     for (const s of byRank(judged.nextSightings)) push(s, 'next', judged.next);
     for (const s of byRank(judged.teammateSightings)) push(s, 'now', judged.teammates.find(t => t.crew === s.crew)?.effect ?? null);
+    for (const s of byRank(judged.teammateNextSightings)) push(s, 'next', judged.teammates.find(t => t.crew === s.crew)?.next ?? null);
     return out;
 }
 

@@ -1,7 +1,7 @@
 import type { GlyphName } from '../art/ui/glyphs';
 import {
-    crewPicture, LYING_STATUSES, neutralised, profilesOf, npcObserver, seenTiles, bandAt, type ActionPreview, type CarrierKind, type Effect, type Explanation, type FloorTile,
-    type KnownCamera, type KnownView, type MarkerKind, type NpcMarker, type PathSafety, type TileVisibility, VISIBILITY, type Pos, type ReadonlyWorld, type SafeFloor, type Sighting, type State, type Tint, type TintKind, type Witness
+    crewPicture, LYING_STATUSES, neutralised, profilesOf, npcObserver, seenTiles, bandAt, type ActionPreview, type CarrierKind, type DeepReadonly, type Effect, effectKind, type Explanation, type FloorTile, TINT_RANK,
+    type KnownCamera, type KnownView, type MarkerKind, type NpcMarker, type PathSafety, type TileVisibility, VISIBILITY, type Pos, type ReadonlyWorld, type SafeFloor, type Sighting, type State, type TintKind, type Witness
 } from '../sim';
 import { rolePortrait } from './views';
 
@@ -222,16 +222,40 @@ export interface FloorTileVM {
     camera: boolean;
     /** A door the crew can't vouch for could make it worse than this (hatched grey over the tint; `unknownRisk` is it). */
     doorRisk: boolean;
+    /** What the move itself does (the tile's fill and glyph): `kind` and `pips` without the coming world phase. */
+    now: PhaseVM;
+    /** What the coming world phase then does, when it is worse than the move (the corner marker); `hatched` is it. */
+    next?: PhaseVM;
 }
 
-const tintVM = (pos: Pos, band: 'move' | 'dash', t: Tint): FloorTileVM => ({
-    pos: { x: pos.x, y: pos.y }, band, kind: t.kind, hatched: t.hatched, pips: t.pips.reduce((n, p) => n + p.pips, 0), eye: t.eye, camera: t.camera,
-    doorRisk: t.doorRisk
-});
+/** One phase's verdict on a tile: its tint kind and the pips it adds, all NPCs together. */
+export interface PhaseVM { kind: TintKind; pips: number }
+
+const pipsOf = (e: DeepReadonly<Effect> | null): number => (e ? Object.values(e.pips).reduce((n, p) => n + p, 0) : 0);
+
+/**
+ * A floor tile as the overlay draws it: its tint, and that tint split into what the move does (`now`, the teammates'
+ * share in it) and, when worse, what the coming world phase does (`next`), as the engine's `tintOf` weighs them; a move
+ * that does nothing reads as the tile's knowledge (unknown risk, grey) as the tint does.
+ */
+const tileVM = (t: DeepReadonly<FloorTile>, band: 'move' | 'dash'): FloorTileVM => {
+    const tint = t.tint, base = {
+        pos: { x: t.pos.x, y: t.pos.y }, band, kind: tint.kind, hatched: tint.hatched, pips: tint.pips.reduce((n, p) => n + p.pips, 0), eye: tint.eye,
+        camera: tint.camera, doorRisk: tint.doorRisk
+    };
+    if (!tint.hatched) return { ...base, now: { kind: tint.kind, pips: base.pips } };
+    const moved = t.teammates.reduce<ReturnType<typeof effectKind>>((k, m) => {
+        const e = effectKind(m.effect);
+        return TINT_RANK[e] > TINT_RANK[k] ? e : k;
+    }, effectKind(t.now));
+    const quiet: TintKind = t.knowledge === 'hidden' ? 'grey' : t.knowledge === 'unknownRisk' || t.unknownPath ? 'unknownRisk' : 'safe';
+    const nowPips = pipsOf(t.now) + t.teammates.reduce((n, m) => n + pipsOf(m.effect), 0);
+    return { ...base, now: { kind: moved === 'safe' ? quiet : moved, pips: nowPips }, next: { kind: tint.kind, pips: pipsOf(t.next) } };
+};
 
 /** The safe floor's Move and Dash tiles (the crew member's own tile, `stay`, is under them: not drawn). */
 export function floorTiles(floor: { readonly tiles: readonly SafeFloor['tiles'][number][] }): FloorTileVM[] {
-    return floor.tiles.flatMap(t => (t.band === 'stay' ? [] : [tintVM(t.pos, t.band, t.tint)]));
+    return floor.tiles.flatMap(t => (t.band === 'stay' ? [] : [tileVM(t, t.band)]));
 }
 
 /**
@@ -240,7 +264,7 @@ export function floorTiles(floor: { readonly tiles: readonly SafeFloor['tiles'][
  */
 export function stayTile(floor: { readonly tiles: readonly SafeFloor['tiles'][number][] }): FloorTileVM | undefined {
     const t = floor.tiles.find(x => x.band === 'stay');
-    return t && tintVM(t.pos, 'move', t.tint);
+    return t && tileVM(t, 'move');
 }
 
 /** The NPCs and cameras an effect names: who Exposes, keeps watching, adds pips, challenges or reports the crew member. */
@@ -305,7 +329,7 @@ export function pathView(safety: PathSafety): PathVM | undefined {
         const kind: TintKind = seen ?? (s.doubted ? 'unknownRisk' : s.knowledge === 'hidden' ? 'grey' : s.knowledge === 'unknownRisk' ? 'unknownRisk' : 'safe');
         return { pos: { ...s.pos }, kind, hatched: false, doorRisk: s.doubted && kind !== 'red' };
     });
-    return { steps, eyeAt: safety.firstUnsafe, end: tintVM(safety.end.pos, safety.mode, safety.end.tint) };
+    return { steps, eyeAt: safety.firstUnsafe, end: tileVM(safety.end, safety.mode) };
 }
 
 /** "Who and why" (§8.8): a tag on a long-pressed tile, one line per observer, and their sightlines drawn on the map. */

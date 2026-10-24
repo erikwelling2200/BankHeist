@@ -166,6 +166,8 @@ function walk(ctx: Ctx, phase: WorldPhase): void {
             continue;
         }
         if (intent.facing) npc.facing = intent.facing;
+        // Stood with no facing of its own: a glance at a noise (decision 45) lasted the turn, it faces as before.
+        else if (!w.steps.length && npc.glancedFrom !== undefined) npc.facing = npc.glancedFrom;
         if (intent.action?.kind === 'leave') {
             npc.status = 'away';
             ctx.emit({ type: 'npcLeft', npc: npc.id, at: { x: npc.pos.x, y: npc.pos.y } });

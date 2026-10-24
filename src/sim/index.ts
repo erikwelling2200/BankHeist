@@ -154,7 +154,7 @@ export {
     type RouteLeg, type Routes, type StopKind, type WaitOption, type WaitTarget
 } from './rules/autoAdvance';
 export { previewPicture } from './preview/picture';
-export { effectOf, isQuiet, noEffect, teammateEffects, type Effect, type TeammateEffect } from './preview/effect';
+export { addsTo, effectOf, isQuiet, noEffect, teammateEffects, type Effect, type TeammateEffect } from './preview/effect';
 export {
     effectKind, judgePath, judgeStay, overlayTiles, pathSafety, safeFloor, safeFloorJob, TINT_RANK, tintOf, tintRank, type FloorBand, type FloorJob, type FloorOptions, type FloorTile, type Judged,
     type PathOptions,

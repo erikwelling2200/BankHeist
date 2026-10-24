@@ -1,6 +1,7 @@
 import Phaser from 'phaser';
 import { drawNumber, drawRows, GLYPHS, glyphSize, numberWidth, type GlyphName } from '../../art/ui/glyphs';
-import { witnessPlate, type BadgeVM, type CameraVM, type ConeVM, type ExplainVM, type FloorTileVM, type HearerVM, type PathVM, type PlateVM, type Signal, type WitnessVM } from '../../game/worldUi';
+import { witnessPlate, type PhaseVM, type BadgeVM, type CameraVM, type ConeVM, type ExplainVM, type FloorTileVM, type HearerVM, type PathVM, type PlateVM, type Signal, type WitnessVM } from '../../game/worldUi';
+import type { EvidenceWarning } from '../../game/evidenceWarning';
 import type { TintKind } from '../../sim';
 import { TILE } from '../../level/constants';
 import type { Pos } from '../../sim';
@@ -16,9 +17,9 @@ import { insetLoops, sideRuns, withoutHoles, type Corner, type Side } from './co
  *
  * - **Floor:** a grey veil on tiles not seen this turn (hidden ones are the scene's opaque blocks); sound pings; the
  *   selected crew member's movement range, XCOM style, with the
- *   safe floor (§8.8) in it: each tile filled with its tint (scanlines on Move's tiles, a sparser dotted fill on those
- *   only a Dash reaches; hatched when the coming world phase does it) and a glyph for what it warns of (pips, a hand,
- *   an eye, a camera, `?`), and the band edges over them (Move's solid steel blue, Dash's dashed gold), so both read
+ *   safe floor (§8.8) in it: each tile filled with the move's tint (scanlines on Move's tiles, a sparser dotted fill on
+ *   those only a Dash reaches; grey hatched where it could be worse than shown) and a glyph for what it warns of (pips,
+ *   a hand, an eye, a camera, `?`), the coming world phase's verdict when worse a corner marker, and the band edges over them (Move's solid steel blue, Dash's dashed gold), so both read
  *   at once; before the floor arrives a band is filled steel blue or hatched gold; an NPC's cones on long-press and the
  *   known cameras' (`drawViews`: all as one area, exactly the tiles any of them sees, outlined inset with rounded
  *   corners in pale white over ink; stronger when someone is Alerted or a camera on the operator's monitors), under
@@ -30,7 +31,9 @@ import { insetLoops, sideRuns, withoutHoles, type Corner, type Side } from './co
  *   red), the eye's plate on its first unsafe step; a long-pressed tile's "who and why" sightlines.
  * - **Over heads:** state plates and carrier countdowns, a downed guard's radio, suspicion pips in each crew member's
  *   colour, the ear badges of a noise's hearers naming what they'll do, the witnesses of a preview, ghosts' "seen N
- *   turns ago", each known camera's plate (`?` unknown feed, `!` on the monitors, a looped feed's phases left).
+ *   turns ago", each known camera's plate (`?` unknown feed, `!` on the monitors, a looped feed's phases left), and on
+ *   evidence the coming world phase notices next turn's eye plate (`!` certain, `?` and hatched when someone could), a
+ *   faint dotted line from each certain finder to it.
  */
 
 /** A known camera's plate: `?` while its feed status is unknown, `!` on the monitors, a looped feed's phases left. */
@@ -43,6 +46,13 @@ function cameraPlate(cam: CameraVM): PlateVM {
 
 /** A view to draw (`drawViews`): who looks from where and the tiles they see; `strong` when Alerted or on the monitors. */
 interface View { from: Pos; tiles: Pos[]; strong: boolean }
+
+/** The mini glyphs of the coming world phase's corner marker (`drawNext`), in ink on its triangle. */
+const NEXT_GLYPHS = {
+    eye: ['.xxx.', 'x.x.x', '.xxx.'],
+    hand: ['x.x.x', 'xxxxx', '.xxx.'],
+    camera: ['xxxx.', 'x..xx', 'xxxx.']
+} as const;
 
 /** UI pixels per art pixel. */
 const UI_SCALE = 2;
@@ -126,6 +136,8 @@ export interface OverlayContent {
     coneFilter?: boolean;
     /** v2: the observers that react to the selected crew member where they could go (or on the drawn path): whose cones show. */
     reactors?: string[];
+    /** Evidence the coming world phase notices (src/game/evidenceWarning.ts): a next-phase plate on each, hatched when uncertain. */
+    found?: readonly EvidenceWarning[];
 }
 
 /** The signal palette, and its colour-blind preset (UI.md). */
@@ -218,10 +230,11 @@ export class WorldOverlay {
     }
 
     /** The path shown, for tests. */
-    get state(): { safeFloor: FloorTileVM[]; floorDim: boolean; pathSafety: PathVM | null; explain: ExplainVM | null; badges: number; hearers: number; cones: number; cameras: number; cameraCones: number; flashes: number; colourBlind: boolean; path: Pos[]; reach: number; dashReach: number; range: { walk: Pos[]; run: Pos[] }; dash: boolean; noise: number; witnesses: number; intents: number } {
+    get state(): { safeFloor: FloorTileVM[]; floorDim: boolean; pathSafety: PathVM | null; explain: ExplainVM | null; found: { pos: Pos; level: string }[]; badges: number; hearers: number; cones: number; cameras: number; cameraCones: number; flashes: number; colourBlind: boolean; path: Pos[]; reach: number; dashReach: number; range: { walk: Pos[]; run: Pos[] }; dash: boolean; noise: number; witnesses: number; intents: number } {
         const c = this.content;
         return {
             safeFloor: c?.safeFloor ?? [], floorDim: !!c?.floorDim, pathSafety: c?.pathSafety ?? null, explain: c?.explain ?? null,
+            found: (c?.found ?? []).map(w => ({ pos: w.pos, level: w.level })),
             badges: c?.badges?.length ?? 0, hearers: c?.hearers?.length ?? 0, cones: c?.cones?.length ?? 0, colourBlind: !!c?.colourBlind,
             cameras: c?.cameras?.length ?? 0, cameraCones: c?.cameras?.filter(v => v.core.length + v.peripheral.length > 0).length ?? 0, flashes: c?.flashes?.length ?? 0,
             path: c?.path ?? [], reach: c?.reach?.move.length ?? 0, dashReach: c?.reach?.dash.length ?? 0,
@@ -396,7 +409,7 @@ export class WorldOverlay {
                     // action; the glyphs over them, but while a path leads.
                     stroke(dash, inAll, RUN_EDGE, 2, [6, 4]);
                     stroke(move, inMove, WALK_EDGE, 2, []);
-                    if (!c.floorDim) for (const t of tiles) this.drawGlyph(t, left(t.pos), top(t.pos), S, this.tintColour(t.kind, pal));
+                    if (!c.floorDim) for (const t of tiles) this.drawGlyph(t, left(t.pos), top(t.pos), S, pal);
                 };
             }
         }
@@ -532,13 +545,38 @@ export class WorldOverlay {
         for (const e of c.hearers ?? []) row(e.pos, e.lying).plates.push({ glyph: 'speaker', signal: e.signal, ...(e.sym ? { sym: e.sym } : {}), ...(e.sent ? { then: 'pin' as const } : e.still ? { then: 'down' as const } : {}) });
         for (const w of c.witnesses ?? []) row(w.pos, w.lying).plates.push(witnessPlate(w));
         for (const cam of c.cameras ?? []) row(cam.pos, true).plates.push(cameraPlate(cam));
+        // Evidence the coming world phase notices: a faint dotted line from each certain finder to it, under the plates.
+        for (const f of c.found ?? []) {
+            if (f.level !== 'certain') continue;
+            const [bx, by] = mid(f.pos);
+            ctx.lineWidth = 1;
+            ctx.setLineDash([2, 3]);
+            for (const finder of f.certain) {
+                const [fx, fy] = mid(finder.from);
+                for (const [style, dy] of [[INK, 1], [alpha(pal.red, 0.6), 0]] as const) {
+                    ctx.strokeStyle = style;
+                    ctx.beginPath();
+                    ctx.moveTo(fx, fy + dy);
+                    ctx.lineTo(bx, by + dy);
+                    ctx.stroke();
+                }
+            }
+            ctx.setLineDash([]);
+        }
         const overHeads = () => {
+            const heights = new Map<string, number>();
             for (const r of rows.values()) {
                 const x = Math.round(mid(r.pos)[0]), y = Math.round(top(r.pos)) - (r.lying ? LYING : HEAD);
                 ctx.globalAlpha = r.faded ? 0.55 : 1;
                 const h = this.drawPlates(r.plates, x, y, pal);
                 this.drawPips(r.pips, x, y - h - (h ? 2 : 0), c.crewColours ?? {});
                 ctx.globalAlpha = 1;
+                heights.set(`${r.pos.x},${r.pos.y}`, h ? h + 2 : 0);
+            }
+            // Over the body (above its own plates), at the lying height: it is next turn's, so drawn as the stay tile's next plate.
+            for (const f of c.found ?? []) {
+                const x = Math.round(mid(f.pos)[0]), y = Math.round(top(f.pos)) - LYING - (heights.get(`${f.pos.x},${f.pos.y}`) ?? 0);
+                this.drawFound(f, x, y, pal);
             }
         };
         // v2 draws them after the floor's glyphs, so nothing on the floor covers a plate.
@@ -554,7 +592,7 @@ export class WorldOverlay {
             // The path's own tints (§8.8 "along the whole drawn path"), at full strength over the dimmed floor; its end
             // as the floor tints it, glyph and all.
             if (safety) {
-                for (const step of safety.steps.slice(0, -1)) this.tintTile(step.kind, step.hatched, 'move', left(step.pos), top(step.pos), S, pal, 1.25, step.doorRisk);
+                for (const step of safety.steps.slice(0, -1)) this.tintTile(step.kind, false, 'move', left(step.pos), top(step.pos), S, pal, 1.25, step.doorRisk);
                 this.drawSafeFloor([safety.end], pal, left, top, S, 1.25, !OVERLAY_V2);
             }
             const stepColour = (i: number): string => {
@@ -601,7 +639,7 @@ export class WorldOverlay {
             const path = c.from && c.path?.length ? c.pathSafety : undefined, end = path?.end;
             const steps = has(path ? path.steps.slice(0, -1).map(t => t.pos) : []), bare = has(c.reach?.unfilled ?? []);
             const tiles = c.reach ? (c.safeFloor ?? []).filter(t => !bare(t.pos.x, t.pos.y) && !steps(t.pos.x, t.pos.y) && !(end && t.pos.x === end.pos.x && t.pos.y === end.pos.y)) : [];
-            for (const t of end ? [...tiles, end] : tiles) this.drawGlyph(t, left(t.pos), top(t.pos), S, this.tintColour(t.kind, pal));
+            for (const t of end ? [...tiles, end] : tiles) this.drawGlyph(t, left(t.pos), top(t.pos), S, pal);
             overHeads();
             if (c.stay) this.drawStay(c.stay, left, top, mid, S, pal);
         }
@@ -611,44 +649,114 @@ export class WorldOverlay {
 
     /**
      * The crew member's own tile (UI.md "Safe floor"): what ending the turn there does, readable with them standing on
-     * it. A band of the tint round the tile's edge (the person stays clear; hatched when the coming world phase does it,
-     * grey hatched for unknown risk), and, for a warning, its plate over their head: the eye with the pips, the hand,
-     * the eye or camera with `!`, `?` for unknown risk.
+     * it. A band of the move's tint round the tile's edge (the person stays clear; grey hatched when it could be worse
+     * than shown), the coming world phase's corner marker in the tile's corner beside them, and over their head the
+     * plate of what staying does: the eye with the pips, the hand, the eye or camera with `!`, `?` for unknown risk;
+     * the world phase's smaller and fainter, with the corner marker's triangle on it, as staying's verdict is next turn's.
      */
     private drawStay(t: FloorTileVM, left: (p: Pos) => number, top: (p: Pos) => number, mid: (p: Pos) => [number, number], S: number, pal: Record<Signal, string>): void {
-        const ctx = this.ctx, x = left(t.pos), y = top(t.pos), colour = this.tintColour(t.kind, pal), B = 5;
-        const hatched = t.hatched || t.kind === 'unknownRisk' || t.doorRisk;
+        const ctx = this.ctx, x = left(t.pos), y = top(t.pos), colour = this.tintColour(t.now.kind, pal), B = 5;
+        const hatched = t.now.kind === 'unknownRisk' || t.doorRisk;
         ctx.beginPath();
         ctx.rect(x, y, S, S);
         ctx.rect(x + B, y + B, S - 2 * B, S - 2 * B);
         ctx.fillStyle = alpha(colour, hatched ? 0.3 : 0.6);
         ctx.fill('evenodd');
         if (hatched) {
-            ctx.fillStyle = this.pattern('duo', alpha(t.doorRisk && t.kind !== 'unknownRisk' ? GREY : colour, 0.95), 'rgba(13, 12, 20, 0.85)');
+            ctx.fillStyle = this.pattern('duo', alpha(t.doorRisk && t.now.kind !== 'unknownRisk' ? GREY : colour, 0.95), 'rgba(13, 12, 20, 0.85)');
             ctx.fill('evenodd');
         }
         ctx.lineWidth = 1;
         ctx.strokeStyle = alpha(colour, 0.95);
         ctx.strokeRect(x + 0.5, y + 0.5, S - 1, S - 1);
         ctx.strokeRect(x + B - 0.5, y + B - 0.5, S - 2 * B + 1, S - 2 * B + 1);
-        const plate: PlateVM | undefined = t.kind === 'amber' ? { glyph: 'eye', signal: 'amber', count: Math.max(1, t.pips) }
-            : t.kind === 'trespass' ? { glyph: 'hand', signal: 'amber' }
-            : t.kind === 'red' ? { glyph: 'eye', signal: 'red', sym: '!' }
-            : t.kind === 'camera' ? { glyph: 'camera', signal: 'red', sym: '!' }
-            : t.kind === 'unknownRisk' ? { glyph: 'eye', signal: 'cream', sym: '?' } : undefined;
-        if (!plate) return;
-        const px = Math.round(mid(t.pos)[0]), py = Math.round(y) - HEAD - 2;
-        this.drawPlates([plate], px, py, pal);
-        // The coming world phase's: a hatched strip under the plate, the floor's pattern for "next phase".
-        if (hatched) {
-            ctx.fillStyle = this.pattern('duo', alpha(colour, 0.95), 'rgba(13, 12, 20, 0.85)');
-            ctx.fillRect(px - 10, py + 1, 20, 4);
+        if (t.next) this.drawNext(t.next, x, y, S, pal);
+        const plateOf = (v: PhaseVM): PlateVM | undefined => v.kind === 'amber' ? { glyph: 'eye', signal: 'amber', count: Math.max(1, v.pips) }
+            : v.kind === 'trespass' ? { glyph: 'hand', signal: 'amber' }
+            : v.kind === 'red' ? { glyph: 'eye', signal: 'red', sym: '!' }
+            : v.kind === 'camera' ? { glyph: 'camera', signal: 'red', sym: '!' }
+            : v.kind === 'unknownRisk' ? { glyph: 'eye', signal: 'cream', sym: '?' } : undefined;
+        const px = Math.round(mid(t.pos)[0]), py = Math.round(y) - HEAD - 2, now = plateOf(t.now), next = t.next && plateOf(t.next);
+        let h = 0;
+        if (now) h = this.drawPlates([now], px, py, pal) + 2;
+        if (next) {
+            // Next turn's: three-quarters size and fainter, the corner marker's triangle in its corner.
+            const k = 0.75, ny = py - h;
+            ctx.save();
+            ctx.globalAlpha = 0.8;
+            ctx.translate(px, ny);
+            ctx.scale(k, k);
+            const w = this.platesWidth([next]);
+            this.drawPlates([next], 0, 0, pal);
+            ctx.fillStyle = this.tintColour(t.next!.kind, pal);
+            ctx.beginPath();
+            ctx.moveTo(w / 2 + 3, -7);
+            ctx.lineTo(w / 2 + 3, 1);
+            ctx.lineTo(w / 2 - 5, 1);
+            ctx.closePath();
+            ctx.fill();
+            ctx.restore();
         }
     }
 
     /**
+     * Evidence the coming world phase notices (UI.md "Evidence"), centred on x with its bottom at y: next turn's plate as
+     * the stay tile draws it (three-quarters size, the corner marker's triangle in its corner), the eye in red with `!`
+     * when a known NPC or camera finds it for certain; with `?` and the triangle hatched when someone could.
+     */
+    private drawFound(w: EvidenceWarning, x: number, y: number, pal: Record<Signal, string>): void {
+        const ctx = this.ctx, certain = w.level === 'certain', plate: PlateVM = { glyph: 'eye', signal: 'red', sym: certain ? '!' : '?' }, k = 0.75;
+        ctx.save();
+        ctx.translate(x, y);
+        ctx.scale(k, k);
+        const half = this.platesWidth([plate]) / 2;
+        this.drawPlates([plate], 0, 0, pal);
+        ctx.beginPath();
+        ctx.moveTo(half + 3, -7);
+        ctx.lineTo(half + 3, 1);
+        ctx.lineTo(half - 5, 1);
+        ctx.closePath();
+        ctx.fillStyle = certain ? pal.red : this.pattern('duo', alpha(pal.red, 0.95), 'rgba(13, 12, 20, 0.85)');
+        ctx.fill();
+        ctx.restore();
+    }
+
+    /**
+     * The coming world phase's verdict on a tile, when worse than the move's (UI.md "Safe floor"): a right triangle in
+     * the tile's bottom-right corner, 40% of its edge, in that verdict's colour over a dark edge, with a mini glyph in
+     * ink inside it (the eye, the hand, the camera, or a square per pip), so shape carries it as well as colour.
+     */
+    private drawNext(v: PhaseVM, x: number, y: number, S: number, pal: Record<Signal, string>): void {
+        const ctx = this.ctx, L = Math.round(S * 0.42), r = x + S, b = y + S, colour = this.tintColour(v.kind, pal);
+        ctx.beginPath();
+        ctx.moveTo(r, b - L);
+        ctx.lineTo(r, b);
+        ctx.lineTo(r - L, b);
+        ctx.closePath();
+        ctx.fillStyle = alpha(colour, 0.85);
+        ctx.fill();
+        ctx.lineWidth = 1;
+        ctx.strokeStyle = 'rgba(13, 12, 20, 0.8)';
+        ctx.beginPath();
+        ctx.moveTo(r - 0.5, b - L - 0.5);
+        ctx.lineTo(r - L - 0.5, b - 0.5);
+        ctx.stroke();
+        const ink = 'rgba(13, 12, 20, 0.95)';
+        if (v.kind === 'amber') {
+            const n = Math.max(1, Math.min(3, v.pips));
+            ctx.fillStyle = ink;
+            // Packed into the corner: along the bottom, then up the side.
+            for (const [dx, dy] of [[4, 4], [7, 4], [4, 7]].slice(0, n)) ctx.fillRect(r - dx!, b - dy!, 2, 2);
+            return;
+        }
+        const mini = v.kind === 'red' ? NEXT_GLYPHS.eye : v.kind === 'trespass' ? NEXT_GLYPHS.hand : v.kind === 'camera' ? NEXT_GLYPHS.camera : undefined;
+        if (mini) drawRows(ctx, mini, r - 1 - mini[0]!.length, b - 1 - mini.length, ink, false);
+    }
+
+    /**
      * Views (cones), all as one area: exactly the tiles any of the watchers sees (the rules' own fields, `ConeVM` and
-     * `CameraVM`, and the tiles they stand on, so it closes round them), as one closed outline inset in those tiles with
+     * `CameraVM`, and the tile each stands on when a tile it sees is beside it, so it closes round them; a camera whose
+     * view starts diagonally gets no ring of its own), as one closed outline inset in those tiles with
      * rounded corners like the noise ring: it never sits on a band's edge or a tile's, and a tile is inside it exactly
      * when someone shown sees it. A lone view gets a faint fade from its watcher outwards (8% to nothing at its furthest
      * tile); then a thin edge over a dark under-stroke, thinner than the band edges, which are drawn over it.
@@ -657,7 +765,10 @@ export class WorldOverlay {
         if (!views.length) return;
         const ctx = this.ctx, px = (p: Corner): [number, number] => [(p.x * TILE - ox) * UI_SCALE, (p.y * TILE - this.lift(p.tile.x, p.tile.y) - oy) * UI_SCALE];
         const seen = new Map<string, Pos>();
-        for (const v of views) for (const p of [...v.tiles, v.from]) seen.set(`${p.x},${p.y}`, p);
+        for (const v of views) {
+            const joined = v.tiles.some(t => Math.abs(t.x - v.from.x) + Math.abs(t.y - v.from.y) === 1);
+            for (const p of joined ? [...v.tiles, v.from] : v.tiles) seen.set(`${p.x},${p.y}`, p);
+        }
         const loops = insetLoops([...seen.values()], (x, y) => seen.has(`${x},${y}`), VIEW_INSET / S);
         if (!loops.length) return;
         this.loopPath(loops, VIEW_RADIUS, px);
@@ -879,6 +990,13 @@ export class WorldOverlay {
      * A row of plates centred on x with their bottom at y (UI.md "Over heads"): near-black, a thin border in the signal
      * colour, the glyph in that colour, then a countdown in cream after a divider, or a symbol. Returns their height.
      */
+    /** The width a row of plates takes (`drawPlates`). */
+    private platesWidth(plates: readonly PlateVM[]): number {
+        const widthOf = (p: PlateVM) => 4 + glyphSize(GLYPHS[p.glyph]).w + (p.count !== undefined ? 4 + numberWidth(String(p.count)) : 0)
+            + (p.sym ? 3 + numberWidth(p.sym) : 0) + (p.then ? 3 + glyphSize(GLYPHS[p.then]).w : 0) + 4;
+        return plates.reduce((w, p) => w + widthOf(p), 0) + 2 * (plates.length - 1);
+    }
+
     private drawPlates(plates: readonly PlateVM[], x: number, y: number, pal: Record<Signal, string>): number {
         if (!plates.length) return 0;
         const ctx = this.ctx;
@@ -944,31 +1062,37 @@ export class WorldOverlay {
      * The safe-floor tints (§8.8, UI.md "Safe floor"), two channels each: the signal colour (sage, amber, red, grey) and
      * a shape: amber's pips (one square per pip), a challenge's hand, the eye of someone who Exposes them, a camera's
      * glyph; unknown risk is grey hatched, with no glyph, and a tint a door not seen this turn could make worse
-     * (`doorRisk`) has the same grey hatch over it, glyph and all. Move's tiles in scanlines, the Dash band's in a sparser dotted fill (its edge
-     * says so too), the coming world phase's outcomes hatched. `strength` scales the fill (a dimmed floor while a path
-     * leads); `glyphs` false leaves the shapes off.
+     * (`doorRisk`) has the same grey hatch over it, glyph and all: the hatch means only "could be worse than shown".
+     * Move's tiles in scanlines, the Dash band's in a sparser dotted fill (its edge says so too). The tint and glyph are
+     * the move's own; the coming world phase's, when worse, is a corner marker (`drawNext`). `strength` scales the fill
+     * (a dimmed floor while a path leads); `glyphs` false leaves the shapes off, the corner marker with them.
      */
     private drawSafeFloor(tiles: readonly FloorTileVM[], pal: Record<Signal, string>, left: (p: Pos) => number, top: (p: Pos) => number, S: number, strength = 1, glyphs = true): void {
         for (const t of tiles) {
-            const x = left(t.pos), y = top(t.pos), colour = this.tintTile(t.kind, t.hatched, t.band, x, y, S, pal, strength, t.doorRisk);
-            if (glyphs) this.drawGlyph(t, x, y, S, colour);
+            const x = left(t.pos), y = top(t.pos);
+            this.tintTile(t.now.kind, false, t.band, x, y, S, pal, strength, t.doorRisk);
+            if (glyphs) this.drawGlyph(t, x, y, S, pal);
         }
     }
 
-    /** A safe-floor tile's glyph (see `drawSafeFloor`) on the tile at (x, y); v2 sets it, pips too, on a darker plate. */
-    private drawGlyph(t: FloorTileVM, x: number, y: number, S: number, colour: string): void {
-        const ctx = this.ctx;
+    /**
+     * A safe-floor tile's glyph (see `drawSafeFloor`) on the tile at (x, y), the move's own, and the coming world phase's
+     * corner marker when that is worse; v2 sets the glyph, pips too, on a darker plate.
+     */
+    private drawGlyph(t: FloorTileVM, x: number, y: number, S: number, pal: Record<Signal, string>): void {
+        const ctx = this.ctx, kind = t.now.kind, colour = this.tintColour(kind, pal);
+        if (t.next) this.drawNext(t.next, x, y, S, pal);
         // Unknown risk has no glyph: its grey hatch (a shape, not only a colour) says it.
-        if (t.kind === 'unknownRisk') return;
-        const glyph: GlyphName | undefined = t.kind === 'trespass' ? 'hand' : t.kind === 'red' ? 'eye' : t.kind === 'camera' ? 'camera' : undefined;
+        if (kind === 'unknownRisk') return;
+        const glyph: GlyphName | undefined = kind === 'trespass' ? 'hand' : kind === 'red' ? 'eye' : kind === 'camera' ? 'camera' : undefined;
         if (glyph) {
             const g = glyphSize(GLYPHS[glyph]);
             // A small dark plate under the glyph, so it reads on any tint.
             ctx.fillStyle = OVERLAY_V2 ? 'rgba(12, 11, 15, 0.78)' : 'rgba(12, 11, 15, 0.55)';
             ctx.fillRect(x + Math.floor((S - g.w) / 2) - 2, y + Math.floor((S - g.h) / 2) - 2, g.w + 4, g.h + 4);
             drawRows(ctx, GLYPHS[glyph], x + Math.floor((S - g.w) / 2), y + Math.floor((S - g.h) / 2), colour);
-        } else if (t.kind === 'amber') {
-            const n = Math.max(1, Math.min(3, t.pips)), x0 = x + Math.round(S / 2 - (n * 7 - 3) / 2), py = OVERLAY_V2 ? y + S / 2 - 2 : y + 14;
+        } else if (kind === 'amber') {
+            const n = Math.max(1, Math.min(3, t.now.pips)), x0 = x + Math.round(S / 2 - (n * 7 - 3) / 2), py = OVERLAY_V2 ? y + S / 2 - 2 : y + 14;
             if (OVERLAY_V2) {
                 ctx.fillStyle = 'rgba(12, 11, 15, 0.78)';
                 ctx.fillRect(x0 - 3, py - 3, n * 7 + 3, 10);

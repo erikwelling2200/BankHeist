@@ -60,8 +60,18 @@ export function effectOf(events: readonly SimEvent[], crew: string, before: Deep
     return out;
 }
 
-/** What a crew member's move does to a teammate (decision 45: someone its noise turned sees them). */
-export interface TeammateEffect { crew: string; effect: Effect }
+/**
+ * What a crew member's move does to a teammate: `effect` now (someone its noise turned sees them, decision 45; quiet when
+ * only the world phase adds something) and `next`, the coming world phase where the move makes it worse for them.
+ */
+export interface TeammateEffect { crew: string; effect: Effect; next?: Effect }
+
+/** Whether `e` does something to the crew member that `base` doesn't: a new exposer, watcher, camera or challenge, more pips. */
+export function addsTo(e: DeepReadonly<Effect>, base: DeepReadonly<Effect>): boolean {
+    return e.exposed.some(id => !base.exposed.includes(id)) || e.watching.some(id => !base.watching.includes(id))
+        || e.cameras.some(id => !base.cameras.includes(id)) || (e.challenged !== null && e.challenged !== base.challenged)
+        || Object.keys(e.pips).some(id => e.pips[id]! > (base.pips[id] ?? 0));
+}
 
 /** The effects of a list of events on every crew member of `before` but `crew` that something happened to, in crew order. */
 export function teammateEffects(events: readonly SimEvent[], crew: string, before: DeepReadonly<State>): TeammateEffect[] {

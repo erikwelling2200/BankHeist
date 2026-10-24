@@ -301,6 +301,34 @@ const byEntrance = (to: 'green' | 'hatched' | 'all') => async (page: Page) => {
     if (end) await tapTile(page, end);
 };
 
+/**
+ * A customer knocked out on the public floor where a teller the crew knows will see the body in the coming world phase
+ * (`sim.found` says so for certain), Mara two tiles off seeing it.
+ */
+const BODY_FOUND = `(() => { ${PAGE_HELPERS}
+    const base = clone(sim.state), role = n => w.people.find(p => p.id === n.id).role, present = n => n.status !== 'away';
+    const tellers = base.npcs.filter(n => present(n) && /teller/.test(role(n))), customers = base.npcs.filter(n => present(n) && /customer/.test(role(n)));
+    const ring = (c, r) => { const out = []; for (let dy = -r; dy <= r; dy++) for (let dx = -r; dx <= r; dx++) if (Math.max(Math.abs(dx), Math.abs(dy)) === r) out.push({ x: c.x + dx, y: c.y + dy }); return out; };
+    const lobby = p => p.x >= 0 && p.y >= 0 && p.x < w.width && p.y < w.height && w.tiles[p.y * w.width + p.x].zone === 'public' && w.tiles[p.y * w.width + p.x].room !== null;
+    for (const teller of tellers) for (const cus of customers) for (let r = 2; r <= 6; r++) for (const p of ring(teller.pos, r)) {
+        const st = clone(base), body = st.npcs.find(n => n.id === cus.id);
+        if (!lobby(p) || !free(st, p)) continue;
+        Object.assign(body, { pos: p, status: 'unconscious', outCold: st.turn + 3, intent: { path: [] }, goal: { kind: 'still' }, route: null, search: null });
+        const at = ring(p, 2).find(q => lobby(q) && free(st, q));
+        if (!at) continue;
+        st.crew[0].pos = at;
+        know(st, body);
+        know(st, st.npcs.find(n => n.id === teller.id));
+        if (sim.found(st).some(f => f.about === cus.id && f.level === 'certain' && f.certain.some(c => c.id === teller.id))) return { state: st, info: { body: p, teller: teller.id, npc: cus.id } };
+    }
+    return null;
+})()`;
+
+/** Centres the camera on a tile. */
+const lookAt = (page: Page, p: { x: number; y: number }): Promise<void> => page.evaluate(q => {
+    (window as any).game.scene.getScene('bank').lookAt(q.x * 16 + 8, q.y * 16 + 8);
+}, p);
+
 export const SETUPS: Record<string, Setup> = {
     'mara-selected': {
         about: 'Mara selected at the van as the heist starts (nothing shows: Clean in Public)',
@@ -507,6 +535,23 @@ export const SETUPS: Record<string, Setup> = {
                 .filter((t: any) => t.band === 'move' && (t.tint.kind === 'red' || t.tint.kind === 'camera'))
                 .sort((a: any, b: any) => b.path.length - a.path.length)[0]?.pos);
             if (to) await tapTile(page, to);
+        }
+    },
+    'body-found': {
+        about: 'a knocked-out customer on the public floor that a teller the crew knows will find next phase: the warning on the body',
+        script: BODY_FOUND,
+        then: async (page, info: { body: { x: number; y: number } }) => {
+            await lookAt(page, info.body);
+            await page.waitForTimeout(600);
+        }
+    },
+    'body-found-held': {
+        about: 'the body-found scene with the body held: who finds it next phase, and their sightline',
+        script: BODY_FOUND,
+        then: async (page, info: { body: { x: number; y: number } }) => {
+            await lookAt(page, info.body);
+            await page.waitForTimeout(600);
+            await holdTile(page, info.body);
         }
     },
     'hatched-held': {

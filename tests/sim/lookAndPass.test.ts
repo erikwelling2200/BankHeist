@@ -114,11 +114,14 @@ describe('looking at a noise (decision 45)', () => {
         // The safe floor tints jun's tile with what the dash does to Mara too, and "who and why" names her.
         const tile = safeFloor(world, state, 'jun').at(P(9, 3))!;
         expect(JSON.stringify(tile.path)).toBe(JSON.stringify(dash.path));
-        expect(tile.teammates).toEqual([{ crew: 'mara', effect: effectOf(r.events, 'mara', state) }]);
+        expect(tile.teammates.map(t => [t.crew, t.effect])).toEqual([['mara', effectOf(r.events, 'mara', state)]]);
         expect(tile.tint.teammates).toEqual(['mara']);
         const mara = effectOf(r.events, 'mara', state), name = state.crew.find(c => c.id === 'mara')!.name;
-        expect(tile.tint.pips.filter(p => p.crew === 'mara').map(p => [p.npc, p.pips])).toEqual(Object.entries(mara.pips).sort());
-        expect(explain(world, state, 'jun', P(9, 3)).filter(l => l.crew === 'mara').map(l => l.text).sort())
+        // Her pips are those of the move and of the world phase after it.
+        const later = tile.teammates[0]!.next?.pips ?? {};
+        expect(tile.tint.pips.filter(p => p.crew === 'mara').map(p => [p.npc, p.pips]))
+            .toEqual(Object.entries(mara.pips).sort().map(([npc, n]) => [npc, n + (later[npc] ?? 0)]));
+        expect(explain(world, state, 'jun', P(9, 3)).filter(l => l.crew === 'mara' && l.phase === 'now').map(l => l.text).sort())
             .toEqual(Object.entries(mara.pips).sort().map(([, n]) => `${name}: +${n} (teller)`));
     });
 
@@ -133,8 +136,16 @@ describe('looking at a noise (decision 45)', () => {
         expect(Object.keys(mara.pips).length + mara.exposed.length).toBeGreaterThan(0);
         const tile = safeFloor(world, state, 'jun').at(P(9, 3))!;
         expect(tile.now.pips).toEqual({});
-        expect(tile.teammates).toEqual([{ crew: 'mara', effect: mara }]);
-        expect(tile.tint.kind).not.toBe('safe');
+        // Now (t1 and t2 turn to the noise and see her) and in the world phase after it, which Exposes her: the hatched eye.
+        const ended = commit(world, done.state, { type: 'endTurn' });
+        const next = effectOf(ended.events, 'mara', done.state);
+        expect(next.exposed.length).toBeGreaterThan(0);
+        expect(effectOf(commit(world, state, { type: 'endTurn' }).events, 'mara', state).exposed).toEqual([]);
+        expect(tile.teammates).toEqual([{ crew: 'mara', effect: mara, next }]);
+        expect(tile.tint).toMatchObject({ kind: 'red', hatched: true, eye: true, teammates: ['mara'] });
+        const name = state.crew.find(c => c.id === 'mara')!.name;
+        expect(explain(world, state, 'jun', P(9, 3)).filter(l => l.crew === 'mara' && l.phase === 'next').map(l => l.text))
+            .toContain(`${name} next phase: Exposed (teller)`);
         const drawn = pathSafety(world, state, 'jun', dash.path, { mode: 'dash' });
         if (!drawn.ok) throw new Error(drawn.reason);
         expect(drawn.end.tint).toEqual(tile.tint);
@@ -258,12 +269,14 @@ describe('passing through view (decision 46)', () => {
         const path = [P(4, 2), P(5, 3), P(6, 4), P(7, 4)];
         expect(assessEnd(world, state, sightMap(world, state), 'jun', P(7, 4))).toEqual([]);
         const judged = assessPath(world, state, 'jun', path);
-        // The worst reaction (+2, in its Core at (5, 3)), at the last tile it reacts to jun on (its Peripheral, (6, 4)).
-        expect(judged.map(s => [s.observer, s.outcome, s.tile])).toEqual([['teller', '+2', P(6, 4)]]);
+        // The worst reaction (+2, in its Core at (5, 3)), and the last tile it reacts to jun on (its Peripheral, (6, 4)).
+        expect(judged.map(s => [s.observer, s.outcome, s.tile, s.lastTile])).toEqual([['teller', '+2', P(5, 3), P(6, 4)]]);
         const moved = step(world, state, { type: 'move', crew: 'jun', path });
         const stopped = step(world, state, { type: 'move', crew: 'jun', path: path.slice(0, 2) });
         expect(npcOf(moved.state, 'teller').suspicion).toEqual(npcOf(stopped.state, 'teller').suspicion);
         expect(npcOf(moved.state, 'teller').suspicion).toEqual({ jun: 2 });
+        // It investigates where it saw jun last.
+        expect(npcOf(moved.state, 'teller').goal).toMatchObject({ kind: 'investigate', tile: P(6, 4) });
         expect(events(moved.events, 'perceptionCheck')).toHaveLength(1);
         expect(events(moved.events, 'suspicionRaised')).toHaveLength(1);
     });
@@ -331,5 +344,24 @@ describe('a glance at a noise (decision 45)', () => {
         const before = Math.max(Math.abs(t.pos.x - 5), Math.abs(t.pos.y - 3));
         const after = npcOf(step(world, left.state, { type: 'endTurn' }).state, 't');
         expect(Math.max(Math.abs(after.pos.x - 5), Math.abs(after.pos.y - 3))).toBeLessThan(before);
+    });
+
+    it('lasts the turn: one that stands with no facing of its own faces as before once the world phase is over', () => {
+        // A clerk with no schedule stands still, facing west.
+        const clerk: PersonDef = { id: 'c', name: 'c', role: 'teller', observer: 'staff', pos: P(7, 2), facing: 'w', schedule: [] };
+        const { world, state } = setup(rows, [clerk], [{ id: 'jun', pos: P(13, 5) }], { walls });
+        expect(npcOf(state, 'c').intent).toEqual({ path: [] });
+        const dash: Command = { type: 'dash', crew: 'jun', path: [P(12, 4), P(11, 4), P(10, 4), P(9, 4), P(8, 4)] };
+        const looked = step(world, state, dash).state;
+        expect(npcOf(looked, 'c').facing).not.toBe('w');
+        expect(npcOf(looked, 'c').glancedFrom).toBe('w');
+        // Sent to look it faces the noise on purpose; as one only glancing (its own want standing still, with no facing):
+        const heard = clonePlain(looked);
+        npcOf(heard, 'c').intent = { path: [] };
+        const end: Command = { type: 'endTurn' };
+        const shown = preview(world, heard, end), done = step(world, heard, end);
+        expect(hashOf(shown.state)).toBe(hashOf(done.state));
+        expect(npcOf(done.state, 'c').facing).toBe('w');
+        expect(npcOf(done.state, 'c').glancedFrom).toBeUndefined();
     });
 });

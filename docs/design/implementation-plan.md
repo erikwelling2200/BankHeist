@@ -997,7 +997,10 @@ Later milestones: within each milestone, the `∥` notes in §3 apply. UI packag
     `applySightings`. A hearer whose stronger want wins (react, challenge, escort, investigate a crew member) glances:
     it turns the same way for the rest of the crew phase and what it sees counts, but it keeps its goal and suspicion
     and in the world phase walks its want, facing as that walk has it (a teammate's noise turns a guard's eyes away so
-    another crew member can leave its cone unseen). Nobody face down turns. Only the facing changes; positions still
+    another crew member can leave its cone unseen). The glance lasts the turn: the NPC remembers the facing it turned
+    from (`glancedFrom`), and one that stands through the world phase with no facing of its own faces that way again
+    (npc/act.ts), a search turning on from it too (`perception.glances` forgets it before the next intents). Nobody
+    face down turns. Only the facing changes; positions still
     change only in the world phase, so the fresh-tile model holds. A live knowledge marker of an NPC turned out of sight
     (seen this crew phase) takes the facing the crew could foresee (`learnNpcs`, `foreseenFacing`): with no door it
     can't vouch for, the turned facing; else the facing after the command as previewed (`previewCertain`, those doors
@@ -1009,7 +1012,11 @@ Later milestones: within each milestone, the `∥` notes in §3 apply. UI packag
     turn counts as uncertain (`viewDoubted` on its new pose: door risk, its world-phase sightings skipped), as does
     every hearer of a dash whose hearing such a door could change (`dashDoubted`). What the turned NPCs do to the rest
     of the crew counts on the mover's tile (`FloorTile.teammates`, the tint the worst over the crew, "who and why"
-    naming the teammate), door risk included. A hearer that no move or action turned (a noise made
+    naming the teammate), and so does the world phase after the move for each teammate where the move could change it
+    (it touched an NPC, opened a door, or stands on or leaves a committed path): judged where they stand on the state
+    the move leaves, kept as their hatched `next` where it adds to that world phase without the move (`addsTo`): "Mara
+    next phase: Exposed (teller)". Door risk includes both: a doubted door that could change the teammate's view now,
+    or their world phase with the move or without it. A hearer that no move or action turned (a noise made
     outside one) turns in the `hearing` command hook, which runs before every other (order -10), so the carriers, the
     cameras and the knowledge see what it saw. Unknown observers are
     already judged facing the tile at their worst, so unknown risk is unchanged. Why: an NPC that hears footsteps
@@ -1018,8 +1025,8 @@ Later milestones: within each milestone, the `∥` notes in §3 apply. UI packag
 46. **Passing through a cone counts like stopping in it (§8.5).** During a Move or Dash each observer (NPC or camera)
     that sees the crew member on any tile of it reacts once for the move, with the worst reaction it would have at any
     of those tiles as if the move had ended there (`assessPath`: `assessEnd` on every tile, `onePerObserver`: the worst
-    outcome, the later of equals, sighted at the last tile it reacts to them on, where it investigates and their last
-    known tile); ending in view is one of those tiles. The same everywhere:
+    sighting whole, the later of equals, its reaction and "who and why" that tile's; a later tile it reacts to them on
+    is its `lastTile`, where it investigates, reports and their last known tile); ending in view is one of those tiles. The same everywhere:
     the safe floor's Now (each node keeps its path's worst per observer), a drawn path's steps and eye (the first step
     anyone reacts to; each step tinted by who reacts there), `explain`, unknown risk (`unknownWatcher` has no mid-move
     option: an unknown observer's pip or challenge on a tile passed hatches the tiles beyond, `unknownPath`), the

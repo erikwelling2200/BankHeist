@@ -4,6 +4,7 @@ import {
     type AutoOptions, type AutoStepResult, type AutoStop, type Command, type CommitResult, type Pos, type PreviewResult, type ReadonlyWorld, type Routes, type SimEvent, type State,
     type UndoStack, withLayoutCameras
 } from '../sim';
+import { foundStop } from './evidenceWarning';
 import { deserialiseHeist, deserialiseUi, heistWorldId, serialiseHeist, serialiseUi, serialiseWorld } from './persist';
 import { PlaybackQueue, type PlaybackItem } from './playback';
 import type { SaveStorage } from './storage';
@@ -470,6 +471,7 @@ export class Session {
         try {
             step = autoStep(this.world, this._state, this.routes, {
                 ...options,
+                beforeEnd: state => foundStop(this.world, state),
                 play: (cmd, state, routes) => {
                     if (state !== this._state) throw new Error('Auto-advance played from a state that isn\'t the session\'s');
                     // The routes as they will be go into the autosave with the command, so a resume walks on from there.

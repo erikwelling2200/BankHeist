@@ -21,7 +21,8 @@ disagree, GAME_DESIGN.md wins on rules and this file wins on presentation.
    outcome (the design's hard promise). The mockups' frames were computed from the §8.4 reaction matrix in
    `scripts/ui-mockups/rules.py`, not painted by hand.
 3. **Two channels per state.** Colour never works alone: each unsafe tile also carries a glyph, each badge has a
-   shape, and hatching always means "during the coming world phase".
+   shape, hatching always means "could be worse than shown" (unknown risk, a door not seen this turn), and the
+   coming world phase's verdict is always the corner marker.
 4. **One preview at full strength.** The active action's overlay is drawn bright and everything else stays quiet.
    The overlay drawer is there for the rest (§20.4).
 5. **Nothing the thumb covers.** Results draw away from the finger, and Confirm sits off the map.
@@ -131,7 +132,14 @@ are:
 - **+1 pip** and **+2 pips:** amber tint with that many pips.
 - **Challenge:** amber with a hand.
 - **Exposed:** red with an eye.
-- **+1 next phase** and **exposed next phase:** the same states hatched.
+- **+1 next phase**, **exposed next phase** and the rest: the tile keeps the move's own tint and glyph (what
+  happens on the way and on arriving), and the coming world phase's verdict, when it is worse, is a **corner
+  marker**: a right triangle in the tile's bottom-right corner, about 40% of its edge, in that verdict's colour with a
+  mini glyph in ink (an eye, a hand, a camera, a square per pip). Safe now but red next is a green tile with a red
+  corner; amber now and red next an amber tile with a red corner. Shape and glyph carry it, not colour alone.
+- **Their own tile** (ending the turn without moving): a band of the tint round its edge, so the crew member on it
+  stays clear, the corner marker in its corner beside them, and over their head the plate of what staying does: the
+  coming world phase's verdict drawn smaller and fainter than a move's plate, with the corner marker's triangle on it.
 - **Camera:** a camera glyph.
 - **Hidden:** not part of the safe floor: no move is planned there.
 - **Unknown risk:** grey, hatched (no glyph): someone the crew hasn't seen could react to this crew member there: an
@@ -149,7 +157,9 @@ A tile is tinted for the whole move that ends there: passing through someone's v
 tile beyond a cone the path crosses wears that observer's reaction (each observer once, the worst tile of the path).
 A dash's tint includes those its noise turns to look, and what they then see, of the mover and of the rest of the
 crew: a dash that makes a teller turn and spot Mara is tinted for Mara's pips or eye (the worst over the crew), and
-"who and why" names her ("Mara: +1 (teller)"); a door not seen this turn that could change it hatches the tile. Each
+"who and why" names her ("Mara: +1 (teller)"). What the world phase after the move then does to a teammate, where
+the move makes it worse for them than ending the turn without it, is hatched the same way ("Mara next phase: Exposed
+(teller)"). A door not seen this turn that could change either hatches the tile. Each
 step of a drawn path is tinted by who would react to the crew member on it (pips amber, a hand, an eye).
 
 The path's eye icon sits on the **first** unsafe tile, and long-pressing that tile answers who and why: the NPC's
@@ -171,6 +181,14 @@ A dark plate, a glyph and, when there is a clock, a countdown. The states are:
 - **Surprised:** a star.
 - **Hears:** a noise badge naming the outcome.
 - **Hostile:** a crosshair.
+- **Will be found** (§8.10): on major evidence the crew knows of (a body, a tied person, a hole, something on the
+  floor) that the coming world phase notices, above its own plates: next turn's plate, drawn as the stay tile's (three
+  quarters size, the corner marker's triangle in its corner), a red eye with `!` when a known NPC or camera finds it
+  for certain, with a faint dotted red line from where each finder first sees it; `?` with the triangle hatched when
+  someone could: a known one through a door not seen this turn, or someone unseen standing or walking within sight of
+  it this phase. Nothing on it means the world phase won't notice it. Long-pressing it names each finder ("Next phase:
+  Teller finds the body") with the sightline. Judged on the crew's picture by the rule the world phase applies, as
+  the safe floor is; Go and Wait for stop before a world phase in which it is found for certain.
 
 **Pips** sit above the badge: suspicion pips in the colour of the crew member who caused them, command pips in steel
 blue. A dashed line in the crew colour links a new pip to its cause during the world phase.
@@ -230,7 +248,7 @@ The canvas has five pages. Each board shows one decision or one moment.
 
 ### Stealth
 
-- **1–3: one decision.** Jun's path ends on a hatched tile because the cleaner will see him next phase. A long-press
+- **1–3: one decision.** Jun's path ends on a tile with a red corner because the cleaner will see him next phase. A long-press
   shows who and why as a picture sentence. One turn later the same route is clean.
 - **Multi-turn route and Wait for.** Mara's three-turn route with numbered turn ends. Guards on a known routine are
   drawn as dashed predicted markers. Wait for picks an event to skip to (a guard passing or leaving, the cash run,

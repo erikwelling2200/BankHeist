@@ -4,11 +4,11 @@ import { cachedBank } from '../bankCache';
 import { PLOTS, TIERS } from '../../src/gen/model';
 import { Rng } from '../../src/gen/rng';
 import {
-    actionPreview, carriersStarted, DEAF_STATUSES, clonePlain, commit, crewBudget, crewMoveOptions, decodeBits, doorDoubt, effectKind, effectOf, encodeBits, explain, FACINGS, hearing,
+    actionPreview, addsTo, carriersStarted, DEAF_STATUSES, clonePlain, commit, crewBudget, crewMoveOptions, decodeBits, doorDoubt, effectKind, effectOf, encodeBits, explain, FACINGS, hearing,
     isKnownNow, fixtureWorld, initialState, hashOf, legalActions, noiseRadius, npcsInside, onFloor, pathSafety, pendingCarriers, planningState, previewCertain, previewPicture,
     projectCarriers, projectEvents, projectPreviewEvents, safeFloor, safeFloorJob, sightDoubted, soundRing, teammateEffects, TINT_RANK, tintOf, validatePath, withDoubtedShut,
     worldFromBank,
-    type CameraDef, type Command, type CrewStart, type DoorStatus, type Effect, type FixtureWall, type FloorTile, type ObserverClass, type PersonDef, type Pos, type ReadonlyWorld,
+    type CameraDef, type Command, type CrewStart, type DoorStatus, type Effect, type TeammateEffect, type FixtureWall, type FloorTile, type ObserverClass, type PersonDef, type Pos, type ReadonlyWorld,
     type SafeFloor, type ScheduleBlock, type SimEvent, type State, type WorldObject
 } from '../../src/sim';
 import { dashRing, judgeFor } from '../../src/sim/preview/floor';
@@ -23,8 +23,9 @@ import { dashRing, judgeFor } from '../../src/sim/preview/floor';
  * 1. **Same rules.** The move and then the end of the turn are committed on the crew's picture (`previewPicture`, the
  *    state the safe floor judges): the crew-phase effect on the crew member (Exposed, pips per NPC, a challenge, a
  *    camera report, being seen by someone who knows them) and the world phase's must equal the tile's `now` and `next`
- *    exactly, and so must what the move does to each teammate (someone its noise turned sees them); the tint is the
- *    worst effect of the move over the whole crew (or next, hatched, when strictly worse). 0 differences, everywhere.
+ *    exactly, and so must what the move does to each teammate: now (someone its noise turned sees them) and in the world
+ *    phase after it, where that adds to the world phase without the move. The tint is the worst effect of the move over
+ *    the whole crew, now or (hatched, when strictly worse) next. 0 differences, everywhere.
  * 2. **As the crew perceives it.** The real move (and, now and then, the real end of the turn right after it) on the
  *    truth, its effects by the NPCs and cameras the crew knew of: in omniscient runs (the crew knows every NPC and the
  *    CCTV room) they must equal the prediction exactly; otherwise a difference must come from what the crew can't
@@ -49,7 +50,7 @@ import { dashRing, judgeFor } from '../../src/sim/preview/floor';
  */
 
 const SCALE = Number(process.env.PREVIEW_PROBE_SCALE ?? 1);
-const SEED = Number(process.env.PREVIEW_PROBE_SEED ?? 20261015);
+const SEED = Number(process.env.PREVIEW_PROBE_SEED ?? 20261016);
 const VERBOSE = !!process.env.PREVIEW_PROBE_VERBOSE;
 const FIXTURES = Math.round(40 * SCALE);
 const DOOR_RUNS = Math.round(12 * SCALE);
@@ -181,6 +182,26 @@ const hidden = (e: Effect, npcs: ReadonlySet<string>, cameras: ReadonlySet<strin
     e.exposed.some(id => !npcs.has(id)) || e.watching.some(id => !npcs.has(id)) || Object.keys(e.pips).some(id => !npcs.has(id))
     || (e.challenged !== null && !npcs.has(e.challenged)) || e.cameras.some(id => !cameras.has(id));
 
+/**
+ * What a move does to each teammate as the floor reads it: now from the move's events; next from the world phase after
+ * it (`ended`) where that adds to the world phase without the move (`idle`), when both are given, or wherever `keep`
+ * says (a tile that warns of it: whether the move adds to it may hang on a door, what happens after it doesn't).
+ */
+function matesOf(
+    crew: string, before: State, moved: { state: State; events: readonly SimEvent[] }, ended: { events: readonly SimEvent[] } | null,
+    idle: { events: readonly SimEvent[] } | null, keep: (crew: string) => boolean = () => false
+): TeammateEffect[] {
+    const out: TeammateEffect[] = [];
+    for (const c of before.crew) {
+        if (c.id === crew) continue;
+        const effect = effectOf(moved.events, c.id, before);
+        const after = ended ? effectOf(ended.events, c.id, moved.state) : null;
+        const next = after && idle && !quiet(after) && (keep(c.id) || addsTo(after, effectOf(idle.events, c.id, before))) ? after : undefined;
+        if (!quiet(effect) || next) out.push({ crew: c.id, effect, ...(next ? { next } : {}) });
+    }
+    return out;
+}
+
 // ---------------------------------------------------------------------------------------------------------- The probe
 
 interface Stats { [k: string]: number }
@@ -205,10 +226,9 @@ function checkMove(run: Run, state: State, crew: string, cmd: Extract<Command, {
     const o1 = commit(world, picture, cmd);
     const oNow = effectOf(o1.events, crew, picture);
     if (show(oNow) !== show(tile.now)) probe.fail(`${at}: now ${show(tile.now)}, the rules on the picture ${show(oNow)}`);
-    const oMates = teammateEffects(o1.events, crew, picture);
-    if (show(oMates as unknown as Effect) !== show(tile.teammates as unknown as Effect)) {
-        probe.fail(`${at}: teammates ${JSON.stringify(tile.teammates)}, the rules on the picture ${JSON.stringify(oMates)}`);
-    }
+    const oMates = teammateEffects(o1.events, crew, picture), nowOf = (list: readonly TeammateEffect[]): string =>
+        JSON.stringify(list.filter(t => !quiet(t.effect)).map(t => ({ crew: t.crew, effect: t.effect })));
+    if (nowOf(oMates) !== nowOf(tile.teammates)) probe.fail(`${at}: teammates now ${nowOf(tile.teammates)}, the rules on the picture ${nowOf(oMates)}`);
     if (oMates.length) probe.bump('moves that do something to a teammate');
     // The tint is the worst of the move over the whole crew (hatched: next, strictly worse).
     const worst = Math.max(...picture.crew.map(c => TINT_RANK[effectKind(effectOf(o1.events, c.id, picture))]));
@@ -224,6 +244,17 @@ function checkMove(run: Run, state: State, crew: string, cmd: Extract<Command, {
     if (tile.next) {
         const oNext = sure(effectOf(o2!.events, crew, o1.state), tile, npcs, cameras);
         if (show(oNext) !== show(sure(tile.next, tile, npcs, cameras))) probe.fail(`${at}: next ${show(tile.next)}, the rules on the picture ${show(oNext)}`);
+        // The teammates' world phase after the move, where it adds to the one without it (exact unless a walk is unsure).
+        const mates = matesOf(crew, picture, o1, o2, commit(world, picture, { type: 'endTurn' }));
+        if (mates.some(t => t.next)) probe.bump('moves that make a teammate\'s world phase worse');
+        if (tile.unsure.length) probe.bump('teammate world phases with unsure walks');
+        else {
+            if (JSON.stringify(mates) !== JSON.stringify(tile.teammates)) probe.fail(`${at}: teammates ${JSON.stringify(tile.teammates)}, the rules on the picture ${JSON.stringify(mates)}`);
+            // The worst over the crew of now and next.
+            const nowRank = Math.max(...picture.crew.map(c => TINT_RANK[effectKind(effectOf(o1.events, c.id, picture))]));
+            const nextRank = Math.max(TINT_RANK[effectKind(oNext)], ...mates.map(t => (t.next ? TINT_RANK[effectKind(t.next)] : 0)));
+            if (rank !== Math.max(nowRank, nextRank)) probe.fail(`${at}: tint ${tile.tint.kind}, the worst over the crew ranks ${Math.max(nowRank, nextRank)}`);
+        }
     }
     probe.bump('oracle checks');
     // 2. The truth, as the crew perceives it.
@@ -512,15 +543,17 @@ function checkDoorVariants(run: Run, state: State, crew: string, floor: SafeFloo
         for (const [name, s] of variants) {
             const r = commit(world, s, cmd);
             if (r.events.some(e => e.type === 'moveCut')) { probe.bump('door variants cut'); continue; }
-            const now = effectOf(r.events, crew, s), mates = teammateEffects(r.events, crew, s);
-            const next = tile.next ? effectOf(commit(world, r.state, { type: 'endTurn' }).events, crew, r.state) : null;
+            const ended = tile.next ? commit(world, r.state, { type: 'endTurn' }) : null;
+            const warned = (id: string): boolean => !!tile.teammates.find(t => t.crew === id)?.next;
+            const now = effectOf(r.events, crew, s), mates = matesOf(crew, s, r, ended, ended ? commit(world, s, { type: 'endTurn' }) : null, warned);
+            const next = ended ? effectOf(ended.events, crew, r.state) : null;
             const got = tintOf(now, next, 'scouted', false, false, mates), at = `${run.label} t${state.turn} ${crew}→${JSON.stringify(tile.pos)} doors ${name}`;
             probe.bump('door variants checked');
             if (tile.doorRisk) {
                 if (!atLeast(got, tile.tint)) probe.fail(`${at}: door risk over ${JSON.stringify(tile.tint)}, but only ${JSON.stringify(got)} happens`);
                 else if (effectKind(now) !== effectKind(tile.now) || JSON.stringify(got) !== JSON.stringify(tile.tint)) probe.bump('door variants worse than a door-risk tint');
             } else if (tile.tint.kind === 'red') {
-                if (!atLeast(got, tile.tint)) probe.fail(`${at}: red, but ${JSON.stringify(got)} happens`);
+                if (!atLeast(got, tile.tint)) probe.fail(`${at}: red (now ${show(tile.now)} next ${show(tile.next)} teammates ${JSON.stringify(tile.teammates)}), but ${JSON.stringify(got)} happens (teammates ${JSON.stringify(mates)})`);
             } else if (show(now) !== show(tile.now) || (tile.next && show(next) !== show(tile.next)) || JSON.stringify(mates) !== JSON.stringify(tile.teammates)) {
                 probe.fail(`${at}: no door risk, now ${show(tile.now)} next ${show(tile.next)} teammates ${JSON.stringify(tile.teammates)}, but ${show(now)} ${show(next)} ${JSON.stringify(mates)} happens`);
             }
@@ -597,12 +630,20 @@ function checkExplain(run: Run, state: State, crew: string, tile: FloorTile): vo
     if (!run.rng.chance(0.25)) return;
     const { world, probe } = run;
     const lines = explain(world, state, crew, tile.pos);
-    const named = [...new Set(lines.flatMap(l => (l.observer ? [l.observer] : [])))].sort();
-    const want = [...new Set([...observersOf(tile.now), ...observersOf(tile.next)])].sort();
-    if (JSON.stringify(named) !== JSON.stringify(want)) probe.fail(`${run.label}: explain names ${JSON.stringify(named)}, the effects ${JSON.stringify(want)} at ${JSON.stringify(tile.pos)}`);
+    // Each crew member's lines name exactly who does something to them (a teammate's: `crew`).
+    for (const who of [crew, ...tile.teammates.map(t => t.crew)]) {
+        const mate = tile.teammates.find(t => t.crew === who), now = mate ? mate.effect : tile.now, next = mate ? mate.next ?? null : tile.next;
+        const mine = lines.filter(l => (l.crew ?? crew) === who);
+        const named = [...new Set(mine.flatMap(l => (l.observer ? [l.observer] : [])))].sort();
+        const want = [...new Set([...observersOf(now), ...observersOf(next)])].sort();
+        if (JSON.stringify(named) !== JSON.stringify(want)) probe.fail(`${run.label}: explain names ${JSON.stringify(named)} for ${who}, the effects ${JSON.stringify(want)} at ${JSON.stringify(tile.pos)}`);
+        for (const l of mine) {
+            if (l.observer !== null && !observersOf(l.phase === 'now' ? now : next).includes(l.observer)) probe.fail(`${run.label}: explain puts ${l.observer} in the wrong phase (${l.phase}) for ${who}`);
+        }
+    }
+    if (lines.some(l => l.crew !== undefined && !tile.teammates.some(t => t.crew === l.crew))) probe.fail(`${run.label}: explain names a teammate the tile doesn't`);
     for (const l of lines) {
         if (l.observer === null) continue;
-        if (!observersOf(l.phase === 'now' ? tile.now : tile.next).includes(l.observer)) probe.fail(`${run.label}: explain puts ${l.observer} in the wrong phase (${l.phase})`);
         if (l.by === 'npc' && !isKnownNow(world, state, l.observer)) probe.fail(`${run.label}: explain names ${l.observer}, unknown to the crew`);
         if (l.by === 'camera' && !state.knowledge.cameras.includes(l.observer)) probe.fail(`${run.label}: explain names camera ${l.observer}, unknown to the crew`);
     }
@@ -690,9 +731,11 @@ function play(run: Run, start: State, turns: number, timing: boolean): void {
 }
 
 /** One generated bank played with a crew of three placed near its people. */
-function playBank(probe: Probe, tier: (typeof TIERS)[number], archetype: string, plot: (typeof PLOTS)[number], s: number, combo: number, turns: number, stealth = false): void {
+function playBank(
+    probe: Probe, tier: (typeof TIERS)[number], archetype: string, plot: (typeof PLOTS)[number], s: number, combo: number, turns: number, stealth = false, seed = SEED
+): void {
     const world = worldFromBank(cachedBank({ layout: 4100 + s * 97, population: s + 11, tier, archetype: archetype as never, plot }));
-    const brng = new Rng(SEED + 7919 * (combo + 1) + s);
+    const brng = new Rng(seed + 7919 * (combo + 1) + s);
     const free: Pos[] = [];
     world.tiles.forEach((t, i) => { if (!t.blocksMove && t.room !== null) free.push({ x: i % world.width, y: Math.floor(i / world.width) }); });
     const taken = new Set(world.people.map(p => `${p.pos.x},${p.pos.y}`));
@@ -879,7 +922,8 @@ describe('previews (property, §8.8)', () => {
         for (const k of [
             'truth: move cut by a door', 'floors checked with doubted doors flipped', 'floors with door risk', 'door variants checked', 'door risk tiles with a certain warning',
             'doubted door moves to door-risk tiles', 'certain sightings kept', 'eyes mid-path short of a !', 'moves turning a known NPC',
-            'moves seen by an NPC they turned', 'hearers whose last tile heard is not the nearest', 'moves that do something to a teammate'
+            'moves seen by an NPC they turned', 'hearers whose last tile heard is not the nearest', 'moves that do something to a teammate',
+            'moves that make a teammate\'s world phase worse'
         ]) expect(st[k] ?? 0, k).toBeGreaterThan(0);
         for (const type of ['door', 'knockout', 'drag', 'interact']) expect(st[`command ${type}`] ?? 0, type).toBeGreaterThan(0);
     }, 600_000);
@@ -890,9 +934,11 @@ describe('previews (property, §8.8)', () => {
         const probe = new Probe();
         const combos = TIERS.flatMap(tier => archetypesFor(tier).map(archetype => ({ tier, archetype })));
         const games = Number(process.env.PREVIEW_LONG_GAMES ?? 2), turns = Number(process.env.PREVIEW_LONG_TURNS ?? 25);
+        // Their own stream (PREVIEW_LONG_SEED), apart from the sample's.
+        const seed = Number(process.env.PREVIEW_LONG_SEED ?? 20261015);
         for (let g = 0; g < games; g++) {
             const { tier, archetype } = combos[(g * 5) % combos.length]!;
-            playBank(probe, tier, archetype, PLOTS[g % PLOTS.length]!, 100 + g, g + 1, turns, true);
+            playBank(probe, tier, archetype, PLOTS[g % PLOTS.length]!, 100 + g, g + 1, turns, true, seed);
         }
         if (VERBOSE) {
             console.log(JSON.stringify(Object.fromEntries(Object.entries(probe.stats).sort()), null, 1));

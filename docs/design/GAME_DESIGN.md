@@ -133,7 +133,7 @@ Mara *Clean*, Jun *Concealed* with a pistol under his jacket. The
 floor overlay is green almost everywhere in the lobby for Mara. For Jun, the tiles near the guard are amber: "Guard:
 frisk range (Concealed)". Jun keeps three tiles from the guard. Mara queues at a window. The timeline strip, filled
 in as they watch, shows "Manager → lunch, turn 8" and "Cash cart to vault, turn 12". On turn 8 the manager leaves
-and the staff door swings shut behind him. Jun drags a path to it. The overlay shows a hatched amber tile where the
+and the staff door swings shut behind him. Jun drags a path to it. The overlay shows an amber corner marker where the
 cleaner's committed path will see him, so he waits one turn, then slips through. In the alarm closet he disables the
 alarm panel (2 actions). The teller buttons and the operator's panel are now dead. The
 cleaner mopping two tiles away stays calm: panel work is a quiet sound with radius 1, and the preview showed it
@@ -542,7 +542,7 @@ When a crew member is selected, every reachable tile is tinted:
 | **Green** | Safe: no NPC's suspicion changes. |
 | **Amber** (+ pip count) | Someone gains suspicion, or a trespass warning. |
 | **Red** (eye icon) | Someone Exposes this crew member. |
-| **Hatched** version of amber or red | The same outcome, but it happens during the coming world phase as NPCs walk their committed paths. |
+| **Corner marker** (a small triangle in the tile's corner, amber or red with a mini glyph) | What the coming world phase does after the move, as NPCs walk their committed paths, when it is worse than the move itself; the tile keeps the move's own tint. Hatching never means this: it means unknown risk. |
 | **Red with a camera icon** | A camera would see a `!` and start the operator's verify carrier. Cameras whose feed status is unknown (CCTV room not scouted) count as live. |
 | **Grey** | No data: a hidden tile (§8.15), neither on the blueprint's layout nor ever seen. **Never drawn as safe**, and no move is planned into it: the safe floor stops at its edge. Public floor is never grey. |
 | **Hatched grey** | Unknown risk: someone the crew doesn't know about could be watching the tile (§8.15), and could react to this crew member there (judged at its worst: Alerted, any role; a camera as live): an NPC from a tile the crew hasn't seen since the last world phase (anywhere on a hidden tile; on a stale one, not on furniture), or a camera from a hidden tile, looking through any door not seen this turn as if open and across whatever a hidden room holds (only its outline, as drawn, stops them). A camera anywhere else is known. Also any tile reached through a door not seen this turn that could be locked against the crew member. A door not seen this turn (doors move unseen) is judged shut, so every tint shows what happens however it stands: certain danger always shows (red, the eye, a hand, pips). Where such a door could make it worse, the tint is hatched grey over (a tile that is green for certain becomes hatched grey); a red tile can't get worse and isn't. |
@@ -617,6 +617,10 @@ NPCs react to things that have changed, not just to people [R6 in npcs-hostages-
   others go to tell a guard.
 - Bodies can be **dragged** (Very Heavy carry) and **stashed** in closets and dumpsters (1 action). Stashed bodies
   are not evidence.
+- The player sees what the coming world phase will notice: major evidence the crew knows of wears a warning, certain
+  when an NPC or camera the crew knows finds it, uncertain when someone it doesn't know could, or a door it hasn't
+  seen this turn decides; evidence with no warning isn't noticed (UI.md "Over heads"). Auto-advance stops before a
+  world phase in which evidence is found for certain.
 - **First-time barks** name the cause ("Was the vault corridor door open before?"); later ones are generic ("Huh?").
   This teaches the evidence system without tutorial pop-ups.
 

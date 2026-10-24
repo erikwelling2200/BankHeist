@@ -155,7 +155,8 @@ function planGoal(world: ReadonlyWorld, state: State, npc: NpcState, goal: Goal,
             // §16.1: it keeps watching where the crew member was for one more phase, then walks there and looks round.
             const search = npc.search!;
             if (search.until > comingPhase(state)) return face(goal.tile);
-            if (samePos(npc.pos, search.tile)) return { path: [], facing: quarterTurn(npc.facing) };
+            // A glance at a noise (decision 45) doesn't turn the search: it goes on from the facing it glanced from.
+            if (samePos(npc.pos, search.tile)) return { path: [], facing: quarterTurn(npc.glancedFrom ?? npc.facing) };
             return walkIntent(world, state, npc, { tile: search.tile, pace: 'hurry' }, taken, {});
         }
         case 'investigate': {

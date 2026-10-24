@@ -66,6 +66,13 @@ import { challenge, deadlineOutcome, hasWarned, isWarned } from './trespass';
  */
 
 declare module '../core/types' {
+    interface NpcState {
+        /**
+         * Its facing before it glanced at a noise this crew phase (decision 45), while the glance lasts: the world phase
+         * turns it back when its intent gives no facing of its own and it doesn't walk.
+         */
+        glancedFrom?: Facing;
+    }
     interface EventMap {
         /** A camera registered a `!` (§8.4, §8.12): a report for the operator (M1-08). */
         cameraSaw: { camera: string; crew: string; tile: Pos; why: string[] };
@@ -177,6 +184,11 @@ export interface Sighting {
     act?: IllegalAct;
     /** The NPC already knows this crew member (Exposed): the sighting can't make it worse. */
     known: boolean;
+    /**
+     * A later tile of the same move the observer reacted to them on, when not `tile` (`onePerObserver`): where it saw them
+     * last, so where it investigates and their last known tile. The reaction and its "who and why" stay `tile`'s.
+     */
+    lastTile?: Pos;
 }
 
 export interface AssessOptions {
@@ -502,8 +514,9 @@ export function assessWorldPhase(world: ReadonlyWorld, state: State, sight: Sigh
 
 /**
  * One sighting per observer and crew member (decision 46): the worst of theirs (`OUTCOME_RANK`, the later one of
- * equals) at the last tile it reacts to them on (where it investigates, their last known tile), in the order of their
- * first sighting. `sightings` in the order they happened (a move's tiles in walk order).
+ * equals), whole, with the last tile it reacts to them on as `lastTile` when that is a later one (where it investigates,
+ * their last known tile), in the order of their first sighting. `sightings` in the order they happened (a move's tiles
+ * in walk order).
  */
 export function onePerObserver(sightings: readonly Sighting[]): Sighting[] {
     if (sightings.length < 2) return [...sightings];
@@ -512,7 +525,10 @@ export function onePerObserver(sightings: readonly Sighting[]): Sighting[] {
         const key = `${s.by} ${s.observer} ${s.crew}`, i = at.get(key);
         if (i === undefined) { at.set(key, out.length); out.push(s); }
         else if (OUTCOME_RANK[s.outcome] >= OUTCOME_RANK[out[i]!.outcome]) out[i] = s;
-        else if (out[i]!.tile.x !== s.tile.x || out[i]!.tile.y !== s.tile.y) out[i] = { ...out[i]!, tile: { x: s.tile.x, y: s.tile.y } };
+        else {
+            const { lastTile: _, ...worst } = out[i]!;
+            out[i] = worst.tile.x === s.tile.x && worst.tile.y === s.tile.y ? worst : { ...worst, lastTile: { x: s.tile.x, y: s.tile.y } };
+        }
     }
     return out;
 }
@@ -552,6 +568,7 @@ export function turnLookers(ctx: Ctx): Set<string> {
     for (const [id, facing] of looks) {
         const npc = ctx.state.npcs.find(n => n.id === id);
         if (!npc || isEyesDown(npc) || npc.facing === facing) continue;
+        if (npc.glancedFrom === undefined) npc.glancedFrom = npc.facing;
         npc.facing = facing;
         turned.add(id);
     }
@@ -604,24 +621,26 @@ export function applySightings(ctx: Ctx, sightings: readonly Sighting[]): void {
     const { state } = ctx;
     const cameraSeen = new Set<string>();
     for (const s of sightings) {
+        // Where the observer saw them last (`lastTile`): where it reports, investigates, their last known tile.
+        const at = s.lastTile ?? s.tile;
         if (s.by === 'camera') {
             const key = `${s.observer} ${s.crew}`;
             if (s.outcome !== '!' || cameraSeen.has(key)) continue;
             cameraSeen.add(key);
             if (!state.cameraReports.some(r => r.camera === s.observer && r.crew === s.crew)) {
-                state.cameraReports.push({ camera: s.observer, crew: s.crew, tile: { x: s.tile.x, y: s.tile.y }, turn: state.turn, phase: state.phase });
+                state.cameraReports.push({ camera: s.observer, crew: s.crew, tile: { x: at.x, y: at.y }, turn: state.turn, phase: state.phase });
             }
             ctx.emit({ type: 'cameraSaw', camera: s.observer, crew: s.crew, tile: { x: s.tile.x, y: s.tile.y }, why: [...s.why] });
             continue;
         }
         const npc = state.npcs.find(n => n.id === s.observer);
         if (!npc || isEyesDown(npc)) continue;
-        markSeen(state, npc, s.crew, s.tile);
+        markSeen(state, npc, s.crew, at);
         if (s.outcome !== '-') ctx.emit({ type: 'perceptionCheck', npc: npc.id, crew: s.crew });
-        if (s.outcome === '!') expose(ctx, npc, s.crew, s.why, s.tile);
-        else if (s.outcome === '+1' || s.outcome === '+2') addSuspicion(ctx, npc, s.crew, s.outcome === '+1' ? 1 : 2, s.why, s.tile);
-        else if (s.outcome === 'T') challenge(ctx, npc, s.crew, s.tile);
-        refreshWant(state, npc, s.crew, s.tile);
+        if (s.outcome === '!') expose(ctx, npc, s.crew, s.why, at);
+        else if (s.outcome === '+1' || s.outcome === '+2') addSuspicion(ctx, npc, s.crew, s.outcome === '+1' ? 1 : 2, s.why, at);
+        else if (s.outcome === 'T') challenge(ctx, npc, s.crew, at);
+        refreshWant(state, npc, s.crew, at);
     }
     // In a crew phase a changed want rewrites the NPC's intent at once (§6.2): the telegraph shows now.
     reconsider(ctx);
@@ -674,6 +693,12 @@ registerWorldHook('passiveNpcs', 'perception.world', (ctx, phase) => {
     const found: Sighting[] = [];
     for (const member of state.crew) found.push(...worldSightings(world, state, poses, member.id, member.pos, undefined));
     applySightings(ctx, found);
+}, { order: -100 });
+
+// A glance lasts the turn: once the NPCs have walked (npc/act.ts turns back those that stood with no facing of their
+// own), what they turned from is forgotten, before the next intents are planned.
+registerWorldHook('commitIntents', 'perception.glances', ctx => {
+    for (const npc of ctx.state.npcs) if (npc.glancedFrom !== undefined) delete npc.glancedFrom;
 }, { order: -100 });
 
 registerEvents({ cameraSaw: { undoBlocking: true } });

@@ -1,4 +1,5 @@
-import { preview, registerCommandHook, type CommitResult, type PreviewResult } from '../core/engine';
+import { IllegalCommand, preview, registerCommandHook, type CommitResult, type PreviewResult } from '../core/engine';
+import { PreviewRollError } from '../core/rng';
 import { facingToward, inBounds } from '../core/grid';
 import { samePlain, sortedIds } from '../core/json';
 import { registerStateCheck } from '../core/save';
@@ -727,9 +728,10 @@ function foreseenFacing(world: ReadonlyWorld, command: NonNullable<UpdateOptions
         const shut = facingIn(previewCertain(world, before, cmd)), d = doorDoubt(world, before)!;
         const open = facingIn(preview(world, openShut(world, d.base, d.doors).open, cmd));
         return shut !== undefined && shut === open ? shut : null;
-    } catch {
-        // Not a command the picture allows as it is: nothing to foresee.
-        return null;
+    } catch (e) {
+        // Not a command the picture allows as it is, or one that rolls dice first: nothing to foresee.
+        if (e instanceof IllegalCommand || e instanceof PreviewRollError) return null;
+        throw e;
     } finally {
         foreseeing = false;
     }

@@ -31,8 +31,10 @@ import { onFloor } from './place';
  * - **A known NPC in the way**: the crew member waits a turn for them to move on, then auto-advance stops (`blocked`).
  * - **Auto-advance** (`autoStep`) plays one turn: the crew's route moves, then the end of the turn; it stops as soon as
  *   anything interrupts (a crew move's events are checked before the next command, so the player gets the rest of the
- *   crew phase to react). It is available only while no NPC the crew knows of is Alerted (or Hostile), the bank is
- *   neither loud nor alarmed and no alarm carrier is counting down (`autoAdvanceBlocked`).
+ *   crew phase to react); before the end of the turn the caller's `beforeEnd` may hold it (evidence a known NPC or
+ *   camera will certainly notice in that world phase: the player gets the crew phase to deal with it). It is
+ *   available only while no NPC the crew knows of is Alerted (or Hostile), the bank is neither loud nor alarmed and no
+ *   alarm carrier is counting down (`autoAdvanceBlocked`).
  * - **Interrupts** (`interruptsOf`) are a pure function of the state before, the state after and the events between,
  *   judged only on what the crew can know: the events projected through its knowledge (`projectEvents`) and NPCs it
  *   sees or predicts. An NPC the crew doesn't know of can change its mind, walk or start its lunch without stopping
@@ -495,6 +497,11 @@ export interface AutoOptions {
      * routes as they will be once it has been played as planned (for the autosave).
      */
     play?: (cmd: Command, state: State, routes: Routes) => CommitResult;
+    /**
+     * Asked on the state the turn would end from, before the end of the turn: a stop keeps it from ending (the Session's
+     * evidence a known NPC or camera will certainly notice in that world phase, src/game/evidenceWarning.ts).
+     */
+    beforeEnd?: (state: State) => AutoStop | null;
 }
 
 export interface AutoStepResult {
@@ -591,7 +598,9 @@ export function autoStep(world: ReadonlyWorld, state: State, routes: Readonly<Ro
     }
     if (!target && !sortedIds(left).length) return out({ kind: 'arrived', text: 'route walked' });
 
-    // The world phase.
+    // The world phase, unless something the player would be warned of happens in it for certain.
+    const held = options.beforeEnd?.(now);
+    if (held) return out(held);
     const before = now, result = run({ type: 'endTurn' }, left);
     turnsPlayed++;
     const reached = target ? waitReached(world, target, before, result) : null;

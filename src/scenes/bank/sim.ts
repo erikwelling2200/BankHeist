@@ -7,6 +7,7 @@ import {
     actionMenu, AutoRun, autoBarView, bankView, barkText, cameraName, doorMiddle, nextCamera, moveAlong, moveRange, moveTo, routeViews, stopNeedsAttention, targetsOf, waitMenu, type ActionId, type FloorJob, type MoveRange,
     type PlaybackItem, type PlaybackSpeed, type Session, type SessionChange
 } from '../../game';
+import { shownWarnings, warningLines, type EvidenceWarning } from '../../game/evidenceWarning';
 import type { GeneratedBank } from '../../gen/model';
 import { TILE } from '../../level/constants';
 import { headingOf } from '../../art/bank/people';
@@ -1285,7 +1286,7 @@ export class PlayMode {
     }
 
     /** The overlay's knowledge layer: the veil on tiles not seen this turn, ghosts' "seen N turns ago", the sound pings. */
-    private knowledgeLayer(): Pick<OverlayContent, 'visibility' | 'ghosts' | 'pings' | 'badges' | 'crewColours' | 'cones' | 'predicted' | 'colourBlind' | 'cameras' | 'flashes'> {
+    private knowledgeLayer(): Pick<OverlayContent, 'visibility' | 'ghosts' | 'pings' | 'badges' | 'crewColours' | 'cones' | 'predicted' | 'colourBlind' | 'cameras' | 'flashes' | 'found'> {
         const view = this.known(), { world, state } = this.session, busy = this.busy;
         const shown = (id: string) => this.people.shown(this.sprite.get(id) ?? -1);
         // Cones: the one long-pressed, or every NPC's the crew knows of from the overlay drawer (§20.4); v2 hands the
@@ -1305,7 +1306,8 @@ export class PlayMode {
             ...(busy ? {} : {
                 badges: npcBadges(world, state, view).filter(b => !state.npcs.some(n => n.id === b.id) || shown(b.id)),
                 predicted: view.npcs.filter(m => m.kind === 'predicted' && shown(m.id)).map(m => m.pos),
-                cones: this.conesOf(coneIds)
+                cones: this.conesOf(coneIds),
+                found: shownWarnings(world, state)
             })
         };
     }
@@ -1352,7 +1354,12 @@ export class PlayMode {
         const hit = this.known().npcs.find(m => m.kind !== 'ghost' && (same(m.pos, tile) || this.people.hit(this.sprite.get(m.id) ?? -1, x, y)))?.id
             ?? this.known().cameras.find(c => same(c.pos, tile))?.id;
         const member = this.selectedMember();
-        if (hit || !member) {
+        // On evidence the coming world phase notices: who finds it (with the tile's own lines when a crew member is selected).
+        const found = this.session.state.phase === 'crew' ? shownWarnings(this.session.world, this.session.state).find(w => same(w.pos, tile)) : undefined;
+        if (found && (!hit || hit === found.about)) {
+            this.coneOf = null;
+            this.setExplained(this.explainFound(member, tile, found));
+        } else if (hit || !member) {
             this.setExplained(null);
             this.coneOf = hit && this.coneOf !== hit ? hit : null;
         } else {
@@ -1360,6 +1367,12 @@ export class PlayMode {
             this.setExplained(this.explainTile(member, tile));
         }
         this.refresh();
+    }
+
+    /** Who finds evidence next phase, then what the tile does to `member` (its quiet line left out: it isn't about them). */
+    private explainFound(member: CrewState | undefined, tile: Pos, found: EvidenceWarning): ExplainVM {
+        const own = member ? this.explainTile(member, tile)?.lines.filter(l => l.observer !== null || l.watchers) ?? [] : [];
+        return { tile: { ...tile }, lines: [...warningLines(this.session.world, found), ...own] };
     }
 
     /** "Who and why" of `tile` for `member`: along the previewed path up to it when it passes it, else the floor's path. */
