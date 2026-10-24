@@ -1,5 +1,6 @@
 import { expect, test, type Page } from '@playwright/test';
 import { effectKind, TINT_RANK, type Effect } from '../src/sim';
+import { M1_INSIDE, M1_OPENING } from './m1Run';
 import { ALARM_HELPERS, HATCHED_SETUP, PAGE_HELPERS, SAFE_FLOOR_SETUP } from './setups';
 
 /** `npm run test:smoke` runs only the tests tagged `@smoke`. */
@@ -886,21 +887,6 @@ test('holding a hatched tile marks where someone unknown could watch it from', a
     expect((await play(page)).explain).toBeNull();
     expect(errors).toEqual([]);
 });
-
-/**
- * The M1 run (implementation plan M1-16) in the pinned bank, played through `window.sim`'s commands alone: one string
- * per turn, each move `crew:x,y` (a Move to that tile, along the path the safe floor judged), then End turn. Found by a
- * search over the real rules and recorded; the bank and the rules are deterministic, so it plays the same every time.
- */
-const blank = (turns: number): string[] => Array.from({ length: turns }, () => '');
-const M1_OPENING = ['mara:37,31 jun:36,29 mara:34,28 jun:33,26', 'jun:32,25 jun:34,23 mara:33,25 mara:33,23'];
-/** From turn 10: Jun slips through the staff door behind the cleaner (turn 11) and keeps out of sight near the alarm closet. */
-const M1_INSIDE = [
-    'jun:30,22', 'jun:26,23 jun:25,20', 'jun:23,17 jun:23,12', 'jun:28,12 jun:33,12', 'jun:38,12 jun:42,11', 'jun:43,11', ...blank(20),
-    'jun:40,13', 'jun:39,13', 'jun:40,11', 'jun:43,11', 'jun:40,13', 'jun:40,14', 'jun:40,12',
-    ...Array.from({ length: 4 }, () => ['jun:42,11 jun:43,11', '', 'jun:40,13 jun:40,14', '']).flat(),
-    'jun:42,11 jun:43,11', 'jun:39,13', ...blank(3), 'jun:43,11', 'jun:42,11 jun:41,11', 'jun:43,11', 'jun:41,12', 'jun:40,11', 'jun:43,11'
-];
 
 interface MoveCheck { tile: { now: unknown; next: unknown; tint: { kind: string } }; now: unknown; cut: boolean; at: Pos }
 

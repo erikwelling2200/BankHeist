@@ -1,5 +1,5 @@
 import { readFileSync } from 'node:fs';
-import { dirname, join, resolve } from 'node:path';
+import { dirname, join, relative, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { generateBank } from '../src/gen/generate';
@@ -17,7 +17,7 @@ const touched = (changed: string) => (file: string) => read(file) + (file === jo
 
 describe('the bank cache', () => {
     it('follows the generator\'s imports into src/gen and src/level, and no further than it imports', () => {
-        const files = importClosure(join(ROOT, 'src/gen/generate.ts')).map(f => f.slice(ROOT.length + 1));
+        const files = importClosure(join(ROOT, 'src/gen/generate.ts')).map(f => relative(ROOT, f).split(sep).join('/'));
         for (const f of ['src/gen/generate.ts', 'src/gen/layout.ts', 'src/gen/validate.ts', 'src/level/catalog.ts', 'src/level/space.ts']) expect(files).toContain(f);
         expect(files.some(f => f.startsWith('src/sim/') || f.startsWith('src/scenes/'))).toBe(false);
     });
