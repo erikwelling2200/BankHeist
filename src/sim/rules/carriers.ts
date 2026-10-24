@@ -63,7 +63,10 @@ export const CARRIERS: Readonly<Record<CarrierKind, CarrierDef>> = {
     },
     phoneCall: {
         label: 'Phone call', wired: false, radio: true,
-        counters: [{ name: 'knock out', now: true }, { name: 'jammer (mobiles)', now: true }, { name: 'command', now: true }, { name: 'cut the phone line (landlines)', now: 'M4' }]
+        // "Find them" (§9.1): a hider calls from where the crew doesn't see; finding them is what lets the crew command or
+        // knock them out.
+        counters: [{ name: 'knock out', now: true }, { name: 'jammer (mobiles)', now: true }, { name: 'command', now: true }, { name: 'find them', now: true },
+            { name: 'cut the phone line (landlines)', now: 'M4' }]
     },
     escapee: {
         label: 'Escapee', wired: false, radio: false,

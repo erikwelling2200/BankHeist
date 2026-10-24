@@ -682,8 +682,11 @@ Each package lists its goal, the design sections it covers, the files, what it d
       the escapee blocked and tackled, the generator's traits reaching the rules); the preview property test's takeover
       game has an off-duty cop, a hero, a passer-by and shelves to hide behind, checks the `panics` ring outcome, and
       `checkTelegraphs` fails any draw, hero's tackle, hider's call or escapee whose action wasn't the NPC's intent
-      through the whole crew phase before (every game, every bank); the carrier fuzz accepts a call telegraphed by
-      `hide`. `wayOut` is cached per stand, class and door state (it was most of the fuzz's time). Save shape hash
+      through the whole crew phase before (every game, every bank; each run records the intents as every crew phase
+      begins, and a missing record fails); the takeover game has a bay to hide in and a crew member who stays beside the
+      hero, and requires tackles and calls; the carrier fuzz accepts a call telegraphed by
+      `hide`. `wayOut` stops its flood at the first way out it settles (no cache: what a door lets an NPC through
+      depends on it, its keycard too). Save shape hash
       `efa24c46300bf6cf` (updated here, as M2-01, M2-03 and M2-04 did).
     - **Deferred:** "Bold" shown on Inspect within 3 tiles and the panic badges' polish (M2-06); panicked crowds jamming
       doorways (+1 move cost, with the police, M3); police outside shifting reactions toward fleeing (M3); a Hostile
@@ -1295,7 +1298,14 @@ Later milestones: within each milestone, the `∥` notes in §3 apply. UI packag
     rolled as the next crew phase begins, after the lapses, and carried out in the world phase after that. So an NPC
     panicked in a crew phase stands through that world phase, and one panicked by spread in a world phase picks at its
     end: either way the reaction is shown for a whole crew phase before it is done (§10.8 "carry it out a world phase
-    later"). What it picks is a preview secret.
+    later"). What it picks is a preview secret. This departs from §10.1/§10.8 for panic set off in a crew phase (the
+    shout, an exposure during a move): the design would pick it at once and carry it out that turn's world phase; here
+    it is picked a world phase later and done a turn later. Why: the pick is a roll, and the only places a roll can sit
+    without breaking a preview are the end of a command's reducer or the world phase's last word. A roll inside a crew
+    phase would cut short the preview of every move whose sighting Exposes someone to a civilian (the safe floor and
+    the drawn path promise the whole move), and a roll as a world phase begins would cut the hatched world-phase preview
+    (`pendingCarriers`) before its carriers start. Panic set off in a world phase (spread, a noise there) follows the
+    design exactly. The frozen phase is itself shown (`panic` intent, the Panicked badge), so the crew can answer it.
 69. **Spread (M2-02)** is judged after the walks and the actions at their ends, all at once, from panickers that
     panicked before that world phase: one ring a world phase. "Within 3 tiles" is Euclidean (r² ≤ 9); "who can see
     them" is the receiver's own sight field.
@@ -1311,10 +1321,12 @@ Later milestones: within each milestone, the `∥` notes in §3 apply. UI packag
     customer does (a preview stops at the same roll) and reaches whatever came up, at the crew member who frightened
     him or the nearest. His weapon never shows: no plate, the same ring outcome (`panics`), no preview of it.
 73. **Blocking the route (M2-02).** An escapee is countered while the crew, standing where they stand, cut its runner
-    off from every tile within one of its way out (people other than the crew don't block). A runner finding its way
-    blocked as it would set off again gives up and cowers; if the crew steps aside first, the next flight starts a
-    fresh carrier at its full countdown. A passer-by's way out is the nearest tile anyone leaves the map by (§16.4's
-    "nearest plot edge").
+    off from every way out (from every tile within one of each; people other than the crew don't block). With its own
+    way out cut off but another open, the runner runs for the nearest open one (re-planned as intents are committed; its
+    carrier runs on). With none left it gives up and cowers as it would set off again; if the crew steps aside first,
+    the next flight starts a fresh carrier at its full countdown. A passer-by's way out is the nearest tile anyone
+    leaves the map by (§16.4's "nearest plot edge"). The phone call's "find them" (§9.1) is listed with its counters:
+    finding a hider is what lets the crew command or knock it out.
 74. **The crew's tackle (M2-02)** works only on a runner (an NPC fleeing), in reach, 1 action, not while dragging a
     body. It is the illegal act 'attack', seen on both tiles, makes no noise, and leaves the runner Commanded by the
     tackler with 2 pips, which counters its escapee (the source check).

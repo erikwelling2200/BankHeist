@@ -174,9 +174,9 @@ export { explain, observerName, sightingText, type Explanation } from './preview
 export { actionPreview, type ActionPreview, type Ear, type NoisePreview, type Witness } from './preview/action';
 export { commandPreview, holdPreview } from './preview/command';
 export {
-    commandNpc, commandPlan, commandRadius, crewThreat, goBlocked, holdTargets, isResister, resistChance, wayOut,
+    commandNpc, commandPlan, commandRadius, crewThreat, goBlocked, holdTargets, isResister, resistChance,
     type Commanded, type CommandPlan, type CommandTarget, type Lapse, type LapseOutcome
 } from './rules/command';
 export { PANIC, panicWeights, type PanicWeights } from './data/archetypes';
-export { hidingSpot, reactionOdds, routeBlocked, tackleBlocked, tackleTarget, type Reaction as PanicOutcome } from './rules/panic';
-export { canPanic, panicNpc, panicsAt, type Panic, type PanicReaction } from './rules/panicState';
+export { reactionOdds } from './rules/panic';
+export { type Panic, type PanicReaction } from './rules/panicState';

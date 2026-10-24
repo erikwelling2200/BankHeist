@@ -4,6 +4,7 @@ import {
     commandPlan, commit, fixtureWorld, initialState, preview, projectEvents, worldFromBank, type CrewStart, type Facing, type ObserverClass, type PersonDef,
     type Pos, type ReadonlyWorld, type SimEvent, type State
 } from '../../src/sim';
+import { wayOut } from '../../src/sim/rules/command';
 import { step } from './helpers';
 
 /*
@@ -214,6 +215,20 @@ describe('the escapee (§9.1, §16.4)', () => {
         expect(npc(after.state, 'walker')).toMatchObject({ status: 'panicked', lapse: null, panic: { reaction: { kind: 'cower' } } });
     });
 
+    it('runs for another way out when the crew cut off its own, and is countered only with none left', () => {
+        // Gaps at (0, 2) and (12, 2), into two bays; ways out at (0, 0) (a clerk's, nearer) and (13, 0).
+        const map = ['......T.......', '......T.......', '.TTTTTTTTTTT.T', ...MAP.slice(3)];
+        const clerk = person('clerk', 'clerk', 'staff', P(13, 8), 'n', {}, P(0, 0));
+        const { world, state } = setup(map, [passer, clerk], [{ id: 'jun', pos: P(1, 4), items: ['pistol'] }, { id: 'mara', pos: P(2, 4) }]);
+        const picked = endTurn(world, commit(world, state, { type: 'command', crew: 'jun' }).state).state;
+        expect(npc(picked, 'walker').lapse).toEqual({ kind: 'flee', exit: P(0, 0) });
+        const blocked = commit(world, picked, { type: 'move', crew: 'mara', path: [P(1, 3), P(0, 2)] }).state;
+        const off = endTurn(world, blocked);
+        expect(npc(off.state, 'walker').lapse).toEqual({ kind: 'flee', exit: P(13, 0) });
+        expect(of(off.events, 'carrierStarted')).toMatchObject([{ kind: 'escapee', holder: 'walker' }]);
+        expect(of(off.events, 'gaveUp')).toEqual([]);
+    });
+
     it('is countered by a tackle: 1 action, in reach, and the runner goes face down', () => {
         const { world, state } = running();
         const at = npc(state, 'walker').pos;
@@ -248,4 +263,21 @@ describe('structured traits from the generator', () => {
         }
         expect(armed).toBeGreaterThan(0);
     }, 120_000);
+});
+
+describe('the way out (a runner\'s exit)', () => {
+    it('is worked out afresh for each NPC: one without a keycard is never told the way a keycard holder was', () => {
+        // A wall with a locked keycard door between the runners and the nearer way out (7, 0); the other is at (0, 8).
+        const walls = Array.from({ length: 14 }, (_, x) => ({ between: [P(x, 3), P(x, 4)] as [Pos, Pos], ...(x === 7 ? { door: { id: 'd', lock: 'keycard' as const, start: 'locked' as const } } : {}) }));
+        const staff = (id: string, exit: Pos, keycard: boolean): PersonDef => ({ ...person(id, 'clerk', 'staff', P(7, 6), 'n', {}, exit), keycard });
+        const world = fixtureWorld(OPEN, { walls, people: [staff('card', P(7, 0), true), { ...staff('none', P(0, 8), false), pos: P(6, 6) }] });
+        const state = initialState(world, { seed: 1, crew: [{ id: 'jun', pos: P(13, 8) }] });
+        // Both asked from the same tile.
+        const at = (s: State, id: string) => ({ ...npc(s, id), pos: P(7, 6) });
+        const fresh = wayOut(world, state, at(state, 'none'));
+        const holder = wayOut(world, state, at(state, 'card'));
+        expect(holder?.exit).toEqual(P(7, 0));
+        expect(fresh?.exit).toEqual(P(0, 8));
+        expect(wayOut(world, state, at(state, 'none'))).toEqual(fresh);
+    });
 });

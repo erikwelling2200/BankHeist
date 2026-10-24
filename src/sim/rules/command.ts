@@ -5,8 +5,8 @@ import type { CrewState, DeepReadonly, NpcState, Pos, ReadonlyWorld, State } fro
 import { registerEvents } from '../core/undo';
 import { CARRY_WEIGHT, itemDef, UNARMED_THREAT } from '../data/items';
 import { HALF_STEPS_PER_TILE } from '../data/movement';
-import { lineOfSight, sightInputs, sightMap, type SightMap } from '../geo/los';
-import { reachable, reachAt } from '../geo/move';
+import { lineOfSight, sightMap, type SightMap } from '../geo/los';
+import { reachable } from '../geo/move';
 import { DEAF_STATUSES, makeNoise, noiseRadius, npcsInside, soundRing } from '../geo/sound';
 import { lacksActions, registerAction } from './actions/act';
 import { releaseBody } from './actions/body';
@@ -417,7 +417,9 @@ registerWorldHook('passiveNpcs', 'command.draw', (ctx, phase) => {
 /**
  * Running for it (§10.5, §9.1 escapee), after the passive walks: a runner still up that walked its committed flee starts
  * the escapee carrier as it sets off (max(2, ⌈the way left ÷ 8⌉), alarms.ts `startEscapee`; one per runner), and one at
- * the way out (or a tile next to it) leaves the map for good. Telegraphed by the flee intent a phase before.
+ * the way out (or a tile next to it) leaves the map for good. Telegraphed by the flee intent a phase before. With its
+ * way out cut off by the crew it runs for another still open (re-planned as the intents are committed); with none
+ * left it gives up and cowers (§9.1 "block the route", rules/panic.ts).
  */
 registerWorldHook('passiveNpcs', 'command.flee', (ctx, phase) => {
     const { world, state } = ctx;
@@ -427,14 +429,19 @@ registerWorldHook('passiveNpcs', 'command.flee', (ctx, phase) => {
         const npc = state.npcs.find(n => n.id === id)!;
         if (isEyesDown(npc) || !isPresent(npc) || npc.lapse?.kind !== 'flee') continue;
         const out = Math.max(Math.abs(npc.pos.x - action.exit.x), Math.abs(npc.pos.y - action.exit.y)) <= 1;
-        // The crew stand in the way of every way out (§9.1 "block the route"): it gives up and cowers (rules/panic.ts).
+        let left: number | undefined;
         if (!out && routeBlocked(world, state, npc, action.exit)) {
-            giveUp(ctx, npc);
-            continue;
+            const open = wayOut(world, state, npc, true);
+            if (!open) {
+                giveUp(ctx, npc);
+                continue;
+            }
+            npc.lapse = { kind: 'flee', exit: open.exit };
+            left = open.tiles;
         }
         // Its carrier is seen for a crew phase with the runner still on the map, where the counters reach it (§9.1).
         const running = state.carriers.some(c => c.kind === 'escapee' && c.source === npc.id);
-        startEscapee(ctx, npc, out ? 0 : wayOut(world, state, npc)?.tiles ?? 0);
+        startEscapee(ctx, npc, out ? 0 : left ?? wayOut(world, state, npc)?.tiles ?? 0);
         if (!out || !(running || state.bank.alarm)) continue;
         // Gone for good: its lapse keeps it away (behaviour.ts).
         npc.status = 'away';
@@ -505,34 +512,29 @@ function rollLapse(ctx: Ctx, npc: NpcState): LapseOutcome {
     return npc.armed === 'hidden' ? 'reachForWeapon' : rolled;
 }
 
-/** The nearest way out for a runner (§10.5 flee): a tile where anyone leaves the map, by walking cost; with its cost. */
-export function wayOut(world: ReadonlyWorld, state: State, npc: DeepReadonly<NpcState>): { exit: Pos; tiles: number } | undefined {
-    // A flood of the whole map, so it is kept: the answer depends only on where the runner stands, who may pass which
-    // doors (its class) and the doors and walls as they stand (the very inputs of sight, `sightInputs`).
-    let cache = WAY_OUT.get(world);
-    if (!cache || cache.size > 4096) WAY_OUT.set(world, cache = new Map());
-    const key = `${personOf(world, npc.id).observer} ${npc.pos.x},${npc.pos.y} ${sightInputs(world, state)}`;
-    if (!cache.has(key)) cache.set(key, findWayOut(world, state, npc) ?? null);
-    const found = cache.get(key)!;
-    return found ? { exit: { x: found.exit.x, y: found.exit.y }, tiles: found.tiles } : undefined;
-}
-
-const WAY_OUT = new WeakMap<ReadonlyWorld, Map<string, { exit: Pos; tiles: number } | null>>();
-
-function findWayOut(world: ReadonlyWorld, state: State, npc: DeepReadonly<NpcState>): { exit: Pos; tiles: number } | undefined {
+/** Where people leave the map (a schedule's `leave` or `offMap` tile), in row order. */
+function exitsOf(world: ReadonlyWorld): Pos[] {
     const exits: Pos[] = [];
     for (const p of world.people) for (const b of p.schedule) {
         if ((b.activity === 'leave' || b.activity === 'offMap') && b.at && !exits.some(e => samePos(e, b.at!))) exits.push({ x: b.at.x, y: b.at.y });
     }
+    return exits.sort((a, b) => a.y - b.y || a.x - b.x);
+}
+
+/**
+ * The nearest way out for a runner (§10.5 flee): a tile where anyone leaves the map, by walking cost, ties in row order;
+ * with its cost in tiles. `pastCrew`: past the crew as they stand (§9.1 "block the route": the runner leaves from its
+ * exit or a tile next to it, so reaching one of those will do); otherwise through people. The flood stops at the first.
+ */
+export function wayOut(world: ReadonlyWorld, state: State, npc: DeepReadonly<NpcState>, pastCrew = false): { exit: Pos; tiles: number } | undefined {
+    const exits = exitsOf(world);
     if (!exits.length) return undefined;
-    const reach = reachable(world, state, { x: npc.pos.x, y: npc.pos.y }, (world.width + world.height) * 4 * HALF_STEPS_PER_TILE,
-        { ...npcMoveOptions(world, npc), ignorePeople: true });
-    let best: { exit: Pos; cost: number } | undefined;
-    for (const e of exits.sort((a, b) => a.y - b.y || a.x - b.x)) {
-        const t = reachAt(reach, e);
-        if (t && (!best || t.cost < best.cost)) best = { exit: e, cost: t.cost };
-    }
-    return best && { exit: best.exit, tiles: Math.ceil(best.cost / HALF_STEPS_PER_TILE) };
+    const reach = (p: DeepReadonly<Pos>, e: Pos): boolean => (pastCrew ? Math.max(Math.abs(p.x - e.x), Math.abs(p.y - e.y)) <= 1 : samePos(p, e));
+    const options = pastCrew ? npcMoveOptions(world, npc) : { ...npcMoveOptions(world, npc), ignorePeople: true };
+    const found = reachable(world, state, { x: npc.pos.x, y: npc.pos.y }, (world.width + world.height) * 4 * HALF_STEPS_PER_TILE, options,
+        t => exits.some(e => reach(t.pos, e))).stopped;
+    const exit = found && exits.find(e => reach(found.pos, e));
+    return found && exit && { exit, tiles: Math.ceil(found.cost / HALF_STEPS_PER_TILE) };
 }
 
 /** Carries out the decision of a lapse (see the header); its intent is planned by `reconsider` straight after. */

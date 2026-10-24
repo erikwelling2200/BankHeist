@@ -135,15 +135,18 @@ export interface Reach {
     /** The same tiles by index (y * width + x). */
     byIndex: Map<number, ReachTile>;
     width: number;
+    /** The tile `stop` accepted, when it accepted one: the flood ended there. */
+    stopped?: ReachTile;
 }
 
 /**
  * Every tile within `budget` half-steps of `from`, with the cheapest path to each (Dijkstra, integer costs). Ties are
  * broken the same way every time: tiles settle in order of cost, then row-major index; each one relaxes its neighbours
  * in the order of `FACINGS` (n, ne, e, se, s, sw, w, nw); a tile keeps the first parent that reached it at its lowest
- * cost. Tiles whose only occupant can be stepped past are reached but can't be ended on.
+ * cost. Tiles whose only occupant can be stepped past are reached but can't be ended on. With `stop`, the flood ends at
+ * the first tile it settles that `stop` accepts (the cheapest such tile, then the first in row order): `stopped`.
  */
-export function reachable(world: ReadonlyWorld, state: State, from: Pos, budget: number, options: MoveOptions = {}): Reach {
+export function reachable(world: ReadonlyWorld, state: State, from: Pos, budget: number, options: MoveOptions = {}, stop?: (tile: ReachTile) => boolean): Reach {
     const width = world.width, people = occupancy(world, state, options);
     const index = (p: Pos): number => p.y * width + p.x;
     const byIndex = new Map<number, ReachTile>(), tiles: ReachTile[] = [];
@@ -162,6 +165,7 @@ export function reachable(world: ReadonlyWorld, state: State, from: Pos, budget:
             if (byIndex.has(i) || tile.cost !== cost) continue;
             byIndex.set(i, tile);
             tiles.push(tile);
+            if (stop?.(tile)) return { from: start.pos, budget, tiles, byIndex, width, stopped: tile };
             for (const f of FACINGS) {
                 const step = FACING_STEP[f], next = { x: tile.pos.x + step.x, y: tile.pos.y + step.y };
                 if (!inBounds(world, next)) continue;

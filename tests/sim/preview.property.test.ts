@@ -209,7 +209,11 @@ function matesOf(
  * are rolled as the next crew phase begins, the world phase's last word, so what follows is luck no preview promises.
  */
 function endPhase(world: ReadonlyWorld, state: State): CommitResult {
-    const r = commit(world, state, { type: 'endTurn' });
+    return untilRolled(commit(world, state, { type: 'endTurn' }));
+}
+
+/** An end of the turn's events up to its first lapse or panic reaction (`endPhase`). */
+function untilRolled(r: CommitResult): CommitResult {
     const i = r.events.findIndex(e => e.type === 'lapsed' || e.type === 'panicReaction');
     return i < 0 ? r : { ...r, events: r.events.slice(0, i) };
 }
@@ -310,7 +314,9 @@ function checkMove(run: Run, state: State, crew: string, cmd: Extract<Command, {
         }
     }
     if (!endTurn || cut) return r.state;
-    const e = endPhase(world, r.state);
+    const full = commit(world, r.state, { type: 'endTurn' });
+    checkTelegraphs(run, r.state, full);
+    const e = untilRolled(full);
     checkWorldPhase(run, state, crew, tile, r.state, e, npcs, cameras, at, { before: o1.state, after: o2!.state, events: o2!.events });
     return e.state;
 }
@@ -662,16 +668,17 @@ function endTurn(run: Run, state: State): State {
 /**
  * No NPC acts without a telegraphed intent (§10.9, §10.8, the design's hard promise; M2-02): every draw, hero's tackle,
  * hider's call and runner's escapee in a world phase is the intent its NPC showed through the whole crew phase before
- * it (as the crew phase began, when `run.shown` has it, and still as it ends).
+ * it (as the crew phase began, `run.shown`, and still as it ends).
  */
 function checkTelegraphs(run: Run, before: State, r: CommitResult): void {
     const { probe } = run;
     const expect = (npc: string, kind: string, what: string): void => {
-        // As the crew phase began, when this run ended the turn before itself (a move's check ends some turns on its own).
+        // As the crew phase began: every way a run ends a turn records it, and so does its start (`began`).
         const began = run.shown?.turn === before.turn ? run.shown.actions : undefined;
+        if (!began) probe.fail(`${run.label} t${before.turn}: no record of the crew phase's start to check ${npc}'s ${what} against`);
         const start = began?.get(npc), end = before.npcs.find(n => n.id === npc)?.intent.action?.kind;
         probe.bump(`telegraphed ${what}`);
-        if ((began && start !== kind) || end !== kind) probe.fail(`${run.label} t${before.turn}: ${npc} ${what} without one telegraphed phase (shown ${start} then ${end})`);
+        if (start !== kind || end !== kind) probe.fail(`${run.label} t${before.turn}: ${npc} ${what} without one telegraphed phase (shown ${start} then ${end})`);
     };
     for (const e of r.events) {
         if (e.type === 'drewWeapon') expect(e.npc, 'reachForWeapon', 'draw');
@@ -681,7 +688,12 @@ function checkTelegraphs(run: Run, before: State, r: CommitResult): void {
         else if (e.type === 'panicReaction') probe.bump(`panic reaction ${e.reaction}`);
         else if (e.type === 'panicked') probe.bump('panicked');
     }
-    run.shown = { turn: r.state.turn, actions: new Map(r.state.npcs.flatMap(n => (n.intent.action ? [[n.id, n.intent.action.kind] as [string, string]] : []))) };
+    began(run, r.state);
+}
+
+/** Records each NPC's intended action as a crew phase begins (a run's start, every end of the turn): `checkTelegraphs`. */
+function began(run: Run, state: State): void {
+    run.shown = { turn: state.turn, actions: new Map(state.npcs.flatMap(n => (n.intent.action ? [[n.id, n.intent.action.kind] as [string, string]] : []))) };
 }
 
 /**
@@ -953,6 +965,7 @@ function playBank(
     };
     const state = initialState(world, { seed: s, crew: crewFor(brng, 3, pick, stealth) });
     const run: Run = { world, rng: brng, omniscient: stealth ? combo % 4 === 0 : (combo + s) % 2 === 0, label: `${tier}/${archetype}/${plot}/${s}`, tier, probe, stealth };
+    began(run, state);
     play(run, state, turns, true);
 }
 
@@ -1036,6 +1049,7 @@ function playDoorCuts(probe: Probe, rng: Rng, n: number): void {
     state = commit(world, put(state, { x: 25, y: 0 }, { x: 25, y: 1 }), { type: 'endTurn' }).state;
     state = put(state, { x: 5, y: doorY }, { x: 4, y: doorY });
     const run: Run = { world, rng, omniscient: false, label: `door cuts ${n}`, tier: 'fixture', probe, stealth: true };
+    began(run, state);
     for (const member of state.crew) {
         if (state.bank.alarm) break;
         const floor = safeFloor(world, state, member.id);
@@ -1098,6 +1112,7 @@ function playDoubtedDoors(probe: Probe, rng: Rng, n: number): void {
     const world = fixtureWorld(Array.from({ length: HEIGHT }, (_, y) => zones[y]!), { walls, people, rules: { checkInPeriod: 2, dispatchCheckInPeriod: 2, dispatchSilence: 2 } });
     let state = initialState(world, { seed: n, crew: crewFor(rng, 2, () => take(true)) });
     const run: Run = { world, rng, omniscient: false, label: `doubted door ${n}`, tier: 'fixture', probe, stealth: true };
+    began(run, state);
     const door = [{ x: wx, y: doorY }, { x: wx + 1, y: doorY }] as const, statuses: DoorStatus[] = lock === 'none' ? ['open', 'closed'] : ['open', 'locked'];
     for (let round = 0; round < 3 && !state.bank.alarm; round++) {
         for (const id of state.crew.map(c => c.id)) {
@@ -1136,8 +1151,8 @@ function takeoverGame(probe: Probe, n: number): void {
     };
     const exit = { x: 13, y: 9 };
     taken.add('13,9');
-    // Two shelves to hide behind (M2-02).
-    const map = ['..............', '..............', '..........T...', '..........T...', '..............', '..............', '...TT.........', '..............', '..............', '..............'];
+    // Shelves to hide behind, and a bay behind a row of them, open at its top (M2-02).
+    const map = ['..............', '..........T...', '..........T...', '..........T...', '..........T...', '..........T...', '...TT.....T...', '..............', '..............', '..............'];
     map.forEach((row, y) => [...row].forEach((c, x) => { if (c === 'T') taken.add(`${x},${y}`); }));
     const people: PersonDef[] = [];
     // M2-02: an off-duty cop, a hero and a passer-by among them.
@@ -1154,23 +1169,30 @@ function takeoverGame(probe: Probe, n: number): void {
     });
     const world = fixtureWorld(map, { people });
     const weapons = ['pistol', 'shotgun', 'lmg', 'smg'];
+    // In half the games c1 starts beside the hero and stays there, so tackles happen (M2-02).
+    const hero = people.find(p => p.hero)!, beside = { x: hero.pos.x + (hero.pos.x < 13 ? 1 : -1), y: hero.pos.y };
+    const anchored = !taken.has(`${beside.x},${beside.y}`) && rng.chance(0.5);
+    const c1 = anchored ? (taken.add(`${beside.x},${beside.y}`), beside) : free();
     let state = omniscient(world, initialState(world, { seed: n, crew: [
         { id: 'c0', pos: free(), items: [rng.pick(weapons)], ...(rng.chance(0.3) ? { traits: ['intimidating'] } : {}) },
-        { id: 'c1', pos: free(), items: [rng.pick(weapons)] }
+        { id: 'c1', pos: c1, items: [rng.pick(weapons)] }
     ] }));
     const run: Run = { world, rng, omniscient: true, label: `takeover ${n}`, tier: 'fixture', probe };
+    began(run, state);
     for (let turn = 0; turn < 6 && !state.bank.alarm; turn++) {
         if (rng.chance(0.25) && !state.bank.loud) state = commit(world, state, { type: 'go', crew: 'c0' }).state;
+        // A hero about to tackle someone is mostly let be, so the tackle happens (M2-02).
+        const tackling = state.npcs.some(x => x.intent.action?.kind === 'tackle') && rng.chance(0.8);
         for (const id of ['c0', 'c1']) {
             let member = state.crew.find(c => c.id === id)!;
-            if (rng.chance(0.6) && member.actionsLeft > 0) {
+            if (!tackling && !(anchored && id === 'c1') && rng.chance(0.6) && member.actionsLeft > 0) {
                 const reach = reachable(world, state, member.pos, crewBudget(world, member, 'move'), crewMoveOptions(member));
                 const ends = reach.tiles.filter(t => t.canEnd && t.cost > 0);
                 const path = ends.length ? pathTo(reach, rng.pick(ends).pos) : undefined;
                 if (path?.length) state = commit(world, state, { type: 'move', crew: id, path }).state;
             }
             member = state.crew.find(c => c.id === id)!;
-            if (member.actionsLeft > 0) {
+            if (member.actionsLeft > 0 && !tackling) {
                 const r = commit(world, state, { type: 'command', crew: id });
                 probe.bump('commands');
                 checkCommand(run, state, id, r);
@@ -1208,12 +1230,12 @@ describe('previews (property, §8.8)', () => {
         if (VERBOSE) console.log(JSON.stringify(probe.stats, null, 1));
         expect(probe.failures).toEqual([]);
         // Every outcome of the rings, and holds that keep and that don't.
-        for (const k of ['command command complies', 'command command resists', 'command panic alerted', 'command panic panics', 'commanded held', 'commanded not held', 'panicked']) {
+        for (const k of ['command command complies', 'command command resists', 'command panic alerted', 'command panic panics', 'commanded held', 'commanded not held']) {
             expect(probe.stats[k] ?? 0, k).toBeGreaterThan(5);
         }
         for (const k of ['command zipTie', 'command escort']) expect(probe.stats[k] ?? 0, k).toBeGreaterThan(5);
         // M2-02: every panic reaction, and each telegraphed act it leads to (checked by `checkTelegraphs`).
-        for (const k of ['panic reaction cower', 'panic reaction flee', 'panic reaction hide', 'panic reaction reach', 'telegraphed draw', 'telegraphed escape']) {
+        for (const k of ['panic reaction cower', 'panic reaction flee', 'panic reaction hide', 'panic reaction reach', 'panicked', 'telegraphed draw', 'telegraphed escape', 'telegraphed tackle', 'telegraphed call']) {
             expect(probe.stats[k] ?? 0, k).toBeGreaterThan(0);
         }
         // A guard whose command lapsed reaches for his weapon and ignores the next one.
@@ -1233,6 +1255,7 @@ describe('previews (property, §8.8)', () => {
                 if (rng.chance(0.08)) npc.status = 'commanded';
             }
             const run: Run = { world, rng, omniscient: w % 2 === 0, label: `fixture ${w}`, tier: 'fixture', probe };
+            began(run, state);
             play(run, state, FIXTURE_TURNS, true);
         }
         for (let n = 0; n < DOOR_RUNS; n++, seeds++) playDoorCuts(probe, rng, n);
