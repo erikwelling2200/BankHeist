@@ -19,10 +19,10 @@ import { insetLoops, sideRuns, withoutHoles, type Corner, type Side } from './co
  *   safe floor (§8.8) in it: each tile filled with its tint (scanlines on Move's tiles, a sparser dotted fill on those
  *   only a Dash reaches; hatched when the coming world phase does it) and a glyph for what it warns of (pips, a hand,
  *   an eye, a camera, `?`), and the band edges over them (Move's solid steel blue, Dash's dashed gold), so both read
- *   at once; before the floor arrives a band is filled steel blue or hatched gold; an NPC's cones on long-press (scanlines and a solid edge for the core, a
- *   dotted edge for the peripheral band, red when Alerted); the known cameras' cones (vertical scanlines and a dashed
- *   edge: red on the operator's monitors, amber when live or unknown, grey and faint while looped; a panning camera's
- *   next facing dotted); a previewed noise's ring (dotted, faint fill); a moment's flashes (a guard's shout ring, the
+ *   at once; before the floor arrives a band is filled steel blue or hatched gold; an NPC's cones on long-press and the
+ *   known cameras' (`drawViews`: exactly the tiles seen, outlined inset with rounded corners in pale white over ink, a
+ *   faint fade; stronger when Alerted or on the operator's monitors, grey while looped, cameras dashed, a panning
+ *   camera's next facing dotted), under the band edges; a previewed noise's ring (dotted, faint fill); a moment's flashes (a guard's shout ring, the
  *   Alarm's rings).
  * - **Paths:** NPC intents (a dotted hairline, an open chevron and a pin where the walk ends; fainter when predicted);
  *   predicted markers (a dashed footprint); the previewed or dragged path, each step tinted by its safety (the floor
@@ -41,6 +41,9 @@ function cameraPlate(cam: CameraVM): PlateVM {
     return cam.monitored ? { glyph: 'camera', signal: 'red', sym: '!' } : { glyph: 'camera', signal: 'amber' };
 }
 
+/** A view to draw (`drawViews`): who looks from where, the tiles they see, the edge's colour and line, and a fade. */
+interface View { from: Pos; tiles: Pos[]; colour: string; line: 'solid' | 'dashed' | 'dotted'; wash: boolean }
+
 /** UI pixels per art pixel. */
 const UI_SCALE = 2;
 
@@ -54,6 +57,9 @@ const UI_SCALE = 2;
 export const OVERLAY_V2 = typeof location !== 'undefined' && new URLSearchParams(location.search).get('overlay') === 'v2';
 /** v2's noise ring: a colour no other layer uses, inset in the tiles so it never sits on a band's edge (UI pixels). */
 const NOISE = '#c49cff';
+/** The cones' edge: a pale white no other layer uses (the bands are gold and steel blue, the safety tints their own). */
+const VIEW = '#eef0f6';
+const VIEW_INSET = 5, VIEW_RADIUS = 7;
 const NOISE_INSET = 5, NOISE_RADIUS = 7;
 
 export interface OverlayContent {
@@ -114,6 +120,8 @@ export interface OverlayContent {
     explain?: ExplainVM;
     /** The colour-blind preset (UI.md "Signal palette"). */
     colourBlind?: boolean;
+    /** The selected crew member's own tile: what ending the turn there does, drawn round them and as a plate over the head. */
+    stay?: FloorTileVM;
     /** v2: draw only the cones (NPCs' and cameras') that meet the reach or the drawn path. */
     coneFilter?: boolean;
 }
@@ -352,6 +360,8 @@ export class WorldOverlay {
             ctx.setLineDash([]);
         };
 
+        // The band edges, and the default overlay's floor glyphs, wait for the cones: those go over the fills, under them.
+        let overCones = () => {};
         if (c.reach) {
             // The mover's own tile counts as inside, so the edge doesn't box them in.
             // Tiles with someone lying on them (a dragged body) keep their edge but no tint, so the body shows.
@@ -365,8 +375,10 @@ export class WorldOverlay {
                 if (c.safeFloor?.length) this.drawSafeFloor(c.safeFloor.filter(t => !bare(t.pos.x, t.pos.y)), pal, left, top, S, c.floorDim ? 0.5 : 1, false);
                 // Each band's outer edge only: small holes in it (furniture, someone standing) read by having no fill.
                 const all = [...move, ...dash, ...(at ? [at] : [])], moved = at ? [...move, at] : move;
-                this.strokeRuns(sideRuns(dash, withoutHoles(all, inAll)), RUN_EDGE, 2, [6, 4], ox, oy);
-                this.strokeRuns(sideRuns(moved, withoutHoles(moved, inMove)), WALK_EDGE, 2, [], ox, oy);
+                overCones = () => {
+                    this.strokeRuns(sideRuns(dash, withoutHoles(all, inAll)), RUN_EDGE, 2, [6, 4], ox, oy);
+                    this.strokeRuns(sideRuns(moved, withoutHoles(moved, inMove)), WALK_EDGE, 2, [], ox, oy);
+                };
             } else {
                 ctx.fillStyle = RUN;
                 for (const p of filled(dash)) ctx.fillRect(left(p), top(p), S, S);
@@ -375,13 +387,15 @@ export class WorldOverlay {
                 for (const p of filled(dash)) ctx.fillRect(left(p), top(p), S, S);
                 ctx.fillStyle = WALK;
                 for (const p of filled(move)) ctx.fillRect(left(p), top(p), S, S);
-                if (c.safeFloor?.length) {
-                    const tiles = c.safeFloor.filter(t => !bare(t.pos.x, t.pos.y));
-                    this.drawSafeFloor(tiles, pal, left, top, S, c.floorDim ? 0.45 : 1, !c.floorDim);
-                }
-                // The range's outer edge, dashed gold; then Move's edge, solid steel blue: where a step costs a second action.
-                stroke(dash, inAll, RUN_EDGE, 2, [6, 4]);
-                stroke(move, inMove, WALK_EDGE, 2, []);
+                const tiles = (c.safeFloor ?? []).filter(t => !bare(t.pos.x, t.pos.y));
+                this.drawSafeFloor(tiles, pal, left, top, S, c.floorDim ? 0.45 : 1, false);
+                overCones = () => {
+                    // The range's outer edge, dashed gold; then Move's edge, solid steel blue: where a step costs a second
+                    // action; the glyphs over them, but while a path leads.
+                    stroke(dash, inAll, RUN_EDGE, 2, [6, 4]);
+                    stroke(move, inMove, WALK_EDGE, 2, []);
+                    if (!c.floorDim) for (const t of tiles) this.drawGlyph(t, left(t.pos), top(t.pos), S, this.tintColour(t.kind, pal));
+                };
             }
         }
 
@@ -391,48 +405,23 @@ export class WorldOverlay {
             : c.safeFloor?.length ? c.safeFloor.filter(t => t.kind !== 'safe').map(t => t.pos) : [...(c.reach?.move ?? []), ...(c.reach?.dash ?? [])];
         const near = has(risky);
         const relevant = (tiles: Pos[]) => !c.coneFilter || tiles.some(p => near(p.x, p.y));
-        if (OVERLAY_V2) {
-            // Cones as a faint wedge each, no fill (the floor's tint says what being seen there means), cut to the tiles
-            // seen, so it reads as a view and not as another band; red when Alerted.
-            for (const cone of c.cones ?? []) {
-                const all = [...cone.core, ...cone.peripheral];
-                if (relevant(all)) this.strokeWedge(cone.from, all, alpha(cone.alerted ? pal.red : pal.amber, 0.65), [], left, top, mid, S);
-            }
-            // Cameras the same, dashed; grey while looped, red on the monitors; a panning camera's next facing dotted.
-            for (const cam of c.cameras ?? []) {
-                const all = [...cam.core, ...cam.peripheral];
-                if (!all.length || !relevant([...all, ...(cam.next ?? [])])) continue;
-                const looped = cam.loopLeft !== undefined, colour = looped ? '#807e88' : cam.monitored ? pal.red : pal.amber;
-                this.strokeWedge(cam.pos, all, alpha(colour, looped ? 0.4 : 0.7), [5, 3], left, top, mid, S);
-                if (cam.next?.length) this.strokeWedge(cam.pos, cam.next, alpha(colour, 0.4), [1, 3], left, top, mid, S);
-            }
+        // Cones, NPCs' and cameras' (v2: only those `relevant`): the tiles seen, outlined inset in pale white, no colour
+        // any other layer uses, stronger when Alerted or on the operator's monitors; cameras dashed, grey and fainter
+        // while looped; a panning camera's next facing dotted.
+        const views: View[] = [];
+        for (const cone of c.cones ?? []) {
+            const all = [...cone.core, ...cone.peripheral];
+            if (relevant(all)) views.push({ from: cone.from, tiles: all, colour: alpha(VIEW, cone.alerted ? 0.9 : 0.65), line: 'solid', wash: true });
         }
-
-        // Cones: the core in scanlines with a solid edge, the peripheral band fainter with a dotted edge; red when Alerted.
-        for (const cone of OVERLAY_V2 ? [] : c.cones ?? []) {
-            const colour = cone.alerted ? pal.red : pal.amber, all = [...cone.core, ...cone.peripheral];
-            ctx.fillStyle = alpha(colour, 0.22);
-            for (const p of cone.core) for (let k = 0; k < S; k += 2) ctx.fillRect(left(p), top(p) + k, S, 1);
-            ctx.fillStyle = alpha(colour, 0.1);
-            for (const p of cone.peripheral) for (let k = 0; k < S; k += 4) ctx.fillRect(left(p), top(p) + k, S, 1);
-            const from = [cone.from];
-            stroke(all, has([...all, ...from]), alpha(colour, 0.9), 1, [2, 2]);
-            stroke(cone.core, has([...cone.core, ...from]), colour, 2, []);
-        }
-
-        // Cameras: vertical scanlines (NPC cones run across), a dashed edge; red when the operator watches its feed now,
-        // amber when live or its feed status is unknown (it counts as live, §8.8), grey while looped.
-        for (const cam of OVERLAY_V2 ? [] : c.cameras ?? []) {
+        for (const cam of c.cameras ?? []) {
             const all = [...cam.core, ...cam.peripheral];
-            if (!all.length) continue;
-            const looped = cam.loopLeft !== undefined, colour = looped ? '#807e88' : cam.monitored ? pal.red : pal.amber, from = [cam.pos];
-            ctx.fillStyle = alpha(colour, looped ? 0.1 : 0.2);
-            for (const p of cam.core) for (let k = 0; k < S; k += 3) ctx.fillRect(left(p) + k, top(p), 1, S);
-            ctx.fillStyle = alpha(colour, looped ? 0.06 : 0.1);
-            for (const p of cam.peripheral) for (let k = 0; k < S; k += 6) ctx.fillRect(left(p) + k, top(p), 1, S);
-            stroke(all, has([...all, ...from]), alpha(colour, looped ? 0.45 : 0.9), looped ? 1 : 2, [5, 3]);
-            if (cam.next?.length) stroke(cam.next, has([...cam.next, ...from]), alpha(colour, 0.55), 1, [1, 3]);
+            if (!all.length || !relevant([...all, ...(cam.next ?? [])])) continue;
+            const looped = cam.loopLeft !== undefined, colour = looped ? alpha('#a8a6b0', 0.45) : alpha(VIEW, cam.monitored ? 0.9 : 0.65);
+            views.push({ from: cam.pos, tiles: all, colour, line: 'dashed', wash: !looped });
+            if (cam.next?.length) views.push({ from: cam.pos, tiles: cam.next, colour: alpha(VIEW, 0.4), line: 'dotted', wash: false });
         }
+        this.drawViews(views, mid, S, ox, oy);
+        overCones();
 
         for (const f of c.flashes ?? []) {
             if (f.tiles?.length) {
@@ -554,7 +543,10 @@ export class WorldOverlay {
             }
         };
         // v2 draws them after the floor's glyphs, so nothing on the floor covers a plate.
-        if (!OVERLAY_V2) overHeads();
+        if (!OVERLAY_V2) {
+            overHeads();
+            if (c.stay) this.drawStay(c.stay, left, top, mid, S, pal);
+        }
 
         for (const r of c.routes ?? []) this.drawRoute(r, mid, pal);
 
@@ -612,43 +604,82 @@ export class WorldOverlay {
             const tiles = c.reach ? (c.safeFloor ?? []).filter(t => !bare(t.pos.x, t.pos.y) && !steps(t.pos.x, t.pos.y) && !(end && t.pos.x === end.pos.x && t.pos.y === end.pos.y)) : [];
             for (const t of end ? [...tiles, end] : tiles) this.drawGlyph(t, left(t.pos), top(t.pos), S, this.tintColour(t.kind, pal));
             overHeads();
+            if (c.stay) this.drawStay(c.stay, left, top, mid, S, pal);
         }
 
         if (c.explain) this.drawExplain(c.explain, left, top, mid, S, pal);
     }
 
     /**
-     * v2: a view's wedge from `from` over `tiles` (its rays at the widest angles they span, its arc at the furthest), over
-     * a faint ink shadow, drawn only within those tiles, so walls and furniture cut it as they cut the view.
+     * The crew member's own tile (UI.md "Safe floor"): what ending the turn there does, readable with them standing on
+     * it. A band of the tint round the tile's edge (the person stays clear; hatched when the coming world phase does it,
+     * grey hatched for unknown risk), and, for a warning, its plate over their head: the eye with the pips, the hand,
+     * the eye or camera with `!`, `?` for unknown risk.
      */
-    private strokeWedge(from: Pos, tiles: readonly Pos[], colour: string, dash: number[], left: (p: Pos) => number, top: (p: Pos) => number, mid: (p: Pos) => [number, number], S: number): void {
-        if (!tiles.length) return;
-        const ctx = this.ctx, [cx, cy] = mid(from);
-        // Each tile's bearing about the mean one (so the wedge never wraps past behind), widened by half a tile.
-        const bearings = tiles.map(p => Math.atan2(p.y - from.y, p.x - from.x)), dist = tiles.map(p => Math.hypot(p.x - from.x, p.y - from.y));
-        const mean = Math.atan2(bearings.reduce((n, a) => n + Math.sin(a), 0), bearings.reduce((n, a) => n + Math.cos(a), 0));
-        const rel = bearings.map(a => Math.atan2(Math.sin(a - mean), Math.cos(a - mean)));
-        const pad = (i: number) => Math.atan2(0.5, Math.max(0.5, dist[i]!));
-        const lo = Math.min(...rel.map((a, i) => a - pad(i))), hi = Math.max(...rel.map((a, i) => a + pad(i)));
-        const r = (Math.max(...dist) + 0.5) * S, full = hi - lo > Math.PI * 1.7;
-        ctx.save();
+    private drawStay(t: FloorTileVM, left: (p: Pos) => number, top: (p: Pos) => number, mid: (p: Pos) => [number, number], S: number, pal: Record<Signal, string>): void {
+        const ctx = this.ctx, x = left(t.pos), y = top(t.pos), colour = this.tintColour(t.kind, pal), B = 5;
+        const hatched = t.hatched || t.kind === 'unknownRisk' || t.doorRisk;
         ctx.beginPath();
-        for (const p of [...tiles, from]) ctx.rect(left(p), top(p), S, S);
-        ctx.clip();
-        ctx.lineWidth = 2;
-        ctx.setLineDash(dash.map(d => d * 2));
-        for (const [style, dy] of [['rgba(13, 12, 20, 0.6)', 2], [colour, 0]] as const) {
-            ctx.strokeStyle = style;
-            ctx.beginPath();
-            if (full) ctx.arc(cx, cy + dy, r, 0, Math.PI * 2);
-            else {
-                ctx.moveTo(cx, cy + dy);
-                ctx.arc(cx, cy + dy, r, mean + lo, mean + hi);
-                ctx.closePath();
-            }
-            ctx.stroke();
+        ctx.rect(x, y, S, S);
+        ctx.rect(x + B, y + B, S - 2 * B, S - 2 * B);
+        ctx.fillStyle = alpha(colour, hatched ? 0.3 : 0.6);
+        ctx.fill('evenodd');
+        if (hatched) {
+            ctx.fillStyle = this.pattern('duo', alpha(t.doorRisk && t.kind !== 'unknownRisk' ? GREY : colour, 0.95), 'rgba(13, 12, 20, 0.85)');
+            ctx.fill('evenodd');
         }
-        ctx.restore();
+        ctx.lineWidth = 1;
+        ctx.strokeStyle = alpha(colour, 0.95);
+        ctx.strokeRect(x + 0.5, y + 0.5, S - 1, S - 1);
+        ctx.strokeRect(x + B - 0.5, y + B - 0.5, S - 2 * B + 1, S - 2 * B + 1);
+        const plate: PlateVM | undefined = t.kind === 'amber' ? { glyph: 'eye', signal: 'amber', count: Math.max(1, t.pips) }
+            : t.kind === 'trespass' ? { glyph: 'hand', signal: 'amber' }
+            : t.kind === 'red' ? { glyph: 'eye', signal: 'red', sym: '!' }
+            : t.kind === 'camera' ? { glyph: 'camera', signal: 'red', sym: '!' }
+            : t.kind === 'unknownRisk' ? { glyph: 'eye', signal: 'cream', sym: '?' } : undefined;
+        if (!plate) return;
+        const px = Math.round(mid(t.pos)[0]), py = Math.round(y) - HEAD - 2;
+        this.drawPlates([plate], px, py, pal);
+        // The coming world phase's: a hatched strip under the plate, the floor's pattern for "next phase".
+        if (hatched) {
+            ctx.fillStyle = this.pattern('duo', alpha(colour, 0.95), 'rgba(13, 12, 20, 0.85)');
+            ctx.fillRect(px - 10, py + 1, 20, 4);
+        }
+    }
+
+    /**
+     * Views (cones): each exactly the tiles its watcher sees (the rules' own field, `ConeVM`/`CameraVM`, and the tile
+     * they stand on, so it closes round them), as a closed outline inset in those tiles with rounded corners like the
+     * noise ring: it never sits on a band's edge or a tile's, and a tile is inside it exactly when it is seen. A faint
+     * fade from the watcher outwards (8% to nothing at the furthest tile), then a thin edge over a dark under-stroke,
+     * thinner than the band edges, which are drawn over it.
+     */
+    private drawViews(views: readonly View[], mid: (p: Pos) => [number, number], S: number, ox: number, oy: number): void {
+        const ctx = this.ctx, px = (p: Corner): [number, number] => [(p.x * TILE - ox) * UI_SCALE, (p.y * TILE - this.lift(p.tile.x, p.tile.y) - oy) * UI_SCALE];
+        for (const v of views) {
+            if (!v.tiles.length) continue;
+            const all = [...v.tiles, v.from], seen = new Set(all.map(p => `${p.x},${p.y}`));
+            const loops = insetLoops(all, (x, y) => seen.has(`${x},${y}`), VIEW_INSET / S);
+            if (!loops.length) continue;
+            this.loopPath(loops, VIEW_RADIUS, px);
+            if (v.wash) {
+                const [cx, cy] = mid(v.from), range = Math.max(...v.tiles.map(p => Math.hypot(p.x - v.from.x, p.y - v.from.y))) + 0.5;
+                const fade = ctx.createRadialGradient(cx, cy, 0, cx, cy, range * S);
+                fade.addColorStop(0, alpha(VIEW, 0.08));
+                fade.addColorStop(1, alpha(VIEW, 0));
+                ctx.fillStyle = fade;
+                // Even-odd, so a hole (a tile not seen inside the view) stays unwashed.
+                ctx.fill('evenodd');
+            }
+            ctx.setLineDash(v.line === 'dashed' ? [6, 4] : v.line === 'dotted' ? [2, 4] : []);
+            ctx.lineWidth = 3.5;
+            ctx.strokeStyle = 'rgba(13, 12, 20, 0.55)';
+            ctx.stroke();
+            ctx.lineWidth = 1.5;
+            ctx.strokeStyle = v.colour;
+            ctx.stroke();
+            ctx.setLineDash([]);
+        }
     }
 
     /** v2: chained sides (`sideRuns`) stroked over a 1px ink drop shadow, each side at its own tile's lift. */
@@ -681,27 +712,33 @@ export class WorldOverlay {
         const shadow = width > 1 ? [INK, 2] as const : ['rgba(13, 12, 20, 0.5)', 1] as const;
         for (const [style, dy] of [shadow, [colour, 0] as const]) {
             ctx.strokeStyle = style;
-            ctx.beginPath();
-            for (const loop of loops) {
-                const pts = loop.map(px), n = pts.length;
-                if (!radius) {
-                    pts.forEach(([x, y], i) => (i ? ctx.lineTo(x, y + dy) : ctx.moveTo(x, y + dy)));
-                    ctx.closePath();
-                    continue;
-                }
-                // From the middle of the last side, each corner rounded (no wider than half its shorter side).
-                const [lx, ly] = pts[n - 1]!, [fx, fy] = pts[0]!;
-                ctx.moveTo((lx + fx) / 2, (ly + fy) / 2 + dy);
-                pts.forEach(([x, y], i) => {
-                    const [ax, ay] = pts[(i + n - 1) % n]!, [bx, by] = pts[(i + 1) % n]!;
-                    const r = Math.min(radius, Math.hypot(x - ax, y - ay) / 2, Math.hypot(bx - x, by - y) / 2);
-                    ctx.arcTo(x, y + dy, bx, by + dy, r);
-                });
-                ctx.closePath();
-            }
+            this.loopPath(loops, radius, px, dy);
             ctx.stroke();
         }
         ctx.setLineDash([]);
+    }
+
+    /** Closed loops' corners (`px` places them) as the current path, `dy` lower, each corner rounded by `radius`. */
+    private loopPath(loops: Corner[][], radius: number, px: (p: Corner) => [number, number], dy = 0): void {
+        const ctx = this.ctx;
+        ctx.beginPath();
+        for (const loop of loops) {
+            const pts = loop.map(px), n = pts.length;
+            if (!radius) {
+                pts.forEach(([x, y], i) => (i ? ctx.lineTo(x, y + dy) : ctx.moveTo(x, y + dy)));
+                ctx.closePath();
+                continue;
+            }
+            // From the middle of the last side, each corner rounded (no wider than half its shorter side).
+            const [lx, ly] = pts[n - 1]!, [fx, fy] = pts[0]!;
+            ctx.moveTo((lx + fx) / 2, (ly + fy) / 2 + dy);
+            pts.forEach(([x, y], i) => {
+                const [ax, ay] = pts[(i + n - 1) % n]!, [bx, by] = pts[(i + 1) % n]!;
+                const r = Math.min(radius, Math.hypot(x - ax, y - ay) / 2, Math.hypot(bx - x, by - y) / 2);
+                ctx.arcTo(x, y + dy, bx, by + dy, r);
+            });
+            ctx.closePath();
+        }
     }
 
     /**

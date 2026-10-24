@@ -234,6 +234,15 @@ export function floorTiles(floor: { readonly tiles: readonly SafeFloor['tiles'][
     return floor.tiles.flatMap(t => (t.band === 'stay' ? [] : [tintVM(t.pos, t.band, t.tint)]));
 }
 
+/**
+ * The crew member's own tile (`stay`): what ending the turn there does, as a floor tile (band `move`, which it is not;
+ * the overlay draws it round the person instead of under them), or undefined before it is judged.
+ */
+export function stayTile(floor: { readonly tiles: readonly SafeFloor['tiles'][number][] }): FloorTileVM | undefined {
+    const t = floor.tiles.find(x => x.band === 'stay');
+    return t && tintVM(t.pos, 'move', t.tint);
+}
+
 /** One step of a drawn path, tinted (§8.8 "along the whole drawn path"); `doorRisk` as on `FloorTileVM`. */
 export interface PathStepVM { pos: Pos; kind: TintKind; hatched: boolean; doorRisk: boolean }
 

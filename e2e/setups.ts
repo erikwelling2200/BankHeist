@@ -199,6 +199,73 @@ const NEAR_LOBBY_GUARD = `(() => { ${PAGE_HELPERS}
     return null;
 })()`;
 
+/** Mara in the lobby south of the guard, who faces east over the queue, the crew knowing who stands round her. */
+const GUARD_FACING_QUEUE = `(() => { ${PAGE_HELPERS}
+    const base = clone(sim.state), guard = base.npcs.find(n => n.status !== 'away' && /lobbyGuard/.test(w.people.find(p => p.id === n.id).role));
+    if (!guard) return null;
+    guard.facing = 'e';
+    for (const d of [{ x: 3, y: 3 }, { x: 2, y: 3 }, { x: 4, y: 3 }, { x: 3, y: 2 }]) {
+        const st = clone(base), p = { x: guard.pos.x + d.x, y: guard.pos.y + d.y };
+        if (!free(st, p)) continue;
+        st.crew[0].pos = p;
+        for (const n of st.npcs) if (n.status !== 'away' && Math.max(Math.abs(n.pos.x - p.x), Math.abs(n.pos.y - p.y)) <= 9) know(st, n);
+        return { state: st, info: { at: p, guardAt: guard.pos } };
+    }
+    return null;
+})()`;
+
+/** Mara selected with a Move previewed north across the guard's view (`GUARD_FACING_QUEUE`); `all` turns on every cone. */
+const acrossGuard = (all: boolean) => async (page: Page, info: { at: { x: number; y: number }; guardAt: { x: number; y: number } }) => {
+    if (all) {
+        await page.locator('[data-region="drawer-button"]').click();
+        await page.locator('[data-overlay="cones"]').click();
+        await page.locator('[data-region="drawer-button"]').click();
+    }
+    await selectMara(page);
+    await settle(page);
+    const to = await page.evaluate(([at, g]: [{ x: number; y: number }, { x: number; y: number }]) => {
+        const tiles = (window as any).sim.safeFloor('mara').tiles.filter((t: any) => t.band === 'move' && t.pos.y < g.y && Math.abs(t.pos.x - at.x) <= 1);
+        return tiles.sort((a: any, b: any) => a.pos.y - b.pos.y)[0]?.pos;
+    }, [info.at, info.guardAt] as [{ x: number; y: number }, { x: number; y: number }]);
+    if (to) await tapTile(page, to);
+};
+
+/** The queue's last customer facing south, Mara a few tiles south-east of her in the lobby, every cone shown. */
+const CUSTOMER_FACING_SOUTH = `(() => { ${PAGE_HELPERS}
+    const base = clone(sim.state), queue = base.npcs.filter(n => n.status !== 'away' && /customer/.test(w.people.find(p => p.id === n.id).role));
+    if (!queue.length) return null;
+    const c = queue.sort((a, b) => b.pos.y - a.pos.y)[0];
+    c.facing = 's';
+    for (const d of [{ x: 3, y: 4 }, { x: 4, y: 4 }, { x: 3, y: 5 }, { x: 2, y: 4 }]) {
+        const st = clone(base), p = { x: c.pos.x + d.x, y: c.pos.y + d.y };
+        if (!free(st, p)) continue;
+        st.crew[0].pos = p;
+        for (const n of st.npcs) if (n.status !== 'away' && Math.max(Math.abs(n.pos.x - p.x), Math.abs(n.pos.y - p.y)) <= 9) know(st, n);
+        return { state: st, info: { at: p, customer: c.id } };
+    }
+    return null;
+})()`;
+
+/** Mara selected with every cone shown and a Move previewed across (or along) the customer's cone's edge. */
+const byCustomerCone = (cross: boolean) => async (page: Page, info: { customer: string }) => {
+    await page.locator('[data-region="drawer-button"]').click();
+    await page.locator('[data-overlay="cones"]').click();
+    await page.locator('[data-region="drawer-button"]').click();
+    await selectMara(page);
+    await settle(page);
+    const to = await page.evaluate(([id, cross]: [string, boolean]) => {
+        const cone = (window as any).game.scene.getScene('bank').play.overlay.content.cones.find((k: any) => k.id === id);
+        const seen = new Set([...cone.core, ...cone.peripheral].map((p: any) => `${p.x},${p.y}`)), inCone = (p: any) => seen.has(`${p.x},${p.y}`);
+        const near = (p: any) => [[1, 0], [-1, 0], [0, 1], [0, -1]].some(([dx, dy]) => seen.has(`${p.x + dx!},${p.y + dy!}`));
+        const tiles = (window as any).sim.safeFloor('mara').tiles.filter((t: any) => t.band !== 'stay' && t.path.length >= 2);
+        const score = (t: any) => cross ? (t.path.some(inCone) && !inCone(t.pos) ? t.path.filter(inCone).length * 10 + t.path.length : -1)
+            : (!t.path.some(inCone) ? t.path.filter(near).length * 10 + t.path.length : -1);
+        const best = tiles.sort((a: any, b: any) => score(b) - score(a))[0];
+        return best && score(best) >= 0 ? best.pos : undefined;
+    }, [info.customer, cross] as [string, boolean]);
+    if (to) await tapTile(page, to);
+};
+
 export const SETUPS: Record<string, Setup> = {
     'mara-selected': {
         about: 'Mara selected at the van as the heist starts (nothing shows: Clean in Public)',
@@ -301,6 +368,52 @@ export const SETUPS: Record<string, Setup> = {
             await selectJun(page);
             await settle(page);
         }
+    },
+    'stay-pip': {
+        about: 'Jun dashed past the queue last turn: the guard comes to look, so staying put gains a pip (his own tile says so)',
+        script: JUN_BY_QUEUE,
+        then: async (page, info: { queueX: number; queueY: number }) => {
+            await page.evaluate(([qx, qy]: [number, number]) => {
+                const sim = (window as any).sim, tiles = sim.safeFloor('jun').tiles.filter((t: any) => t.band === 'dash');
+                const d = (t: any) => Math.abs(t.pos.x - (qx - 3)) + 2 * Math.abs(t.pos.y - qy);
+                const to = tiles.sort((a: any, b: any) => d(a) - d(b))[0];
+                sim.commit({ type: 'dash', crew: 'jun', path: to.path });
+                sim.endTurn();
+            }, [info.queueX, info.queueY] as [number, number]);
+            await page.waitForFunction(() => !(window as any).game.scene.getScene('bank').debugState.play.playing);
+            await selectJun(page);
+            await settle(page);
+        }
+    },
+    'stay-pip-path': {
+        about: 'stay-pip with a Move previewed away from the tile',
+        script: JUN_BY_QUEUE,
+        then: async (page, info: { queueX: number; queueY: number }) => {
+            await SETUPS['stay-pip']!.then!(page, info);
+            const to = await page.evaluate(() => (window as any).sim.safeFloor('jun').tiles
+                .filter((t: any) => t.band === 'move' && t.path.length === 3).sort((a: any, b: any) => b.pos.y - a.pos.y)[0]?.pos);
+            if (to) await tapTile(page, to);
+        }
+    },
+    'guard-cone-path': {
+        about: 'Mara selected south of the lobby guard (facing the queue) with a Move previewed north across his view',
+        script: GUARD_FACING_QUEUE,
+        then: acrossGuard(false)
+    },
+    'guard-cone-path-all': {
+        about: 'guard-cone-path with every cone shown (the Cones overlay on)',
+        script: GUARD_FACING_QUEUE,
+        then: acrossGuard(true)
+    },
+    'customer-cone-cross': {
+        about: 'a customer facing south in the lobby, every cone shown, a Move by Mara previewed across the edge of her cone',
+        script: CUSTOMER_FACING_SOUTH,
+        then: byCustomerCone(true)
+    },
+    'customer-cone-skirt': {
+        about: 'customer-cone-cross with the Move previewed along the cone, just outside it',
+        script: CUSTOMER_FACING_SOUTH,
+        then: byCustomerCone(false)
     },
     'safe-floor': {
         about: 'Mara two tiles from an NPC with the bank scouted round her, her Move band showing the most kinds of tile',

@@ -1,6 +1,6 @@
 import Phaser from 'phaser';
 import {
-    cameraViews, explainView, floorTiles, npcBadges, npcCone, npcDrawnOn, npcSprites, pathView, unhiddenRuns, unhiddenTiles, previewHearers, previewNoise, previewWitnesses, type CameraVM, type ConeVM, type ExplainVM, type FloorTileVM,
+    cameraViews, explainView, floorTiles, npcBadges, npcCone, npcDrawnOn, npcSprites, pathView, unhiddenRuns, unhiddenTiles, previewHearers, previewNoise, previewWitnesses, stayTile, type CameraVM, type ConeVM, type ExplainVM, type FloorTileVM,
     type PathVM
 } from '../../game/worldUi';
 import {
@@ -156,7 +156,7 @@ export class PlayMode {
      * later (judging a dash NPCs hear works out their reactions), with how long each took (ms).
      */
     private floorFor?: {
-        state: State; id: string; job: FloorJob; shown: number; tiles: FloorTileVM[]; dash: boolean;
+        state: State; id: string; job: FloorJob; shown: number; tiles: FloorTileVM[]; stay?: FloorTileVM; dash: boolean;
         /** The Move band's time, the Dash band's over all its slices, the dearest slice and how many there were. */
         ms: { move: number; dash: number; slice: number; slices: number };
     };
@@ -1140,9 +1140,11 @@ export class PlayMode {
         // A long-pressed NPC's cones are the question being asked: the range steps aside for them.
         const range = member.actionsLeft > 0 && !this.coneOf ? this.range(member) : undefined;
         const bodies = this.session.state.crew.filter(c => c.dragging !== null).map(c => this.trailOf(c));
-        const floor = range ? this.floor(member) : undefined;
+        // The floor is judged whenever someone is selected: their own tile (what ending the turn there does) shows even
+        // with no actions left or the range stepped aside.
+        const judged = this.floor(member), floor = range ? judged : undefined, stay = this.floorFor?.stay;
         const base = {
-            colour, intents, ...layer, ...(range ? { reach: { move: unhiddenTiles(this.known(), range.walk), dash: unhiddenTiles(this.known(), range.run), at: member.pos, unfilled: bodies } } : {}),
+            colour, intents, ...layer, ...(stay ? { stay } : {}), ...(range ? { reach: { move: unhiddenTiles(this.known(), range.walk), dash: unhiddenTiles(this.known(), range.run), at: member.pos, unfilled: bodies } } : {}),
             ...(floor ? { safeFloor: floor } : {}), ...(this.explained ? { explain: this.explained } : {})
         };
         if (this.dragPath) {
@@ -1196,7 +1198,7 @@ export class PlayMode {
             // A tile at a time (a deadline already passed), so the Dash band is left for the frames after.
             while (!job.has(['stay', 'move'])) job.step(t0, () => performance.now());
             f = this.floorFor = {
-                state, id: member.id, job, shown: job.tiles.length, tiles: floorTiles(job), dash: job.done,
+                state, id: member.id, job, shown: job.tiles.length, tiles: floorTiles(job), stay: stayTile(job), dash: job.done,
                 ms: { move: performance.now() - t0, dash: 0, slice: 0, slices: 0 }
             };
             cancelAnimationFrame(this.floorFrame);
