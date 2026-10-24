@@ -32,13 +32,15 @@ import { handsFree, pocketed } from './loot';
  *   a row it is free: Alerted, reporting its assault like a knockout victim who comes round (decision 65). Police
  *   freeing hostages is M3's.
  * - **Escort** (`escort { crew, npc }`): 1 action, in reach, hands free, a Commanded or tied NPC. The hostage is led by
- *   the arm: carried in the hands like a body (`CrewState.dragging` and `leading`, so `Loadout.carrying` 'hostage': with its escort,
- *   Very heavy, so half movement and no Dash), and leading it is commanding it, the illegal act 'command' for as long as
+ *   the arm: in the hands like a body (`CrewState.dragging` and `leading`, so `Loadout.carrying` 'hostage': with its
+ *   escort), at half movement and nothing else (no carry weight, decision 63), and leading it is commanding it, the
+ *   illegal act 'command' for as long as
  *   it lasts (decision 63). Letting go is Drop (body.ts); a hostage passes to a teammate as a body does (loot.ts). A
  *   Commanded hostage whose command lapses into anything but staying down shakes free where the escort stands.
  * - **Coerce** (`coerce { crew, npc, at }`, §10.7): 1 action, a Commanded or tied NPC next to the crew member and in
  *   their sight (across teller glass too: the slot passes cash), the object `at` in the hostage's reach, the illegal act
- *   'command'. A teller opens their drawer: its cash is pocketed by the crew member. A key-holding staff member (the
+ *   'command'. A teller opens their own drawer (the one at their window, `ownDrawer`): its cash is pocketed by the crew
+ *   member. A key-holding staff member (the
  *   manager, the head teller) enters their part of the vault code at the console (`ObjectState.codes`); what opens the
  *   vault is M2-05's (decision 64).
  */
@@ -58,8 +60,6 @@ declare module '../../core/types' {
         armed: NpcWeapon | null;
         /** They still have their keycard (§10.6: a frisk takes it). */
         keycard: boolean;
-        /** The crew member who tied them, or null (for the recap; what they tell the police is M3's). */
-        tiedBy: string | null;
         /** A free NPC untying them (§10.6): who, and the world phases it has spent in reach so far; or null. */
         untying: { by: string; phases: number } | null;
     }
@@ -108,15 +108,14 @@ declare module '../../core/types' {
 registerRuleDefaults({ untiePhases: 2 });
 
 /** The weapon a person starts with (see the header). */
-export const startingWeapon = (person: DeepReadonly<PersonDef>): NpcWeapon | null => person.armed ?? (person.observer === 'enforcer' ? 'holstered' : null);
+const startingWeapon = (person: DeepReadonly<PersonDef>): NpcWeapon | null => person.armed ?? (person.observer === 'enforcer' ? 'holstered' : null);
 
 /** Whether a person starts with a keycard (see the header). */
-export const startingKeycard = (person: DeepReadonly<PersonDef>): boolean => person.keycard ?? person.observer !== 'civilian';
+const startingKeycard = (person: DeepReadonly<PersonDef>): boolean => person.keycard ?? person.observer !== 'civilian';
 
 registerNpcInit('hostage', (_world, person, npc) => {
     npc.armed = startingWeapon(person);
     npc.keycard = startingKeycard(person);
-    npc.tiedBy = null;
     npc.untying = null;
 });
 
@@ -126,8 +125,8 @@ registerCrewInit('hostage', (_world, _start, member) => {
 });
 
 /** Roles that keep a cash drawer (§10.7) and roles that hold part of the vault code (§15.2 dual control). */
-export const DRAWER_ROLES: ReadonlySet<string> = new Set(['teller', 'headTeller', 'driveTeller']);
-export const CODE_ROLES: ReadonlySet<string> = new Set(['manager', 'headTeller']);
+const DRAWER_ROLES: ReadonlySet<string> = new Set(['teller', 'headTeller', 'driveTeller']);
+const CODE_ROLES: ReadonlySet<string> = new Set(['manager', 'headTeller']);
 
 /** Statuses of an NPC who does as it is told: a hostage to lead or coerce. */
 const COMPLIANT: ReadonlySet<string> = new Set(['commanded', 'tied']);
@@ -174,7 +173,6 @@ registerAction('zipTie', {
         const npc = ctx.state.npcs.find(n => n.id === cmd.npc)!;
         member.zipTies--;
         npc.status = 'tied';
-        npc.tiedBy = member.id;
         // Tied, it never acts (§10.6): nothing it meant to do, no command to lapse, no knockout to wake from.
         npc.command = null;
         npc.lapse = null;
@@ -228,6 +226,24 @@ registerAction('escort', {
 
 // ---------------------------------------------------------------------------------------------------------- Coercion
 
+/**
+ * A teller's own cash drawer (§10.7 "their drawer"): the Light loot next to the window or desk their day starts at
+ * (Chebyshev 1 of its tile), the nearest, then the first by id; undefined when there is none.
+ */
+export function ownDrawer(world: ReadonlyWorld, npcId: string): string | undefined {
+    const station = personOf(world, npcId).schedule.find(b => (b.activity === 'window' || b.activity === 'post') && b.at)?.at;
+    if (!station) return undefined;
+    let best: { id: string; d: number } | undefined;
+    for (const o of world.objects) {
+        if (o.kind !== 'loot' || o.loot?.weight !== 'light' || o.loot.value <= 0) continue;
+        const dx = o.pos.x - station.x, dy = o.pos.y - station.y;
+        if (Math.max(Math.abs(dx), Math.abs(dy)) > 1) continue;
+        const d = dx * dx + dy * dy;
+        if (!best || d < best.d || (d === best.d && o.id < best.id)) best = { id: o.id, d };
+    }
+    return best?.id;
+}
+
 /** What coercing a hostage at `at` would do: open a drawer, enter a code; or why it can't. */
 function coercion(world: ReadonlyWorld, state: State, member: DeepReadonly<CrewState>, npc: DeepReadonly<NpcState>, at: string): 'drawer' | 'code' | string {
     const role = personOf(world, npc.id).role, from = bodyPos(state, npc);
@@ -235,6 +251,7 @@ function coercion(world: ReadonlyWorld, state: State, member: DeepReadonly<CrewS
         const loot = state.loot[at]!;
         if (lootWeight(world, at) !== 'light' || loot.taken) return 'There is no drawer to open there';
         if (!DRAWER_ROLES.has(role)) return 'Only a teller can open a cash drawer';
+        if (ownDrawer(world, npc.id) !== at) return 'It isn\'t their drawer';
         if (!inReach(world, state, from, loot.pos)) return 'They can\'t reach the drawer';
         return pocketed(world, state, member.id).length >= POCKETS ? `${member.name}'s pockets are full` : 'drawer';
     }
@@ -321,8 +338,7 @@ registerWorldHook('devices', 'hostage.untie', ctx => {
         }
         // Free: up and Alerted, it reports what was done to it, as a knockout victim does on waking (knockout.ts).
         npc.untying = null;
-        npc.tiedBy = null;
-        npc.status = 'alerted';
+            npc.status = 'alerted';
         ctx.emit({ type: 'freed', npc: npc.id, by: helper.id });
         ctx.emit({ type: 'npcStatus', npc: npc.id, status: 'alerted' });
         alertNpc(ctx, npc, 'freed');

@@ -130,7 +130,9 @@ function inBuilding(world: ReadonlyWorld, p: Pos): boolean {
 // ---------------------------------------------------------------------------------------------------------- Carrying
 
 // Heavy: −2 tiles a Move (the Dash is ruled out); Very heavy: half, rounded down in half-steps, or a Bruiser's −1 tile.
+// Leading a hostage (actions/hostage.ts): half, for everyone, and nothing else (§10.6 "at half movement").
 registerBudgetModifier('carrying', (_world, member, _mode, budget) => {
+    if (member.loadout.carrying === HOSTAGE) return Math.floor(budget / 2);
     const weight = carryWeight(member);
     if (weight === 'heavy') return Math.max(0, budget - HEAVY_CARRY_PENALTY * HALF_STEPS_PER_TILE);
     if (weight !== 'very heavy') return budget;
@@ -138,7 +140,7 @@ registerBudgetModifier('carrying', (_world, member, _mode, budget) => {
 });
 
 registerDashCheck('carrying', m => {
-    if (m.loadout.carrying === HOSTAGE) return `${m.name} can't dash leading a hostage`;
+    if (m.loadout.carrying === HOSTAGE) return undefined;
     if (m.dragging !== null) return `${m.name} can't dash dragging a body`;
     return carryWeight(m) ? `${m.name} can't dash carrying ${m.loadout.carrying === 'lootBag' ? 'a bag' : 'a crate'}` : undefined;
 });

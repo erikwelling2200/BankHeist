@@ -129,7 +129,7 @@ export function reaction(rules: DeepReadonly<Rules>, input: ReactionInput): Reac
     const uniform = input.look.uniform;
     let cell = MATRIX[readAs][profile][OBSERVER_COLUMN[reader]];
     if (uniform !== null) {
-        const def = UNIFORMS[uniform], as = def.zoneAs[input.zone], held = profileRank(profile) <= profileRank('concealed');
+        const def = UNIFORMS[uniform], as = def.zoneAs[input.zone];
         const over = def.cells?.[input.zone]?.[reader];
         const seenThrough = !input.camera && input.band === 'core' && (
             (input.role !== null && def.seenThroughBy.includes(input.role))
@@ -142,7 +142,7 @@ export function reaction(rules: DeepReadonly<Rules>, input: ReactionInput): Reac
             readAs = as;
             cell = MATRIX[readAs][profile][OBSERVER_COLUMN[reader]];
             why.push('uniform');
-        } else if (over !== undefined && held) {
+        } else if (over !== undefined) {
             cell = over;
             why.push('uniform');
         }

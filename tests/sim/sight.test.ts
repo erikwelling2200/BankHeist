@@ -315,7 +315,7 @@ describe('observers', () => {
         id: 'guard', pos: P(4, 0), facing, status, suspicion: {}, exposedTo: [], intent: { path: [] }, alerted,
         alertCause: null, warned: [], challenges: [], wants: [], lastSeen: {}, goal: { kind: 'still' }, route: null, search: null,
         frisked: {}, reported: [], stashed: null, evidence: null, noticed: [], outCold: null, command: null, lapse: null, surprised: null,
-        armed: null, keycard: false, tiedBy: null, untying: null, stripped: false
+        armed: null, keycard: false, untying: null, stripped: false
     });
 
     it('build NPCs, cameras and crew from the state', () => {

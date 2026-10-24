@@ -480,19 +480,23 @@ registerWorldHook('crewPhase', 'command.lapse', ctx => {
 /** The archetype's roll (§10.5, §16.2): one chance after another, each the share of what is left, so each is shown odds. */
 function rollLapse(ctx: Ctx, npc: NpcState): LapseOutcome {
     const person = personOf(ctx.world, npc.id), weights = panicWeights(person.role, person.observer);
-    // An armed civilian always reaches for his weapon (§10.9); an enforcer a frisk disarmed goes for the alarm (his
-    // radio) instead (implementation plan §6 decision 66).
-    if (npc.armed === 'hidden') return 'reachForWeapon';
-    if (!weights) return npc.armed !== null ? 'reachForWeapon' : 'alarm';
+    // An enforcer reaches for his weapon; one a frisk disarmed has nothing to reach for and stays down (§10.5 "reach for
+    // weapon (armed NPCs only)", implementation plan §6 decision 66).
+    if (!weights) return npc.armed !== null ? 'reachForWeapon' : 'stayDown';
     // Hiding needs a hiding place (M2-02): it counts as staying down.
     const options: [LapseOutcome, number][] = [['stayDown', weights.cower + weights.hide], ['flee', weights.flee], [weights.via ?? 'alarm', weights.special]];
-    let left = options.reduce((sum, [, w]) => sum + w, 0);
+    let left = options.reduce((sum, [, w]) => sum + w, 0), rolled: LapseOutcome = 'stayDown';
     for (const [outcome, w] of options) {
         if (w <= 0) continue;
-        if (w >= left || ctx.dice.odds('lapse', w / left, `lapse ${npc.id} ${outcome}`)) return outcome;
+        if (w >= left || ctx.dice.odds('lapse', w / left, `lapse ${npc.id} ${outcome}`)) {
+            rolled = outcome;
+            break;
+        }
         left -= w;
     }
-    return 'stayDown';
+    // An armed civilian rolls as anyone of his archetype does, so a preview stops at the same roll and nothing tells
+    // him apart (§10.9 "no tells"); whatever it comes up, he reaches for his weapon (§16.2).
+    return npc.armed === 'hidden' ? 'reachForWeapon' : rolled;
 }
 
 /** The nearest way out for a runner (§10.5 flee): a tile where anyone leaves the map, by walking cost; with its cost. */

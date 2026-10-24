@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import {
-    actionPreview, commit, crewBudget, crewLook, dashRefusal, fixtureWorld, initialState, legalActions, preview, reaction, whyNot, type CrewLook, type CrewStart, type FixtureWall,
+    actionPreview, commit, crewBudget, crewThreat, deserialiseState, npcCanPass, pendingCarriers, personOf, safeFloor, serialiseState, crewLook, dashRefusal, fixtureWorld, initialState, legalActions, preview, reaction, whyNot, type CrewLook, type CrewStart, type FixtureWall,
     type ObserverClass, type PersonDef, type Pos, type ReactionInput, type ReadonlyWorld, type State, type WorldObject, type Zone
 } from '../../src/sim';
-import { step } from './helpers';
+import { scouted, step } from './helpers';
 
 /*
  * Hostages and disguises (M2-03; §10.6, §10.7, §8.14): zip-ties and the frisk that comes with them (hidden weapons and
@@ -40,7 +40,7 @@ describe('zip-ties (§10.6)', () => {
         const down = run(world, state, { type: 'command', crew: 'mara' });
         expect(npc(down, 'cust').status).toBe('commanded');
         const tied = step(world, down, { type: 'zipTie', crew: 'mara', npc: 'cust' });
-        expect(npc(tied.state, 'cust')).toMatchObject({ status: 'tied', command: null, tiedBy: 'mara' });
+        expect(npc(tied.state, 'cust')).toMatchObject({ status: 'tied', command: null });
         expect(member(tied.state, 'mara').zipTies).toBe(3);
         expect(tied.events.map(e => e.type)).toContain('zipTied');
         expect(whyNot(world, fresh(tied.state), { type: 'zipTie', crew: 'mara', npc: 'cust' })).toBe('They are tied up already');
@@ -93,7 +93,7 @@ describe('zip-ties (§10.6)', () => {
 describe('freeing a tied NPC (§10.6)', () => {
     it('takes a free NPC who knows of it two world phases in reach, the first shown for a crew phase', () => {
         const { world, state } = setup([person('cust', 'customer', 'civilian', P(2, 1)), person('helper', 'customer', 'civilian', P(3, 1))], [{ id: 'mara', pos: P(2, 2) }]);
-        const tied = { ...state, npcs: state.npcs.map(n => (n.id === 'cust' ? { ...n, status: 'tied' as const, tiedBy: 'mara' } : n.id === 'helper' ? { ...n, noticed: ['tied:cust'] } : n)) };
+        const tied = { ...state, npcs: state.npcs.map(n => (n.id === 'cust' ? { ...n, status: 'tied' as const } : n.id === 'helper' ? { ...n, noticed: ['tied:cust'] } : n)) };
         const one = step(world, tied, { type: 'endTurn' });
         expect(one.events).toContainEqual({ type: 'untying', npc: 'cust', by: 'helper', phases: 1 });
         expect(npc(one.state, 'cust').status).toBe('tied');
@@ -104,14 +104,19 @@ describe('freeing a tied NPC (§10.6)', () => {
 });
 
 describe('escort (§10.6)', () => {
-    it('leads a Commanded or tied hostage at half movement, no Dash, as the illegal act command; Drop lets go', () => {
+    it('leads a Commanded or tied hostage at half movement, as the illegal act command; Drop lets go', () => {
         const { world, state } = setup([person('cust', 'customer', 'civilian', P(2, 1))], [{ id: 'mara', pos: P(2, 2) }]);
         const down = fresh(run(world, state, { type: 'command', crew: 'mara' }));
         const led = run(world, down, { type: 'escort', crew: 'mara', npc: 'cust' });
         const mara = member(led, 'mara');
         expect(mara).toMatchObject({ dragging: 'cust', loadout: { carrying: 'hostage' } });
         expect(crewBudget(world, mara, 'move')).toBe(Math.floor(crewBudget(world, member(state, 'mara'), 'move') / 2));
-        expect(dashRefusal(world, fresh(led), 'mara')).toBe("mara can't dash leading a hostage");
+        // Half movement and nothing else: a Dash at half, a Bruiser halved too, the Threat as before.
+        expect(dashRefusal(world, fresh(led), 'mara')).toBeNull();
+        expect(crewBudget(world, mara, 'dash')).toBe(Math.floor(crewBudget(world, member(state, 'mara'), 'dash') / 2));
+        const bruiser = { ...mara, traits: ['bruiser'] };
+        expect(crewBudget(world, bruiser, 'move')).toBe(Math.floor(crewBudget(world, { ...member(state, 'mara'), traits: ['bruiser'] }, 'move') / 2));
+        expect(crewThreat({ ...mara, loadout: { ...mara.loadout, items: ['shotgun'] } })).toBe(5);
         expect(crewLook(mara).act).toBe('command');
         const moved = run(world, led, { type: 'move', crew: 'mara', path: [P(3, 2)] });
         const dropped = run(world, fresh(run(world, moved, { type: 'endTurn' })), { type: 'drop', crew: 'mara' });
@@ -133,13 +138,18 @@ describe('coercion (§10.7)', () => {
 
     it('makes a face-down teller open their drawer across the window: the cash is pocketed', () => {
         const glass: FixtureWall[] = [...WALLS, ...Array.from({ length: 6 }, (_, x) => ({ between: [P(x, 1), P(x, 2)] as [Pos, Pos], material: 'tellerGlass' as const }))];
-        const { world, state } = setup([person('teller', 'teller', 'staff', P(3, 1))], [{ id: 'mara', pos: P(3, 2) }], { objects: [drawer], walls: glass });
+        const other: WorldObject = { ...drawer, id: 'drawer2', pos: P(4, 0) };
+        const window = (at: Pos) => ({ schedule: [{ from: 1, activity: 'window' as const, label: 'window', room: '', at, facing: 's' as const }] });
+        const { world, state } = setup([person('teller', 'teller', 'staff', P(3, 1), window(P(3, 1))), person('next', 'teller', 'staff', P(5, 0), window(P(5, 0)))],
+            [{ id: 'mara', pos: P(3, 2) }], { objects: [drawer, other], walls: glass });
         const down = fresh(run(world, state, { type: 'command', crew: 'mara' }));
         expect(whyNot(world, down, { type: 'takeLoot', crew: 'mara', loot: 'drawer' })).toBe("mara can't reach it from here");
         expect(legalActions(world, down, 'mara')).toContainEqual({ type: 'coerce', crew: 'mara', npc: 'teller', at: 'drawer' });
         const r = step(world, down, { type: 'coerce', crew: 'mara', npc: 'teller', at: 'drawer' });
         expect(r.state.loot.drawer).toMatchObject({ holder: 'mara', taken: true });
         expect(preview(world, down, { type: 'coerce', crew: 'mara', npc: 'teller', at: 'drawer' }).events).toEqual(r.events);
+        // Only their own drawer: the next window's is in their reach, but not theirs.
+        expect(whyNot(world, down, { type: 'coerce', crew: 'mara', npc: 'teller', at: 'drawer2' })).toBe('It isn\'t their drawer');
     });
 
     it('has a key-holder enter their part of the vault code at the console, once; others know none', () => {
@@ -156,7 +166,7 @@ describe('coercion (§10.7)', () => {
 describe('lapses of the armed and the disarmed (§10.5, §10.9)', () => {
     it('an armed civilian always reaches for his weapon; nothing tells him apart until then', () => {
         const { world, state } = setup([person('cop', 'customer', 'civilian', P(2, 1), { armed: 'hidden' })], [{ id: 'mara', pos: P(2, 2) }]);
-        let s = run(world, state, { type: 'command', crew: 'mara' });
+        let s: State = run(world, state, { type: 'command', crew: 'mara' });
         let lapsed;
         for (let i = 0; i < 3 && !lapsed; i++) {
             const r = step(world, s, { type: 'endTurn' });
@@ -173,7 +183,10 @@ describe('disguises (§8.14)', () => {
         const { world, state } = setup([person('guard', 'guard', 'enforcer', P(2, 1))], [{ id: 'mara', pos: P(2, 2) }, { id: 'jun', pos: P(9, 2) }], { objects: [lockers] });
         expect(whyNot(world, state, { type: 'changeClothes', crew: 'mara', from: 'guard' })).toBe('Only a guard knocked out or tied can be stripped');
         const out = fresh(run(world, state, { type: 'knockout', crew: 'mara', npc: 'guard' }));
-        const changed = run(world, out, { type: 'changeClothes', crew: 'mara', from: 'guard' });
+        const strip = step(world, out, { type: 'changeClothes', crew: 'mara', from: 'guard' });
+        expect(strip.events.map(e => e.type)).toEqual(expect.arrayContaining(['changedClothes', 'guardStripped']));
+        expect(strip.undoable).toBe(false);
+        const changed = strip.state;
         expect(member(changed, 'mara')).toMatchObject({ actionsLeft: 0, loadout: { uniform: 'guard' } });
         expect(npc(changed, 'guard').stripped).toBe(true);
         expect(whyNot(world, fresh(changed), { type: 'changeClothes', crew: 'jun', from: 'guard' })).toBe('Their uniform is gone already');
@@ -227,5 +240,90 @@ describe('disguises (§8.14)', () => {
             expect(read(look('courier'), 'secure', 'staff')).toBe('+1');
             expect(read(look('courier'), 'staff', 'enforcer', { chebyshev: 1 })).toBe('!');
         });
+    });
+});
+
+describe('M2-03 review', () => {
+    /** A customer at (2, 1), armed or not, surprised by GO (commanded for one phase) beside Mara: the same scene. */
+    const scene = (armed: boolean) => {
+        const extra = armed ? { armed: 'hidden' as const } : {};
+        const { world, state } = setup([person('cust', 'customer', 'civilian', P(2, 1), {
+            ...extra, schedule: [{ from: 1, activity: 'wait', label: 'waiting', room: '', at: P(2, 1), facing: 'n' }, { from: 99, activity: 'leave', label: 'leaving', room: '', at: P(0, 4) }]
+        })], [{ id: 'mara', pos: P(2, 2) }]);
+        return { world, state: run(world, state, { type: 'go', crew: 'mara' }) };
+    };
+
+    it('an armed civilian\'s lapse is previewed exactly as an unarmed one\'s: the same roll stops it', () => {
+        const a = scene(true), b = scene(false);
+        expect(npc(a.state, 'cust').command).toEqual(npc(b.state, 'cust').command);
+        const pa = preview(a.world, a.state, { type: 'endTurn' }), pb = preview(b.world, b.state, { type: 'endTurn' });
+        expect(pa.pending).toBeDefined();
+        expect(pa.pending).toEqual(pb.pending);
+        expect(pa.events).toEqual(pb.events);
+        expect(pendingCarriers(a.world, a.state)).toEqual(pendingCarriers(b.world, b.state));
+        const wa = preview(a.world, a.state, { type: 'wait', crew: 'mara' }), wb = preview(b.world, b.state, { type: 'wait', crew: 'mara' });
+        expect(wa.events).toEqual(wb.events);
+        // The commit: the armed one always reaches, whatever the dice.
+        const ra = commit(a.world, a.state, { type: 'endTurn' });
+        expect(ra.events.find(e => e.type === 'lapsed')).toEqual({ type: 'lapsed', npc: 'cust', outcome: 'reachForWeapon' });
+        expect(ra.rolls.map(r => r.reason)).toEqual(commit(b.world, b.state, { type: 'endTurn' }).rolls.map(r => r.reason));
+    });
+
+    it('a guard a frisk disarmed stays down when his command lapses; armed, he reaches', () => {
+        const { world, state } = setup([person('guard', 'guard', 'enforcer', P(2, 1))], [{ id: 'mara', pos: P(2, 2), items: ['pistol'] }], {});
+        const down = { ...state, npcs: state.npcs.map(n => ({ ...n, status: 'commanded' as const, command: { pips: 1, by: 'mara' } })) };
+        const lapse = (s: State) => step(world, s, { type: 'endTurn' }).events.find(e => e.type === 'lapsed');
+        expect(lapse(down)).toEqual({ type: 'lapsed', npc: 'guard', outcome: 'reachForWeapon' });
+        expect(lapse({ ...down, npcs: down.npcs.map(n => ({ ...n, armed: null })) })).toEqual({ type: 'lapsed', npc: 'guard', outcome: 'stayDown' });
+    });
+
+    it('a frisk takes a guard\'s holstered pistol, and a frisked NPC no longer passes keycard doors', () => {
+        const { world, state } = setup([person('guard', 'guard', 'enforcer', P(5, 1))], [{ id: 'mara', pos: P(5, 2), items: ['pistol'] }]);
+        const down = run(world, state, { type: 'command', crew: 'mara' });
+        const knocked = npc(down, 'guard').status === 'commanded' ? down : run(world, fresh(down), { type: 'knockout', crew: 'mara', npc: 'guard' });
+        const r = step(world, fresh(knocked), { type: 'zipTie', crew: 'mara', npc: 'guard' });
+        expect(r.events).toContainEqual({ type: 'weaponTaken', crew: 'mara', npc: 'guard' });
+        const door = world.doors.staffDoor!;
+        expect(npcCanPass(personOf(world, 'guard'), npc(knocked, 'guard'))(door, 'locked')).toBe(true);
+        expect(npcCanPass(personOf(world, 'guard'), npc(r.state, 'guard'))(door, 'locked')).toBe(false);
+        expect(npcCanPass(personOf(world, 'guard'), npc(r.state, 'guard'))({ ...door, lock: 'mechanical' }, 'locked')).toBe(true);
+    });
+
+    it('changing clothes is refused in sight of an NPC the crew sees', () => {
+        const lockers: WorldObject = { id: 'lockers', kind: 'lockers', pos: P(9, 1), facing: 's' };
+        const { world, state } = setup([person('teller', 'teller', 'staff', P(9, 4), { facing: 'n' })], [{ id: 'jun', pos: P(9, 2) }], { objects: [lockers] });
+        const seen = { ...state, knowledge: { ...state.knowledge, npcs: { teller: { at: P(9, 4), facing: 'n' as const, turn: 1, live: true, routine: false, rota: false, watched: 0, watchedTurn: 1, tick: state.knowledge.tick } } } };
+        expect(whyNot(world, seen, { type: 'changeClothes', crew: 'jun', from: 'lockers' })).toBe('teller would see jun change');
+        const away = { ...seen, npcs: seen.npcs.map(n => ({ ...n, facing: 's' as const })) };
+        expect(whyNot(world, { ...away, knowledge: { ...away.knowledge, npcs: { teller: { ...seen.knowledge.npcs.teller!, facing: 's' as const } } } }, { type: 'changeClothes', crew: 'jun', from: 'lockers' })).toBeUndefined();
+    });
+
+    it('a guard\'s uniform through real perception and the safe floor: staff ignore it on Staff floor, a guard close by sees through it', () => {
+        const world = fixtureWorld(MAP, { zones: ZONES.map(r => r.replace(/\./g, 's')), people: [
+            person('teller', 'teller', 'staff', P(2, 0), { facing: 's' }), person('guard', 'guard', 'enforcer', P(10, 0), { facing: 's' })
+        ] });
+        const state = scouted(world, initialState(world, { seed: 5, crew: [{ id: 'mara', pos: P(2, 4), items: ['pistol'], uniform: 'guard' }] }));
+        const floor = safeFloor(world, state, 'mara');
+        expect(floor.at(P(2, 3))!.tint.kind).toBe('safe');
+        const near = commit(world, state, { type: 'move', crew: 'mara', path: [P(2, 3)] });
+        expect(npc(near.state, 'teller').exposedTo).toEqual([]);
+        expect(npc(near.state, 'teller').suspicion).toEqual({});
+        // Within 2 tiles of the guard, in his Core: "You're not Dave."
+        const dave = { ...state, crew: state.crew.map(c => ({ ...c, pos: P(10, 4) })) };
+        expect(safeFloor(world, dave, 'mara').at(P(10, 2))!.tint.kind).toBe('red');
+        const busted = commit(world, dave, { type: 'move', crew: 'mara', path: [P(10, 3), P(10, 2)] });
+        expect(npc(busted.state, 'guard').exposedTo).toEqual(['mara']);
+    });
+
+    it('refuses a save from before a package added a field (a crew member\'s zip-ties, an NPC\'s keycard)', () => {
+        const { world, state } = setup([person('cust', 'customer', 'civilian', P(2, 1))], [{ id: 'mara', pos: P(2, 2) }]);
+        const text = serialiseState({ state, recent: [], undo: [] });
+        expect(() => deserialiseState(text, world)).not.toThrow();
+        const old = JSON.parse(text) as { state: State };
+        delete (old.state.crew[0] as Partial<State['crew'][number]>).zipTies;
+        expect(() => deserialiseState(JSON.stringify(old), world)).toThrow(/crew\[0\] has no zipTies/);
+        const older = JSON.parse(text) as { state: State };
+        delete (older.state.npcs[0] as Partial<State['npcs'][number]>).keycard;
+        expect(() => deserialiseState(JSON.stringify(older), world)).toThrow(/npcs\[0\] has no keycard/);
     });
 });

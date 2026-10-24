@@ -5,7 +5,8 @@ import { registerEvents } from '../../core/undo';
 import type { Uniform } from '../../data/matrix';
 import { isPresent, personOf } from '../npc/walk';
 import { draggedBy } from '../place';
-import { inReach, lacksActions, registerAction } from './act';
+import { markerKind, withDoubtedShut } from '../knowledge';
+import { inReach, lacksActions, registerAction, witnessOn } from './act';
 import { handsFree } from './loot';
 
 /*
@@ -20,10 +21,10 @@ import { handsFree } from './loot';
  *   - staff lockers (`lockers` in the Staff zone: the break room, where uniforms hang): a staff uniform.
  *   The staff uniform also comes with the Staff uniforms asset (`CrewStart.uniform`). The courier van's uniforms are the
  *   finale's (§19.5).
- * - **Out of every NPC's sight** (§8.14): changing is the illegal act 'changeClothes', `!` for anyone who sees it, Core
- *   or Peripheral (implementation plan §6 decision 61): the rules don't refuse it in view (that would tell the player
- *   who unseen is watching), they make anyone who watches see through it for good. A disguise prevents exposure; it
- *   never undoes it (§8.7).
+ * - **Out of every NPC's sight** (§8.14): it is refused while an NPC the crew sees now would see it (`seenChanging`), and
+ *   it is the illegal act 'changeClothes', `!` for anyone else who sees it, Core or Peripheral: an NPC the crew can't see
+ *   (refusing for one would tell the player who unseen is watching) or a camera (implementation plan §6 decision 61). A
+ *   disguise prevents exposure; it never undoes it (§8.7).
  */
 
 declare module '../../core/types' {
@@ -37,21 +38,23 @@ declare module '../../core/types' {
     }
     interface EventMap {
         changedClothes: { crew: string; uniform: Uniform; from: string };
+        /** A downed guard's uniform was taken (§8.14). */
+        guardStripped: { crew: string; npc: string };
     }
 }
 
 /** Actions it takes to change into a uniform (§8.14). */
-export const CHANGE_ACTIONS = 2;
+const CHANGE_ACTIONS = 2;
 
 /** Object kinds that hold staff uniforms (in the Staff zone). */
-export const UNIFORM_KINDS: ReadonlySet<string> = new Set(['lockers']);
+const UNIFORM_KINDS: ReadonlySet<string> = new Set(['lockers']);
 
 registerNpcInit('disguise', (_world, _person, npc) => {
     npc.stripped = false;
 });
 
 /** The uniform `from` gives a crew member there, or why it gives none. */
-export function uniformFrom(world: ReadonlyWorld, state: State, member: DeepReadonly<CrewState>, from: string): Uniform | string {
+function uniformFrom(world: ReadonlyWorld, state: State, member: DeepReadonly<CrewState>, from: string): Uniform | string {
     const npc = state.npcs.find(n => n.id === from);
     if (npc) {
         const person = personOf(world, npc.id);
@@ -74,7 +77,21 @@ function changeBlocked(world: ReadonlyWorld, state: State, member: DeepReadonly<
     if (!handsFree(member)) return `${member.name}'s hands are full`;
     const uniform = uniformFrom(world, state, member, from);
     if (uniform !== 'staff' && uniform !== 'guard' && uniform !== 'courier') return uniform;
-    return member.loadout.uniform === uniform ? `${member.name} wears that uniform already` : undefined;
+    if (member.loadout.uniform === uniform) return `${member.name} wears that uniform already`;
+    const watcher = seenChanging(world, state, member);
+    return watcher ? `${personOf(world, watcher).name} would see ${member.name} change` : undefined;
+}
+
+/**
+ * An NPC the crew sees now (live, §8.15) who would see the change where the crew member stands (Core or Peripheral,
+ * through the doors the crew can vouch for, those it can't taken as shut), or undefined: §8.14's "out of every NPC's
+ * sight", judged on what the crew can know (decision 61). Anyone else who sees it witnesses it.
+ */
+function seenChanging(world: ReadonlyWorld, state: State, member: DeepReadonly<CrewState>): string | undefined {
+    const live = new Set(state.npcs.filter(n => markerKind(world, state, n.id) === 'live').map(n => n.id));
+    if (!live.size) return undefined;
+    return witnessOn(world, withDoubtedShut(world, state), member.id, 'changeClothes', [member.pos])
+        .find(s => s.by === 'npc' && live.has(s.observer))?.observer;
 }
 
 registerAction('changeClothes', {
@@ -88,11 +105,17 @@ registerAction('changeClothes', {
     run(ctx, member, cmd) {
         const uniform = uniformFrom(ctx.world, ctx.state, member, cmd.from) as Uniform;
         member.loadout.uniform = uniform;
-        const npc = ctx.state.npcs.find(n => n.id === cmd.from);
-        if (npc) npc.stripped = true;
         ctx.emit({ type: 'changedClothes', crew: member.id, uniform, from: cmd.from });
+        const npc = ctx.state.npcs.find(n => n.id === cmd.from);
+        if (!npc) return;
+        npc.stripped = true;
+        ctx.emit({ type: 'guardStripped', crew: member.id, npc: npc.id });
     }
 });
 
-// Unseen, changing reveals nothing: it can be taken back.
-registerEvents({ changedClothes: { undoBlocking: false } });
+registerEvents({
+    // Unseen, putting on a staff uniform from the lockers changes only the crew member: it can be taken back.
+    changedClothes: { undoBlocking: false },
+    // Stripping a guard changes him (`stripped`): final.
+    guardStripped: { undoBlocking: true }
+});

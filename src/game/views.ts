@@ -356,6 +356,7 @@ export function describeEvent(world: ReadonlyWorld, state: State, event: SimEven
         case 'untying': return `${name(event.by)} is untying ${name(event.npc)}`;
         case 'freed': return `${name(event.by)} freed ${name(event.npc)}`;
         case 'changedClothes': return `${name(event.crew)} changed into a ${event.uniform} uniform`;
+        case 'guardStripped': return `${name(event.crew)} took ${name(event.npc)}’s uniform`;
         case 'lootTaken': return `${name(event.crew)} took ${lootName(world, event.loot)}`;
         case 'lootDropped': return `${name(event.crew)} put down ${lootName(world, event.loot)}`;
         case 'lootThrown': return event.caughtBy ? `${name(event.crew)} threw the bag to ${name(event.caughtBy)}` : `${name(event.crew)} threw the bag`;

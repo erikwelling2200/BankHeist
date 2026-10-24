@@ -73,9 +73,9 @@ export interface UniformDef {
     /** Zones that read as another zone under this uniform. */
     zoneAs: Readonly<Partial<Record<Zone, Zone>>>;
     /**
-     * Cells that read otherwise under this uniform, by the zone read and the observer's column, for a profile it holds
-     * over (Clean or Concealed as read): a guard's uniform in the Secure zone is +1 to staff and nothing to enforcers
-     * and cameras.
+     * Cells that read otherwise under this uniform (which holds only over Concealed or less, rules/profile.ts), by the
+     * zone and the observer's column: a guard's uniform in the Secure zone is +1 to staff and nothing to enforcers and
+     * cameras.
      */
     cells?: Readonly<Partial<Record<Zone, Readonly<Partial<Record<ObserverClass, Cell>>>>>>;
     /** Roles (`PersonDef.role`) who see through it in Core view, at any range. */

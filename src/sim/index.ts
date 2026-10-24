@@ -110,10 +110,7 @@ export { bodyAway, DRAGGABLE, releaseBody, STASH_KINDS, stashes } from './rules/
 export { bodyPos, draggedBy, onFloor, placeCrew } from './rules/place';
 export { crewLoot, lootOf, mayBeDyed, pocketed, throwPlan, throwTargets, type LootState, type ThrowPlan } from './rules/actions/loot';
 export { handsCarry, inHands, lootWeight } from './rules/hands';
-export { CHANGE_ACTIONS, uniformFrom, UNIFORM_KINDS } from './rules/actions/disguise';
-export {
-    CODE_ROLES, DRAWER_ROLES, startingKeycard, startingWeapon, tieIneligible, type NpcWeapon
-} from './rules/actions/hostage';
+export { ownDrawer, tieIneligible, type NpcWeapon } from './rules/actions/hostage';
 export { knockoutBlocked, knockoutIneligible, registerKnockoutWindow, type KnockoutWindow } from './rules/actions/knockout';
 export { interactionVerbs, reachesObject, registerInteraction, type InteractionHandler, type InteractionVerb } from './rules/actions/interact';
 export {

@@ -78,7 +78,7 @@ describe('saving', () => {
  * NpcStatusMap, CarrierKindMap or adds a field must also fill it in below, or a change of shape goes unnoticed.
  */
 const SHAPE_HASHES: Record<number, string> = {
-    1: '8bd2490a05b09e62'
+    1: 'e3338858992b35ee'
 };
 
 /** Paths whose objects are records by id, not structs. */
@@ -141,7 +141,6 @@ describe('the save format', () => {
         full.npcs[0]!.lapse = { kind: 'flee', exit: { x: 2, y: 2 } };
         full.npcs[0]!.surprised = 1;
         full.npcs[0]!.armed = 'hidden';
-        full.npcs[0]!.tiedBy = 'jun';
         full.npcs[0]!.untying = { by: 'guard', phases: 1 };
         full.npcs[0]!.stripped = true;
         full.crew[0]!.keycards = ['guard'];

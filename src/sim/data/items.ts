@@ -107,7 +107,7 @@ export const UNARMED_THREAT = 1;
 /** Wearing a mask sets the profile to Heavy (§6.3, §7.4). */
 export const MASK_PROFILE: Profile = 'heavy';
 
-/** A hostage led by the arm (§10.6 escort): in the hands like a body, `Loadout.carrying`. */
+/** A hostage led by the arm (§10.6 escort): `Loadout.carrying` while leading one; half movement, nothing else. */
 export const HOSTAGE = 'hostage';
 
 /** Things carried in the hands that show (§7.4): a loot bag, a loot crate, a body, a hostage led along. */
@@ -122,14 +122,13 @@ export const CARRIED: Readonly<Record<string, Profile>> = {
 export type CarryWeight = 'light' | 'heavy' | 'very heavy';
 
 /**
- * How heavy each thing carried in the hands is (§15.1): a bag Heavy, a crate or a body Very heavy; a hostage led along
- * too, "at half movement" (§10.6).
+ * How heavy each thing carried in the hands is (§15.1): a bag Heavy, a crate or a body Very heavy. A hostage led along
+ * is no weight: it walks, only "at half movement" (§10.6, rules/actions/loot.ts).
  */
 export const CARRY_WEIGHT: Readonly<Record<string, Exclude<CarryWeight, 'light'>>> = {
     lootBag: 'heavy',
     lootCrate: 'very heavy',
-    body: 'very heavy',
-    [HOSTAGE]: 'very heavy'
+    body: 'very heavy'
 };
 
 /** Zip-ties each crew member brings (§7.3, §10.6). */

@@ -49,17 +49,45 @@ export class SaveFormatError extends Error {
 /** What a per-action autosave holds: everything but the world, which is saved once per heist. */
 export interface SavedState { state: State; recent: SimEvent[]; undo: UndoStack }
 
-/** The keys every state has, from a fresh state of a one-tile world (so packages' own state fields count too). */
-function stateKeys(): string[] {
+/**
+ * The keys every state has, and every crew member, loadout and NPC in it, from a fresh state of a two-tile world with
+ * one NPC and one crew member: so every package's own fields count, and a save made before a package added one is
+ * refused rather than read with the field missing.
+ */
+interface StateShape { state: string[]; crew: string[]; loadout: string[]; npc: string[] }
+
+let SHAPE: StateShape | null = null;
+
+function stateShape(): StateShape {
+    if (SHAPE) return SHAPE;
     const tile = { zone: 'public', raised: false, floor: 0, lit: true, blocksMove: false, tall: false, halfCover: false, room: null } as const;
-    const world = { width: 1, height: 1, tiles: [tile], edges: {}, doors: {}, objects: [], people: [], cameras: [], rules: defaultRules() };
-    return sortedIds(initialState(world, { seed: 0, crew: [] }));
+    const person = { id: 'npc', name: 'npc', role: 'customer', observer: 'civilian', pos: { x: 1, y: 0 }, facing: 's', schedule: [] } as const;
+    const world = { width: 2, height: 1, tiles: [tile, tile], edges: {}, doors: {}, objects: [], people: [person], cameras: [], rules: defaultRules() };
+    const fresh = initialState(world, { seed: 0, crew: [{ id: 'crew', pos: { x: 0, y: 0 } }] });
+    return SHAPE = {
+        state: sortedIds(fresh), crew: sortedIds(fresh.crew[0]!), loadout: sortedIds(fresh.crew[0]!.loadout), npc: sortedIds(fresh.npcs[0]!)
+    };
 }
 
-function checkState(state: unknown, path: string, keys: readonly string[]): void {
-    if (!state || typeof state !== 'object' || Array.isArray(state)) throw new SaveFormatError(`${path} isn't a state`);
-    const missing = keys.filter(k => !Object.hasOwn(state, k));
+function lacks(value: unknown, keys: readonly string[]): string[] | null {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+    return keys.filter(k => !Object.hasOwn(value, k));
+}
+
+function checkState(state: unknown, path: string, shape: StateShape): void {
+    const missing = lacks(state, shape.state);
+    if (!missing) throw new SaveFormatError(`${path} isn't a state`);
     if (missing.length) throw new SaveFormatError(`${path} has no ${missing.join(', ')}`);
+    const { crew, npcs } = state as { crew: unknown; npcs: unknown };
+    if (!Array.isArray(crew) || !Array.isArray(npcs)) throw new SaveFormatError(`${path} has no crew or NPC list`);
+    const each = (list: unknown[], what: string, keys: readonly string[], inner?: (v: Record<string, unknown>) => unknown): void => list.forEach((v, i) => {
+        const gone = lacks(inner ? inner(v as Record<string, unknown>) : v, keys);
+        if (!gone) throw new SaveFormatError(`${path}.${what}[${i}] isn't one`);
+        if (gone.length) throw new SaveFormatError(`${path}.${what}[${i}] has no ${gone.join(', ')} (saved by an older build)`);
+    });
+    each(crew, 'crew', shape.crew);
+    each(crew, 'crew', shape.loadout, v => v?.loadout);
+    each(npcs, 'npcs', shape.npc);
 }
 
 function parse(text: string, what: string): Record<string, unknown> {
@@ -101,9 +129,9 @@ function readState(data: Record<string, unknown>, world?: ReadonlyWorld): SavedS
     const { state, recent, undo } = data;
     if (!state || typeof state !== 'object') throw new SaveFormatError('The save has no state');
     if (!Array.isArray(recent) || !Array.isArray(undo)) throw new SaveFormatError('The save has no recent events or undo stack');
-    const keys = stateKeys();
-    checkState(state, 'state', keys);
-    undo.forEach((s, i) => checkState(s, `undo[${i}]`, keys));
+    const shape = stateShape();
+    checkState(state, 'state', shape);
+    undo.forEach((s, i) => checkState(s, `undo[${i}]`, shape));
     runChecks(state, 'state', world);
     undo.forEach((s, i) => runChecks(s, `undo[${i}]`, world));
     recent.forEach((e, i) => {
