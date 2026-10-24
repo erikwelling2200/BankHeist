@@ -3,7 +3,7 @@ import {
     atan2Deg, commit, fixtureWorld, initialState, leanOptions, preview, PreviewRollError, previewShot, resolveShot, rotate, sinCosDeg, traceShot,
     type FixtureOptions, type NpcStatus, type PersonDef, type Pos, type ReadonlyWorld, type Shot, type ShotRolls, type ShotTrace, type State
 } from '../../src/sim';
-import { crewShotPreview } from '../../src/sim';
+import { crewShotPreview, tileVisibility } from '../../src/sim';
 import { registerTestCommand, testCommand } from './helpers';
 
 const P = (x: number, y: number): Pos => ({ x, y });
@@ -297,6 +297,49 @@ describe('the preview, fixed in review', () => {
         jun.leaning = { at: P(3, 2), corner: P(-1, -1) };
         // The guard firing back meets the hostage first, on the lean tile.
         expect(hitsOf(traceShot(world, state, { shooter: 'guard', weapon: 'pistol', at: P(3, 2) }, straight(2)))).toEqual({ cust: 6 });
+    });
+
+    it('traces nothing the crew can\'t know inside a room it has never seen', () => {
+        // A public lobby (x 0–3) and a staff room (x 4–9) behind a Soft wall, no door, no blueprint.
+        const rooms = ['....ssssss', '....ssssss', '....ssssss'];
+        const walls = [0, 1, 2].map(y => ({ between: [P(3, y), P(4, y)] as [Pos, Pos], material: 'soft' as const }));
+        const build = (map: string[], inside: FixtureOptions['walls'] = []) => {
+            const world = fixtureWorld(map, { zones: rooms, rooms, walls: [...walls, ...inside] });
+            return { world, state: initialState(world, { seed: 3, crew: [{ id: 'jun', pos: P(0, 1) }] }) };
+        };
+        const plain = build(['..........', '..........', '..........']);
+        const furnished = build(['......T...', '.....#....', '..........'], [{ between: [P(7, 1), P(8, 1)], material: 'tellerGlass' }]);
+        expect(tileVisibility(plain.world, plain.state, P(6, 1))).toBe('hidden');
+        for (const weapon of ['assaultRifle', 'dmr', 'lmg', 'shotgun']) {
+            for (const at of [P(6, 1), P(6, 0), P(9, 0), P(8, 2)]) {
+                const shot: Shot = { shooter: 'jun', weapon, at };
+                const a = crewShotPreview(plain.world, plain.state, shot), b = crewShotPreview(furnished.world, furnished.state, shot);
+                expect(b).toEqual(a);
+                // It stops at the wall's far side, never tracing past it.
+                for (const s of a.fan) expect(s.steps.every(x => x.kind !== 'object')).toBe(true);
+            }
+        }
+        // The omniscient preview does see the column.
+        expect(previewShot(furnished.world, furnished.state, { shooter: 'jun', weapon: 'dmr', at: P(6, 0) }).fan.some(s => s.steps.some(x => x.kind === 'object'))).toBe(true);
+        expect(crewShotPreview(furnished.world, furnished.state, { shooter: 'jun', weapon: 'dmr', at: P(6, 0) }).fan.map(s => s.stop)).toEqual(['unknown']);
+    });
+
+    it('wears cover per piece, whoever stands behind it', () => {
+        // One desk (5, 4) covers both customers from the shooter at (0, 0): A east of it behind a Soft wall (an LMG
+        // meets A with 2), B south of it in the open (3), reached only by the three widest bullets. A alone could take
+        // 10 × 2 = 20 off it, B 3 × 3 = 9; the desk takes 7 × 2 + 3 × 3 = 23.
+        const map = ['........', '........', '........', '........', '.....#..', '........', '........'];
+        const shot: Shot = { shooter: 'jun', weapon: 'lmg', at: P(6, 4) };
+        const at = (hp: number) => setup(map, {
+            jun: P(0, 0), cover: [{ at: P(5, 4), hp }], walls: [{ between: [P(4, 3), P(5, 3)], material: 'soft' }],
+            people: [person('a', P(6, 4)), person('b', P(5, 5))]
+        });
+        const covers = (hp: number) => {
+            const { world, state } = at(hp);
+            return previewShot(world, state, shot).bodies.map(b => [b.id, b.cover?.mayBreak]);
+        };
+        expect(covers(23)).toEqual([['a', true], ['b', true]]);
+        expect(covers(24)).toEqual([['a', false], ['b', false]]);
     });
 
     it('shows the player only the people the crew knows of', () => {

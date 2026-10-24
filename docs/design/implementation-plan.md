@@ -1583,7 +1583,8 @@ Later milestones: within each milestone, the `∥` notes in §3 apply. UI packag
     shows breakage too (§11.7, nobody is hit by surprise): each fan segment also gives the path with everything the
     attack could break broken (`brokenFabric`: panes, teller glass whose 4th hit is in reach, cover the bullets could
     wear through), and a body reached only so is `ifBroken`. A cracked shield (`mayBreak`) is claimed only when the
-    bullets whose arcs reach the body, each blocked with the damage it meets the body with, would destroy it.
+    bullets whose arcs reach any body it covers, each blocked once with the most damage it meets one of them with, would
+    destroy it (cover is worn per piece, whoever stands behind it).
 90. **Leaning (M3-01, §11.4).** A person can lean out to an orthogonal neighbour they could step to (no wall between,
     no furniture, nobody standing there) where their own tile's side toward one perpendicular way is full cover (a wall
     that blocks sight, a full-height object beyond, the map's edge) and the neighbour's same side is open. Leaning,
@@ -1597,8 +1598,12 @@ Later milestones: within each milestone, the `∥` notes in §3 apply. UI packag
     (0, 1 from City tier), the security chief 1, police and SWAT as §12.3 when M3-04 brings their roles; everyone
     else 0. A crew member wears the best worn armour piece. `previewShot` is omniscient, like an engine preview
     (bodies behind walls, cover's hit points, refusals naming unknown targets); the player is shown `crewShotPreview`,
-    the same on the crew's picture (only NPCs it sees or predicts, a hostage it leads, doors as last seen), and M3-09
-    draws from that. `resolveShot` is not a command (M3-02's
+    the same on the crew's picture (only NPCs it sees or predicts, a hostage it leads, doors as last seen) and on the
+    map as the crew knows it (`ShotView`): the fan, its `broken` paths and the shields stop ('unknown') where a bullet
+    would enter a tile neither on the blueprint nor ever seen (nor its corner's side tiles); a hidden aimed-at tile
+    says nothing of its height; panes, teller glass's hits and cover's wear show only where the crew has seen them, as
+    built elsewhere, and hidden tiles give no cover. Two banks that differ only inside a room the crew has never seen
+    preview alike. M3-09 draws from that. `resolveShot` is not a command (M3-02's
     attack calls it) and applies no damage (M3-03).
 
 ### Critical files for implementation

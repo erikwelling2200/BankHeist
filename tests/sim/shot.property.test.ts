@@ -43,14 +43,25 @@ function agrees(path: { steps: ShotStep[]; stop: string }, bullet: BulletTrace):
     return path.stop === bullet.stop && JSON.stringify(a) === JSON.stringify(b);
 }
 
-/** Steps reduced to what breakage can't change: no panes, bodies by id. */
+/**
+ * Steps reduced to what breakage can't change: panes left out (one broken earlier leaves no step), bodies whole but for
+ * their cover (worn away on the broken path).
+ */
 const unbroken = (steps: readonly ShotStep[]): unknown[] => steps
-    .filter(s => !(s.kind === 'wall' && (s.material === 'glass' || s.material === 'tellerGlass'))).map(s => (s.kind === 'body' ? s.id : s));
+    .filter(s => !(s.kind === 'wall' && (s.material === 'glass' || s.material === 'tellerGlass')))
+    .map(s => (s.kind === 'body' ? { id: s.id, effect: s.effect, damage: s.damage } : s));
 
-/** Whether a bullet part of the way between the fabric as it stood and as it could stand broken meets a part of the broken path. */
-function onTheWay(path: { steps: ShotStep[] }, bullet: BulletTrace): boolean {
-    const a = unbroken(path.steps), b = unbroken(bullet.steps);
-    return b.length <= a.length && JSON.stringify(a.slice(0, b.length)) === JSON.stringify(b);
+/**
+ * Whether a bullet part of the way between the fabric as it stood and as it could stand broken meets the broken path:
+ * all of it, with the same stop; or stopped short by teller glass not yet broken, a prefix; or blocked by cover still
+ * standing, a prefix to that body.
+ */
+function onTheWay(path: { steps: ShotStep[]; stop: string }, bullet: BulletTrace): boolean {
+    const a = unbroken(path.steps), b = unbroken(bullet.steps), last = bullet.steps[bullet.steps.length - 1];
+    const prefix = (n: number): boolean => n <= a.length && JSON.stringify(a.slice(0, n)) === JSON.stringify(b.slice(0, n));
+    if (bullet.stop === 'cover') return prefix(b.length - 1) && (a[b.length - 1] as { id?: string } | undefined)?.id === (b[b.length - 1] as { id: string }).id;
+    if (bullet.stop === 'wall' && last?.kind === 'wall' && last.material === 'tellerGlass') return prefix(b.length);
+    return path.stop === bullet.stop && a.length === b.length && prefix(b.length);
 }
 
 /** What breakage changes in a fabric: teller glass shattered (plain glass changes nothing) and cover gone. */
@@ -170,7 +181,10 @@ function randomShots(world: ReadonlyWorld, base: State, rng: Rng, shots: number,
 
 const tally = (): Tally => ({ broken: 0, shots: 0, refused: 0, bullets: 0, checked: 0, walls: 0, bodies: 0, covered: 0, blocked: 0, through: 0, corners: 0 });
 
-describe('shot previews are the outcome (M3-01)', () => {
+/** Building three generated banks on a cold bank cache takes several seconds (as tests/generator.test.ts allows). */
+const HEAVY = 60000;
+
+describe('shot previews are the outcome (M3-01)', { timeout: HEAVY }, () => {
     it('in a fixture with every material', () => {
         const map = [
             '..............',

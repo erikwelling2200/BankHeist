@@ -7,7 +7,7 @@ import { registerEvents } from '../core/undo';
 import { CREW_ARMOUR, NPC_ARMOUR, weaponDef, type WeaponDef } from '../data/weapons';
 import { ABSENT_STATUSES, LYING_STATUSES } from '../geo/move';
 import {
-    copyFabric, INDESTRUCTIBLE, NO_COVER, shotFabric, shotMap, tileKey, traceBullet, type Body, type BulletTrace, type Fabric, type ShotScene
+    copyFabric, INDESTRUCTIBLE, NO_COVER, shotFabric, shotMap, tileKey, traceBullet, viewedFabric, type Body, type BulletTrace, type Fabric, type ShotScene, type ShotView
 } from '../geo/shot';
 import { hasTrait } from './alarms';
 import { draggedBy } from './place';
@@ -291,7 +291,7 @@ function checkShot(world: ReadonlyWorld, state: DeepReadonly<State>, shot: Shot)
 }
 
 /** Everything one attack's bullets read, before the first flies. */
-export function shotScene(world: ReadonlyWorld, state: DeepReadonly<State>, shot: Shot): ShotScene {
+export function shotScene(world: ReadonlyWorld, state: DeepReadonly<State>, shot: Shot, view?: ShotView): ShotScene {
     const w = checkShot(world, state, shot), origin = originOf(world, state, shot);
     if (samePos(origin, shot.at)) throw new IllegalCommand('A shot needs somewhere to aim other than where it is fired from');
     const map = shotMap(world, state as State);
@@ -301,9 +301,18 @@ export function shotScene(world: ReadonlyWorld, state: DeepReadonly<State>, shot
     if (w.close) bullet.close = w.close;
     if (w.precision) bullet.precision = true;
     if (w.knockout) bullet.knockout = true;
+    const fabric = shotFabric(world, state as State, map, state.cover);
+    if (!view) {
+        return {
+            map, fabric, bodies: shotBodies(world, state, shot.shooter, shot.target),
+            origin, aim: [ax / len, ay / len], rangeSq: w.range * w.range, high: raised(origin) || raised(shot.at), bullet
+        };
+    }
+    // As the crew knows the map: a hidden aimed-at tile tells nothing of its height.
+    const atHidden = view.hidden[shot.at.y * world.width + shot.at.x] === 1;
     return {
-        map, fabric: shotFabric(world, state as State, map, state.cover), bodies: shotBodies(world, state, shot.shooter, shot.target),
-        origin, aim: [ax / len, ay / len], rangeSq: w.range * w.range, high: raised(origin) || raised(shot.at), bullet
+        map, fabric: viewedFabric(world, map, fabric, view), bodies: shotBodies(world, state, shot.shooter, shot.target),
+        origin, aim: [ax / len, ay / len], rangeSq: w.range * w.range, high: raised(origin) || (!atHidden && raised(shot.at)), bullet, hidden: view.hidden
     };
 }
 

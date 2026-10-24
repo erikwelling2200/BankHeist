@@ -188,8 +188,8 @@ export { DRILL, steadyHand, THERMITE, type Device } from './rules/vault';
 export * from './data/weapons';
 export { atan2Deg, rotate, sinCosDeg } from './geo/angles';
 export {
-    BODY_RADIUS, brokenFabric, copyFabric, INDESTRUCTIBLE, NO_COVER, coverAgainst, hasCover, shotFabric, shotMap, tileKey, traceBullet, type Body, type BulletEdge, type BulletSpec, type BulletStop, type BulletTrace,
-    type CoverHit, type Fabric, type ShotMap, type ShotScene, type ShotStep
+    BODY_RADIUS, brokenFabric, copyFabric, INDESTRUCTIBLE, NO_COVER, coverAgainst, hasCover, shotFabric, shotMap, tileKey, traceBullet, viewedFabric, type Body, type BulletEdge, type BulletSpec, type BulletStop, type BulletTrace,
+    type CoverHit, type Fabric, type ShotMap, type ShotScene, type ShotStep, type ShotView
 } from './geo/shot';
 export {
     armourOf, bulletOffset, leanOptions, plainShot, resolveShot, SHOT_WINDOW, shotArcs, shotBodies, shotScene, traceShot, type Lean, type Shot, type ShotHit,

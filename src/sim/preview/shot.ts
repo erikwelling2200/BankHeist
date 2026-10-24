@@ -1,8 +1,9 @@
 import type { DeepReadonly, Pos, ReadonlyWorld, State } from '../core/types';
 import { atan2Deg } from '../geo/angles';
 import { OVERPENETRATION } from '../data/weapons';
-import { BODY_RADIUS, brokenFabric, copyFabric, coverAgainst, hasCover, INDESTRUCTIBLE, traceBullet, type Body, type BulletStop, type ShotStep } from '../geo/shot';
-import { crewPicture, isKnownNow } from '../rules/knowledge';
+import { BODY_RADIUS, brokenFabric, copyFabric, coverAgainst, hasCover, INDESTRUCTIBLE, traceBullet, type Body, type BulletStop, type ShotStep, type ShotView } from '../geo/shot';
+import { crewPicture, isKnownNow, VISIBILITY, visibilityMap } from '../rules/knowledge';
+import { decodeBits } from '../rules/knowledgeBits';
 import { shotArcs, shotScene, type Shot } from '../rules/shot';
 
 /*
@@ -91,8 +92,8 @@ const sameSteps = (a: { steps: ShotStep[]; stop: BulletStop } | undefined, b: { 
  * walls the crew may not know of, its shields give hit points, and a shot at an unknown target is refused by id. Show
  * the player `crewShotPreview`, which runs it on the crew's picture.
  */
-export function previewShot(world: ReadonlyWorld, state: DeepReadonly<State>, shot: Shot): ShotPreview {
-    const scene = shotScene(world, state, shot), arcs = shotArcs(state, shot);
+export function previewShot(world: ReadonlyWorld, state: DeepReadonly<State>, shot: Shot, view?: ShotView): ShotPreview {
+    const scene = shotScene(world, state, shot, view), arcs = shotArcs(state, shot);
     const { origin, aim, map } = scene;
     const turn = shot.turn ?? 0, half = arcs[arcs.length - 1]! / 2, lo = turn - half, hi = turn + half;
     const range = Math.sqrt(scene.rangeSq);
@@ -144,22 +145,35 @@ export function previewShot(world: ReadonlyWorld, state: DeepReadonly<State>, sh
     // Who the fan reaches, and the most each bullet could take off their cover (the damage it meets them with, the
     // shotgun's close bonus only within its reach), over the segments each bullet's arc overlaps.
     const crewIds = new Set(state.crew.map(c => c.id));
-    const seen = new Map<string, { first: boolean; through: boolean; ifBroken: boolean; wear: number[] }>();
+    // Cover is worn per piece, whoever stands behind it: each bullet that can reach any body it covers can be blocked
+    // there once, with the damage it meets that body with (the shotgun's +1 only within its reach).
+    const seen = new Map<string, { first: boolean; through: boolean; ifBroken: boolean }>();
+    const wear = new Map<string, number[]>();
+    const sources = new Map<string, ReturnType<typeof coverAgainst>>();
+    const sourceOf = (body: Body): ReturnType<typeof coverAgainst> => {
+        if (!sources.has(body.id)) sources.set(body.id, coverAgainst(map, scene.fabric, body, origin));
+        return sources.get(body.id)!;
+    };
     const close = scene.bullet.close;
     const visit = (s: FanSegment, steps: readonly ShotStep[], ifBroken: boolean): void => {
         let after = false, damage = scene.bullet.damage;
         for (const step of steps) {
             if (step.kind === 'wall') damage = step.damage;
             if (step.kind !== 'body') continue;
-            const mark = seen.get(step.id) ?? { first: false, through: false, ifBroken: true, wear: arcs.map(() => 0) };
+            const mark = seen.get(step.id) ?? { first: false, through: false, ifBroken: true };
             if (!ifBroken) mark.ifBroken = false;
             if (after) mark.through = true;
             else mark.first = true;
             const body = bodyOf(step.id), dx = body.pos.x - origin.x, dy = body.pos.y - origin.y;
             const raw = damage + (close && dx * dx + dy * dy <= close.within * close.within ? close.damage : 0);
-            arcs.forEach((arc, k) => {
-                if (s.from < turn + arc / 2 && s.to > turn - arc / 2) mark.wear[k] = Math.max(mark.wear[k]!, raw);
-            });
+            const source = sourceOf(body);
+            if (source) {
+                const each = wear.get(source.at) ?? arcs.map(() => 0);
+                arcs.forEach((arc, k) => {
+                    if (s.from < turn + arc / 2 && s.to > turn - arc / 2) each[k] = Math.max(each[k]!, raw);
+                });
+                wear.set(source.at, each);
+            }
             seen.set(step.id, mark);
             after = true;
             if (step.effect === 'through') damage -= OVERPENETRATION.loss;
@@ -173,12 +187,11 @@ export function previewShot(world: ReadonlyWorld, state: DeepReadonly<State>, sh
     }
     const bodies: ShotPreviewBody[] = [];
     for (const id of [...seen.keys()].sort()) {
-        const { wear: each, ...mark } = seen.get(id)!, body = bodyOf(id), wear = each.reduce((a, b) => a + b, 0);
-        const source = coverAgainst(map, scene.fabric, body, origin);
+        const mark = seen.get(id)!, body = bodyOf(id), source = sourceOf(body);
         let cover: CoverView | null = null;
         if (source) {
             const hp = source.tile >= 0 && scene.fabric.cover[source.tile] !== INDESTRUCTIBLE ? scene.fabric.cover[source.tile]! : null;
-            cover = { state: 'covered', kind: source.kind, at: source.at, hp, mayBreak: hp !== null && !scene.bullet.knockout && wear >= hp };
+            cover = { state: 'covered', kind: source.kind, at: source.at, hp, mayBreak: hp !== null && !scene.bullet.knockout && (wear.get(source.at) ?? []).reduce((a, b) => a + b, 0) >= hp };
         } else if (hasCover(map, scene.fabric, body, origin)) cover = { state: 'flanked' };
         bodies.push({ id, crew: crewIds.has(id), ...mark, cover });
     }
@@ -186,13 +199,22 @@ export function previewShot(world: ReadonlyWorld, state: DeepReadonly<State>, sh
 }
 
 /**
- * The shot preview the player may see (§8.15): `previewShot` on the crew's picture, with only the NPCs the crew sees or
- * predicts on the map (a hostage led by a crew member stays) and every door not seen this turn as last seen. A target
- * the crew doesn't know is refused like any missing one. The outcome may still meet someone unknown: that is the
- * risk of firing into what the crew can't see.
+ * The shot preview the player may see (§8.15, decision 92): `previewShot` on the crew's picture, with only the NPCs the
+ * crew sees or predicts on the map (a hostage led by a crew member stays), every door not seen this turn as last seen,
+ * and the map as the crew knows it (`ShotView`): the fan stops ('unknown') where it would enter a tile neither on the
+ * blueprint nor ever seen, a hidden aimed-at tile says nothing of its height, and panes, teller glass's hits and
+ * cover's wear show only where the crew has seen them (as built elsewhere; no cover on hidden tiles). A target the
+ * crew doesn't know is refused like any missing one. The outcome may still meet someone or something unknown: that is
+ * the risk of firing into what the crew can't see.
  */
 export function crewShotPreview(world: ReadonlyWorld, state: State, shot: Shot): ShotPreview {
     const picture = crewPicture(world, state);
     const led = state.npcs.filter(n => !picture.npcs.includes(n) && state.crew.some(c => c.dragging === n.id) && isKnownNow(world, state, n.id));
-    return previewShot(world, led.length ? { ...picture, npcs: [...picture.npcs, ...led] } : picture, shot);
+    const n = world.width * world.height, visibility = visibilityMap(world, state);
+    const hidden = new Uint8Array(n), seen = decodeBits(state.knowledge.seen, n).slice(), fresh = decodeBits(state.knowledge.fresh, n);
+    for (let i = 0; i < n; i++) {
+        if (VISIBILITY[visibility[i]!] === 'hidden') hidden[i] = 1;
+        if (fresh[i]) seen[i] = 1;
+    }
+    return previewShot(world, led.length ? { ...picture, npcs: [...picture.npcs, ...led] } : picture, shot, { hidden, seen });
 }

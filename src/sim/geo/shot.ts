@@ -68,6 +68,8 @@ export interface BulletEdge {
     open: boolean;
     /** A railing or low wall: half cover for the tiles either side (§11.4). */
     halfCover: boolean;
+    /** The tiles either side (row-major indices), −1 off the map. */
+    sides: [number, number];
 }
 
 /** What bullets need from the World and the State, flattened; built once per shot (`shotMap`). */
@@ -133,7 +135,19 @@ export interface ShotScene {
     /** A middle-height object doesn't stop it: the origin or the aimed-at tile is raised. */
     high: boolean;
     bullet: BulletSpec;
+    /**
+     * Tiles a preview may not trace into (1): the crew's hidden tiles (`ShotView`). A bullet stops as it would enter
+     * one ('unknown'); outcomes never set it.
+     */
+    hidden?: Uint8Array;
 }
+
+/**
+ * What the crew knows of the map, for a preview the player sees (preview/shot.ts `crewShotPreview`): `hidden` tiles
+ * (neither on the blueprint nor ever seen) and the tiles it has `seen` (1 each, row-major). Past a hidden tile nothing
+ * is traced; panes, teller glass's hits and cover's wear show only where a tile beside them was seen.
+ */
+export interface ShotView { hidden: Uint8Array; seen: Uint8Array }
 
 /** Where cover protected a target, and what is left of it. */
 export interface CoverHit {
@@ -151,7 +165,7 @@ export type ShotStep =
     | { kind: 'object'; tile: Pos }
     | { kind: 'corner'; at: Pos };
 
-export type BulletStop = 'body' | 'cover' | 'wall' | 'object' | 'corner' | 'range' | 'map';
+export type BulletStop = 'body' | 'cover' | 'wall' | 'object' | 'corner' | 'range' | 'map' | 'unknown';
 
 /** One bullet's path: what it met, in order, and where it ended (in tiles, to 1/1000). */
 export interface BulletTrace {
@@ -184,7 +198,9 @@ export function shotMap(world: ReadonlyWorld, state: State): ShotMap {
             if (e.tx < 0 || e.tx >= width || e.ty < 0 || e.ty > height) continue;
             eastWest[e.ty * width + e.tx] = index;
         }
-        edges.push({ key, material: now.material, open: !now.blocksMove && !now.blocksSight, halfCover: !!e.halfCover });
+        const a = e.run === 'northSouth' ? (e.tx > 0 ? e.ty * width + e.tx - 1 : -1) : (e.ty > 0 ? (e.ty - 1) * width + e.tx : -1);
+        const b = e.run === 'northSouth' ? (e.tx < width ? e.ty * width + e.tx : -1) : (e.ty < height ? e.ty * width + e.tx : -1);
+        edges.push({ key, material: now.material, open: !now.blocksMove && !now.blocksSight, halfCover: !!e.halfCover, sides: [a, b] });
     }
     return { width, height, tiles, raised, northSouth, eastWest, edges };
 }
@@ -376,6 +392,8 @@ export function traceBullet(scene: ShotScene, fabric: Fabric, offset: number, co
         if (nx < 0 || ny < 0 || nx >= width || ny >= height) return done('map');
         const ox = nx - origin.x, oy = ny - origin.y;
         if (ox * ox + oy * oy > scene.rangeSq) return done('range');
+        const hidden = scene.hidden;
+        if (hidden && (hidden[ny * width + nx] || (corner && (hidden[y * width + nx] || hidden[ny * width + x])))) return done('unknown');
         if (corner) {
             const across = sideEdge(map, x, y, sx, 0), down = sideEdge(map, x, y, 0, sy);
             const acrossOn = sideEdge(map, nx, y, 0, sy), downOn = sideEdge(map, x, ny, sx, 0);
@@ -433,5 +451,24 @@ export function brokenFabric(map: ShotMap, fabric: Fabric, bullets: number, bull
     });
     const most = bullets * (bullet.damage + (bullet.close?.damage ?? 0));
     for (let i = 0; i < out.cover.length; i++) if (out.cover[i]! > 0 && out.cover[i]! <= most) out.cover[i] = NO_COVER;
+    return out;
+}
+
+/**
+ * The fabric as the crew knows it (`ShotView`): a pane's state and teller glass's hits only where a tile beside it was
+ * seen (elsewhere as built), cover's wear only on seen tiles (elsewhere as built), and no cover on hidden tiles.
+ */
+export function viewedFabric(world: ReadonlyWorld, map: ShotMap, fabric: Fabric, view: ShotView): Fabric {
+    const out = copyFabric(fabric);
+    const seen = (i: number): boolean => i >= 0 && view.seen[i] === 1;
+    map.edges.forEach((e, i) => {
+        if (seen(e.sides[0]) || seen(e.sides[1])) return;
+        out.shattered[i] = 0;
+        out.hits[i] = 0;
+    });
+    world.tiles.forEach((t, i) => {
+        if (view.hidden[i]) out.cover[i] = NO_COVER;
+        else if (!seen(i) && t.halfCover) out.cover[i] = t.coverHp === undefined ? INDESTRUCTIBLE : t.coverHp;
+    });
     return out;
 }
