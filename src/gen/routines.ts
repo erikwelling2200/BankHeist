@@ -266,8 +266,8 @@ function firstBlock(ctx: Ctx, p: GenPerson): RoutineBlock {
         const queueing = ctx.furnished.stations.some(s => s.role === 'queue' && s.tx === p.tx && s.ty === p.ty);
         return { from: 1, activity: queueing ? 'queue' : 'wait', label: 'queue, then the teller window, then leave', room, at: here, facing };
     }
-    const window = (p.role === 'teller' || p.role === 'headTeller') && !p.traits.includes('on break');
-    if (p.traits.includes('on break')) return { from: 1, activity: 'break', label: 'on break', room, at: here, facing };
+    const window = (p.role === 'teller' || p.role === 'headTeller') && !p.traits.onBreak;
+    if (p.traits.onBreak) return { from: 1, activity: 'break', label: 'on break', room, at: here, facing };
     return { from: 1, activity: window ? 'window' : 'post', label: window ? 'at the window' : 'at post', room, at: here, facing };
 }
 

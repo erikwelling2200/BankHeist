@@ -17,6 +17,7 @@ import { queueLook, worldPoses, type WorldPoses } from './perceive';
 import { isKnownNow } from './knowledge';
 import { reconsider } from './npc/intent';
 import { alertNpc, EYES_DOWN } from './suspicion';
+import { panicNpc, panicsAt } from './panicState';
 
 /*
  * Evidence (§8.10): NPCs react to things that have changed, not only to people.
@@ -445,14 +446,15 @@ export interface Hearing {
     tile: Pos;
     /** Quiet: it is the one who goes to look (the others turn to face it). Loud: the one who reports it. */
     sent: boolean;
-    /** The badge it ends up with for the ear on the noise ring: Curious, Investigating or Alerted. */
-    status: 'curious' | 'investigating' | 'alerted';
+    /** The badge it ends up with for the ear on the noise ring: Curious, Investigating, Alerted or Panicked (rules/panic.ts). */
+    status: 'curious' | 'investigating' | 'alerted' | 'panicked';
 }
 
 /**
  * What the NPCs who hear a noise make of it (§8.9): a quiet noise makes them Curious and one of them (the nearest of
  * the right role, `pickInvestigator`) goes to the source; a loud one makes them Alerted, cause unknown, and one reports
- * it (a guard's radio, someone telling a guard: the evidence reports, M1-08's carriers). Each hearer's source is the
+ * it (a guard's radio, someone telling a guard: the evidence reports, M1-08's carriers); a civilian panics instead
+ * (rules/panic.ts, §10.8) and is never the one sent to report it. Each hearer's source is the
  * last tile of the noise it heard (`Ring.lastHeard`): the end of a dash as far as it carried there. NPCs face down
  * (commanded, tied) hear but don't react. The noise hook applies exactly this; the noise ring's preview labels each ear
  * with `status`.
@@ -465,10 +467,11 @@ export function hearing(world: ReadonlyWorld, state: State, ring: Ring, kind: No
         return { x: p.x, y: p.y };
     };
     const tiles = new Map(hearers.map(n => [n.id, tileFor(n)]));
-    const sent = pickInvestigator(world, hearers.filter(n => decidesFor(n)).map(n => ({ npc: n, tile: tiles.get(n.id)! })));
+    const panics = new Set(hearers.filter(n => n.panic !== null || (kind === 'loud' && panicsAt(world, n))).map(n => n.id));
+    const sent = pickInvestigator(world, hearers.filter(n => decidesFor(n) && !panics.has(n.id)).map(n => ({ npc: n, tile: tiles.get(n.id)! })));
     return hearers.map(n => ({
         npc: n.id, noise, kind: ev, tile: tiles.get(n.id)!, sent: n.id === sent,
-        status: kind === 'loud' || n.alerted ? 'alerted' : n.id === sent ? 'investigating' : 'curious'
+        status: panics.has(n.id) ? 'panicked' : kind === 'loud' || n.alerted ? 'alerted' : n.id === sent ? 'investigating' : 'curious'
     }));
 }
 
@@ -494,7 +497,9 @@ export function reactToNoise(ctx: Ctx, ring: Ring, kind: NoiseKind, cause: strin
         const npc = ctx.state.npcs.find(n => n.id === h.npc)!;
         if (h.kind === 'loudNoise') alertNpc(ctx, npc, 'noise');
         bark(ctx, npc, h.kind, h.noise);
-        takeEvidence(ctx, npc, h.kind, h.noise, h.tile);
+        // A panicking civilian doesn't go and report it (§10.8): its reaction is its answer.
+        if (h.status === 'panicked') panicNpc(ctx, npc, 'noise', null, h.tile);
+        else takeEvidence(ctx, npc, h.kind, h.noise, h.tile);
     }
     // In a crew phase the hearers' new intents are telegraphed at once (§6.2), and every hearer turns to the noise now.
     reconsider(ctx);

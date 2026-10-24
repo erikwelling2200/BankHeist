@@ -197,6 +197,7 @@ describe('M1-08 fuzz on generated banks', () => {
                     let telegraphed = false;
                     if (action && (action.kind === 'raiseAlarm' || action.kind === 'reportEvidence') && action.carrier === c.kind) telegraphed = true;
                     if (c.kind === 'escapee' && action?.kind === 'flee') telegraphed = true;
+                    if (c.kind === 'phoneCall' && action?.kind === 'hide') telegraphed = true;
                     if (c.kind === 'operatorCamera' && (before.cameraReports.length || r.events.some(e => e.type === 'cameraSaw'))) telegraphed = true;
                     if (c.kind === 'missedCheckIn' && Object.values(before.radio.calls).some(cl => cl.ringing !== null)) telegraphed = true;
                     if (c.kind === 'patrolCar' && driveByDue(world, before, before.turn)) telegraphed = true;

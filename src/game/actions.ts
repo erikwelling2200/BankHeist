@@ -158,6 +158,9 @@ export function actionMenu(world: ReadonlyWorld, state: State, crewId: string, t
         const bodies = targets.npcs.filter(id => DRAGGABLE.has(state.npcs.find(n => n.id === id)!.status));
         const npc = pick(standing);
         if (npc) add('knockout', 'Knockout', 'knockout', { type: 'knockout', crew: crewId, npc }, npc);
+        // Someone running for it (§9.1 escapee) can be tackled to the floor.
+        const runner = pick(standing.filter(id => state.npcs.find(n => n.id === id)!.lapse?.kind === 'flee'));
+        if (runner) add('tackle', 'Tackle', 'knockout', { type: 'tackle', crew: crewId, npc: runner }, runner);
         const body = pick(bodies);
         if (body) add('drag', 'Drag', 'heavy', { type: 'drag', crew: crewId, npc: body }, body);
     }

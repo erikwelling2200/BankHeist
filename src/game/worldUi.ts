@@ -54,6 +54,7 @@ function statusPlate(status: string | undefined): PlateVM | undefined {
         case 'curious': return { glyph: 'q', signal: 'amber' };
         case 'investigating': return { glyph: 'q', signal: 'amber', then: 'pin' };
         case 'alerted': return { glyph: 'bang', signal: 'red' };
+        case 'panicked': return { glyph: 'drops', signal: 'amber' };
         case 'hostile': return { glyph: 'cross', signal: 'red' };
         case 'commanded': return { glyph: 'down', signal: 'command' };
         case 'tied': return { glyph: 'knot', signal: 'cream' };
@@ -151,7 +152,7 @@ export function previewHearers(known: KnownView, preview: ActionPreview): Hearer
             if (!m || m.kind === 'ghost' || out.some(o => o.id === ear.npc)) continue;
             const base = { id: ear.npc, pos: { x: m.pos.x, y: m.pos.y }, lying: lying(m) };
             if (ear.status === 'still') out.push({ ...base, signal: 'cream', still: true });
-            else out.push({ ...base, sym: ear.status === 'alerted' ? '!' : '?', signal: ear.status === 'alerted' ? 'red' : 'amber', ...(ear.sent ? { sent: true } : {}) });
+            else out.push({ ...base, sym: ear.status === 'alerted' || ear.status === 'panicked' ? '!' : '?', signal: ear.status === 'alerted' ? 'red' : 'amber', ...(ear.sent ? { sent: true } : {}) });
         }
     }
     return out;

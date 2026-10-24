@@ -111,7 +111,7 @@ export function autoAdvanceBlocked(world: ReadonlyWorld, state: State): string |
     if (state.bank.loud) return 'Not once the bank is loud';
     if (state.carriers.some(c => c.halted === null)) return 'An alarm is counting down';
     for (const npc of state.npcs) {
-        if ((npc.status === 'alerted' || npc.status === 'hostile') && isKnownNow(world, state, npc.id)) return `${capital(npcLabel(world, npc.id))} is alerted`;
+        if ((npc.status === 'alerted' || npc.status === 'panicked' || npc.status === 'hostile') && isKnownNow(world, state, npc.id)) return `${capital(npcLabel(world, npc.id))} is alerted`;
     }
     return null;
 }
@@ -307,7 +307,7 @@ export function interruptsOf(world: ReadonlyWorld, before: State, result: Pick<C
                 break;
             case 'alerted': add({ kind: 'alerted', text: `${who(e.npc)} is alerted`, npc: e.npc, ...at(e.npc) }); break;
             case 'npcStatus':
-                if (e.status === 'alerted' || e.status === 'hostile') add({ kind: 'alerted', text: `${who(e.npc)} is alerted`, npc: e.npc, ...at(e.npc) });
+                if (e.status === 'alerted' || e.status === 'panicked' || e.status === 'hostile') add({ kind: 'alerted', text: `${who(e.npc)} is alerted`, npc: e.npc, ...at(e.npc) });
                 break;
             case 'exposed': add({ kind: 'exposed', text: `${who(e.npc)} made ${crew(e.crew)}`, npc: e.npc, crew: e.crew, ...at(e.npc) }); break;
             case 'challenged': add({ kind: 'challenge', text: `${who(e.npc)} challenged ${crew(e.crew)}`, npc: e.npc, crew: e.crew, ...at(e.npc) }); break;

@@ -3,10 +3,9 @@ import { inBounds, samePos } from '../core/grid';
 import { crewMember, registerCrewInit, registerNpcInit, registerRuleDefaults, registerStateInit } from '../core/state';
 import type { CrewState, DeepReadonly, NpcState, Pos, ReadonlyWorld, State } from '../core/types';
 import { registerEvents } from '../core/undo';
-import { panicWeights } from '../data/archetypes';
 import { CARRY_WEIGHT, itemDef, UNARMED_THREAT } from '../data/items';
 import { HALF_STEPS_PER_TILE } from '../data/movement';
-import { lineOfSight, sightMap, type SightMap } from '../geo/los';
+import { lineOfSight, sightInputs, sightMap, type SightMap } from '../geo/los';
 import { reachable, reachAt } from '../geo/move';
 import { DEAF_STATUSES, makeNoise, noiseRadius, npcsInside, soundRing } from '../geo/sound';
 import { lacksActions, registerAction } from './actions/act';
@@ -15,6 +14,8 @@ import { startEscapee } from './alarms';
 import { npcMoveOptions, isPresent, personOf } from './npc/walk';
 import { reconsider } from './npc/intent';
 import { bodyPos, draggedBy } from './place';
+import { hidingSpot, reactionOdds, rollReaction, routeBlocked, startReaction, tackleTarget, type Reaction } from './panic';
+import { giveUp, panicsAt } from './panicState';
 import { witnessAct } from './perceive';
 import { alertNpc, expose, isEyesDown } from './suspicion';
 
@@ -31,10 +32,11 @@ import { alertNpc, expose, isEyesDown } from './suspicion';
  *     pressed stays unpressed), a civilian no longer Alerted (§8.7); re-commanding refreshes the pips. Resisters
  *     (enforcers: guards, the security chief, couriers) roll their shown chance (§10.4): 40%; 10% with 2+ crew aiming
  *     at them (a crew member with a weapon in hand, within their own radius, in line of sight) or Surprised; halved
- *     when the shouter is Intimidating. Hostile NPCs and NPCs reaching for a weapon ignore it.
+ *     when the shouter is Intimidating. Heroes resist too (§10.4, M2-02). Hostile NPCs and NPCs reaching for a weapon
+ *     ignore it.
  *   - **Panic and noise ring:** the shout is a loud noise of radius R + 3 (§8.9 flood): everyone it reaches outside
- *     the command ring hears it as any loud noise (Alerted, one reports it: rules/evidence.ts), and the bank is Loud.
- *     How a panicking civilian reacts (cower, flee, hide) is M2-02's; until then a civilian reacts as to any loud noise.
+ *     the command ring hears it as any loud noise (Alerted, one reports it: rules/evidence.ts), civilians panic
+ *     (rules/panic.ts: frozen now, their reaction shown as the next crew phase begins), and the bank is Loud.
  *   The compliant are commanded first, then each resister rolls in resolution order: a preview stops at the first roll
  *   (`Dice.odds`), so `commandPlan` is what shows every chance.
  * - **Commanded** (§10.2): `NpcState.command { pips, by }`, eyes down, and every carrier it holds countered (§9.1
@@ -44,8 +46,10 @@ import { alertNpc, expose, isEyesDown } from './suspicion';
  *   and line of sight as the crew phase ends (`holdTargets`, judged as the world phase begins) keeps its pips.
  * - **Lapses** (§10.5): a Commanded NPC whose pips are 0 at the end of a world phase (and nobody holds it) is
  *   **Twitchy**: its next intent is rolled then, as the next crew phase begins, and shown during that crew phase. The
- *   odds are its archetype's panic weights (data/archetypes.ts): cower and hide (no hiding place yet: M2-02) **stay
- *   down** (it stays Commanded at 0 pips, `stayDown` intent, and rolls again after the next world phase); **flee** runs
+ *   odds are its archetype's panic weights (panic.ts `reactionOdds`, data/archetypes.ts): cower **stays down** (it
+ *   stays Commanded at 0 pips, `stayDown` intent, and rolls again after the next world phase); **hide** gets up
+ *   Panicked and hides out of the crew's sight to phone it in, and a hero next to a crew member **tackles** (panic.ts;
+ *   with no spot to hide in, or nobody in reach, it stays down); **flee** runs
  *   for the nearest way out, the run path its intent (`flee`), and starts an escapee carrier of max(2, ⌈way left ÷ 8⌉)
  *   as it sets off (decision 30's pattern: the intent is the telegraph, the carrier is seen at its full count); one
  *   at the way out leaves the map a phase after its carrier started, never with it; **go for the alarm** (staff) gets
@@ -53,7 +57,7 @@ import { alertNpc, expose, isEyesDown } from './suspicion';
  *   telling a guard), or phones it in where it lies (the manager's "phone", `phone` lapse). An enforcer whose command lapses
  *   **reaches for his weapon**: telegraphed for one world phase (`reachForWeapon`), in which he draws and turns Hostile
  *   (combat is M3); commands no longer work on him, but he can still be knocked out while reaching. Police outside
- *   shifting the odds toward fleeing, heroes and their tackle are M2-02's and M3's.
+ *   shifting the odds toward fleeing are M3's. A hidden weapon (the off-duty cop, §10.9) always reaches.
  * - **GO** (§9.3, `go { crew }`): once per heist while the bank isn't Loud, free. The current crew phase becomes the
  *   takeover turn (`State.takeover`): every crew member masks up (an illegal act seen like any other) and gets +1
  *   action; command radii are ×1.5; every NPC Calm or Curious is **Surprised** (`NpcState.surprised`): its intent is
@@ -69,7 +73,7 @@ export interface Commanded { pips: number; by: string }
 export type Lapse = { kind: 'flee'; exit: Pos } | { kind: 'reach'; crew: string } | { kind: 'phone'; crew: string };
 
 /** What a lapse can roll (§10.5), as the `lapsed` event names it. */
-export type LapseOutcome = 'stayDown' | 'flee' | 'alarm' | 'phone' | 'reachForWeapon';
+export type LapseOutcome = 'stayDown' | 'flee' | 'hide' | 'tackle' | 'alarm' | 'phone' | 'reachForWeapon';
 
 declare module '../core/types' {
     interface NpcState {
@@ -202,9 +206,10 @@ export interface CommandTarget {
     ring: 'command' | 'panic';
     /**
      * Command ring: `complies` (Commanded, or its pips refreshed), `resists` (rolls `chance`), `ignores` (Hostile,
-     * reaching for a weapon). Panic ring: `alerted` (hears a loud noise), `still` (face down: hears, doesn't react).
+     * reaching for a weapon). Panic ring: `panics` (a civilian: Panicked, rules/panic.ts), `alerted` (anyone else who
+     * hears a loud noise), `still` (face down: hears, doesn't react).
      */
-    outcome: 'complies' | 'resists' | 'ignores' | 'alerted' | 'still';
+    outcome: 'complies' | 'resists' | 'ignores' | 'panics' | 'alerted' | 'still';
     /** A resister's chance to resist (§10.4), the one the commit rolls with. */
     chance?: number;
 }
@@ -222,8 +227,11 @@ export interface CommandPlan {
     targets: CommandTarget[];
 }
 
-/** Who resists commands (§10.4): guards, the security chief and couriers. Heroes are M2-02's. */
-export const isResister = (world: ReadonlyWorld, npc: DeepReadonly<NpcState>): boolean => personOf(world, npc.id).observer === 'enforcer';
+/** Who resists commands (§10.4): guards, the security chief, couriers and heroes. */
+export const isResister = (world: ReadonlyWorld, npc: DeepReadonly<NpcState>): boolean => {
+    const person = personOf(world, npc.id);
+    return person.observer === 'enforcer' || person.hero === true;
+};
 
 /** Statuses a command can't reach: down for good, tied (already done), or off the map. */
 const BEYOND_COMMAND = new Set(['unconscious', 'dead', 'tied', 'away']);
@@ -258,7 +266,7 @@ export function commandPlan(world: ReadonlyWorld, state: State, crewId: string):
                 targets.push({ npc: npc.id, ring: 'command', outcome: 'resists', chance: resistChance(world, state, crewId, npc, sight) });
             } else targets.push({ npc: npc.id, ring: 'command', outcome: 'complies' });
         } else if (hears.has(npc.id) && !DEAF_STATUSES.has(npc.status)) {
-            targets.push({ npc: npc.id, ring: 'panic', outcome: isEyesDown(npc) ? 'still' : 'alerted' });
+            targets.push({ npc: npc.id, ring: 'panic', outcome: isEyesDown(npc) ? 'still' : panicsAt(world, npc) ? 'panics' : 'alerted' });
         }
     }
     return { crew: crewId, radius, panicRadius, commandTiles, panicTiles, targets };
@@ -279,6 +287,8 @@ export function commandNpc(ctx: Ctx, npc: NpcState, crewId: string, pips: number
     }
     npc.command = { pips: Math.max(pips, npc.command?.pips ?? 0), by: crewId };
     npc.lapse = null;
+    // Face down is no longer panicking (§10.8).
+    npc.panic = null;
     // Face down: whatever it meant to do it doesn't (§10.2), and a civilian calms down (§8.7).
     npc.intent = { path: [] };
     npc.goal = { kind: 'still' };
@@ -417,6 +427,11 @@ registerWorldHook('passiveNpcs', 'command.flee', (ctx, phase) => {
         const npc = state.npcs.find(n => n.id === id)!;
         if (isEyesDown(npc) || !isPresent(npc) || npc.lapse?.kind !== 'flee') continue;
         const out = Math.max(Math.abs(npc.pos.x - action.exit.x), Math.abs(npc.pos.y - action.exit.y)) <= 1;
+        // The crew stand in the way of every way out (§9.1 "block the route"): it gives up and cowers (rules/panic.ts).
+        if (!out && routeBlocked(world, state, npc, action.exit)) {
+            giveUp(ctx, npc);
+            continue;
+        }
         // Its carrier is seen for a crew phase with the runner still on the map, where the counters reach it (§9.1).
         const running = state.carriers.some(c => c.kind === 'escapee' && c.source === npc.id);
         startEscapee(ctx, npc, out ? 0 : wayOut(world, state, npc)?.tiles ?? 0);
@@ -477,30 +492,34 @@ registerWorldHook('crewPhase', 'command.lapse', ctx => {
     if (lapsing.length) reconsider(ctx);
 }, { order: 100 });
 
-/** The archetype's roll (§10.5, §16.2): one chance after another, each the share of what is left, so each is shown odds. */
+/** A lapse's outcome as the roll names it (panic.ts `Reaction`). */
+const LAPSE_OF: Readonly<Record<Reaction, LapseOutcome>> = {
+    cower: 'stayDown', flee: 'flee', hide: 'hide', tackle: 'tackle', alarm: 'alarm', phone: 'phone', reach: 'reachForWeapon'
+};
+
+/** The archetype's roll (§10.5, §16.2; panic.ts `reactionOdds`): one chance after another, so each is shown odds. */
 function rollLapse(ctx: Ctx, npc: NpcState): LapseOutcome {
-    const person = personOf(ctx.world, npc.id), weights = panicWeights(person.role, person.observer);
-    // An enforcer reaches for his weapon; one a frisk disarmed has nothing to reach for and stays down (§10.5 "reach for
-    // weapon (armed NPCs only)", implementation plan §6 decision 66).
-    if (!weights) return npc.armed !== null ? 'reachForWeapon' : 'stayDown';
-    // Hiding needs a hiding place (M2-02): it counts as staying down.
-    const options: [LapseOutcome, number][] = [['stayDown', weights.cower + weights.hide], ['flee', weights.flee], [weights.via ?? 'alarm', weights.special]];
-    let left = options.reduce((sum, [, w]) => sum + w, 0), rolled: LapseOutcome = 'stayDown';
-    for (const [outcome, w] of options) {
-        if (w <= 0) continue;
-        if (w >= left || ctx.dice.odds('lapse', w / left, `lapse ${npc.id} ${outcome}`)) {
-            rolled = outcome;
-            break;
-        }
-        left -= w;
-    }
+    const rolled = LAPSE_OF[rollReaction(ctx, reactionOdds(ctx.world, ctx.state, npc), 'lapse', r => `lapse ${npc.id} ${LAPSE_OF[r]}`)];
     // An armed civilian rolls as anyone of his archetype does, so a preview stops at the same roll and nothing tells
     // him apart (§10.9 "no tells"); whatever it comes up, he reaches for his weapon (§16.2).
     return npc.armed === 'hidden' ? 'reachForWeapon' : rolled;
 }
 
 /** The nearest way out for a runner (§10.5 flee): a tile where anyone leaves the map, by walking cost; with its cost. */
-function wayOut(world: ReadonlyWorld, state: State, npc: DeepReadonly<NpcState>): { exit: Pos; tiles: number } | undefined {
+export function wayOut(world: ReadonlyWorld, state: State, npc: DeepReadonly<NpcState>): { exit: Pos; tiles: number } | undefined {
+    // A flood of the whole map, so it is kept: the answer depends only on where the runner stands, who may pass which
+    // doors (its class) and the doors and walls as they stand (the very inputs of sight, `sightInputs`).
+    let cache = WAY_OUT.get(world);
+    if (!cache || cache.size > 4096) WAY_OUT.set(world, cache = new Map());
+    const key = `${personOf(world, npc.id).observer} ${npc.pos.x},${npc.pos.y} ${sightInputs(world, state)}`;
+    if (!cache.has(key)) cache.set(key, findWayOut(world, state, npc) ?? null);
+    const found = cache.get(key)!;
+    return found ? { exit: { x: found.exit.x, y: found.exit.y }, tiles: found.tiles } : undefined;
+}
+
+const WAY_OUT = new WeakMap<ReadonlyWorld, Map<string, { exit: Pos; tiles: number } | null>>();
+
+function findWayOut(world: ReadonlyWorld, state: State, npc: DeepReadonly<NpcState>): { exit: Pos; tiles: number } | undefined {
     const exits: Pos[] = [];
     for (const p of world.people) for (const b of p.schedule) {
         if ((b.activity === 'leave' || b.activity === 'offMap') && b.at && !exits.some(e => samePos(e, b.at!))) exits.push({ x: b.at.x, y: b.at.y });
@@ -521,14 +540,23 @@ function lapse(ctx: Ctx, npc: NpcState, rolled: LapseOutcome): void {
     const { world, state } = ctx;
     const by = npc.command!.by;
     const out = rolled === 'flee' ? wayOut(world, state, npc) : undefined;
-    // No way out to run for: it stays down.
-    const outcome: LapseOutcome = rolled === 'flee' && !out ? 'stayDown' : rolled;
+    // No way out to run for, no spot to hide in, nobody left in reach to tackle: it stays down.
+    const cannot = (rolled === 'flee' && !out) || (rolled === 'hide' && !hidingSpot(world, state, npc)) || (rolled === 'tackle' && !tackleTarget(world, state, npc));
+    const outcome: LapseOutcome = cannot ? 'stayDown' : rolled;
     ctx.emit({ type: 'lapsed', npc: npc.id, outcome });
     if (outcome === 'stayDown') {
         npc.intent = { path: [], action: { kind: 'stayDown' } };
         return;
     }
     npc.command = null;
+    if (outcome === 'hide' || outcome === 'tackle') {
+        // Up and Panicked (§10.8): it hides to phone it in, or tackles the crew member beside it (rules/panic.ts).
+        startReaction(ctx, npc, outcome, by);
+        npc.status = 'panicked';
+        ctx.emit({ type: 'npcStatus', npc: npc.id, status: 'panicked' });
+        alertNpc(ctx, npc, 'command lapsed');
+        return;
+    }
     npc.status = 'alerted';
     ctx.emit({ type: 'npcStatus', npc: npc.id, status: 'alerted' });
     if (outcome === 'flee') {

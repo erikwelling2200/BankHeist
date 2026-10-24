@@ -385,6 +385,13 @@ export function describeEvent(world: ReadonlyWorld, state: State, event: SimEven
         case 'ignoredCommand': return `${name(event.npc)} ignored ${name(event.crew)}`;
         case 'lapsed': return `${name(event.npc)} is twitchy: ${LAPSE_TEXT[event.outcome]}`;
         case 'drewWeapon': return `${name(event.npc)} drew a weapon`;
+        case 'panicked': return `${name(event.npc)} panics`;
+        case 'panicReaction': return `${name(event.npc)} panics: ${PANIC_TEXT[event.reaction]}`;
+        case 'hid': return event.called ? `${name(event.npc)} hid and phoned it in` : `${name(event.npc)} hid, but was seen`;
+        case 'gaveUp': return `${name(event.npc)} found the way out blocked`;
+        case 'tackled': return `${name(event.crew)} tackled ${name(event.npc)}`;
+        case 'heroTackled': return `${name(event.npc)} tackled ${name(event.crew)}`;
+        case 'actionLost': return `${name(event.crew)} lost an action getting up`;
         case 'holding': return `${name(event.crew)} holds the room`;
         case 'tookOver': return `GO: ${name(event.crew)} starts the takeover`;
         case 'surprised': return `${name(event.npc)} is surprised`;
@@ -395,13 +402,19 @@ export function describeEvent(world: ReadonlyWorld, state: State, event: SimEven
 
 /** What a lapsed command rolled (§10.5), as the log says it. */
 const LAPSE_TEXT: Readonly<Record<string, string>> = {
-    stayDown: 'stays down', flee: 'about to run for it', alarm: 'about to go for the alarm', phone: 'about to phone it in',
-    reachForWeapon: 'reaching for a weapon'
+    stayDown: 'stays down', flee: 'about to run for it', hide: 'about to hide', tackle: 'about to tackle', alarm: 'about to go for the alarm',
+    phone: 'about to phone it in', reachForWeapon: 'reaching for a weapon'
+};
+
+/** What a panicked NPC picked (§10.8), as the log says it. */
+const PANIC_TEXT: Readonly<Record<string, string>> = {
+    cower: 'cowers', flee: 'about to run for it', hide: 'about to hide', tackle: 'about to tackle', reach: 'reaching for a weapon'
 };
 
 /** Why a carrier stopped, as the log says it. */
 const STOP_WHY: Readonly<Record<string, string>> = {
-    panel: 'the alarm panel is dead', 'source down': 'its holder is down', answered: 'the radio was answered', alarm: 'the alarm is up', commanded: 'its holder is face down'
+    panel: 'the alarm panel is dead', 'source down': 'its holder is down', answered: 'the radio was answered', alarm: 'the alarm is up', commanded: 'its holder is face down',
+    'route blocked': 'the way out is blocked'
 };
 
 const capitalise = (text: string): string => text.charAt(0).toUpperCase() + text.slice(1);

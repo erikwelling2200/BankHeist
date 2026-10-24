@@ -35,7 +35,7 @@ import { previewPicture } from './picture';
 export interface Ear {
     npc: string;
     /** The badge: what it moves to; `still` for someone face down (commanded, tied), who hears but doesn't react. */
-    status: 'curious' | 'investigating' | 'alerted' | 'still';
+    status: 'curious' | 'investigating' | 'alerted' | 'panicked' | 'still';
     /** It is the one who goes to look (quiet) or reports it (loud). */
     sent: boolean;
 }

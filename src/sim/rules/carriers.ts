@@ -67,7 +67,7 @@ export const CARRIERS: Readonly<Record<CarrierKind, CarrierDef>> = {
     },
     escapee: {
         label: 'Escapee', wired: false, radio: false,
-        counters: [{ name: 'knock out', now: true }, { name: 'block the route', now: 'M2' }, { name: 'command', now: true }, { name: 'tackle', now: 'M2' }]
+        counters: [{ name: 'knock out', now: true }, { name: 'block the route', now: true }, { name: 'command', now: true }, { name: 'tackle', now: true }]
     },
     missedCheckIn: {
         label: 'Missed check-in', wired: false, radio: true,

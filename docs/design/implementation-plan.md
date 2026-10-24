@@ -15,7 +15,7 @@
 | Generator output | `GeneratedBank`: the level, rooms, doors with their locks, props, people with role, observer class, schedule and traits, cameras, key locks, approaches, off-map routes, getaway spots, exits, police staging, timeline, opportunities, intel, stories and validation. | `src/gen/model.ts:151-182`. `GenPerson` `:115`, `ScheduleBlock` `:112`, `Door` `:53`, `KeyLock` `:69`, `GenCamera` `:109`, `Approach` `:84`, `TimelineEvent` `:127`, `Opportunity` `:130` |
 | Generator data that never reaches the output | Alarm stations, loot, work stations, grates, vents and hatches (`Furnished`). The tall-furniture grid, the furniture-blocked grid, the number of CCTV monitors. | `src/gen/parcels.ts:34-46`; `src/gen/generate.ts:155-162` (tall grid) and `:174-183` (what is returned); `src/gen/tiers.ts:18` (`monitors`) |
 | Schedules | Free-text activities with a room id (`'at post'`, `'patrol'`, `'lunch'`, `'closing sweep'`, `'all rooms'`, `'outside'`). Nothing can run them. | `src/gen/population.ts:178-238` |
-| Traits | Free-text strings (`'off-duty cop (armed)'`, `'Bold (hero)'`, `'in debt (bribable)'`, `'dye pack in the drawer'`). | `src/gen/population.ts:129-137` |
+| Traits | Structured since M2-02: `PersonTraits` (`armed`, `hero`, `bribable`, `onBreak`, `driveThrough`, `radio`); `worldFromBank` passes `armed` and `hero` to the rules. | `src/gen/model.ts` (`PersonTraits`), `src/gen/population.ts` |
 | Key graph | Every hard lock has social, technical and violent keys, but as text. Holders are listed by id. | `src/gen/keys.ts:20-70` |
 | Random numbers | A mulberry32-style generator with named sub-streams (`fork`). Its state is a private single number. | `src/gen/rng.ts:5-59` |
 | Knowledge layer | Blueprint outlines and hiding the people inside them; rendering only. | `src/scenes/bank/knowledge.ts:14-52` |
@@ -651,11 +651,44 @@ Each package lists its goal, the design sections it covers, the files, what it d
       shifting lapses toward fleeing, blocking an escapee's route as a counter (M2-02); a resister drawing and shooting
       (M3: Hostile does nothing yet); flashbangs' 10% (M3). Until M2-02 a civilian in the panic ring reacts as to any loud
       noise (Alerted, reports it).
-- [ ] **M2-02 Panic, civilians and armed civilians.**
+- [x] **M2-02 Panic, civilians and armed civilians.**
   - **Covers:** §10.8, §10.9, §16.2 panic weights, the escapee and phone carriers of §9.1, §16.4 passers-by, tackle.
   - **Work:** structured traits in the generator (replacing the trait strings).
   - **Depends on:** M2-01. **∥** M2-03, M2-04.
   - **Accept:** no NPC draws without one telegraphed phase (property test); the panic-spread fixture.
+  - **Notes (done):** `rules/panic.ts` (the reactions, the hooks, the escapee's counters, the crew's tackle) and
+    `rules/panicState.ts` (who panics and `NpcState.panic`, apart so suspicion.ts and evidence.ts reach it without
+    loading the actions). Decisions 67–74.
+    - **Traits:** `GenPerson.traits` is `PersonTraits` (`src/gen/model.ts`), no strings; the rolls are unchanged, so
+      every bank is the same. `worldFromBank` turns them into `PersonDef.armed` 'hidden' (M2-03's
+      `NpcState.armed`, which a frisk clears) and `PersonDef.hero`.
+    - **Panic** (`NpcState.panic { since, crew, tile, reaction }`, status `panicked`, glyph `drops`): a civilian panics on
+      a loud noise (the shout's panic ring among them: `CommandTarget.outcome` `panics`, the ear badge `panicked`) or
+      on Exposing a crew member; frozen (`panic` intent) until its reaction is rolled as the next crew phase begins
+      (`panic.react`, after the lapses, stream `panic`), shown from then, done in the world phase after. Spreads after
+      the walks (`panic.spread`) to civilians within 3 tiles who see a panicker of an earlier phase. Commanded, tied or
+      out cold ends it.
+    - **Reactions** (`reactionOdds`, shared with lapses): cower; flee (a lapse's flight and escapee); hide (`hidingSpot`:
+      the nearest tile within a run no crew member sees; there and unseen it phones: `phoneCall` at 2, mobile); reach
+      (a hidden weapon, panicked or lapsing, after rolling as anyone does: decision 66); tackle (a hero beside a crew member; elsewhere a hero flees where
+      others cower). A passer-by always flees. Lapses now also hide and tackle (`LapseOutcome` `hide`, `tackle`).
+    - **Counters:** a carrier check (`route`) counters an escapee whose runner can't reach its way out past the crew
+      (`routeBlocked`); the runner then gives up and cowers (`gaveUp`). `tackle { crew, npc }`: 1 action, in reach, on
+      a runner; an illegal act ('attack'); it is Commanded by the tackler. The grid offers Tackle on a runner.
+    - **Events:** `panicked`, `panicReaction`, `hid`, `gaveUp`, `tackled`, `heroTackled`, `actionLost`;
+      `panicReaction` is a preview secret.
+    - **Tests:** `tests/sim/panic.test.ts` (the panic-spread fixture, the shout's panic ring frozen then reacting a
+      phase later, the off-duty cop's telegraphed draw with no tells, heroes resisting and tackling, hiding and calling,
+      the escapee blocked and tackled, the generator's traits reaching the rules); the preview property test's takeover
+      game has an off-duty cop, a hero, a passer-by and shelves to hide behind, checks the `panics` ring outcome, and
+      `checkTelegraphs` fails any draw, hero's tackle, hider's call or escapee whose action wasn't the NPC's intent
+      through the whole crew phase before (every game, every bank); the carrier fuzz accepts a call telegraphed by
+      `hide`. `wayOut` is cached per stand, class and door state (it was most of the fuzz's time). Save shape hash
+      `efa24c46300bf6cf` (updated here, as M2-01, M2-03 and M2-04 did).
+    - **Deferred:** "Bold" shown on Inspect within 3 tiles and the panic badges' polish (M2-06); panicked crowds jamming
+      doorways (+1 move cost, with the police, M3); police outside shifting reactions toward fleeing (M3); a Hostile
+      civilian firing (M3); screaming customers (§16.2 "or screams"); barricades and vehicles across a runner's lane
+      (M3–M4).
 - [x] **M2-03 Zip-ties, frisking, escort, coercion and disguises.**
   - **Covers:** §10.6, §10.7 (keys, drawers), §8.14 (decision Q14).
   - **Depends on:** M2-01. **∥** M2-02, M2-04.
@@ -1253,6 +1286,38 @@ Later milestones: within each milestone, the `∥` notes in §3 apply. UI packag
     customer does and then ignores it, so a preview of the world phase stops at the same roll and tells him from
     nobody (§10.9 "no tells"). An enforcer with his pistol reaches as before; one a frisk disarmed stays down (cowed):
     "go for alarm" is staff only and he has no weapon to reach for.
+67. **Who panics (M2-02).** Only civilians (observer class `civilian`: customers, passers-by, the café and shop people,
+    an off-duty cop, a customer hero). Staff and guards hearing the shout are Alerted and act by role (§10.1); the
+    staff's panic weights are for their lapses only. A civilian panics on hearing any loud noise (not only the shout)
+    or on Exposing a crew member ("seeing violence": §16.2 "when it Exposes a crew member: panics"). One already acting
+    on a lapse (running, reaching) or face down doesn't.
+68. **When panic reacts (M2-02).** Panicking freezes the NPC at once (no roll, so previews stay exact); its reaction is
+    rolled as the next crew phase begins, after the lapses, and carried out in the world phase after that. So an NPC
+    panicked in a crew phase stands through that world phase, and one panicked by spread in a world phase picks at its
+    end: either way the reaction is shown for a whole crew phase before it is done (§10.8 "carry it out a world phase
+    later"). What it picks is a preview secret.
+69. **Spread (M2-02)** is judged after the walks and the actions at their ends, all at once, from panickers that
+    panicked before that world phase: one ring a world phase. "Within 3 tiles" is Euclidean (r² ≤ 9); "who can see
+    them" is the receiver's own sight field.
+70. **Hiding (M2-02).** The spot is the nearest tile within a run (8 tiles) that no crew member sees (crew sight, all
+    round), nobody stands on or heads for; picked when the reaction is rolled. Arriving there unseen it phones (§9.1
+    phone carrier, a mobile: a jammer pauses it, no landline); seen, it doesn't and picks again. After calling it cowers.
+    "May become a phone carrier" is read as "does, if unseen".
+71. **Heroes (M2-02).** A hero resists commands as a guard does (§10.4 table). Its reaction: tackle a crew member in
+    reach (the first by id), else flee (its cower weight goes to flight; hide and its other weights stay). The tackle
+    happens only if that crew member is still in reach in the world phase: they lose one action of the next crew phase
+    (after GO's extra one, if any). Then it picks again.
+72. **The off-duty cop when he panics (M2-02)** is decision 66's lapse: he rolls his archetype's panic odds as any
+    customer does (a preview stops at the same roll) and reaches whatever came up, at the crew member who frightened
+    him or the nearest. His weapon never shows: no plate, the same ring outcome (`panics`), no preview of it.
+73. **Blocking the route (M2-02).** An escapee is countered while the crew, standing where they stand, cut its runner
+    off from every tile within one of its way out (people other than the crew don't block). A runner finding its way
+    blocked as it would set off again gives up and cowers; if the crew steps aside first, the next flight starts a
+    fresh carrier at its full countdown. A passer-by's way out is the nearest tile anyone leaves the map by (§16.4's
+    "nearest plot edge").
+74. **The crew's tackle (M2-02)** works only on a runner (an NPC fleeing), in reach, 1 action, not while dragging a
+    body. It is the illegal act 'attack', seen on both tiles, makes no noise, and leaves the runner Commanded by the
+    tackler with 2 pips, which counters its escapee (the source check).
 
 ### Critical files for implementation
 

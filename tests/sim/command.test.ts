@@ -42,17 +42,17 @@ describe('Threat and the command radius', () => {
 });
 
 describe('the command', () => {
-    it('puts those in the command ring face down with 2 pips, alerts the panic ring and makes the bank loud', () => {
+    it('puts those in the command ring face down with 2 pips, panics the panic ring and makes the bank loud', () => {
         const { world, state } = setup([customer('near', P(5, 4)), customer('far', P(9, 4))], [{ id: 'jun', pos: P(4, 4), items: ['pistol'] }]);
         const plan = commandPlan(world, state, 'jun');
         expect(plan.radius).toBe(3);
         expect(plan.panicRadius).toBe(6);
-        expect(plan.targets).toEqual([{ npc: 'near', ring: 'command', outcome: 'complies' }, { npc: 'far', ring: 'panic', outcome: 'alerted' }]);
+        expect(plan.targets).toEqual([{ npc: 'near', ring: 'command', outcome: 'complies' }, { npc: 'far', ring: 'panic', outcome: 'panics' }]);
         const seen = preview(world, state, { type: 'command', crew: 'jun' });
         const done = commit(world, state, { type: 'command', crew: 'jun' });
         expect(seen.events).toEqual(done.events);
         expect(npc(done.state, 'near')).toMatchObject({ status: 'commanded', command: { pips: 2, by: 'jun' }, intent: { path: [] } });
-        expect(npc(done.state, 'far').alerted).toBe(true);
+        expect(npc(done.state, 'far')).toMatchObject({ alerted: true, status: 'panicked', panic: { reaction: null, crew: null } });
         expect(done.state.bank.loud).toBe(true);
         expect(done.state.crew[0]!.actionsLeft).toBe(1);
         expect(done.undoable).toBe(false);

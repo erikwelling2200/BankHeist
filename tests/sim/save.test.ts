@@ -78,7 +78,7 @@ describe('saving', () => {
  * NpcStatusMap, CarrierKindMap or adds a field must also fill it in below, or a change of shape goes unnoticed.
  */
 const SHAPE_HASHES: Record<number, string> = {
-    1: 'e3338858992b35ee'
+    1: 'efa24c46300bf6cf'
 };
 
 /** Paths whose objects are records by id, not structs. */
@@ -144,6 +144,8 @@ describe('the save format', () => {
         full.npcs[0]!.untying = { by: 'guard', phases: 1 };
         full.npcs[0]!.stripped = true;
         full.crew[0]!.keycards = ['guard'];
+        full.npcs[0]!.panic = { since: { turn: 1, phase: 'crew' }, crew: 'jun', tile: { x: 1, y: 1 }, reaction: { kind: 'hide', spot: { x: 2, y: 2 } } };
+        full.crew[0]!.tackled = 2;
         full.crew[0]!.holding = 1;
         full.takeover = 1;
         full.held = ['guard'];
@@ -194,6 +196,7 @@ describe('the save format', () => {
                     ...p,
                     armed: 'hidden' as const,
                     keycard: true,
+                    hero: true as const,
                     schedule: [
                         { from: 3, setOff: 1, activity: 'post' as const, label: 'at post', room: 'lobby', at: { x: 0, y: 0 }, facing: 's' as const },
                         { from: 2, activity: 'patrol' as const, label: 'patrol', room: '', route: [{ x: 0, y: 0 }, { x: 1, y: 0 }] }

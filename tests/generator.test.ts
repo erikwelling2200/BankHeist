@@ -197,7 +197,7 @@ describe('headline features (§17.6)', () => {
         expect(windows.length).toBe(2);
         expect(b.props.some(p => p.kind === 'tubeTerminal')).toBe(true);
         expect(b.props.some(p => p.kind === 'backCounter' && p.tx === windows[0]!.tx - 1 && p.facing === 'west')).toBe(true);
-        expect(b.people.some(p => p.traits.includes('drive-through window') && p.tx === windows[0]!.tx - 2)).toBe(true);
+        expect(b.people.some(p => p.traits.driveThrough && p.tx === windows[0]!.tx - 2)).toBe(true);
     }, 120000);
 
     it('gives a bank in a mall a second pair of front doors', () => {

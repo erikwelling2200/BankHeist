@@ -173,6 +173,8 @@ export interface PersonDef {
     pos: Pos;
     facing: Facing;
     schedule: ScheduleBlock[];
+    /** A hero ("Bold", §16.2): resists commands, flees where others cower, tackles (rules/panic.ts). */
+    hero?: true;
 }
 
 /** A camera (§8.3): fixed with one facing, or panning between two. */

@@ -65,7 +65,7 @@ export function populate(ctx: Ctx): Population {
         }
     };
     const add = (p: Omit<GenPerson, 'id' | 'name' | 'schedule' | 'traits'> & Partial<Pick<GenPerson, 'traits' | 'schedule'>>): GenPerson => {
-        const person: GenPerson = { id: `${p.role}-${people.length}`, name: name(), schedule: [], traits: [], ...p };
+        const person: GenPerson = { id: `${p.role}-${people.length}`, name: name(), schedule: [], traits: {}, ...p };
         people.push(person);
         return person;
     };
@@ -85,13 +85,13 @@ export function populate(ctx: Ctx): Population {
         const head = i === 0 && spec.dualControl;
         add({ role: head ? 'headTeller' : 'teller', look: head ? 'headTeller' : rng.pick(['teller', 'tellerB']), observer: 'staff', tx: s.tx, ty: s.ty, facing: s.facing });
     });
-    for (const s of stationsOf('driveTeller')) add({ role: 'teller', look: rng.pick(['teller', 'tellerB']), observer: 'staff', tx: s.tx, ty: s.ty, facing: s.facing, traits: ['drive-through window'] });
+    for (const s of stationsOf('driveTeller')) add({ role: 'teller', look: rng.pick(['teller', 'tellerB']), observer: 'staff', tx: s.tx, ty: s.ty, facing: s.facing, traits: { driveThrough: true } });
     const manager = stationsOf('manager')[0];
     if (manager) add({ role: 'manager', look: 'manager', observer: 'staff', tx: manager.tx, ty: manager.ty, facing: manager.facing });
     const operator = stationsOf('operator')[0];
     if (spec.operator && operator) add({ role: 'operator', look: 'operator', observer: 'staff', tx: operator.tx, ty: operator.ty, facing: operator.facing });
     const breakStation = stationsOf('staff')[0];
-    if (breakStation && rng.chance(0.6)) add({ role: 'teller', look: rng.pick(['teller', 'tellerB']), observer: 'staff', tx: breakStation.tx, ty: breakStation.ty, facing: breakStation.facing, traits: ['on break'] });
+    if (breakStation && rng.chance(0.6)) add({ role: 'teller', look: rng.pick(['teller', 'tellerB']), observer: 'staff', tx: breakStation.tx, ty: breakStation.ty, facing: breakStation.facing, traits: { onBreak: true } });
     // The desks the building has, staffed for today: a seeded share of each kind, so some desks stand empty (out on a
     // call, on holiday) and which ones changes with the people, not the building.
     for (const [role, { share, looks }] of Object.entries(DESKS)) {
@@ -113,7 +113,7 @@ export function populate(ctx: Ctx): Population {
     }
     // Guards on the posts and routes security planned.
     ctx.guards.forEach(g => {
-        add({ role: g.role, look: g.role === 'chief' ? 'securityChief' : 'guard', observer: 'enforcer', tx: g.tx, ty: g.ty, facing: g.facing, ...(g.route.length ? { route: toTiles(g.route) } : {}), traits: ['radio check-ins'] });
+        add({ role: g.role, look: g.role === 'chief' ? 'securityChief' : 'guard', observer: 'enforcer', tx: g.tx, ty: g.ty, facing: g.facing, ...(g.route.length ? { route: toTiles(g.route) } : {}), traits: { radio: true } });
     });
 
     // The crowd for the time of day: more at midday, more in a mall.
@@ -132,15 +132,14 @@ export function populate(ctx: Ctx): Population {
     // Hidden among them: off-duty cops (0–2), who look like any customer (§16.2).
     const customers = people.filter(p => p.role === 'customer');
     for (const cop of rng.shuffle(customers).slice(0, rng.int(0, Math.min(2, customers.length)))) {
-        cop.traits.push('off-duty cop (armed)');
+        cop.traits.armed = true;
         cop.hidden = true;
     }
-    // A rare hero, a teller in debt (bribable), the dye-pack teller.
+    // A rare hero and a teller in debt (bribable). The dye pack is the drawer's (parcels.ts), not a trait.
     const civvies = people.filter(p => (p.role === 'customer' || p.role === 'teller') && !p.hidden);
-    if (civvies.length && rng.chance(0.3)) rng.pick(civvies).traits.push('Bold (hero)');
+    if (civvies.length && rng.chance(0.3)) rng.pick(civvies).traits.hero = true;
     const tellers = people.filter(p => p.role === 'teller' || p.role === 'headTeller');
-    if (tellers.length) rng.pick(tellers).traits.push('in debt (bribable)');
-    if (spec.dyePacks && tellers.length) tellers[0]!.traits.push('dye pack in the drawer');
+    if (tellers.length) rng.pick(tellers).traits.bribable = true;
 
     // Neighbours and the street.
     for (const n of ctx.neighbours) {
@@ -248,7 +247,7 @@ function scheduleDay(ctx: Ctx, people: GenPerson[]): { timeline: TimelineEvent[]
     // What the note gives has to be part of how this vault opens (§15.2): the code, half of it, or the time-lock window.
     const noted = { code: 'the vault code', dualControl: "the head teller's half of the vault code", threeKeys: 'the time-lock window, written out' }[ctx.vaultOpens];
     if (note) opportunities.unshift({ id: 'sticky-note', text: `A note by a monitor in the ${roomName(note.room)} has ${noted} on it.`, found: 'documents' });
-    const bribable = people.find(p => p.traits.includes('in debt (bribable)'));
+    const bribable = people.find(p => p.traits.bribable);
     if (bribable) opportunities.push({ id: 'bribe', text: `${bribable.name}, a teller, is in debt and can be bribed (Smooth Talker) to stay off the alarm.`, found: 'eavesdropping' });
     if (ctx.neighbours.some(n => n.scaffoldTop)) opportunities.push({ id: 'scaffolding', text: 'Renovation scaffolding next door gives roof access.', found: 'intel' });
     if (ctx.softDepositWall) opportunities.push({ id: 'cafe-wall', text: 'The café shares a Soft wall with the deposit-box room.', found: 'documents' });

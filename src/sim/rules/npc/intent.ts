@@ -178,6 +178,20 @@ function planGoal(world: ReadonlyWorld, state: State, npc: NpcState, goal: Goal,
         case 'reach':
             // Telegraphed for one world phase, in which he draws (rules/command.ts).
             return { path: [], action: { kind: 'reachForWeapon', crew: goal.crew! } };
+        case 'panic': {
+            // Frozen with fright, facing it, until its reaction is picked (rules/panic.ts).
+            const facing = goal.tile && facingToward(npc.pos, goal.tile);
+            return { path: [], ...(facing ? { facing } : {}), action: { kind: 'panic' } };
+        }
+        case 'cower':
+            return { path: [], action: { kind: 'cower' } };
+        case 'hide':
+            // At a run to where the crew doesn't see; the call goes out there if still unseen (rules/panic.ts).
+            return walkIntent(world, state, npc, { tile: goal.tile!, pace: 'run' }, taken, { action: { kind: 'hide' }, onArrival: true });
+        case 'tackle': {
+            const facing = facingToward(npc.pos, goal.tile!);
+            return { path: [], ...(facing ? { facing } : {}), action: { kind: 'tackle', crew: goal.crew! } };
+        }
         case 'react': {
             const want = topWant(npc)!;
             const plan = reactionOf(world, state, npc, want);

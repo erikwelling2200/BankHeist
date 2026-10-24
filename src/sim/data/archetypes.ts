@@ -6,7 +6,8 @@ import type { ObserverClass } from '../core/types';
  * (the teller's alarm, the manager's phone, the operator's panel): `special` is its weight, `via` how. Enforcers (guards, the security chief, couriers)
  * have no weights: they resist (§10.4), and an armed NPC whose command lapses reaches for his weapon.
  *
- * Roles the table doesn't name read their observer class's row: civilians as customers, staff as the cleaner.
+ * Roles the table doesn't name read their observer class's row: civilians as customers, staff as the cleaner. A hero
+ * and a hidden weapon change the odds (rules/panic.ts `reactionOdds`).
  */
 
 export interface PanicWeights {
@@ -27,7 +28,9 @@ export const PANIC: Readonly<Record<string, PanicWeights>> = {
     manager: { cower: 30, flee: 20, hide: 10, special: 40, via: 'phone' },
     cleaner: { cower: 50, flee: 30, hide: 20, special: 0 },
     technician: { cower: 40, flee: 40, hide: 20, special: 0 },
-    operator: { cower: 30, flee: 20, hide: 10, special: 40, via: 'alarm' }
+    operator: { cower: 30, flee: 20, hide: 10, special: 40, via: 'alarm' },
+    /** §16.4: a panicked passer-by becomes an escapee. */
+    'passer-by': { cower: 0, flee: 100, hide: 0, special: 0 }
 };
 
 /** The panic weights of a role (see the header); undefined for an enforcer, who resists instead. */

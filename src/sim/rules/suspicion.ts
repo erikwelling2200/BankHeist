@@ -3,6 +3,7 @@ import { sortedIds } from '../core/json';
 import { registerNpcInit, registerStateInit } from '../core/state';
 import type { DeepReadonly, NpcState, NpcStatus, Phase, Pos, State } from '../core/types';
 import { registerEvents } from '../core/undo';
+import { panicNpc } from './panicState';
 
 /*
  * What NPCs know about the crew (§8.5, §8.7): suspicion pips, exposure, the Alerted flag, the last place they saw each
@@ -164,6 +165,8 @@ export function expose(ctx: Ctx, npc: NpcState, crew: string, why: readonly stri
     ctx.emit({ type: 'exposed', npc: npc.id, crew, why: [...why] });
     alertNpc(ctx, npc, `exposed ${crew}`);
     refreshWant(ctx.state, npc, crew, tile);
+    // A civilian who knows it is a robbery panics (§10.8, §16.2), facing where it saw them.
+    panicNpc(ctx, npc, `exposed ${crew}`, crew, tile ?? (Object.hasOwn(npc.lastSeen, crew) ? npc.lastSeen[crew]!.tile : npc.pos));
 }
 
 /** Adds pips (§8.5); reaching 3 Exposes. Nothing once Exposed. */

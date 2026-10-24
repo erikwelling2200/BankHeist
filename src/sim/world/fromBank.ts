@@ -64,9 +64,6 @@ export const OBJECT_KINDS: Partial<Record<LevelProp['kind'], string>> = {
     dumpster: 'dumpster'
 };
 
-/** The generator's trait of an armed civilian (src/gen/population.ts): 'off-duty cop (armed)'. */
-export const ARMED_CIVILIAN = 'off-duty cop';
-
 /** Rooms a body can be stashed anywhere in (§8.10, `World.stashRooms`). */
 export const STASH_ROOMS: readonly GenRoom['type'][] = ['cleanersCloset'];
 
@@ -189,7 +186,9 @@ export function worldFromBank(bank: GeneratedBank): ReadonlyWorld {
         id: p.id, name: p.name, role: p.role, observer: p.observer satisfies ObserverClass, pos: { x: p.tx, y: p.ty },
         facing: PERSON_FACING[p.facing], schedule: (p.routine ?? []).map(scheduleBlock),
         // An off-duty cop among the customers (§10.9): a hidden pistol, found only by a frisk.
-        ...(p.traits.some(t => t.startsWith(ARMED_CIVILIAN)) ? { armed: 'hidden' as const } : {})
+        ...(p.traits.armed ? { armed: 'hidden' as const } : {}),
+        // A hero (§16.2): resists a command, flees or tackles.
+        ...(p.traits.hero ? { hero: true as const } : {})
     }));
     const cameras: CameraDef[] = bank.cameras.map(c => ({
         id: c.id, pos: { x: c.tx, y: c.ty }, facings: c.pan ? [c.pan[0], c.pan[1]] : [PROP_FACING[c.facing]], room: c.room

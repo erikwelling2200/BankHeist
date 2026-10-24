@@ -156,6 +156,25 @@ export interface RoutineBlock {
     route?: TilePos[];
 }
 
+/**
+ * What sets a person apart that nobody sees at a glance (§16.2, §10.9), as data the rules read (`worldFromBank`) and the
+ * schedules follow. Each is set only when it applies.
+ */
+export interface PersonTraits {
+    /** A concealed weapon: the off-duty cop among the customers (§10.9). No tells; `hidden` keeps him off the briefing. */
+    armed?: true;
+    /** Bold (§16.2 hero): resists a command, flees while others cower, tackles a crew member next to him. */
+    hero?: true;
+    /** In debt: can be bribed to stay off the alarm (an opportunity, §17.6). */
+    bribable?: true;
+    /** On a break at the start (the break room's teller). */
+    onBreak?: true;
+    /** Works the drive-through window. */
+    driveThrough?: true;
+    /** Radios in to dispatch (a guard's check-ins, §8.11). */
+    radio?: true;
+}
+
 /** A person of the bank (§16.2) with their place in the population: role, schedule and traits. */
 export interface GenPerson extends LevelPerson {
     id: string;
@@ -165,7 +184,7 @@ export interface GenPerson extends LevelPerson {
     schedule: ScheduleBlock[];
     /** The schedule as typed blocks with their tiles, for the rules (`routines.ts`). */
     routine?: RoutineBlock[];
-    traits: string[];
+    traits: PersonTraits;
     /** Hidden from the briefing until discovered (an off-duty cop looks like a customer, §16.2). */
     hidden?: boolean;
 }

@@ -41,7 +41,9 @@ import { isEyesDown } from './suspicion';
  *   Every radio or mobile phone carrier (`CARRIERS[kind].radio`, not a landline call: a phone call made by someone at
  *   their desk or window, `Carrier.line`) within `rules.jammerRadius` (8, Euclidean) of where it is drawn (the
  *   operator's at the CCTV desk) is paused while it runs; dispatch notices the lost contact after 10 phases (checkins.ts).
- * - **The escapee** (§9.1, §16.4) is M2's (panic): `startEscapee` is its starter, countdown max(2, ⌈path ÷ 8⌉).
+ * - **The escapee** (§9.1, §16.4): `startEscapee` is its starter, countdown max(2, ⌈path ÷ 8⌉), for a lapse's or a
+ *   panic's flight (rules/command.ts, rules/panic.ts, with its counters).
+ * - **A hider's phone call** (§9.1, §10.8) is rules/panic.ts's; `walkingToAlarm` counts a hider on its way.
  */
 
 /** Crew traits (§7.2), as data (their effects live with the rules they change): unknown names are refused at the start. */
@@ -173,7 +175,7 @@ function confront(ctx: Ctx, npc: NpcState, crew: string): void {
 
 /**
  * The escapee (§9.1): an NPC fleeing toward the plot edge along a path of `pathLength` tiles, at a run (8 a phase,
- * implementation plan decision 4). M2's panic calls it.
+ * implementation plan decision 4). A runner's flight calls it (rules/command.ts).
  */
 export function startEscapee(ctx: Ctx, npc: DeepReadonly<NpcState>, pathLength: number): void {
     raiseCarrier(ctx, { kind: 'escapee', source: npc.id, pos: npc.pos, countdown: Math.ceil(pathLength / 8) });
@@ -198,6 +200,10 @@ export function walkingToAlarm(world: ReadonlyWorld, state: State): AlarmWalk[] 
         if (action?.kind === 'raiseAlarm' || action?.kind === 'reportEvidence') {
             kind = action.carrier;
             if (action.kind === 'raiseAlarm') about = action.crew;
+        } else if (action?.kind === 'hide') {
+            // Hiding to phone it in (rules/panic.ts): the call goes out where it hides, if the crew doesn't see it there.
+            kind = 'phoneCall';
+            if (npc.panic?.crew) about = npc.panic.crew;
         } else {
             const want = npc.goal.kind === 'react' ? topWant(npc) : undefined;
             const plan = want ? reactionOf(world, state, npc, want) : npc.goal.kind === 'report' && npc.evidence ? evidenceReport(world, state, npc) : undefined;

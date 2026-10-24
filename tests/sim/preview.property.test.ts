@@ -205,12 +205,12 @@ function matesOf(
 }
 
 /**
- * The end of the turn, its events up to the first lapse rolled (§10.5, M2-01): a Twitchy NPC's lapse is rolled as the
- * next crew phase begins, the world phase's last word, so what follows it is luck no preview promises.
+ * The end of the turn, its events up to the first lapse or panic reaction rolled (§10.5, §10.8; M2-01, M2-02): both
+ * are rolled as the next crew phase begins, the world phase's last word, so what follows is luck no preview promises.
  */
 function endPhase(world: ReadonlyWorld, state: State): CommitResult {
     const r = commit(world, state, { type: 'endTurn' });
-    const i = r.events.findIndex(e => e.type === 'lapsed');
+    const i = r.events.findIndex(e => e.type === 'lapsed' || e.type === 'panicReaction');
     return i < 0 ? r : { ...r, events: r.events.slice(0, i) };
 }
 
@@ -227,7 +227,11 @@ class Probe {
 }
 
 /** `loot`: the loot scenario, which plays actions half the time, loot ones first, and throws to teammates first. */
-interface Run { world: ReadonlyWorld; rng: Rng; omniscient: boolean; label: string; tier: string; probe: Probe; stealth?: boolean; loot?: boolean }
+interface Run {
+    world: ReadonlyWorld; rng: Rng; omniscient: boolean; label: string; tier: string; probe: Probe; stealth?: boolean; loot?: boolean;
+    /** Each NPC's intended action as the crew phase of `turn` began (`checkTelegraphs`). */
+    shown?: { turn: number; actions: Map<string, string> };
+}
 
 const LOOT_COMMANDS = new Set(['takeLoot', 'dropLoot', 'throwLoot', 'pass', 'inspectLoot']);
 
@@ -549,6 +553,8 @@ function checkCommand(run: Run, state: State, crew: string, r: CommitResult): vo
         if (t.outcome === 'ignores' && after(t.npc).status === 'commanded') probe.fail(`${run.label}: ${t.npc} shown ignoring, commanded`);
         if (t.outcome === 'still' && after(t.npc).status !== was(t.npc).status) probe.fail(`${run.label}: ${t.npc} face down, changed`);
         if (t.outcome === 'alerted' && !after(t.npc).alerted) probe.fail(`${run.label}: ${t.npc} in the panic ring, not Alerted`);
+        if (t.outcome === 'panics' && after(t.npc).panic === null) probe.fail(`${run.label}: ${t.npc} shown panicking, is ${after(t.npc).status}`);
+        if (t.outcome === 'alerted' && after(t.npc).panic !== null && was(t.npc).panic === null) probe.fail(`${run.label}: ${t.npc} shown alerted, panicked`);
         if (t.outcome === 'resists') {
             const roll = r.rolls.find(x => x.reason === `resist ${t.npc}`);
             if (!roll || roll.p !== t.chance) probe.fail(`${run.label}: ${t.npc} shown ${t.chance} to resist, rolled ${roll?.p}`);
@@ -640,6 +646,7 @@ function endTurn(run: Run, state: State): State {
     const shown = new Set(state.crew.filter(c => c.holding === state.turn).flatMap(c => holdTargets(world, state, c.id)));
     if ([...held].sort().join() !== [...shown].sort().join()) probe.fail(`${run.label} t${state.turn}: hold ring ${[...shown]}, within reach ${[...held]}`);
     const r = endPhase(world, state);
+    checkTelegraphs(run, state, commit(world, state, { type: 'endTurn' }));
     for (const e of r.events) {
         if (e.type !== 'commandPips') continue;
         probe.bump(e.held ? 'commanded held' : 'commanded not held');
@@ -650,6 +657,31 @@ function endTurn(run: Run, state: State): State {
     const pic = { before: picture, after: oracle.state, events: oracle.events };
     for (const { crew, tile } of stays) checkWorldPhase(run, state, crew, tile, state, r, npcs, cameras, `${run.label} t${state.turn} stay ${crew}`, pic);
     return r.state;
+}
+
+/**
+ * No NPC acts without a telegraphed intent (§10.9, §10.8, the design's hard promise; M2-02): every draw, hero's tackle,
+ * hider's call and runner's escapee in a world phase is the intent its NPC showed through the whole crew phase before
+ * it (as the crew phase began, when `run.shown` has it, and still as it ends).
+ */
+function checkTelegraphs(run: Run, before: State, r: CommitResult): void {
+    const { probe } = run;
+    const expect = (npc: string, kind: string, what: string): void => {
+        // As the crew phase began, when this run ended the turn before itself (a move's check ends some turns on its own).
+        const began = run.shown?.turn === before.turn ? run.shown.actions : undefined;
+        const start = began?.get(npc), end = before.npcs.find(n => n.id === npc)?.intent.action?.kind;
+        probe.bump(`telegraphed ${what}`);
+        if ((began && start !== kind) || end !== kind) probe.fail(`${run.label} t${before.turn}: ${npc} ${what} without one telegraphed phase (shown ${start} then ${end})`);
+    };
+    for (const e of r.events) {
+        if (e.type === 'drewWeapon') expect(e.npc, 'reachForWeapon', 'draw');
+        else if (e.type === 'heroTackled') expect(e.npc, 'tackle', 'tackle');
+        else if (e.type === 'hid' && e.called) expect(e.npc, 'hide', 'call');
+        else if (e.type === 'carrierStarted' && e.kind === 'escapee' && e.holder) expect(e.holder, 'flee', 'escape');
+        else if (e.type === 'panicReaction') probe.bump(`panic reaction ${e.reaction}`);
+        else if (e.type === 'panicked') probe.bump('panicked');
+    }
+    run.shown = { turn: r.state.turn, actions: new Map(r.state.npcs.flatMap(n => (n.intent.action ? [[n.id, n.intent.action.kind] as [string, string]] : []))) };
 }
 
 /**
@@ -1104,16 +1136,23 @@ function takeoverGame(probe: Probe, n: number): void {
     };
     const exit = { x: 13, y: 9 };
     taken.add('13,9');
+    // Two shelves to hide behind (M2-02).
+    const map = ['..............', '..............', '..........T...', '..........T...', '..............', '..............', '...TT.........', '..............', '..............', '..............'];
+    map.forEach((row, y) => [...row].forEach((c, x) => { if (c === 'T') taken.add(`${x},${y}`); }));
     const people: PersonDef[] = [];
-    const roles: [string, ObserverClass][] = [['customer', 'civilian'], ['customer', 'civilian'], ['customer', 'civilian'], ['lobbyGuard', 'enforcer'], ['teller', 'staff'], ['manager', 'staff']];
-    roles.forEach(([role, observer], i) => {
+    // M2-02: an off-duty cop, a hero and a passer-by among them.
+    const roles: [string, ObserverClass, Pick<PersonDef, 'armed' | 'hero'>?][] = [
+        ['customer', 'civilian'], ['customer', 'civilian'], ['customer', 'civilian'], ['lobbyGuard', 'enforcer'], ['teller', 'staff'], ['manager', 'staff'],
+        ['customer', 'civilian', { armed: 'hidden' }], ['customer', 'civilian', { hero: true }], ['passer-by', 'civilian']
+    ];
+    roles.forEach(([role, observer, traits], i) => {
         const at = free();
-        people.push({ id: `n${i}`, name: `n${i}`, role, observer, pos: at, facing: rng.pick(FACINGS), ...(i === 0 && rng.chance(0.5) ? { armed: 'hidden' as const } : {}), schedule: [
+        people.push({ id: `n${i}`, name: `n${i}`, role, observer, pos: at, facing: rng.pick(FACINGS), ...(traits ?? {}), schedule: [
             { from: 1, activity: role === 'teller' ? 'window' : role === 'manager' ? 'post' : 'wait', label: 'stands', room: '', at, facing: 'n' },
             { from: 99, activity: 'leave', label: 'leaves', room: '', at: exit }
         ] });
     });
-    const world = fixtureWorld(Array.from({ length: 10 }, () => '..............'), { people });
+    const world = fixtureWorld(map, { people });
     const weapons = ['pistol', 'shotgun', 'lmg', 'smg'];
     let state = omniscient(world, initialState(world, { seed: n, crew: [
         { id: 'c0', pos: free(), items: [rng.pick(weapons)], ...(rng.chance(0.3) ? { traits: ['intimidating'] } : {}) },
@@ -1169,10 +1208,14 @@ describe('previews (property, §8.8)', () => {
         if (VERBOSE) console.log(JSON.stringify(probe.stats, null, 1));
         expect(probe.failures).toEqual([]);
         // Every outcome of the rings, and holds that keep and that don't.
-        for (const k of ['command command complies', 'command command resists', 'command panic alerted', 'commanded held', 'commanded not held']) {
+        for (const k of ['command command complies', 'command command resists', 'command panic alerted', 'command panic panics', 'commanded held', 'commanded not held', 'panicked']) {
             expect(probe.stats[k] ?? 0, k).toBeGreaterThan(5);
         }
         for (const k of ['command zipTie', 'command escort']) expect(probe.stats[k] ?? 0, k).toBeGreaterThan(5);
+        // M2-02: every panic reaction, and each telegraphed act it leads to (checked by `checkTelegraphs`).
+        for (const k of ['panic reaction cower', 'panic reaction flee', 'panic reaction hide', 'panic reaction reach', 'telegraphed draw', 'telegraphed escape']) {
+            expect(probe.stats[k] ?? 0, k).toBeGreaterThan(0);
+        }
         // A guard whose command lapsed reaches for his weapon and ignores the next one.
         expect(probe.stats['command command ignores'] ?? 0).toBeGreaterThan(0);
     }, 300_000);

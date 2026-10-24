@@ -30,7 +30,8 @@ import { isPresent, personOf, type Pace } from './walk';
  *   reactions only walk and telegraph: tellers go to their window and press the button, the manager to the desk
  *   button, the operator to the console, guards radio where they stand (`raiseAlarm` intents, carried out by M1-08),
  *   other staff walk to the nearest guard and tell them (`tell`, carried out here: the guard is Exposed to the crew
- *   member too, §8.7), civilians panic where they stand (`panic`, M2-02). An NPC that has done its part
+ *   member too, §8.7). Civilians panic as they Expose someone (rules/panic.ts), which comes first; one not panicking
+ *   any more (it was commanded, and got up) only watches. An NPC that has done its part
  *   (`NpcState.reported`) only keeps watching.
  *
  * Its status badge (§16.5) follows: calm, curious, investigating, alerted (the on-edge flag, whatever it is doing) or
@@ -44,7 +45,9 @@ export type GoalKind =
     // Evidence (rules/evidence.ts): walk over to it, look at it, or report it.
     | 'inspect' | 'look' | 'report'
     // A lapsed command (rules/command.ts, §10.5): run for the way out, or reach for the weapon.
-    | 'flee' | 'reach' | 'phone';
+    | 'flee' | 'reach' | 'phone'
+    // Panic (rules/panic.ts, §10.8): frozen until its reaction is picked, then cowering, hiding or tackling.
+    | 'panic' | 'cower' | 'hide' | 'tackle';
 
 export interface Goal {
     kind: GoalKind;
@@ -84,8 +87,6 @@ declare module '../../core/types' {
         tell: { npc: string; crew: string };
         /** Starts an alarm carrier of §9.1 (M1-08 carries it out). Only committed once the NPC stands where it can. */
         raiseAlarm: { carrier: CarrierKind; crew: string };
-        /** Panics (§10.8, M2-02). */
-        panic: { crew: string };
         /** Leaves the map at the end of its path. */
         leave: Record<never, never>;
         /** Comes back onto the map at its path's only tile. */
@@ -102,7 +103,7 @@ registerNpcInit('npc', (_world, _person, npc) => {
 });
 
 /** Statuses this module sets; any other belongs to another system and is left alone. */
-export const ROUTINE_STATUSES: ReadonlySet<NpcStatus> = new Set<NpcStatus>(['calm', 'curious', 'investigating', 'alerted', 'away']);
+export const ROUTINE_STATUSES: ReadonlySet<NpcStatus> = new Set<NpcStatus>(['calm', 'curious', 'investigating', 'alerted', 'panicked', 'away']);
 
 /**
  * Whether this module decides the NPC's intent: it is neither eyes down nor in combat, nor Surprised (§9.3: it loses
@@ -221,11 +222,6 @@ const radio: Reaction = (_world, _state, npc, want) => {
     return { tile: null, pace: 'hurry', ...(facing ? { facing } : {}), action: { kind: 'raiseAlarm', carrier: 'guardRadio', crew: want.crew }, onArrival: true };
 };
 
-const panic: Reaction = (_world, _state, npc, want) => {
-    const facing = facingToward(npc.pos, want.tile);
-    return { tile: null, pace: 'run', ...(facing ? { facing } : {}), action: { kind: 'panic', crew: want.crew }, onArrival: false };
-};
-
 registerReaction('teller', atStation(['window'], 'tellerButton'));
 registerReaction('headTeller', atStation(['window'], 'tellerButton'));
 registerReaction('manager', atStation(['post'], 'managerButton'));
@@ -234,7 +230,7 @@ registerReaction('technician', (_world, _state, npc, want) => (npc.reported.incl
     : { tile: null, pace: 'hurry', action: { kind: 'raiseAlarm', carrier: 'phoneCall', crew: want.crew }, onArrival: true }));
 registerReaction('*', (world, state, npc, want) => {
     const observer = personOf(world, npc.id).observer;
-    return observer === 'enforcer' ? radio(world, state, npc, want) : observer === 'staff' ? tellAGuard(world, state, npc, want) : panic(world, state, npc, want);
+    return observer === 'enforcer' ? radio(world, state, npc, want) : observer === 'staff' ? tellAGuard(world, state, npc, want) : watching(npc, want);
 });
 
 /**
@@ -250,6 +246,8 @@ export function behaviourGoal(world: ReadonlyWorld, state: State, npc: DeepReado
     if (npc.lapse?.kind === 'flee') return { kind: 'flee', tile: { x: npc.lapse.exit.x, y: npc.lapse.exit.y } };
     if (npc.lapse?.kind === 'reach') return { kind: 'reach', crew: npc.lapse.crew };
     if (npc.lapse?.kind === 'phone') return { kind: 'phone', crew: npc.lapse.crew };
+    // Panic (§10.8) comes before anything it wants: frozen, then what it picked, shown as it was picked.
+    if (npc.panic) return panicGoal(state, npc);
     const top = topWant(npc);
     // Reacting to an Exposed crew member comes first, then major evidence, then the crew wants, then minor evidence.
     const evidence = top?.kind === 'react' ? null : evidenceGoal(world, state, npc);
@@ -264,6 +262,18 @@ export function behaviourGoal(world: ReadonlyWorld, state: State, npc: DeepReado
     if (npc.search && npc.search.until >= comingPhase(state)) return { kind: 'search', tile: { x: npc.search.tile.x, y: npc.search.tile.y } };
     if (top) return { kind: 'face', crew: top.crew, tile: { x: top.tile.x, y: top.tile.y } };
     return null;
+}
+
+/** The goal of a panicking NPC (rules/panic.ts): frozen facing the fright, then cowering, hiding or tackling. */
+function panicGoal(state: State, npc: DeepReadonly<NpcState>): Goal {
+    const panic = npc.panic!, reaction = panic.reaction;
+    if (!reaction) return { kind: 'panic', tile: { x: panic.tile.x, y: panic.tile.y }, ...(panic.crew !== null ? { crew: panic.crew } : {}) };
+    if (reaction.kind === 'hide') return { kind: 'hide', tile: { x: reaction.spot.x, y: reaction.spot.y } };
+    if (reaction.kind === 'tackle') {
+        const member = state.crew.find(c => c.id === reaction.crew)!;
+        return { kind: 'tackle', crew: reaction.crew, tile: { x: member.pos.x, y: member.pos.y } };
+    }
+    return { kind: 'cower' };
 }
 
 /**
@@ -305,6 +315,7 @@ export const comingPhase = (state: State): number => (state.phase === 'world' ? 
 /** The status badge a goal shows (§16.5), for an NPC whose status this module owns. */
 export function statusFor(npc: DeepReadonly<NpcState>, goal: Goal): NpcStatus {
     if (goal.kind === 'away' || goal.kind === 'enter') return 'away';
+    if (npc.panic) return 'panicked';
     if (npc.alerted || goal.kind === 'react' || goal.kind === 'report' || goal.kind === 'flee' || goal.kind === 'reach' || goal.kind === 'phone') return 'alerted';
     if (goal.kind === 'investigate' || goal.kind === 'search' || goal.kind === 'challenge' || goal.kind === 'escort' || goal.kind === 'inspect') return 'investigating';
     if (goal.kind === 'face' || goal.kind === 'watch' || goal.kind === 'look') return 'curious';
