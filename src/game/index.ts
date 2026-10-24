@@ -10,7 +10,7 @@ export {
 export {
     actionsView, bankView, barkText, confirmView, doorName, crewCards, describeEvent, hudView, RECAP_EVENTS, recapView, rolePortrait, threatLedger, type ActionId, type HudExtras
 } from './views';
-export { actionMenu, cameraName, doorMiddle, knownCameras, menuIsLegal, nextCamera, targetsOf, VERBS, type ActionEntry, type Targets } from './actions';
+export { actionMenu, cameraName, doorMiddle, knownCameras, menuIsLegal, nextCamera, targetsOf, throwTiles, VERBS, type ActionEntry, type Targets } from './actions';
 export { moveAlong, moveKind, moveRange, moveTo, type MoveRange } from './movement';
 export { deserialiseHeist, deserialiseUi, heistWorldId, serialiseHeist, serialiseUi, serialiseWorld, type HeistExtras } from './persist';
 export type { FloorJob } from '../sim';

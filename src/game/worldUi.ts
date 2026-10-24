@@ -1,6 +1,6 @@
 import type { GlyphName } from '../art/ui/glyphs';
 import {
-    commandPreview, crewPicture, LYING_STATUSES, type CommandPlan, type CommandTarget, neutralised, profilesOf, npcObserver, seenTiles, bandAt, type ActionPreview, type CarrierKind, type DeepReadonly, type Effect, effectKind, type Explanation, type FloorTile, TINT_RANK,
+    commandPreview, crewPicture, LYING_STATUSES, type CommandRings, type CommandTarget, neutralised, profilesOf, npcObserver, seenTiles, bandAt, type ActionPreview, type CarrierKind, type DeepReadonly, type Effect, effectKind, type Explanation, type FloorTile, TINT_RANK,
     type KnownCamera, type KnownView, type MarkerKind, type NpcMarker, type PathSafety, type TileVisibility, VISIBILITY, type Pos, type ReadonlyWorld, type SafeFloor, type Sighting, type State, type TintKind, type Witness
 } from '../sim';
 import { rolePortrait } from './views';
@@ -16,7 +16,11 @@ import { rolePortrait } from './views';
 export type Signal = 'safe' | 'amber' | 'red' | 'command' | 'cream';
 
 /** One dark plate: a glyph, and a countdown (or a resister's "5%") or a symbol after it. */
-export interface PlateVM { glyph: GlyphName; signal: Signal; count?: number | string; sym?: '?' | '!'; /** A second glyph (Investigating's target pin). */ then?: GlyphName }
+export interface PlateVM {
+    glyph: GlyphName; signal: Signal; count?: number | string; sym?: '?' | '!'; /** A second glyph (Investigating's target pin). */ then?: GlyphName;
+    /** Stays when a preview's plate stands in for the state plates (a running carrier's countdown is always shown). */
+    keep?: boolean;
+}
 
 /** What one NPC (or a carrier on an object) wears over its head. */
 export interface BadgeVM {
@@ -120,7 +124,7 @@ export function npcBadges(_world: ReadonlyWorld, state: State, known: KnownView)
         const plates: PlateVM[] = [];
         // The carrier its holder raises (`carrierStarted.holder`, the carrier's `source`).
         const carrier = carriers.find(c => c.source === m.id);
-        if (carrier) plates.push({ glyph: CARRIER_GLYPHS[carrier.kind] ?? 'bell', signal: carrier.halted ? 'cream' : 'red', count: carrier.countdown });
+        if (carrier) plates.push({ glyph: CARRIER_GLYPHS[carrier.kind] ?? 'bell', signal: carrier.halted ? 'cream' : 'red', count: carrier.countdown, ...(carrier.halted ? {} : { keep: true }) });
         const radio = radioPlate(state, m.id);
         if (radio) plates.push(radio);
         if (live && npc.challenges.length) {
@@ -483,16 +487,18 @@ function outcomePlate(state: State, commandPips: number, t: CommandTarget): Plat
 }
 
 /**
- * The rings of `plan` (`commandPreview`: only NPCs the crew knows of) over what isn't hidden (sound and sight round a
+ * The rings of `plan` (`commandPreview`: only NPCs the crew knows of, judged with the doors it can't vouch for shut) over what isn't hidden (sound and sight round a
  * hidden room would draw its layout), each known NPC's outcome where the crew knows it to stand.
  */
-export function commandRings(world: ReadonlyWorld, state: State, known: KnownView, plan: CommandPlan): RingsOverlayVM {
+export function commandRings(world: ReadonlyWorld, state: State, known: KnownView, plan: CommandRings): RingsOverlayVM {
     const outcomes: RingsOverlayVM['outcomes'] = [];
-    for (const t of plan.targets) {
-        const m = known.npcs.find(k => k.id === t.npc);
-        if (!m || m.kind === 'ghost') continue;
-        outcomes.push({ id: t.npc, pos: { x: m.pos.x, y: m.pos.y }, lying: lying(m), plate: outcomePlate(state, world.rules.commandPips, t) });
-    }
+    const at = (id: string, plate: PlateVM) => {
+        const m = known.npcs.find(k => k.id === id);
+        if (m && m.kind !== 'ghost') outcomes.push({ id, pos: { x: m.pos.x, y: m.pos.y }, lying: lying(m), plate });
+    };
+    for (const t of plan.targets) at(t.npc, outcomePlate(state, world.rules.commandPips, t));
+    // A door the crew can't vouch for decides what these do: a `?`, never a promise.
+    for (const id of plan.unsure) at(id, { glyph: 'down', signal: 'cream', sym: '?' });
     return { command: unhiddenTiles(known, plan.commandTiles), panic: unhiddenTiles(known, plan.panicTiles), outcomes };
 }
 

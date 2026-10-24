@@ -1,5 +1,5 @@
 import {
-    actionPreview, assertPlainJson, autoStep, clonePlain, commandPreview, explain, holdPreview, type CommandPlan, pathSafety, safeFloor, safeFloorJob, type ActionPreview, type CarrierChanges, type Explanation, type FloorBand, type FloorJob,
+    actionPreview, assertPlainJson, autoStep, clonePlain, commandPreview, explain, holdPreview, type CommandRings, pathSafety, safeFloor, safeFloorJob, type ActionPreview, type CarrierChanges, type Explanation, type FloorBand, type FloorJob,
     type PathSafety, type SafeFloor, commit, deepFreeze, hashOf, noticedUnseen, popUndo, preview, previewCertain, projectEvents, projectPreviewEvents, RECENT_EVENTS, recordUndo, SaveFormatError, stableJson,
     type AutoOptions, type AutoStepResult, type AutoStop, type Command, type CommitResult, type Pos, type PreviewResult, type ReadonlyWorld, type Routes, type SimEvent, type State,
     type UndoStack, withLayoutCameras
@@ -394,7 +394,7 @@ export class Session {
      * A command's two rings as the crew sees them (§10.1, UI.md "Rings"): the command and panic tiles, each known NPC's
      * outcome and a resister's chance (the one the commit rolls with).
      */
-    commandRings(crew: string): CommandPlan {
+    commandRings(crew: string): CommandRings {
         return commandPreview(this.world, this._state, crew);
     }
 

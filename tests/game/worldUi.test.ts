@@ -34,7 +34,7 @@ describe('the world UI over heads', () => {
         expect(ann.plates).toEqual([{ glyph: 'q', signal: 'amber' }]);
         expect(ann.pips).toEqual([{ crew: 'jun', n: 2 }]);
         // The carrier says it all: no `!` beside it; the exposure shows as an eye.
-        expect(bob.plates).toEqual([{ glyph: 'radio', signal: 'red', count: 2 }, { glyph: 'eye', signal: 'red' }]);
+        expect(bob.plates).toEqual([{ glyph: 'radio', signal: 'red', count: 2, keep: true }, { glyph: 'eye', signal: 'red' }]);
         // Nobody the crew doesn't know wears anything.
         expect(badges.every(b => view.npcs.some(m => m.id === b.id))).toBe(true);
     });

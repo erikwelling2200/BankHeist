@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { UiState } from '../../src/game/session';
 import { hudView, threatLedger } from '../../src/game/views';
 import { commandRings, holdRings, intentPlate, npcBadges } from '../../src/game/worldUi';
-import { clonePlain, commandPreview, commit, fixtureWorld, initialState, knownView, preview, type Command, type Facing, type ObserverClass, type PersonDef, type Pos, type State } from '../../src/sim';
+import { clonePlain, commandPlan, commandPreview, commit, doorDoubt, fixtureWorld, freezeWorld, holdPreview, initialState, knownView, preview, type Command, type FixtureOptions, type World, type Facing, type ObserverClass, type PersonDef, type Pos, type State } from '../../src/sim';
 import { scouted } from '../sim/helpers';
 
 /*
@@ -37,8 +37,13 @@ describe('GO and the command rings', () => {
         expect(vm.bank.go).toBe(true);
         expect(vm.crew[0]).toMatchObject({ actionsLeft: 3, actionsMax: 3, portrait: 'jun-m' });
         expect(vm.confirm).toMatchObject({ kind: 'go', label: 'GO', cost: 0 });
-        // GO heads the grid, wide and gold.
-        expect(vm.actions[0]).toMatchObject({ id: 'go', go: true, selected: true });
+        // A rifle with people round it: the takeover is at hand, and GO heads the grid, wide and gold (decision 84).
+        expect(vm.actions[0]).toMatchObject({ id: 'go', go: true, wide: true, selected: true });
+        // Unarmed, it keeps its place at the end, gold but narrow, dropped first from a full grid.
+        const unarmed = clonePlain(state);
+        unarmed.crew[0]!.loadout.items = [];
+        expect(hudView(world, unarmed, ui(null)).actions.at(-1)).toMatchObject({ id: 'go', go: true });
+        expect(hudView(world, unarmed, ui(null)).actions.at(-1)!.wide).toBeUndefined();
         expect(state.takeover).toBeNull();
         const after = commit(world, state, go).state;
         expect(hudView(world, after, ui(null)).goRail).toBe('on');
@@ -57,7 +62,7 @@ describe('GO and the command rings', () => {
         expect(rings.outcomes.find(o => o.id === 'ann')!.plate).toEqual({ glyph: 'down', signal: 'command', count: world.rules.commandPips });
         const vm = hudView(world, state, ui({ type: 'command', crew: 'jun' }), { rings: plan });
         expect(vm.confirm.kind).toBe('command');
-        expect(vm.rings).toEqual({ kind: 'command', down: 1, panics: 0, alerted: 0, ignores: 0, resisters: [{ id: 'bob', name: 'bob', portrait: 'guard', chance: bob.chance }] });
+        expect(vm.rings).toEqual({ kind: 'command', down: 1, panics: 0, alerted: 0, ignores: 0, unsure: 0, resisters: [{ id: 'bob', name: 'bob', portrait: 'guard', chance: bob.chance }] });
     });
 
     it('the commands lapse in the ledger, paused while a hold keeps them, and the hold\'s ring stays drawn', () => {
@@ -71,6 +76,35 @@ describe('GO and the command rings', () => {
         const rings = holdRings(world, held, knownView(world, held));
         expect(rings).toHaveLength(1);
         expect(rings[0]!.tiles).toEqual(commandPreview(world, held, 'jun').commandTiles);
+    });
+});
+
+describe('a door the crew can\'t vouch for (decision 44)', () => {
+    // A wall between x 20 and 21 with door d at y 1, open or shut for real; Jun (with a rifle) moved to (16, 1) after the
+    // door was last seen, so it is doubted; the guard predicted at (18, 2), a customer the crew saw just past the door.
+    const build = (status: 'open' | 'closed') => {
+        const walls: FixtureOptions['walls'] = [0, 1, 2].map(y => ({ between: [P(20, y), P(21, y)] as [Pos, Pos], ...(y === 1 ? { door: { id: 'd', start: status } } : {}) }));
+        const people: PersonDef[] = [
+            { ...person('guard', P(18, 2), 'w', 'enforcer', 'lobbyGuard'), schedule: [{ from: 1, activity: 'post', label: 'post', room: '', at: P(18, 2), facing: 'w' }] },
+            { ...person('cus', P(23, 1), 'w'), schedule: [{ from: 1, activity: 'post', label: 'post', room: '', at: P(23, 1), facing: 'w' }] }
+        ];
+        const world = freezeWorld({ ...(clonePlain(fixtureWorld(Array.from({ length: 3 }, () => '.'.repeat(26)), { walls, people })) as World), intel: { guardRota: true } });
+        const state = clonePlain(initialState(world, { seed: 1, crew: [{ id: 'jun', pos: P(6, 1), masked: true, items: ['assaultRifle'] }] }));
+        state.crew[0]!.pos = P(16, 1);
+        return { world, state };
+    };
+
+    it('draws the same rings, outcomes and hold whether the door is truly open or shut', () => {
+        const open = build('open'), shut = build('closed');
+        expect(doorDoubt(open.world, open.state)?.doors.has('d')).toBe(true);
+        expect(doorDoubt(shut.world, shut.state)?.doors.has('d')).toBe(true);
+        // The truth differs: the shout carries through the open door.
+        expect(commandPlan(open.world, open.state, 'jun').panicTiles).not.toEqual(commandPlan(shut.world, shut.state, 'jun').panicTiles);
+        const shown = [open, shut].map(({ world, state }) => {
+            const plan = commandPreview(world, state, 'jun');
+            return { plan, rings: commandRings(world, state, knownView(world, state), plan), hud: hudView(world, state, ui({ type: 'command', crew: 'jun' }), { rings: plan }).rings, hold: holdPreview(world, state, 'jun') };
+        });
+        expect(shown[0]).toEqual(shown[1]);
     });
 });
 
@@ -95,7 +129,8 @@ describe('lapses, drills and loot', () => {
         });
         expect(threatLedger(state, world).find(t => t.id === 'device:drill-1')).toMatchObject({ kind: 'drill', countdown: 5, label: `Drill 3/8: jams ${Math.round(world.rules.drillJamChance * 100)}%` });
         state.devices[0]!.jammed = true;
-        expect(threatLedger(state, world).find(t => t.id === 'device:drill-1')).toMatchObject({ label: 'Drill jammed (3/8): fix it', urgent: true });
+        // Jammed: stalled (no countdown runs), and wanting the crew, it sorts with the running clocks.
+        expect(threatLedger(state, world).find(t => t.id === 'device:drill-1')).toMatchObject({ label: 'Drill jammed: fix it (3/8)', halted: 'paused', urgent: true });
     });
 
     it('shows no loot counter until the crew carries some', () => {

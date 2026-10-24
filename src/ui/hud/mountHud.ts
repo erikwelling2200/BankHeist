@@ -376,10 +376,10 @@ export function mountHud(root: HTMLElement, callbacks: HudCallbacks, options: Hu
         rings.className = `sh-panel sh-rings ${r.kind}`;
         rings.setAttribute('aria-label', r.kind === 'hold'
             ? `Hold keeps ${r.down} face down`
-            : [`${r.down} get down`, r.panics ? `${r.panics} panic` : '', r.alerted ? `${r.alerted} alerted` : '', r.ignores ? `${r.ignores} ignore it` : '',
+            : [`${r.down} get down`, r.panics ? `${r.panics} panic` : '', r.alerted ? `${r.alerted} alerted` : '', r.ignores ? `${r.ignores} ignore it` : '', r.unsure ? `${r.unsure} depend on a door` : '',
                 ...r.resisters.map(x => `${x.name} resists ${pct(x.chance)}`)].filter(Boolean).join(', '));
         put(rings, img(iconUrl(r.kind === 'hold' ? 'hold' : 'command')), count('down', '▼', r.down, r.kind === 'hold' ? 'Kept face down' : 'Get down'),
-            count('panic', '≈', r.panics, 'Panic'), count('alert', '!', r.alerted, 'Alerted'), count('ignore', '×', r.ignores, 'Ignore it'),
+            count('panic', '≈', r.panics, 'Panic'), count('alert', '!', r.alerted, 'Alerted'), count('ignore', '×', r.ignores, 'Ignore it'), count('unsure', '?', r.unsure, 'A door decides'),
             ...r.resisters.map(x => h('span.sh-resist', { title: `${x.name}: resists ${pct(x.chance)}` }, portrait(x.portrait, x.name, 'sh-p'), h('span.sh-num', {}, pct(x.chance)))));
     }
 
@@ -442,7 +442,7 @@ export function mountHud(root: HTMLElement, callbacks: HudCallbacks, options: Hu
             });
             return b;
         }, (b, a) => {
-            b.className = `sh-act${a.selected ? ' sel' : ''}${a.enabled ? '' : ' na'}${a.go ? ' go' : ''}`;
+            b.className = `sh-act${a.selected ? ' sel' : ''}${a.enabled ? '' : ' na'}${a.go ? ' go' : ''}${a.wide ? ' wide' : ''}`;
             b.setAttribute('data-region', `action-${a.id}`);
             b.setAttribute('aria-label', `${a.label}${a.progress ? ` (${a.progress})` : ''}${a.enabled ? '' : `: ${a.reason ?? 'not now'}`}`);
             b.setAttribute('aria-disabled', String(!a.enabled));
@@ -481,8 +481,8 @@ export function mountHud(root: HTMLElement, callbacks: HudCallbacks, options: Hu
 
     function threatRow(row: HTMLElement, t: ThreatVM, first: boolean): void {
         const tone = threatTone(t);
-        row.className = `sh-row ${tone}${first ? ' first' : ''}`;
-        row.setAttribute('aria-label', `${t.label} in ${t.countdown}${TONE_WORDS[tone] ? `, ${TONE_WORDS[tone]}` : ''}`);
+        row.className = `sh-row ${tone}${first ? ' first' : ''}${t.urgent ? ' urgent' : ''}`;
+        row.setAttribute('aria-label', `${t.label} in ${t.countdown}${TONE_WORDS[tone] ? `, ${TONE_WORDS[tone]}` : ''}${t.halted ? ', stalled' : ''}${t.urgent ? ', needs the crew now' : ''}`);
         row.replaceChildren(...[h('span.sh-n', {}, String(t.countdown)), t.portrait ? portrait(t.portrait, t.label, 'sh-p') : null, img(iconUrl(threatIcon(t.kind))),
             h('span.sh-rlabel', {}, t.label), t.halted ? h('span.sh-paused', { title: 'Paused' }, 'II') : null, t.pos ? img(iconUrl('eye'), 'sh-ic sh-jump') : null].filter(x => x !== null));
     }

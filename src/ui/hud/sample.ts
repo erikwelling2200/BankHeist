@@ -104,7 +104,7 @@ export const SAMPLE_STATES: Record<string, () => SampleState> = {
         const vm = withCrew(base(), c => { c.actionsMax = 3; c.actionsLeft = 3; c.portrait = `${c.id}-m`; });
         vm.bank = { ...QUIET, go: true };
         vm.actions = [
-            { id: 'go', label: 'GO', icon: 'mask', cost: 0, enabled: true, go: true, selected: true },
+            { id: 'go', label: 'GO', icon: 'mask', cost: 0, enabled: true, go: true, wide: true, selected: true },
             { id: 'command', label: 'Command', icon: 'command', cost: 1, enabled: true },
             { id: 'move', label: 'Move', icon: 'move', cost: 1, enabled: true },
             { id: 'wait', label: 'Wait for', icon: 'wait', cost: 0, enabled: true }
@@ -126,7 +126,7 @@ export const SAMPLE_STATES: Record<string, () => SampleState> = {
             { id: 'wait', label: 'Wait', icon: 'wait', cost: 0, enabled: true }
         ];
         vm.confirm = { kind: 'command', label: 'Command', icon: 'command', cost: 1, enabled: true };
-        vm.rings = { kind: 'command', down: 11, panics: 3, alerted: 1, ignores: 0, resisters: [{ id: 'guard', name: 'Lobby guard', portrait: 'guard', chance: 0.05 }] };
+        vm.rings = { kind: 'command', down: 11, panics: 3, alerted: 1, ignores: 0, unsure: 0, resisters: [{ id: 'guard', name: 'Lobby guard', portrait: 'guard', chance: 0.05 }] };
         return { title: 'The takeover turn: Dex\'s shout previewed, its rings counted and the guard\'s resist chance', vm };
     },
     loot: () => {
@@ -138,7 +138,7 @@ export const SAMPLE_STATES: Record<string, () => SampleState> = {
         vm.crew[2]!.carrying = 'loot';
         vm.loot = { carried: 48500, ruined: 3000, mayBeDyed: true };
         vm.ledger = [
-            { id: 'device:drill-1', kind: 'drill', source: 'drill-1', label: 'Drill jammed (3/8): fix it', countdown: 5, halted: null, urgent: true, pos: { x: 4, y: 2 } },
+            { id: 'device:drill-1', kind: 'drill', source: 'drill-1', label: 'Drill jammed: fix it (3/8)', countdown: 5, halted: 'paused', urgent: true, pos: { x: 4, y: 2 } },
             { id: 'lapse:dex', kind: 'lapse', source: 'dex', label: 'Lapses: 9 face down (Dex)', countdown: 1, halted: null, pos: { x: 8, y: 6 } },
             { id: 'lapse:mara', kind: 'lapse', source: 'mara', label: 'Held: 3 face down (Mara)', countdown: 2, halted: 'paused', pos: { x: 3, y: 6 } }
         ];

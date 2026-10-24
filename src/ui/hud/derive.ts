@@ -31,7 +31,8 @@ export function liveCarriers(ledger: readonly ThreatVM[]): number {
  * (dotted) for a halted carrier.
  */
 export function threatTone(t: ThreatVM): 'red' | 'amber' | 'neutral' | 'paused' {
-    return t.halted ? 'paused' : isAlarming(t) ? 'red' : t.urgent || t.kind === 'lapse' || t.kind === 'drill' ? 'amber' : 'neutral';
+    if (t.urgent && !isAlarming(t)) return 'amber';
+    return t.halted ? 'paused' : isAlarming(t) ? 'red' : t.kind === 'lapse' || t.kind === 'drill' ? 'amber' : 'neutral';
 }
 
 export const TONE_WORDS = { red: 'raises the alarm', amber: 'warning', neutral: '', paused: 'paused' } as const;
@@ -46,15 +47,16 @@ export interface StatePill {
 }
 
 /**
- * The state pill (UI.md "Top strip"): GO in gold; ALARM and LOUD in red; while Quiet with a carrier running, a bell and
+ * The state pill (UI.md "Top strip"): ALARM and LOUD in red; GO in gold (until the shout makes it Loud); while Quiet with a carrier running, a bell and
  * the most urgent countdown; otherwise the Session's label.
  */
 export function statePill(vm: Pick<HudViewModel, 'bank'>): StatePill {
     const b = vm.bank;
     if (b.status === 'alarm') return { tone: 'alarm', icon: 'bell', text: b.label, label: b.label };
     if (b.nextAlarmIn !== null) return { tone: 'clock', icon: 'bell', text: String(b.nextAlarmIn), label: b.label };
-    if (b.go) return { tone: 'go', icon: 'mask', text: 'GO', label: b.label };
+    // The shout makes the bank Loud on the takeover turn: the pill says so, and the gold rail says GO (decision 83).
     if (b.status === 'loud') return { tone: 'loud', icon: 'ear', text: b.label, label: b.label };
+    if (b.go) return { tone: 'go', icon: 'mask', text: 'GO', label: b.label };
     return { tone: 'quiet', icon: 'eye', text: b.label, label: b.label };
 }
 
@@ -69,10 +71,10 @@ export function crewWithActionsLeft(crew: readonly CrewVM[]): CrewVM[] {
     return crew.filter(c => c.actionsLeft > 0 && (c.hp === null || c.hp.now > 0));
 }
 
-/** The actions the grid shows: at most `MAX_ACTIONS` places (GO takes two), the selected one always among them. */
+/** The actions the grid shows: at most `MAX_ACTIONS` places (a wide one takes two), the selected one always among them. */
 export function shownActions(actions: readonly ActionVM[]): ActionVM[] {
-    // GO takes a row of its own (two places).
-    const room = MAX_ACTIONS - (actions.some(a => a.go) ? 1 : 0);
+    // A wide entry (GO) takes a row of its own: two places.
+    const room = MAX_ACTIONS - (actions.some(a => a.wide) ? 1 : 0);
     if (actions.length <= room) return [...actions];
     const shown = actions.slice(0, room), selected = actions.find(a => a.selected);
     if (selected && !shown.includes(selected)) shown[room - 1] = selected;

@@ -110,6 +110,8 @@ export function autoAdvanceBlocked(world: ReadonlyWorld, state: State): string |
     if (state.bank.alarm) return 'Not after the alarm';
     if (state.bank.loud) return 'Not once the bank is loud';
     if (state.carriers.some(c => c.halted === null)) return 'An alarm is counting down';
+    // A jammed drill stands still until someone fixes it (§15.3): waiting would only waste the turns.
+    if (state.devices.some(d => d.jammed)) return 'The drill is jammed';
     for (const npc of state.npcs) {
         if ((npc.status === 'alerted' || npc.status === 'panicked' || npc.status === 'hostile') && isKnownNow(world, state, npc.id)) return `${capital(npcLabel(world, npc.id))} is alerted`;
     }

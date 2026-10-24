@@ -74,7 +74,8 @@
 .sh-loot .sh-ic { width: 20px; height: 20px; }
 /* "May be dyed" (§15.1): a hatched amber "?" (could be worse than shown), never whether it is. */
 .sh-dye { display: inline-flex; align-items: center; justify-content: center; min-width: 13px; height: 14px; padding: 0 1px; box-sizing: border-box; border: 1px solid var(--amber); color: var(--amber);
-  font-size: 11px; letter-spacing: 0; line-height: 1; background: repeating-linear-gradient(135deg, rgba(226, 162, 64, 0.28) 0 1px, transparent 1px 4px), var(--ink); }
+  font-size: 11px; letter-spacing: 0; line-height: 1;
+  background: repeating-linear-gradient(135deg, color-mix(in srgb, var(--amber) 28%, transparent) 0 1px, transparent 1px 4px), var(--ink); }
 .sh-ruined { color: var(--red); font-size: calc(var(--sh-text) * 12px); letter-spacing: 0; text-decoration: line-through; }
 .sh-turn { display: flex; align-items: center; justify-content: center; min-width: 44px; padding: 0 6px; }
 /* The ledger button: a 44x44 target whose visible face is the strip's 32px. */
@@ -95,6 +96,7 @@
 .sh-rc.down { color: var(--cmd); }
 .sh-rc.panic { color: var(--amber); }
 .sh-rc.alert, .sh-rc.ignore { color: var(--red); }
+.sh-rc.unsure { color: var(--dim); }
 .sh-resist { display: flex; align-items: center; gap: 4px; padding-left: 6px; border-left: 1px solid var(--line2); }
 .sh-resist .sh-p { width: 24px; height: 24px; }
 .sh-resist span.sh-p { font-size: 12px; }
@@ -176,7 +178,8 @@
 .sh-act { position: relative; width: 52px; height: 52px; border-radius: var(--r); background: var(--panel); border: 1px solid var(--line); display: flex; align-items: center; justify-content: center; box-sizing: border-box; }
 .sh-act.sel { border-color: var(--iv); background: rgba(242, 230, 200, 0.16); box-shadow: inset 0 -2px 0 var(--iv); }
 .sh-act.na { opacity: 0.35; cursor: default; }
-.sh-act.go { grid-column: span 2; width: 108px; border-color: var(--gold); box-shadow: inset 0 0 0 1px rgba(242, 201, 76, 0.45); }
+.sh-act.go { border-color: var(--gold); box-shadow: inset 0 0 0 1px rgba(242, 201, 76, 0.45); }
+.sh-act.wide { grid-column: span 2; width: 108px; }
 .sh-act.go.sel { background: rgba(242, 201, 76, 0.18); box-shadow: inset 0 -2px 0 var(--gold); }
 .sh-cost { display: flex; gap: 2px; }
 .sh-act .sh-cost { position: absolute; left: 4px; bottom: 4px; }
@@ -226,6 +229,9 @@
 .amber > .sh-n { border: 2px dashed var(--amber); color: var(--amber); }
 .paused > .sh-n { border: 1px dotted var(--mute); color: var(--dim); }
 .sh-row.paused { opacity: 0.7; }
+/* Needs the crew now (a ringing radio, a jammed drill): an amber bar and wash, the label in amber; never faded. */
+.sh-row.urgent { opacity: 1; background: rgba(226, 162, 64, 0.16); border-left-color: var(--amber); }
+.sh-row.urgent .sh-rlabel { color: var(--amber); font-weight: 600; }
 .sh-paused { flex: none; font-size: 12px; letter-spacing: -1px; color: var(--dim); border: 1px solid var(--line2); padding: 1px 3px; }
 .sh-p { flex: none; width: 30px; height: 30px; image-rendering: pixelated; }
 span.sh-p { font-size: 16px; }

@@ -1,6 +1,6 @@
 import {
-    CARRIERS, crewLoot, crewLook, DASH_ACTIONS, holdPreview, inReach, isKnownNow, knownCarriers, lootOf, markerKind, mayBeDyed, walkingToAlarm, MOVE_ACTIONS, nextDriveBy, type CarrierChanges, type CarrierPreview,
-    type CommandPlan, type Command, type ReadonlyWorld, type SimEvent, type State
+    CARRIERS, commandRadius, crewLoot, crewLook, crewThreat, DASH_ACTIONS, holdPreview, isKnownNow, knownCarriers, lootOf, markerKind, mayBeDyed, steadyHand, walkingToAlarm, MOVE_ACTIONS, nextDriveBy, type CarrierChanges, type CarrierPreview,
+    type CommandRings, type Command, type ReadonlyWorld, type SimEvent, type State
 } from '../sim';
 import {
     CREW_COLOURS, OVERLAY_IDS, type ActionVM, type BankStatus, type CommitKind, type ConfirmVM, type HudIcon, type BankStatusVM, type CrewVM, type HudViewModel, type LootVM, MAX_ACTIONS, type OverlayId,
@@ -53,7 +53,9 @@ export function threatLedger(state: State, world?: ReadonlyWorld): ThreatVM[] {
     }
     if (world) live.push(...clocks(world, state));
     const carrier = (t: ThreatVM) => (t.kind === 'checkIn' || t.kind === 'driveBy' || t.kind === 'reinforcement' ? 1 : 0);
-    return live.sort((a, b) => Number(!!a.halted) - Number(!!b.halted) || a.countdown - b.countdown || carrier(a) - carrier(b) || byId(a, b));
+    // Something that wants the crew now (a jammed drill) sorts with the running clocks, though it stands still.
+    const still = (t: ThreatVM) => Number(!!t.halted && !t.urgent);
+    return live.sort((a, b) => still(a) - still(b) || a.countdown - b.countdown || carrier(a) - carrier(b) || byId(a, b));
 }
 
 /** World phases until something that happens in the world phase of turn `at`, counted as carriers count (§9.1). */
@@ -130,10 +132,11 @@ function deviceClocks(world: ReadonlyWorld, state: State): ThreatVM[] {
     // A finished drill left at its door until taken back is no clock.
     return state.devices.filter(d => d.done < d.needed).map(d => {
         const left = d.needed - d.done, name = d.kind === 'drill' ? 'Drill' : 'Thermite', work = `${d.done}/${d.needed}`;
-        const steady = d.kind === 'drill' && state.crew.some(c => c.traits.includes('steadyHands') && inReach(world, state, c.pos, d.pos));
-        const label = d.jammed ? `${name} jammed (${work}): fix it`
+        const steady = d.kind === 'drill' && !!steadyHand(world, state, d);
+        const label = d.jammed ? `${name} jammed: fix it (${work})`
             : d.kind === 'drill' && !steady ? `${name} ${work}: jams ${Math.round(world.rules.drillJamChance * 100)}%` : `${name} ${work}`;
-        return { id: `device:${d.id}`, kind: 'drill', source: d.id, label, countdown: left, halted: null, pos: { x: d.pos.x, y: d.pos.y }, ...(d.jammed ? { urgent: true } : {}) } satisfies ThreatVM;
+        // Jammed, it stands still (no countdown runs) and wants the crew now.
+        return { id: `device:${d.id}`, kind: 'drill', source: d.id, label, countdown: left, halted: d.jammed ? 'paused' : null, pos: { x: d.pos.x, y: d.pos.y }, ...(d.jammed ? { urgent: true } : {}) } satisfies ThreatVM;
     });
 }
 
@@ -217,14 +220,14 @@ export function lootView(world: ReadonlyWorld, state: State): LootVM | null {
  * A previewed command's rings counted (§10.1), from `commandPreview` (the NPCs the crew knows of, each resister's chance
  * the one the commit rolls with); or a previewed hold's (`holdPreview`): how many it keeps face down.
  */
-export function ringsView(world: ReadonlyWorld, plan: CommandPlan | { held: readonly string[] }): RingsVM {
-    if ('held' in plan) return { kind: 'hold', down: plan.held.length, panics: 0, alerted: 0, ignores: 0, resisters: [] };
+export function ringsView(world: ReadonlyWorld, plan: CommandRings | { held: readonly string[] }): RingsVM {
+    if ('held' in plan) return { kind: 'hold', down: plan.held.length, panics: 0, alerted: 0, ignores: 0, unsure: 0, resisters: [] };
     const count = (o: string) => plan.targets.filter(t => t.outcome === o).length;
     const resisters = plan.targets.filter(t => t.outcome === 'resists').map(t => {
         const person = world.people.find(p => p.id === t.npc), portrait = person && rolePortrait(person.role);
         return { id: t.npc, name: person?.name ?? t.npc, ...(portrait ? { portrait } : {}), chance: t.chance ?? 0 };
     });
-    return { kind: 'command', down: count('complies'), panics: count('panics'), alerted: count('alerted'), ignores: count('ignores'), resisters };
+    return { kind: 'command', down: count('complies'), panics: count('panics'), alerted: count('alerted'), ignores: count('ignores'), unsure: plan.unsure.length, resisters };
 }
 
 /** What the Session knows beyond the state that the HUD shows. */
@@ -246,7 +249,7 @@ export interface HudExtras {
     /** GO is previewed: the state after it (`Session.preview`), for the gold rail's masks and third actions. */
     goPreview?: State;
     /** The pending command's rings (`Session.commandRings`) or the pending hold's (`Session.holdRing`). */
-    rings?: CommandPlan | { held: readonly string[] };
+    rings?: CommandRings | { held: readonly string[] };
 }
 
 /**
@@ -313,11 +316,26 @@ export function actionsView(world: ReadonlyWorld, state: State, ui: UiState, ext
             id: e.id, label: e.label, icon: e.icon, cost, enabled: !e.reason, ...(e.reason ? { reason: e.reason } : {}), selected: sameCommand(pending, e.command),
             ...(e.progress ? { progress: e.progress } : {})
         };
-        // GO (§9.3) heads the grid, wide and gold (a row of its own), so a full grid never drops it.
-        if (e.command.type === 'go') out.unshift({ ...vm, go: true });
-        else out.push(vm);
+        // GO (§9.3) is gold. Once a takeover is at hand it heads the grid, a wide row of its own (decision 84);
+        // until then it keeps its place after the stealth entries, and a full grid drops it first.
+        if (e.command.type !== 'go') out.push(vm);
+        else if (takeoverAtHand(world, state)) out.unshift({ ...vm, go: true, wide: true });
+        else out.push({ ...vm, go: true });
     }
-    return out.slice(0, MAX_ACTIONS - (out[0]?.go ? 1 : 0));
+    return out.slice(0, MAX_ACTIONS - (out[0]?.wide ? 1 : 0));
+}
+
+/**
+ * Whether a takeover is at hand (decision 84): a crew member carrying a weapon has someone the crew knows of within the
+ * command radius GO would give them (×1.5), as the crow flies.
+ */
+export function takeoverAtHand(world: ReadonlyWorld, state: State): boolean {
+    const go = { ...state, takeover: state.turn };
+    return state.crew.some(c => {
+        if (crewThreat(c) <= 0) return false;
+        const r = commandRadius(go, c);
+        return state.npcs.some(n => n.status !== 'away' && isKnownNow(world, state, n.id) && (n.pos.x - c.pos.x) ** 2 + (n.pos.y - c.pos.y) ** 2 <= r * r);
+    });
 }
 
 /** Events in a preview that give the crew away, or are an illegal act seen or not (§8.4): Confirm turns amber. */

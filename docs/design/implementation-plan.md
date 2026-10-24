@@ -857,8 +857,9 @@ M2 is complete: every package below has landed.
   - **Depends on:** M2-01 to M2-04.
   - **Accept:** e2e screenshot of the §3 takeover turn.
   - **Notes (done):** view models in `src/game/views.ts` and `worldUi.ts`, drawn by the HUD (`src/ui/hud/`) and the
-    overlay (`src/scenes/bank/overlay.ts`); everything shown is a rules reading the crew may see.
-    - **GO:** heads the action grid, a gold row of its own (`ActionVM.go`; `shownActions` counts it as two places);
+    overlay (`src/scenes/bank/overlay.ts`); everything shown is a rules reading the crew may see. Decisions 82–84.
+    - **GO:** gold (`ActionVM.go`), a wide row heading the grid once a takeover is at hand (`ActionVM.wide`, decision 84;
+      `shownActions` counts it as two places);
       Confirm turns gold (`CommitKind` 'go'). While previewed the rail turns gold (dashed) and each card shows the crew
       member as GO leaves them (masked portrait, a third gold pip) from `Session.preview`, crew fields only
       (`crewCards(…, go)`); the pill reads GO. On the takeover turn the rail stays gold (`HudViewModel.goRail`).
@@ -891,8 +892,19 @@ M2 is complete: every package below has landed.
       and a tap retargeting a throw (`play-throw.png`); HUD samples `go`, `shout` and `loot` at `/?scene=hud`; setups
       `takeover-go`, `takeover`, `takeover-held`, `takeover-lapse`, `inspect-guard`.
     - **Deferred:** the van's loot counter and the contract target on it (M3-08); dye packs flagged by intel (M6); the
-      negotiator, release and trade UI (M3-07). The command ring's tiles are geometry on the true state (M2-01's
-      decision), so a door not seen this turn is read as it stands.
+      negotiator, release and trade UI (M3-07).
+    - **Review fixes.** The command and hold previews judge on the preview's picture (`previewPicture`: unknown NPCs
+      away, every door the crew can't vouch for shut, decision 44), so the rings, the outcomes and the hold's count never
+      tell how such a door stands; a known NPC whose outcome those doors could change (judged with them open too) is
+      `unsure` and wears a `?`, counted apart on the chip (a test draws the rings with a doubted door open and shut:
+      identical; the property test checks every certain outcome against the truth, and every other known NPC in a ring
+      is unsure). Heroes show their chance at any range (decision 82); the pill reads LOUD after the shout (decision
+      83); GO's wide row only once a takeover is at hand (decision 84). Ghosts keep the pose they were last drawn in; a
+      throw never aims at a hidden tile (`throwTiles`), and while one is previewed only a tap on a floor tile retargets
+      it (a tap on someone still selects them). A jammed drill's row is stalled and amber (`urgent` now shows: an amber
+      bar and label, sorted with the running clocks), and a Wait or a Go won't start while a drill is jammed. A running
+      carrier's countdown stays over a ring's outcome and a hearer's ear (`PlateVM.keep`). The ledger reuses vault.ts's
+      `steadyHand`.
 
 ### M3: Loud
 
@@ -1503,6 +1515,17 @@ Later milestones: within each milestone, the `∥` notes in §3 apply. UI packag
     carrier also stops once the time-lock window opens. Each sensor carrier so has at least two counters that work in
     its countdown (the seismic's 4 world phases leave two crew phases; the motion's 2 leave one, so two crew members, or
     Steady Hands, cut it in time).
+82. **A hero in the command ring (M2-06).** §10.4 says a resister's chance is shown, and a hero is a resister: a hero in
+    a previewed command's ring shows its resist chance at any range, as a guard does. §16.2's "Bold within 3 tiles" is
+    Inspect's tag only, for a hero outside a ring.
+83. **The pill on the takeover turn (M2-06).** The pill names the bank's state (UI.md "Top strip": QUIET, GO, LOUD): GO
+    while GO is previewed and through the takeover turn until the shout makes the bank Loud, then LOUD; the gold rail
+    and the third gold pip go on saying GO for the rest of the turn.
+84. **Where GO sits in the grid (M2-06).** The stealth boards show no GO: it is a takeover's button. Once a takeover is
+    at hand (a crew member with a weapon has someone the crew knows of within the command radius GO would give them,
+    as the crow flies) GO heads the grid, a gold row two places wide (UI.md "GO is wider, with a gold border"); until
+    then it keeps its place after the stealth entries, gold but one place wide, and a full grid drops it first.
+
 ### Critical files for implementation
 
 - /home/user/BankHeist/src/gen/model.ts

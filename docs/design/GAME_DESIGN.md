@@ -1580,7 +1580,7 @@ bonuses (§19.8).
 | **Security chief** (HQ) | Roams. Remembers crew faces: crew seen once count one profile higher to him. Sees through uniforms. | Enforcer | Resists | Radio (2) |
 | **CCTV operator** | Console; check-in calls; lunch or smoke break on some banks | Staff in person; Enforcer through cameras | 30 / 20 / 10 / **panel 40** | Verify → alarm (2) |
 | **Off-duty cop** (hidden, 0–2) | Identical to a customer, in look and on Inspect | Civilian | Always **reach for weapon** (telegraphed for one phase) | Same as when panicked |
-| **Hero** (rare trait) | Any customer or staff member, tagged "Bold" on Inspect within 3 tiles | — | Flees while others cower, or **tackles** an adjacent crew member | Tackle: an adjacent crew member loses their next action |
+| **Hero** (rare trait) | Any customer or staff member, tagged "Bold" on Inspect within 3 tiles; in a command ring its resist chance shows at any range (§10.4) | — | Flees while others cower, or **tackles** an adjacent crew member | Tackle: an adjacent crew member loses their next action |
 | **Armoured-car couriers** (event) | 2–3 armed; bay → vault → bay while the time lock is open | Enforcer | Resist; armed | Radio (2) |
 
 **"Hands up!" (confront).** A guard who Exposes a crew member draws, shouts (loud noise radius 6) and orders them to

@@ -174,7 +174,7 @@ export {
 } from './preview/floor';
 export { explain, observerName, sightingText, type Explanation } from './preview/explain';
 export { actionPreview, type ActionPreview, type Ear, type NoisePreview, type Witness } from './preview/action';
-export { commandPreview, holdPreview } from './preview/command';
+export { commandPreview, holdPreview, type CommandRings } from './preview/command';
 export {
     commandNpc, commandPlan, commandRadius, crewThreat, goBlocked, holdTargets, isResister, resistChance,
     type Commanded, type CommandPlan, type CommandTarget, type Lapse, type LapseOutcome
@@ -183,4 +183,4 @@ export { PANIC, panicWeights, type PanicWeights } from './data/archetypes';
 export { reactionOdds } from './rules/panic';
 export { type Panic, type PanicReaction } from './rules/panicState';
 export { cardOpens, codeParts, entered, lockOn, partOf, timeLockOpen, vaultLock, vaultShut } from './rules/keys';
-export { DRILL, THERMITE, type Device } from './rules/vault';
+export { DRILL, steadyHand, THERMITE, type Device } from './rules/vault';

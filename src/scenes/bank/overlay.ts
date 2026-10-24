@@ -629,9 +629,10 @@ export class WorldOverlay {
             if (!r) rows.set(key, r = { pos, lying, faded: false, plates: [], pips: [] });
             return r;
         };
-        // A hearer's state plate gives way to its ear badge, which says what it will do.
+        // A hearer's state plates give way to its ear badge, which says what it will do, and a ring's outcome to its own;
+        // a running carrier's countdown stays (`keep`).
         const hearing = new Set([...(c.hearers ?? []).map(e => e.id), ...(c.rings?.outcomes ?? []).map(o => o.id)]);
-        for (const b of c.badges ?? []) Object.assign(row(b.pos, b.lying), { faded: b.faded, pips: b.pips }).plates.push(...(hearing.has(b.id) ? [] : b.plates));
+        for (const b of c.badges ?? []) Object.assign(row(b.pos, b.lying), { faded: b.faded, pips: b.pips }).plates.push(...(hearing.has(b.id) ? b.plates.filter(p => p.keep) : b.plates));
         // The one sent to look also wears the pin (Investigating).
         // Face down (commanded, tied): hears it, stays down.
         for (const e of c.hearers ?? []) row(e.pos, e.lying).plates.push({ glyph: 'speaker', signal: e.signal, ...(e.sym ? { sym: e.sym } : {}), ...(e.sent ? { then: 'pin' as const } : e.still ? { then: 'down' as const } : {}) });

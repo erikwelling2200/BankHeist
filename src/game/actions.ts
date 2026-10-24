@@ -1,6 +1,6 @@
 import {
     besideDoor, crewPicture, doorStatus, DRAGGABLE, draggedBy, goBlocked, HACKING_KIT, inHands, inReach, interactionVerbs, isKnownNow, JAMMER, legalActions, LOCKPICK, lockActions, LOOP_FROM, lootWeight,
-    pocketed, reachesObject, STASH_KINDS, throwTargets, tieIneligible, whyNot, type Command, type Pos, type ReadonlyWorld, type State
+    pocketed, reachesObject, STASH_KINDS, throwTargets, tieIneligible, tileVisibility, whyNot, type Command, type Pos, type ReadonlyWorld, type State
 } from '../sim';
 import type { HudIcon as HudIconName } from '../ui/hud/viewModels';
 
@@ -233,7 +233,7 @@ export function actionMenu(world: ReadonlyWorld, state: State, crewId: string, t
     if (held) add('putDown', 'Put down', 'flip', { type: 'dropLoot', crew: crewId });
     const mates = state.crew.filter(c => c.id !== crewId);
     if (held && lootWeight(world, held) === 'heavy') {
-        const tiles = throwTargets(world, state, crewId), reach = new Set(tiles.map(p => `${p.x},${p.y}`));
+        const tiles = throwTiles(world, state, crewId), reach = new Set(tiles.map(p => `${p.x},${p.y}`));
         const catcher = pick(mates.filter(c => reach.has(`${c.pos.x},${c.pos.y}`)).map(c => c.id));
         if (catcher) add('throw', `Throw to ${state.crew.find(c => c.id === catcher)!.name}`, 'throw', { type: 'throwLoot', crew: crewId, to: { ...state.crew.find(c => c.id === catcher)!.pos } }, catcher);
         else {
@@ -262,6 +262,13 @@ export function actionMenu(world: ReadonlyWorld, state: State, crewId: string, t
     if (!goBlocked(state)) add('go', 'GO', 'star', { type: 'go', crew: crewId });
     return out;
 }
+
+/**
+ * The tiles a crew member could throw the bag in their hands to that the player may pick (§15.1): `throwTargets`, none
+ * of them hidden (decision 44: no throw is aimed into a room nobody has looked into).
+ */
+export const throwTiles = (world: ReadonlyWorld, state: State, crewId: string): Pos[] =>
+    throwTargets(world, state, crewId).filter(p => tileVisibility(world, state, p) !== 'hidden');
 
 /** Whether a crew member's hands are free (nothing carried, nobody dragged or led). */
 const handsFreeOf = (member: State['crew'][number]): boolean => member.loadout.carrying === null && member.dragging === null;

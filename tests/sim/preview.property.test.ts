@@ -545,7 +545,11 @@ function checkCommand(run: Run, state: State, crew: string, r: CommitResult): vo
     const plan = commandPlan(world, state, crew), shown = commandPreview(world, state, crew);
     for (const e of r.events) if (e.type === 'panicked') probe.bump('panicked');
     const known = plan.targets.filter(t => isKnownNow(world, state, t.npc));
-    if (JSON.stringify(shown.targets) !== JSON.stringify(known)) probe.fail(`${run.label}: command preview ${JSON.stringify(shown.targets)}, known ${JSON.stringify(known)}`);
+    // Judged with the doors the crew can't vouch for shut (decision 44): what it shows for certain is the truth; every
+    // other known NPC in a ring is `unsure`, never a different promise.
+    for (const t of shown.targets) if (JSON.stringify(t) !== JSON.stringify(known.find(k => k.npc === t.npc))) probe.fail(`${run.label}: command preview ${JSON.stringify(t)}, truth ${JSON.stringify(known.find(k => k.npc === t.npc))}`);
+    for (const t of known) if (!shown.targets.some(s => s.npc === t.npc) && !shown.unsure.includes(t.npc)) probe.fail(`${run.label}: ${t.npc} in a ring, not shown`);
+    if (shown.unsure.length) probe.bump('command unsure');
     const noise = r.events.find(e => e.type === 'noise' && e.cause === `command ${crew}`) as Extract<SimEvent, { type: 'noise' }> | undefined;
     if (noise?.radius !== plan.panicRadius) probe.fail(`${run.label}: the shout's radius ${noise?.radius}, shown ${plan.panicRadius}`);
     const ring = soundRing(world, state, state.crew.find(c => c.id === crew)!.pos, plan.panicRadius);

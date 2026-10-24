@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { archetypesFor } from '../../src/gen/generate';
 import { TIERS, type KeyLock } from '../../src/gen/model';
 import {
-    actionPreview, CARRIERS, cctvDesk, npcCanPass, pathTo, planMoveOptions, reachable, timeLockOpen, clonePlain, commit, doorSides, doorStatus, fixtureWorld, initialState, inReach, interruptsOf, legalActions, lineOfSight, preview, sightMap, tileAt,
+    actionPreview, autoAdvanceBlocked, CARRIERS, cctvDesk, npcCanPass, pathTo, planMoveOptions, reachable, timeLockOpen, clonePlain, commit, doorSides, doorStatus, fixtureWorld, initialState, inReach, interruptsOf, legalActions, lineOfSight, preview, sightMap, tileAt,
     vaultLock, whyNot, worldFromBank, type Command, type CrewStart, type DeepReadonly, type PersonDef, type Pos, type ReadonlyWorld, type State,
     type WorldObject
 } from '../../src/sim';
@@ -401,12 +401,14 @@ describe('the drill and thermite (§15.3)', () => {
         expect(s.dice.filter(d => d.reason === 'jam drill-1').filter(d => d.value < 0.15).length).toBe(jams);
     });
 
-    it('a jam stops a Wait or a Go where the drill stands', () => {
+    it('a jam stops a Wait or a Go where the drill stands, and a jammed drill keeps one from starting', () => {
         const { world, state } = vault([{ id: 'jun', pos: P(4, 2), items: ['drill'] }], vaultLockDef({ technical: { kind: 'drill', phases: 6, noise: 6, sensors: [], text: 'drill' } }), []);
         const set = same(world, state, { type: 'drill', crew: 'jun', at: 'vaultDoor' }).state;
         const jammed = { ...set, devices: set.devices.map(d => ({ ...d, jammed: true })) };
         expect(interruptsOf(world, set, { state: jammed, events: [{ type: 'drillJammed', device: 'drill-1' }] }))
             .toContainEqual({ kind: 'jam', text: 'the drill jammed', at: P(4, 2) });
+        // Already jammed: a Wait or a Go won't start.
+        expect(autoAdvanceBlocked(world, jammed)).toBe('The drill is jammed');
     });
 
     it('Steady Hands beside a drill keeps it from jamming and fixes a jam for free', () => {

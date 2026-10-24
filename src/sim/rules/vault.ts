@@ -421,7 +421,7 @@ registerAction('takeDrill', {
 });
 
 /** A crew member with Steady Hands in reach of a device, first in the crew's order (§7.2: fixes a jammed drill for free). */
-const steadyHand = (world: ReadonlyWorld, state: State, device: DeepReadonly<Device>): CrewState | undefined =>
+export const steadyHand = (world: ReadonlyWorld, state: State, device: DeepReadonly<Device>): CrewState | undefined =>
     state.crew.find(c => hasTrait(c, 'steadyHands') && inReach(world, state, c.pos, device.pos));
 
 // Each device works a phase in the world phase it runs in, a loud noise where it stands; the last one gets through.

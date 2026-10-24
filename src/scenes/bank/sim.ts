@@ -4,7 +4,7 @@ import {
     type PathVM
 } from '../../game/worldUi';
 import {
-    actionMenu, AutoRun, rolePortrait, autoBarView, bankView, barkText, cameraName, doorMiddle, nextCamera, moveAlong, moveRange, moveTo, routeViews, stopNeedsAttention, targetsOf, waitMenu, type ActionId, type FloorJob, type MoveRange,
+    actionMenu, AutoRun, rolePortrait, throwTiles, autoBarView, bankView, barkText, cameraName, doorMiddle, nextCamera, moveAlong, moveRange, moveTo, routeViews, stopNeedsAttention, targetsOf, waitMenu, type ActionId, type FloorJob, type MoveRange,
     type PlaybackItem, type PlaybackSpeed, type Session, type SessionChange
 } from '../../game';
 import { shownWarnings, warningLines, type EvidenceWarning } from '../../game/evidenceWarning';
@@ -13,7 +13,7 @@ import { TILE } from '../../level/constants';
 import { headingOf } from '../../art/bank/people';
 import type { PersonPose } from '../../level/plan';
 import {
-    COMBAT_STATUSES, crewPicture, dashRefusal, IllegalCommand, knownDoorStatus, knownView, lootWeight, planRoute, throwPlan, throwTargets, VISIBILITY, routeBreak, soundRing, type ActionPreview,
+    COMBAT_STATUSES, crewPicture, dashRefusal, IllegalCommand, knownDoorStatus, knownView, lootWeight, planRoute, throwPlan, VISIBILITY, routeBreak, soundRing, type ActionPreview,
     type AutoStop, type Command, type CrewState, type KnownView, type MarkerKind, type PathSafety, type State, type TileVisibility, type Facing, type Pos, type SimEvent
 } from '../../sim';
 import { mountAutoBar, type AutoBarHandle } from '../../ui/hud/autoBar';
@@ -699,9 +699,12 @@ export class PlayMode {
             // A dragged body lies on the tile behind its carrier (the rules keep it on theirs); a hostage led along walks
             // there on its feet (§10.6); the rest lie as they are: tied, out cold, or face down with the hands on the head.
             const dragger = state.crew.find(c => c.dragging === n.id), led = !!dragger?.leading;
-            // Posed as the crew knows it (the marker's status), as it is drawn where the crew knows it.
-            const status = m.status ?? n.status;
-            this.setPose(n.id, led ? undefined : status === 'tied' ? 'tied' : status === 'unconscious' || status === 'dead' || status === 'commanded' ? 'prone' : undefined);
+            // Posed as the crew knows it: a live or predicted marker by its status; a ghost keeps the pose it was last
+            // drawn in (the crew hasn't seen it since; standing after a reload, which keeps no pose).
+            if (m.kind !== 'ghost') {
+                const status = m.status;
+                this.setPose(n.id, led ? undefined : status === 'tied' ? 'tied' : status === 'unconscious' || status === 'dead' || status === 'commanded' ? 'prone' : undefined);
+            }
             place(index, dragger ? this.trailOf(dragger) : m.pos, m.facing);
             // The crew has hold of a dragged body: it is never a guess.
             this.people.setAlpha(index, dragger ? 1 : MARKER_ALPHA[m.kind]);
@@ -817,15 +820,16 @@ export class PlayMode {
         // Someone standing on the tile tapped (the one selected: nobody is then), unless a crew drawing in front of them
         // was hit (a head over their tile); then a second tap on the previewed tile, which commits it (UI.md); then
         // someone whose drawing (standing up over the tiles behind them) was tapped.
-        // A throw previewed (§15.1): a tap on a tile the bag reaches (a teammate's too) throws it there instead; on the
-        // tile it lands on, commits it.
-        const pending = this.session.pendingCommand;
-        if (pending?.type === 'throwLoot' && throwTargets(this.session.world, this.session.state, pending.crew).some(p => same(p, tile))) {
+        const pending = this.session.pendingCommand, onTile = crew.find(c => same(c.pos, tile)), drawn = this.crewAt(x, y);
+        // A throw previewed (§15.1): a tap on a floor tile the bag reaches throws it there instead, and on the tile it
+        // lands on commits it. A tap on someone (a teammate, an NPC) is still a tap on them (UI.md "Touch grammar"):
+        // the grid's Throw to names the catcher.
+        const onFloor = !onTile && !drawn && !this.known().npcs.some(m => m.kind !== 'ghost' && (same(m.pos, tile) || this.people.hit(this.sprite.get(m.id) ?? -1, x, y)));
+        if (pending?.type === 'throwLoot' && onFloor && throwTiles(this.session.world, this.session.state, pending.crew).some(p => same(p, tile))) {
             if (same(pending.to, tile)) return this.confirm();
             this.preview({ ...pending, to: tile });
             return;
         }
-        const onTile = crew.find(c => same(c.pos, tile)), drawn = this.crewAt(x, y);
         if (onTile) return this.select(drawn && drawn.pos.y > onTile.pos.y ? drawn.id : onTile.id);
         if (pending && 'path' in pending && same(pending.path.at(-1), tile)) return this.confirm();
         const member = this.selectedMember();
@@ -1206,7 +1210,7 @@ export class PlayMode {
         // A throw (§15.1): the bag's arc, as `throwPlan` has it land, and every tile it could go to (a tap picks one).
         const thrown = pending?.type === 'throwLoot' ? throwPlan(this.session.world, this.session.state, pending) : undefined;
         const arc = thrown && typeof thrown !== 'string'
-            ? { throwArc: { from: thrown.from, to: thrown.to, caught: thrown.catcher !== null }, throwRange: unhiddenTiles(this.known(), throwTargets(this.session.world, this.session.state, member.id)) } : {};
+            ? { throwArc: { from: thrown.from, to: thrown.to, caught: thrown.catcher !== null }, throwRange: throwTiles(this.session.world, this.session.state, member.id) } : {};
         // A command (§10.1): its two rings and each known NPC's outcome stand in for its noise ring and ear badges.
         if (pending?.type === 'command') {
             const rings = commandRings(this.session.world, this.session.state, this.known(), this.session.commandRings(pending.crew));

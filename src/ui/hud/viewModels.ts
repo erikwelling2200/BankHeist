@@ -114,8 +114,10 @@ export interface ActionVM {
     reason?: string;
     /** The action being previewed. */
     selected?: boolean;
-    /** GO: wider, with a gold border (UI.md "Actions"). */
+    /** GO: a gold border (UI.md "Actions"). */
     go?: boolean;
+    /** Two places wide, a row of its own: GO once a takeover is at hand. */
+    wide?: boolean;
     /** Work done so far on a job spread over several actions ("2/4" on the alarm panel), shown on the button. */
     progress?: string;
 }
@@ -239,6 +241,8 @@ export interface RingsVM {
     panics: number;
     alerted: number;
     ignores: number;
+    /** Known NPCs whose outcome a door the crew can't vouch for decides: not counted above. */
+    unsure: number;
     resisters: ResisterVM[];
 }
 

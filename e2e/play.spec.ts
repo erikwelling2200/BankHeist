@@ -730,14 +730,15 @@ test('loot: Mara takes a bag through the grid and throws it to Jun, who catches 
     // The bag's arc, previewed: from Mara to Jun, who catches it.
     const mara = (await page.evaluate(() => (window as any).sim.state.crew[0].pos)) as Pos;
     await expect.poll(async () => (await play(page)).throwArc).toEqual({ from: mara, to: setup!.jun, caught: true });
-    // Every tile the bag reaches is outlined; a tap on another one throws it there instead, onto the floor; a tap on
-    // Jun's tile throws it back to him.
+    // Every tile the bag reaches is outlined; a tap on another floor tile throws it there instead; Throw to Jun on the
+    // grid throws it back to him (a tap on Jun would select him).
     const range = (await play(page)).throwRange as Pos[];
-    const floor = range.find(p => !(p.x === setup!.jun.x && p.y === setup!.jun.y) && !(p.x === mara.x && p.y === mara.y));
+    const npcs = await page.evaluate(() => (window as any).sim.state.npcs.map((n: any) => n.pos)) as Pos[];
+    const floor = range.find(p => !(p.x === setup!.jun.x && p.y === setup!.jun.y) && !(p.x === mara.x && p.y === mara.y) && !npcs.some(n => n.x === p.x && n.y === p.y));
     expect(floor).toBeDefined();
     await tapTile(page, floor!);
     await expect.poll(async () => (await play(page)).throwArc).toEqual({ from: mara, to: floor, caught: false });
-    await tapTile(page, setup!.jun);
+    await page.locator('.sh-actions button[data-action="throw"]').click();
     await expect.poll(async () => (await play(page)).throwArc).toEqual({ from: mara, to: setup!.jun, caught: true });
     await page.waitForTimeout(300);
     await page.screenshot({ path: 'screenshots/play-throw.png' });
