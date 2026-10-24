@@ -6,7 +6,7 @@ import { SEE_THROUGH } from '../../src/gen/nav';
 import { WALL_CHARS } from '../../src/level/plan';
 import type { WallKind } from '../../src/level/walls';
 import {
-    assessWorldPhase, deserialise, DOOR_KINDS, NOT_CARRIERS, edgeBetween, edgeKey, initialState, packWorld, serialise, tileAt, sightMap, unpackWorld, WALL_MATERIALS, worldFromBank,
+    assessWorldPhase, deserialise, DEPOSIT_BOX_VALUE, DOOR_KINDS, NOT_CARRIERS, edgeBetween, edgeKey, initialState, packWorld, serialise, tileAt, sightMap, unpackWorld, WALL_MATERIALS, worldFromBank,
     type DeepReadonly, type Pos, type ReadonlyWorld, type Tile, type Zone
 } from '../../src/sim';
 
@@ -102,7 +102,11 @@ describe('worldFromBank', { timeout: 30000 }, () => {
             expect(kinds('alarmButton').length, label).toBe(bank.alarms.filter(a => !NOT_CARRIERS.has(a.name)).length);
             expect(kinds('recorder').length, label).toBe(kinds('cctvDesk').length);
             if (bank.rooms.some(r => r.type === 'managerOffice')) expect(kinds('managerPc').length, label).toBeGreaterThan(0);
-            expect(kinds('loot').length, label).toBe(bank.loot.length);
+            // The deposit boxes' loot is the wall's haul plus a box per $5k (decision 78).
+            const boxes = bank.loot.filter(l => l.behind === 'depositBoxes').reduce((n, l) => n + Math.max(1, Math.round(l.value / DEPOSIT_BOX_VALUE)), 0);
+            expect(kinds('loot').length, label).toBe(bank.loot.length + boxes);
+            expect(kinds('loot').filter(o => o.loot?.behind === 'depositBox').length, label).toBe(boxes);
+            expect(world.locks, label).toEqual(bank.locks);
             expect(new Set(world.objects.map(o => o.id)).size, label).toBe(world.objects.length);
             if (bank.rooms.some(r => r.type === 'cctvRoom')) expect(kinds('cctvDesk')[0]?.monitors, label).toBe(bank.monitors);
             if (bank.rooms.some(r => r.type === 'antechamber')) expect(kinds('vaultConsole').length, label).toBeGreaterThan(0);

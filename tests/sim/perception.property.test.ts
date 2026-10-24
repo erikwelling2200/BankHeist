@@ -258,7 +258,7 @@ describe('perception previews (property)', () => {
                         // A dash: its noise makes hearers react at once, so the overlay of its end is judged on the
                         // dash's preview (what M1-09's overlay does for a tile), and so is the evidence.
                         const run = randomPath(rng, world, member.pos, rng.int(3, 10), occupiedBy(state));
-                        if (!run.length || !validatePath(world, state, member.pos, run, crewBudget(world, member, 'dash'), crewMoveOptions(member)).ok) continue;
+                        if (!run.length || !validatePath(world, state, member.pos, run, crewBudget(world, member, 'dash'), crewMoveOptions(world, member)).ok) continue;
                         const cmd = { type: 'dash' as const, crew: member.id, path: run };
                         const judged = assessPath(world, state, member.id, run);
                         const after = preview(world, state, cmd).state, tile = run[run.length - 1]!;
@@ -286,7 +286,7 @@ describe('perception previews (property)', () => {
                         continue;
                     }
                     const path = randomPath(rng, world, member.pos, rng.int(1, 6), occupiedBy(state));
-                    if (!path.length || !validatePath(world, state, member.pos, path, crewBudget(world, member, 'move'), crewMoveOptions(member)).ok) continue;
+                    if (!path.length || !validatePath(world, state, member.pos, path, crewBudget(world, member, 'move'), crewMoveOptions(world, member)).ok) continue;
                     if (member.dragging !== null) dragMoves++;
                     const all = assessPath(world, state, member.id, path);
                     const expected = predict(state, member.id, all);

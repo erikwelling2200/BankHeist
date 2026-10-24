@@ -162,7 +162,7 @@ function finishBank(shell: Shell, rng: Rng, people: Rng, spec: TierSpec, opts: G
     const softDepositWall = shell.neighbours.some(n => n.party && n.soft && n.slot.kind === 'cafe' && bank.some(r => r.type === 'depositBoxes' && site.sharedEdges(n.party!, r).length));
     const pop = populate({ rng: people, tier, headlines, bank, neighbours: shell.neighbours, furnished, guards, nav, furnish, timeLock, ductIn: ways.approaches.some(a => a.name.startsWith('Air duct')), vaultOpens: archetype === 'threeKeys' ? 'threeKeys' : spec.dualControl ? 'dualControl' : 'code', softDepositWall, sidewalkY: plot.sidewalkY, width: site.width });
     planRoutines({ nav, furnish, bank, furnished, people: pop.people, timeline: pop.timeline, opportunities: pop.opportunities, rng: people.fork('routines') });
-    const locks = keyGraph({ archetype, vaultClass, timeLock, dualControl: spec.dualControl, rooms: bank, doors: site.doors, people: pop.people });
+    const locks = keyGraph({ archetype, vaultClass, timeLock, dualControl: spec.dualControl, rooms: bank, doors: site.doors, people: pop.people, timeline: pop.timeline });
     const results = validate({ site, nav, bank, doors: site.doors, approaches: ways.approaches, cameras, guards, furnished, getaways: ways.getaways, exits: ways.exits, traffic, tall });
     const metrics = roomMetrics(nav, bank, furnish.boxes, tall);
     const named = rng.fork('name');

@@ -130,9 +130,10 @@ export interface WorldObject {
     room?: string;
     /**
      * Loot (§15.1): what it is worth and how heavy it is to carry; `dyePack` when a dye pack hides in it (a teller's
-     * drawer), which the player isn't told; `behind` the lock that must be opened to reach it (the deposit boxes, M2-05).
+     * drawer), which the player isn't told; `behind` what must be opened to reach it: one deposit box (picked) or the
+     * wall of them (drilled: the haul), rules/vault.ts.
      */
-    loot?: { value: number; weight: 'light' | 'heavy' | 'very heavy'; dyePack?: true; behind?: 'depositBoxes' };
+    loot?: { value: number; weight: 'light' | 'heavy' | 'very heavy'; dyePack?: true; behind?: 'depositBox' | 'depositWall' };
     /** A CCTV desk: how many feeds its operator watches at once (§8.12). */
     monitors?: number;
 }

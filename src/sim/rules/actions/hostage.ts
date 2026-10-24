@@ -13,6 +13,8 @@ import { alertNpc, isEyesDown } from '../suspicion';
 import { inReach, lacksActions, registerAction } from './act';
 import { lootWeight, syncHands } from '../hands';
 import { handsFree, pocketed } from './loot';
+import { entered, enterPart, partOf, vaultShut } from '../keys';
+import type { CodePart } from '../../../gen/model';
 
 /*
  * Hostages (§10.6, §10.7): zip-ties and the frisk that comes with them, leading a hostage, and coercing one.
@@ -41,8 +43,8 @@ import { handsFree, pocketed } from './loot';
  *   their sight (across teller glass too: the slot passes cash), the object `at` in the hostage's reach, the illegal act
  *   'command'. A teller opens their own drawer (the one at their window, `ownDrawer`): its cash is pocketed by the crew
  *   member. A key-holding staff member (the
- *   manager, the head teller) enters their part of the vault code at the console (`ObjectState.codes`); what opens the
- *   vault is M2-05's (decision 64).
+ *   manager, the head teller) enters their part of the vault code at the console (`ObjectState.codes`, rules/keys.ts:
+ *   the last part unlocks the vault), only while the time lock stands open (decisions 64, 76, 77).
  */
 
 /** What an NPC carries of a weapon: a guard's holstered pistol, or a hidden one (an off-duty cop's, §10.9). */
@@ -69,10 +71,6 @@ declare module '../../core/types' {
         /** The NPCs whose keycards they took in a frisk, by id. */
         keycards: string[];
     }
-    interface ObjectState {
-        /** At a vault console: the key-holders coerced into entering their part of the code (§10.7), by NPC id. */
-        codes?: string[];
-    }
     interface Rules {
         /** World phases a free NPC spends in reach of a tied one to free it (§10.6). */
         untiePhases: number;
@@ -96,8 +94,8 @@ declare module '../../core/types' {
         /** A Commanded hostage whose command lapsed shook free of its escort at `at`. */
         hostageFree: { crew: string; npc: string; at: Pos };
         coerced: { crew: string; npc: string; at: string };
-        /** A key-holder entered their part of the vault code at the console (§10.7). */
-        codeEntered: { crew: string; npc: string; console: string };
+        /** Their part of the vault code was entered at the console (§10.7, §15.2): by a coerced key-holder, or by the crew (`npc` null). */
+        codeEntered: { crew: string; npc: string | null; console: string; part: CodePart };
         /** A free NPC is untying a tied one: `phases` of `rules.untiePhases` so far. */
         untying: { npc: string; by: string; phases: number };
         /** A tied NPC was freed. */
@@ -124,9 +122,8 @@ registerCrewInit('hostage', (_world, _start, member) => {
     member.keycards = [];
 });
 
-/** Roles that keep a cash drawer (§10.7) and roles that hold part of the vault code (§15.2 dual control). */
+/** Roles that keep a cash drawer (§10.7); who knows which part of the vault code is rules/keys.ts's `partOf`. */
 const DRAWER_ROLES: ReadonlySet<string> = new Set(['teller', 'headTeller', 'driveTeller']);
-const CODE_ROLES: ReadonlySet<string> = new Set(['manager', 'headTeller']);
 
 /** Statuses of an NPC who does as it is told: a hostage to lead or coerce. */
 const COMPLIANT: ReadonlySet<string> = new Set(['commanded', 'tied']);
@@ -242,7 +239,7 @@ export function ownDrawer(world: ReadonlyWorld, npcId: string, turn: number): st
     if (!station) return undefined;
     let best: { id: string; d: number } | undefined;
     for (const o of world.objects) {
-        if (o.kind !== 'loot' || o.loot?.weight !== 'light' || o.loot.value <= 0) continue;
+        if (o.kind !== 'loot' || o.loot?.weight !== 'light' || o.loot.value <= 0 || o.loot.behind) continue;
         const dx = o.pos.x - station.x, dy = o.pos.y - station.y;
         if (Math.max(Math.abs(dx), Math.abs(dy)) > 1) continue;
         const d = dx * dx + dy * dy;
@@ -265,8 +262,11 @@ function coercion(world: ReadonlyWorld, state: State, member: DeepReadonly<CrewS
     }
     const console = world.objects.find(o => o.id === at);
     if (!console || console.kind !== 'vaultConsole') return 'There is nothing they could open there';
-    if (!CODE_ROLES.has(role)) return 'They don\'t know any part of the code';
-    if (state.objects[at]?.codes?.includes(npc.id)) return 'They have entered their part already';
+    const part = partOf(world, role);
+    if (!part) return 'They don\'t know any part of the code';
+    if (entered(state, at).includes(part)) return 'Their part of the code is in already';
+    const shut = vaultShut(world, state);
+    if (shut) return shut;
     return inReach(world, state, from, console.pos) ? 'code' : 'They can\'t reach the console';
 }
 
@@ -310,9 +310,9 @@ registerAction('coerce', {
             ctx.emit({ type: 'lootTaken', crew: member.id, loot: cmd.at, from });
             return;
         }
-        const codes = state.objects[cmd.at]?.codes ?? [];
-        state.objects[cmd.at] = { ...state.objects[cmd.at], codes: [...codes, npc.id].sort() };
-        ctx.emit({ type: 'codeEntered', crew: member.id, npc: npc.id, console: cmd.at });
+        const part = partOf(world, personOf(world, npc.id).role)!;
+        ctx.emit({ type: 'codeEntered', crew: member.id, npc: npc.id, console: cmd.at, part });
+        enterPart(ctx, cmd.at, part, member.id);
     }
 });
 
@@ -366,7 +366,8 @@ registerEvents({
     escorting: { undoBlocking: false },
     hostageFree: { undoBlocking: true },
     coerced: { undoBlocking: true },
-    codeEntered: { undoBlocking: true },
+    // Coerced, the key-holder's part comes with `coerced`; the crew's own part tells nobody anything.
+    codeEntered: { undoBlocking: false },
     untying: { undoBlocking: true },
     freed: { undoBlocking: true }
 });

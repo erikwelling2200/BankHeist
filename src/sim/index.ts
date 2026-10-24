@@ -44,6 +44,8 @@ import './rules/perceive';
 import './rules/profile';
 import './rules/suspicion';
 import './rules/trespass';
+import './rules/keys';
+import './rules/vault';
 // --- systems: end
 
 export * from './core/types';
@@ -105,9 +107,9 @@ export {
     inArc, npcObserver, profilesOf, rangeOn, sees, seenTiles, seesOn, visionProfiles,
     type Arc, type Band, type HalfAngle, type Observer, type SightField, type VisionProfile, type VisionProfiles
 } from './geo/cones';
-export { worldFromBank, NOT_CARRIERS, OBJECT_KINDS, STASH_ROOMS } from './world/fromBank';
+export { worldFromBank, DEPOSIT_BOX_VALUE, NOT_CARRIERS, OBJECT_KINDS, STASH_ROOMS } from './world/fromBank';
 export { inReach, lacksActions, legalActions, registerAction, whyNot, witnessActOn, witnessOn, type ActionDef } from './rules/actions/act';
-export { besideDoor, DOOR_ACTIONS, doorActionBlocked, doorSides, innerSide, type DoorAction } from './rules/actions/door';
+export { besideDoor, DOOR_ACTIONS, doorActionBlocked, doorSides, innerSide, LOCKPICK, lockActions, type DoorAction } from './rules/actions/door';
 export { bodyAway, DRAGGABLE, releaseBody, STASH_KINDS, stashes } from './rules/actions/body';
 export { bodyPos, draggedBy, onFloor, placeCrew } from './rules/place';
 export { crewLoot, lootOf, mayBeDyed, pocketed, throwPlan, throwTargets, type LootState, type ThrowPlan } from './rules/actions/loot';
@@ -180,3 +182,5 @@ export {
 export { PANIC, panicWeights, type PanicWeights } from './data/archetypes';
 export { reactionOdds } from './rules/panic';
 export { type Panic, type PanicReaction } from './rules/panicState';
+export { cardOpens, codeParts, entered, lockOn, partOf, timeLockOpen, vaultLock, vaultShut } from './rules/keys';
+export { DRILL, THERMITE, type Device } from './rules/vault';

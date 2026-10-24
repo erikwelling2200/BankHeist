@@ -4,6 +4,7 @@ import { defaultRules } from '../core/state';
 import { RAISED_HEIGHT } from '../../level/plan';
 import { type CameraDef, type ClimbSide, type DoorDef, type DoorStart, type Lock, type Material, type PersonDef, type Pos, type ReadonlyWorld, type Rules, type Tile, type WallEdge, type WorldObject, type Zone } from '../core/types';
 import { freezeWorld } from './freeze';
+import type { KeyLock } from '../../gen/model';
 
 /*
  * Small worlds for unit tests, drawn as text: one character per tile.
@@ -47,6 +48,8 @@ export interface FixtureOptions {
     rules?: Partial<Rules>;
     /** The patrol car's street lane and drive-by turns (rules/checkins.ts). */
     patrol?: { lane: readonly Pos[]; turns: readonly number[] };
+    /** The key graph's locks (rules/keys.ts): the vault's code, time lock, drill and thermite; whose cards open which door. */
+    locks?: readonly KeyLock[];
 }
 
 const ZONES: Readonly<Record<string, Zone>> = { '.': 'public', s: 'staff', x: 'secure' };
@@ -118,6 +121,7 @@ export function fixtureWorld(map: readonly string[], options: FixtureOptions = {
         people: clonePlain([...(options.people ?? [])]),
         cameras: clonePlain([...(options.cameras ?? [])]),
         rules: { ...defaultRules(), ...options.rules },
-        ...(options.patrol ? { patrol: { lane: clonePlain([...options.patrol.lane]), turns: [...options.patrol.turns] } } : {})
+        ...(options.patrol ? { patrol: { lane: clonePlain([...options.patrol.lane]), turns: [...options.patrol.turns] } } : {}),
+        ...(options.locks ? { locks: clonePlain([...options.locks]) } : {})
     });
 }

@@ -118,7 +118,7 @@ describe('a generated bank', { timeout: HEAVY }, () => {
         for (const b of samples) {
             expect(b.locks.some(l => l.id === 'vault')).toBe(true);
             for (const lock of b.locks) {
-                expect(lock.social && lock.technical && lock.violent).toBeTruthy();
+                expect(lock.social.text && lock.technical.text && lock.violent.text).toBeTruthy();
                 expect(lock.holders.every(id => b.people.some(p => p.id === id))).toBe(true);
             }
         }

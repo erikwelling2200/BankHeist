@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { archetypesFor } from '../../src/gen/generate';
 import { cachedBank } from '../bankCache';
-import { PLOTS, TIERS } from '../../src/gen/model';
+import { PLOTS, TIERS, type KeyLock } from '../../src/gen/model';
 import { Rng } from '../../src/gen/rng';
 import {
     actionPreview, CARRY_WEIGHT, commandPlan, commandPreview, hasLineOfSight, holdTargets, ITEMS, reachable, pathTo, addsTo, carriersStarted, DEAF_STATUSES, clonePlain, commit, crewBudget, crewMoveOptions, decodeBits, doorDoubt, effectKind, effectOf, encodeBits, explain, FACINGS, hearing,
@@ -57,6 +57,7 @@ const FIXTURES = Math.round(40 * SCALE);
 const DOOR_RUNS = Math.round(12 * SCALE);
 const DOUBT_RUNS = Math.round(24 * SCALE);
 const LOOT_RUNS = Math.round(16 * SCALE);
+const VAULT_RUNS = Math.round(16 * SCALE);
 const BANK_SEEDS = Number(process.env.PREVIEW_PROBE_BANKS ?? Math.max(1, Math.round(SCALE)));
 const FIXTURE_TURNS = 4, BANK_TURNS = Math.round(6 * Math.min(SCALE, 2));
 /**
@@ -232,12 +233,13 @@ class Probe {
 
 /** `loot`: the loot scenario, which plays actions half the time, loot ones first, and throws to teammates first. */
 interface Run {
-    world: ReadonlyWorld; rng: Rng; omniscient: boolean; label: string; tier: string; probe: Probe; stealth?: boolean; loot?: boolean;
+    world: ReadonlyWorld; rng: Rng; omniscient: boolean; label: string; tier: string; probe: Probe; stealth?: boolean; loot?: boolean; vault?: boolean;
     /** Each NPC's intended action as the crew phase of `turn` began (`checkTelegraphs`). */
     shown?: { turn: number; actions: Map<string, string> };
 }
 
 const LOOT_COMMANDS = new Set(['takeLoot', 'dropLoot', 'throwLoot', 'pass', 'inspectLoot']);
+const VAULT_COMMANDS = new Set(['drill', 'thermite', 'fixDrill', 'interact', 'door', 'coerce', 'takeLoot']);
 
 /** Checks a tile's prediction (`now`, and `next` when the turn ends right after) against the picture's oracle and the truth. */
 function checkMove(run: Run, state: State, crew: string, cmd: Extract<Command, { type: 'move' | 'dash' }>, tile: FloorTile, endTurn: boolean): State {
@@ -389,7 +391,7 @@ function playOne(run: Run, state: State, timing: boolean): State {
     const ready = state.crew.filter(c => c.actionsLeft > 0);
     if (!ready.length) return state;
     const member = rng.pick(ready);
-    const roll = run.loot && rng.chance(0.5) ? 0.7 : rng.next();
+    const roll = (run.loot || run.vault) && rng.chance(0.5) ? 0.7 : rng.next();
     if (roll < 0.55) {
         const t0 = performance.now();
         const floor = safeFloor(world, state, member.id);
@@ -422,7 +424,7 @@ function playOne(run: Run, state: State, timing: boolean): State {
             const step = { n: [0, -1], ne: [1, -1], e: [1, 0], se: [1, 1], s: [0, 1], sw: [-1, 1], w: [-1, 0], nw: [-1, -1] }[d]!;
             const p = { x: at.x + step[0]!, y: at.y + step[1]! };
             const trial = [...path, p];
-            if (!validatePath(world, plan, member.pos, trial, crewBudget(world, member, 'dash'), crewMoveOptions(member)).ok) continue;
+            if (!validatePath(world, plan, member.pos, trial, crewBudget(world, member, 'dash'), crewMoveOptions(world, member)).ok) continue;
             path.push(p);
             at = p;
         }
@@ -442,13 +444,14 @@ function playOne(run: Run, state: State, timing: boolean): State {
     }
     // The takeover (M2-01) only where the crew knows everyone: the picture then holds every NPC, so who complies, resists
     // and hears is the truth's (an unknown NPC missing from the picture changes who is sent to look, an artefact of it).
-    const options = legalActions(world, state, member.id).filter(c => (c.type !== 'wait' || rng.chance(0.3)) && !(run.stealth && c.type === 'knockout')
+    const options = legalActions(world, state, member.id).filter(c => (c.type !== 'wait' || rng.chance(0.3)) && !(run.stealth && (c.type === 'knockout' || (c.type === 'door' && (c.action === 'pick' || c.action === 'hack'))))
         && (!TAKEOVER.has(c.type) || (run.omniscient && !run.stealth)));
     if (!options.length) return state;
-    const kinds = [...new Set(options.map(c => c.type))], looting = kinds.filter(k => LOOT_COMMANDS.has(k));
+    const favoured = run.loot ? LOOT_COMMANDS : run.vault ? VAULT_COMMANDS : undefined;
+    const kinds = [...new Set(options.map(c => c.type))], looting = kinds.filter(k => favoured?.has(k));
     // Doors and interactions are offered rarely: take each the first few times it is, so every sample plays them.
     const rare = RARE_COMMANDS.find(k => kinds.includes(k) && (probe.stats[`command ${k}`] ?? 0) < 5);
-    const kind = rare ?? (run.loot && looting.length && rng.chance(0.7) ? rng.pick(looting) : rng.pick(kinds));
+    const kind = rare ?? (looting.length && rng.chance(0.7) ? rng.pick(looting) : rng.pick(kinds));
     const ofKind = options.filter(c => c.type === kind);
     const toMates = ofKind.filter(c => c.type === 'throwLoot' && state.crew.some(m => m.pos.x === c.to.x && m.pos.y === c.to.y));
     const cmd = run.loot && toMates.length && rng.chance(0.5) ? rng.pick(toMates) : rng.pick(ofKind);
@@ -1016,6 +1019,66 @@ function playLoot(probe: Probe, rng: Rng, n: number): void {
 }
 
 /**
+ * Vault access (M2-05, §15.2, §15.3): an antechamber with the console, the manager's PC and a wall of deposit boxes, a
+ * card-reader door and a picked lock, before a vault of a random kind (a code, dual control or Three Keys, a time lock
+ * or none, sensors or none); a crew with the drill, thermite, a lockpick and a hacking kit, NPCs of every class about
+ * (the key-holders among them). The random player sets the drill and the charge, fixes jams, hacks, picks and enters
+ * codes among its moves; jams are rolled as the crew phase begins, so the world phase's preview stops at their odds.
+ */
+function playVault(probe: Probe, rng: Rng, n: number): void {
+    const map = ['..........', '..........', '..........', '..........', '..........', '..........'];
+    const rooms = ['aaaaaavvvv', 'aaaaaavvvv', 'aaaaaavvvv', 'aaaaaavvvv', 'ssssssvvvv', 'ssssssvvvv'];
+    const walls: FixtureWall[] = [
+        ...Array.from({ length: 6 }, (_, y) => (y === 1 ? { between: [{ x: 5, y }, { x: 6, y }] as [Pos, Pos], material: 'vault' as const, door: { id: 'vaultDoor', lock: 'vault' as const, start: 'locked' as const } }
+            : { between: [{ x: 5, y }, { x: 6, y }] as [Pos, Pos], material: 'vault' as const })),
+        ...Array.from({ length: 6 }, (_, x) => (x === 1 ? { between: [{ x, y: 3 }, { x, y: 4 }] as [Pos, Pos], door: { id: 'reader', lock: 'keycard' as const, start: 'locked' as const } }
+            : x === 4 ? { between: [{ x, y: 3 }, { x, y: 4 }] as [Pos, Pos], door: { id: 'office', lock: 'mechanical' as const, start: 'locked' as const } } : { between: [{ x, y: 3 }, { x, y: 4 }] as [Pos, Pos] }))
+    ];
+    const objects: WorldObject[] = [
+        { id: 'console', kind: 'vaultConsole', pos: { x: 2, y: 0 }, facing: 's', room: 'a' },
+        { id: 'pc', kind: 'managerPc', pos: { x: 0, y: 5 }, facing: 's', room: 's' },
+        { id: 'boxes', kind: 'depositBoxes', pos: { x: 0, y: 0 }, facing: 's', room: 'a' },
+        { id: 'haul', kind: 'loot', pos: { x: 0, y: 1 }, facing: 's', room: 'a', loot: { value: 10000, weight: 'heavy', behind: 'depositWall' } },
+        { id: 'box-0', kind: 'loot', pos: { x: 0, y: 1 }, facing: 's', room: 'a', loot: { value: 5000, weight: 'light', behind: 'depositBox' } },
+        { id: 'box-1', kind: 'loot', pos: { x: 0, y: 1 }, facing: 's', room: 'a', loot: { value: 5000, weight: 'light', behind: 'depositBox' } },
+        { id: 'gold', kind: 'loot', pos: { x: 8, y: 2 }, facing: 's', room: 'v', loot: { value: 120000, weight: 'very heavy' } },
+        { id: 'sensor', kind: 'motionSensor', pos: { x: 9, y: 0 }, facing: 's', room: 'v' }
+    ];
+    const social = rng.pick(['code', 'dual', 'threeKeys'] as const);
+    const from = rng.int(1, 4);
+    const lock: KeyLock = {
+        id: 'vault', name: 'Vault', target: 'vaultDoor', room: 'v', holders: ['manager', 'head'],
+        social: social === 'code' ? { kind: 'code', parts: ['whole'], text: '' } : social === 'dual' ? { kind: 'code', parts: ['headTeller', 'manager'], text: '' } : { kind: 'threeKeys', keycard: ['manager'], text: '' },
+        technical: { kind: 'drill', phases: rng.int(2, 4), sensors: rng.pick([[], ['seismic'], ['seismic', 'motion']] as ('seismic' | 'motion')[][]), text: '' },
+        violent: { kind: 'thermite', phases: rng.int(2, 3), text: '' },
+        ...(social === 'threeKeys' || rng.chance(0.5) ? { timeLock: { from, until: from + 2 } } : {})
+    };
+    const free: Pos[] = [];
+    for (let y = 0; y < 6; y++) for (let x = 0; x < 10; x++) if (!objects.some(o => o.kind !== 'loot' && o.pos.x === x && o.pos.y === y)) free.push({ x, y });
+    const at = (x: number, y: number): Pos => free.splice(free.findIndex(p => p.x === x && p.y === y), 1)[0]!;
+    const crew: CrewStart[] = [
+        { id: 'c0', pos: at(5, 1), items: ['drill', 'thermite', 'pistol'], ...(rng.chance(0.5) ? { traits: ['steadyHands'] } : {}) },
+        { id: 'c1', pos: at(2, 1), items: ['hackingKit'] },
+        { id: 'c2', pos: at(1, 2), items: ['lockpick', 'hackingKit', 'zipTies'], traits: ['steadyHands'] }
+    ];
+    const take = (): Pos => free.splice(rng.int(0, free.length - 1), 1)[0]!;
+    const people: PersonDef[] = [
+        { id: 'manager', name: 'manager', role: 'manager', observer: 'staff', pos: at(3, 1), facing: 's', schedule: [] },
+        { id: 'head', name: 'head', role: 'headTeller', observer: 'staff', pos: at(1, 1), facing: 's', schedule: [] }
+    ];
+    for (let i = 0, count = rng.int(0, 2); i < count; i++) {
+        const observer = rng.pick(['civilian', 'staff', 'enforcer'] as ObserverClass[]);
+        people.push({ id: `n${i}`, name: `n${i}`, role: observer === 'civilian' ? 'customer' : observer === 'staff' ? 'teller' : 'guard', observer, pos: take(), facing: rng.pick(FACINGS), schedule: randomSchedule(rng, free) });
+    }
+    const world = fixtureWorld(map, { zones: ['xxxxxxxxxx', 'xxxxxxxxxx', 'xxxxxxxxxx', 'xxxxxxxxxx', 'ssssssxxxx', 'ssssssxxxx'], rooms, walls, people, objects, locks: [lock] });
+    let state = initialState(world, { seed: n, crew });
+    // Face down from the start now and then, so codes get coerced.
+    for (const npc of state.npcs) if (rng.chance(0.4)) Object.assign(npc, { status: 'commanded', command: { pips: 3, by: 'c0' } });
+    if (rng.chance(0.3)) state = { ...state, codesKnown: lock.social.kind === 'code' ? [lock.social.parts[0]!] : [] };
+    play({ world, rng, omniscient: n % 2 === 0, label: `vault ${n} ${social}`, tier: 'fixture', probe, vault: true }, state, FIXTURE_TURNS + 3, false);
+}
+
+/**
  * Moves through a lockable door the crew saw open and walked away from (decision 44): a corridor and a room behind a
  * wall with a mechanical door at a random row, NPCs of every class on both sides. The crew sees the door open, is
  * far out of sight of it while the world phase relocks it, and is put back near it (nothing new seen); then each crew
@@ -1192,7 +1255,7 @@ function takeoverGame(probe: Probe, n: number): void {
         for (const id of ['c0', 'c1']) {
             let member = state.crew.find(c => c.id === id)!;
             if (!tackling && !(anchored && id === 'c1') && rng.chance(0.6) && member.actionsLeft > 0) {
-                const reach = reachable(world, state, member.pos, crewBudget(world, member, 'move'), crewMoveOptions(member));
+                const reach = reachable(world, state, member.pos, crewBudget(world, member, 'move'), crewMoveOptions(world, member));
                 const ends = reach.tiles.filter(t => t.canEnd && t.cost > 0);
                 const path = ends.length ? pathTo(reach, rng.pick(ends).pos) : undefined;
                 if (path?.length) state = commit(world, state, { type: 'move', crew: id, path }).state;
@@ -1271,6 +1334,9 @@ describe('previews (property, §8.8)', () => {
         // Its own stream too.
         const lrng = new Rng(SEED + 7717);
         for (let n = 0; n < LOOT_RUNS; n++, seeds++) playLoot(probe, lrng, n);
+        // Its own stream too.
+        const vrng = new Rng(SEED + 9973);
+        for (let n = 0; n < VAULT_RUNS; n++, seeds++) playVault(probe, vrng, n);
         let combo = 0;
         for (let s = 0; s < BANK_SEEDS; s++) for (const tier of TIERS) for (const archetype of archetypesFor(tier)) {
             if (BANK_SKIP && (combo + s) % BANK_SKIP === BANK_SKIP - 1) {
@@ -1301,10 +1367,10 @@ describe('previews (property, §8.8)', () => {
             'moves seen by an NPC they turned', 'hearers whose last tile heard is not the nearest', 'moves that do something to a teammate',
             'moves that make a teammate\'s world phase worse'
         ]) expect(st[k] ?? 0, k).toBeGreaterThan(0);
-        for (const type of ['door', 'knockout', 'drag', 'interact', 'takeLoot', 'dropLoot', 'pass', 'inspectLoot']) expect(st[`command ${type}`] ?? 0, type).toBeGreaterThan(0);
+        for (const type of ['door', 'knockout', 'drag', 'interact', 'takeLoot', 'dropLoot', 'pass', 'inspectLoot', 'drill', 'thermite', 'coerce']) expect(st[`command ${type}`] ?? 0, type).toBeGreaterThan(0);
         for (const k of ['throws caught', 'throws landed']) expect(st[k] ?? 0, k).toBeGreaterThan(0);
     }, 600_000);
-    // Long games (the reviewer's harness): a quiet crew (no weapons, no knockouts, mostly calm tiles) plays on while
+    // Long games (the reviewer's harness): a quiet crew (no weapons, no knockouts, no lock work, mostly calm tiles) plays on while
     // routines get known, ghosts come and go and NPCs drift off what the crew saw.
     // PREVIEW_LONG_GAMES banks (default 2) of PREVIEW_LONG_TURNS turns (default 25), every tier × archetype in turn.
     it('show what happens in long games', () => {

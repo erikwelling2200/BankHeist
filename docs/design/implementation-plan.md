@@ -16,7 +16,7 @@
 | Generator data that never reaches the output | Alarm stations, loot, work stations, grates, vents and hatches (`Furnished`). The tall-furniture grid, the furniture-blocked grid, the number of CCTV monitors. | `src/gen/parcels.ts:34-46`; `src/gen/generate.ts:155-162` (tall grid) and `:174-183` (what is returned); `src/gen/tiers.ts:18` (`monitors`) |
 | Schedules | Free-text activities with a room id (`'at post'`, `'patrol'`, `'lunch'`, `'closing sweep'`, `'all rooms'`, `'outside'`). Nothing can run them. | `src/gen/population.ts:178-238` |
 | Traits | Structured since M2-02: `PersonTraits` (`armed`, `hero`, `bribable`, `onBreak`, `driveThrough`, `radio`); `worldFromBank` passes `armed` and `hero` to the rules. | `src/gen/model.ts` (`PersonTraits`), `src/gen/population.ts` |
-| Key graph | Every hard lock has social, technical and violent keys, but as text. Holders are listed by id. | `src/gen/keys.ts:20-70` |
+| Key graph | Structured since M2-05: every hard lock's social, technical and violent keys as data (`SocialKey`, `TechnicalKey`, `ViolentKey`, the vault's time-lock window), read by `src/sim/rules/keys.ts`. | `src/gen/keys.ts`, `src/gen/model.ts` (`KeyLock`) |
 | Random numbers | A mulberry32-style generator with named sub-streams (`fork`). Its state is a private single number. | `src/gen/rng.ts:5-59` |
 | Knowledge layer | Blueprint outlines and hiding the people inside them; rendering only. | `src/scenes/bank/knowledge.ts:14-52` |
 | HUD and input | A demo HUD (gold counter, flash message; deleted in M1-16). Camera pan and zoom are HTML. The Briefing panel and generator bar exist. | `src/ui/Hud.ts` (gone), `src/ui/CameraControls.ts`, `src/ui/Briefing.ts`, `src/ui/GeneratorBar.ts` |
@@ -794,11 +794,49 @@ Each package lists its goal, the design sections it covers, the files, what it d
       way, as a refusal is too; a regression test checks dyed and clean, open and locked previews are identical. The
       save shape's cached fresh state (`core/save.ts`) is worked out per load, so it can't miss a package registered
       late. Heavy generator tests have a 60 s timeout. Save shape hash now `dcff06300b8ae7eb` (`Rules.dyePacks`).
-- [ ] **M2-05 Vault access: wiring the key graph into the rules.**
+- [x] **M2-05 Vault access: wiring the key graph into the rules.**
   - **Covers:** §15.2, §15.3, §9.1 sensors, §7.2 kits and traits (Steady Hands).
   - **Work:** turn `KeyLock` into structured keys (`gen/keys.ts`); codes and dual control at the console; the manager's PC; the time-lock window from the timeline; the drill with jams (rolled) and noise; deposit boxes; lockpicking; card readers.
   - **Depends on:** M2-03.
   - **Accept:** every generated bank's vault can be opened by all three of its keys, in a scripted test per seed.
+  - **Notes (done):** `src/gen/keys.ts` (structured keys), `rules/keys.ts` (the key graph as the rules read it: cards,
+    code parts, the time lock; a leaf module), `rules/vault.ts` (the console, the PC, the time lock, the drill and
+    thermite, the sensors, deposit boxes), door.ts's Pick and Hack. Decisions 75–80.
+    - **Structured keys:** `KeyLock.social` / `.technical` / `.violent` are tagged data with the briefing's `text`
+      (`SocialKey`: `code` with its `parts`, `threeKeys` with the card, `keycard` / `buzz` / `disarmCode` with
+      holders; `TechnicalKey`: `drill` with phases and sensors, `reader`, `loopedReader`, `panel`; `ViolentKey`:
+      `thermite` with phases, `breach`, `smash`), plus `room` and the vault's `timeLock` window from the timeline (the
+      armoured car's, else its own). No roll changed: every bank is the same, only its locks are richer. `worldFromBank`
+      copies them into `World.locks`.
+    - **Commands:** `interact … unlock` at the vault console (the crew's known parts, or Three Keys' card), `interact …
+      hack` at the manager's PC (2 actions of work, Steady Hands 1; the code part into `State.codesKnown`),
+      `interact … pick` at a wall of deposit boxes (lockpick set, 2 actions, Steady Hands 1), `door … pick` (mechanical)
+      and `door … hack` (card reader; the mantrap's after its camera is looped), `drill { crew, at }`, `thermite { crew,
+      door }`, `fixDrill { crew, device }`. Coercion enters a key-holder's part (`ObjectState.codes` now holds parts).
+      All in `legalActions`.
+    - **World phase:** devices work one phase each (`State.devices`, a loud noise of 6 each), the vault door is breached
+      after the key graph's phases, a deposit wall after 4 (the haul appears); jams are rolled with their odds as the
+      crew phase begins (`drillJammed`), Steady Hands in reach fixes for free; the time lock opens a code vault and
+      relocks a shut one after its window. Seismic (Class II+, on starting) and motion (Class III, stepping in outside
+      the window) carriers through `raiseCarrier`.
+    - **For the UI (M2-06):** the grid's Pick lock / Hack reader with their work ("1/2"), Unlock vault, Hack PC (1/2),
+      Pick a box, Drill, Thermite and Fix drill; recap lines for every event. Events: `vaultUnlocked`, `timeLockShut`,
+      `pcHacked`, `lockWorked`, `doorWorked`, `boxOpened`, `deviceSet`, `deviceWorked`, `drillJammed`, `drillFixed`,
+      `vaultBreached`, `wallDrilled`, `codeEntered` (now with its part; `npc` null for the crew's).
+    - **Tests:** `tests/sim/vault.test.ts`: the acceptance test opens every tier × archetype's vault (3 seeds each)
+      by its social key (the time-lock window, dual control coerced at the console, Three Keys' card with the CCTV room
+      held), by the drill and by thermite, each on its own copy, and walks a crew member in; fixtures for the PC and
+      the console, dual control, the time lock, Three Keys, jams and their odds, Steady Hands, the sensors, refusals,
+      the key graph's cards, card readers, lockpicks, the mantrap's looped reader and deposit boxes. The preview
+      property test's vault scenario (`playVault`: a random kind of vault, a crew with every kit) drills, burns,
+      hacks, picks and coerces with every preview equal to its commit. Save shape hash `6e03e50b0aeea908`.
+    - **Deferred:** the vault wiring box (M5-04: §9.1's "disable at the wiring box"); a power cut darkening the console
+      (M4); thermite's fire and scorched loot (M4); heat ticks while drilling (M3); the Silent and Beast drills, and
+      taking a drill back after use (M6 planning; a drill is left where it worked); the operator buzzing staff
+      through the mantrap (M6, with bribes and inside men; until then his card opens it); the alarm panel's disarm code
+      and smashing it, and the CCTV room and counting room breaches (M3–M4, with charges); the deposit box that holds
+      intel (M6); safes; the threat ledger's drill jams and "Wait" stopping at one (M2-06); NPCs noticing a code
+      entered or a reader hacked beyond the illegal act itself.
 - [ ] **M2-06 M2 interface.**
   - **Covers:** UI.md "Alarm and takeover" boards.
   - **Work:** the gold GO rail; the two-ring command preview with outcome badges and resist chances; Hold rings; lapse markers; loot counters; the throw arc.
@@ -877,7 +915,7 @@ Each package lists its goal, the design sections it covers, the files, what it d
 | Already built | Gap, and the package that closes it |
 | --- | --- |
 | Plots, archetypes, programs, shapes, parcels, furnishing, stories, metrics | none |
-| Key graph (text only) | Structured keys: M2-05 |
+| Key graph (text only) | Structured keys: M2-05 (done) |
 | Population and schedule (text activities) | Typed activities: M1-06 (done) |
 | Traits (strings) | Typed traits: M2-02 |
 | Validation §17.7, with its own vision constants | M5-01 |
@@ -1351,6 +1389,49 @@ Later milestones: within each milestone, the `∥` notes in §3 apply. UI packag
 74. **The crew's tackle (M2-02)** works only on a runner (an NPC fleeing), in reach, 1 action, not while dragging a
     body. It is the illegal act 'attack', seen on both tiles, makes no noise, and leaves the runner Commanded by the
     tackler with 2 pips, which counters its escapee (the source check).
+75. **Cards and keys (M2-05).** A door the key graph names opens to the cards of the people who hold its social key
+    (the CCTV room's: the operator, the guards, the chief, the manager; the counting room's: the head teller and the
+    manager; the mantrap's: the operator, whose buzzing staff through waits for M6); any other keycard or maglock door
+    to any staff or enforcer card (decision 60). A card taken in a frisk stands for its holder's keys: it opens
+    mechanical locks too. No card opens the vault. NPCs keep walking the doors their role passes (the generator planned
+    their days on it), but none walks through a shut vault door, locked or not. Picking a mechanical lock (lockpick
+    set) or hacking a card reader (hacking kit) is 2 actions of work kept on the door (Steady Hands 1), each the illegal
+    act 'lockpick' or 'hack' and a quiet noise of 1; it leaves the door unlocked, and like any door it latches again
+    when it swings shut. The mantrap's reader (its technical key: "loop the mantrap camera, then the reader") waits
+    until every live camera in the mantrap is looped.
+76. **The vault code (M2-05)** is entered at the console part by part (`ObjectState.codes`): one whole code, or under
+    dual control the manager's half and the head teller's (split only among people the bank has; a fixture without a
+    key graph is dual control). The manager knows the whole code or his half, the head teller hers. The manager's PC
+    (hacking kit, 2 actions of work, Steady Hands 1, the illegal act 'hack') gives the crew the manager's part
+    (`State.codesKnown`) and tells the time-lock window; the crew enters what it knows at the console (1 action, not an
+    illegal act: the Secure zone already makes them trespassers). The last part unlocks the vault door (closed, to be
+    walked through). §15.2's bribed or inside staff member and the sticky note are M5-02's and M6's.
+77. **The time lock (M2-05).** Its window is the timeline's (the armoured car's, else the scheduled one), from its turn
+    for its duration. Codes, and Three Keys' card, work only in it. A code vault "opens itself" in it: as the crew
+    phase of its first turn begins the door unlocks (the crew walks in; NPCs don't). As the crew phase after its last
+    turn begins a shut vault door locks again, whatever unlocked it; an open one stays open until shut. So in a
+    time-locked code vault the window is the social key and the code adds nothing, as §15.2 reads.
+78. **Deposit boxes (M2-05).** The generator's deposit loot ($30k) becomes the wall's haul (Heavy, the whole value,
+    where the generator put it, keeping its id) and one box per $5k (Light, "jewels from deposit boxes"). Picking a box
+    (lockpick set, 2 actions of work on that wall of boxes, Steady Hands 1, the illegal act 'lockpick') opens the next
+    box in the room, whose jewels then lie there to take (1 action, pocketed). Drilling the wall (4 phases) gives the
+    haul instead. The two exclude each other: once a box is open the wall isn't drilled, and a drilled wall has no boxes
+    left. The intel box (§15.3) is M6's.
+79. **Three Keys (M2-05).** "The manager's keycard, the CCTV room disabled, and the time-lock window": a crew member
+    holding the manager's card uses the console (1 action) in the window while the crew holds the CCTV room
+    (`cctvControlled`: no operator left watching and one of the crew at the desk, §8.15). A bank without a CCTV desk
+    has nothing to disable. The window alone doesn't open a Three Keys vault.
+80. **The drill and thermite (M2-05).** Setting either up is 1 action from beside the vault door (the drill also at a
+    wall of deposit boxes in reach): the drill is the illegal act 'drill', the charge 'plantCharge' (Sapper's 1 action
+    less is already the minimum). Both stay where they were set: the charge is used up, and taking the drill back is
+    later work. Each works a phase every world phase it runs in, a loud noise of 6 where it stands, so a drill set in a
+    crew phase is a third through a Class M door after that turn's world phase. A drill jams on 15% as each crew phase
+    begins (§15.3 "announced at the start of the crew phase"), rolled with its odds shown; fixing it is 1 action in
+    reach, the illegal act 'drill'. Steady Hands in reach of a drill as the crew phase begins fixes a jam for free and
+    keeps it from jamming then: the roll isn't made, as its outcome couldn't matter. Thermite can't be stopped and
+    never jams. Starting either on a Class II+ vault starts the seismic carrier (countdown 4, wired: the dead panel
+    stops it), shown in the action's preview; on Class III a crew member stepping into the vault outside the time-lock
+    window starts the motion carrier (2) at the sensor. A running drill or charge is major evidence ('drill').
 
 ### Critical files for implementation
 

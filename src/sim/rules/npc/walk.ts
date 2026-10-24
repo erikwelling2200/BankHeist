@@ -13,7 +13,7 @@ import { onFloor } from '../place';
  * - **Pace** in tiles per world phase: a routine walk 4, hurried or investigating 5, running (fleeing, escaping) 8,
  *   with the crew's step costs (`geo/move.ts`: diagonals 1.5, walls, corners, climbs).
  * - **Doors**: anyone opens a closed door by walking through it; staff and enforcers carry the keys their role gives
- *   them and pass locked doors too, except the vault door, which waits for the time lock and dual control (M2-05).
+ *   them and pass locked doors too, but nobody walks through a shut vault door, locked or not (rules/keys.ts).
  *   An opened door swings shut again at the end of the world phase (`doors.ts`).
  * - **People**: NPCs walk through each other (passive NPCs move as one group, §6.1) but never through a standing crew
  *   member. A walk ends on a tile nobody stands on now and no other NPC's committed walk ends on, so NPCs that all
@@ -69,7 +69,8 @@ export function personOf(world: ReadonlyWorld, id: string): DeepReadonly<PersonD
  */
 export function npcCanPass(person: DeepReadonly<PersonDef>, npc?: DeepReadonly<NpcState>): (door: DeepReadonly<DoorDef>, status: DoorStatus) => boolean {
     const keys = person.observer !== 'civilian', card = npc ? npc.keycard : true;
-    return (door, status) => status === 'closed' || (status === 'locked' && keys && door.lock !== 'vault' && (card || door.lock !== 'keycard'));
+    // Nobody walks into the vault on their own (its door is the crew's business, decision 77), unlocked or not.
+    return (door, status) => door.lock !== 'vault' && (status === 'closed' || (status === 'locked' && keys && (card || door.lock !== 'keycard')));
 }
 
 export function npcMoveOptions(world: ReadonlyWorld, npc: DeepReadonly<NpcState>): MoveOptions {

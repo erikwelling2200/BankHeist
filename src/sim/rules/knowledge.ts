@@ -541,7 +541,7 @@ export function doorMayRefuse(
 ): boolean {
     if (!d || Math.abs(a.x - b.x) + Math.abs(a.y - b.y) !== 1) return false;
     const door = doorBetween(world, { x: a.x, y: a.y }, { x: b.x, y: b.y });
-    if (!door || !d.doors.has(door.id) || crewHasKey(member, door)) return false;
+    if (!door || !d.doors.has(door.id) || crewHasKey(world, member, door)) return false;
     return door.lock !== 'none' || d.unknownLock.has(door.id);
 }
 

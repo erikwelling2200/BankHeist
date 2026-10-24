@@ -138,7 +138,7 @@ describe('M1-08 fuzz on generated banks', () => {
                     const goal = member.id === 'c0' && panel ? panel.pos : member.id === 'c2' && desk ? desk.pos
                         : rng.chance(0.6) ? (state.npcs.find(n => n.id === victim.id)?.pos ?? rng.pick(free)) : rng.pick(free);
                     const path = bfsPath(world, state, member.pos, goal, rng.int(1, 5));
-                    if (!path.length || !validatePath(world, state, member.pos, path, crewBudget(world, member, 'move'), crewMoveOptions(member)).ok) continue;
+                    if (!path.length || !validatePath(world, state, member.pos, path, crewBudget(world, member, 'move'), crewMoveOptions(world, member)).ok) continue;
                     doCmd({ type: 'move', crew: member.id, path });
                 }
                 // Counters mid-countdown, on copies (abstract: the condition, not whether the crew can reach it).

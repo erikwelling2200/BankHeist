@@ -38,8 +38,8 @@ const member = (state: State, id: string) => state.crew.find(c => c.id === id)!;
 const run = (world: ReadonlyWorld, state: State, ...cmds: Parameters<typeof commit>[2][]): State => cmds.reduce((s, c) => step(world, s, c).state, state);
 
 describe('the bank\'s loot', () => {
-    it('leaves out what is behind the deposit boxes\' locks until M2-05', () => {
-        const boxes: WorldObject = { id: 'boxes', kind: 'loot', pos: P(6, 1), facing: 's', loot: { value: 30000, weight: 'light', behind: 'depositBoxes' } };
+    it('leaves out what is behind the deposit boxes until a box or the wall is opened', () => {
+        const boxes: WorldObject = { id: 'boxes', kind: 'loot', pos: P(6, 1), facing: 's', loot: { value: 30000, weight: 'light', behind: 'depositBox' } };
         const world = fixtureWorld(MAP, { rooms: FLOOR, objects: [...OBJECTS, boxes] });
         expect(Object.hasOwn(initialState(world, { seed: 1, crew: [] }).loot, 'boxes')).toBe(false);
     });

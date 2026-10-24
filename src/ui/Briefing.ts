@@ -54,7 +54,7 @@ export class Briefing {
             const div = el('div', 'briefing-lock');
             div.append(el('strong', '', lock.name));
             const holders = lock.holders.map(id => bank.people.find(p => p.id === id)).filter(Boolean).map(p => `${p!.name} (${ROLE_NAMES[p!.role] ?? p!.role})`);
-            list(div, [`Social: ${lock.social}${holders.length ? ` — ${holders.join(', ')}` : ''}`, `Technical: ${lock.technical}`, `Violent: ${lock.violent}`]);
+            list(div, [`Social: ${lock.social.text}${holders.length ? ` — ${holders.join(', ')}` : ''}`, `Technical: ${lock.technical.text}`, `Violent: ${lock.violent.text}`]);
             vault.append(div);
         }
         const ways = section('Ways in');

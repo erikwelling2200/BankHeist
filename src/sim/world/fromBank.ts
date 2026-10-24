@@ -4,6 +4,7 @@ import { floorHeight, RAISED_HEIGHT, type LevelProp, type PersonFacing } from '.
 import type { Facing as PropFacing } from '../../level/space';
 import { propTileGrids, wallLookup } from '../../level/tileProps';
 import { edgeKey } from '../core/grid';
+import { clonePlain } from '../core/json';
 import { defaultRules } from '../core/state';
 import {
     type CameraDef, type DoorDef, type Facing, type ObserverClass, type PersonDef, type ReadonlyWorld, type ScheduleBlock, type Tile,
@@ -24,7 +25,9 @@ import { DOOR_KINDS, WALL_MATERIALS } from './materials';
  * - doors: every door with a leaf (open doorways and counter gates are gaps, not doors): closed, or locked if it has a
  *   lock (§6.9).
  * - objects: the props the rules act on (panels, consoles, hatches, dumpsters; `OBJECT_KINDS`), the CCTV desk's recorder, the
- *   manager's PC, the alarm buttons that start a §9.1 carrier, and the loot.
+ *   manager's PC, the alarm buttons that start a §9.1 carrier, and the loot; the deposit boxes' loot becomes the wall's
+ *   haul (Heavy, drilled) and its boxes (Light, picked one by one), rules/vault.ts.
+ * - locks: the key graph's, as the generator made it (rules/keys.ts).
  * - stash rooms: the cleaner's closet, where a body can be hidden (§8.10); the building: the bank's rooms under its
  *   roof, which a dye pack's cash must not leave (§15.1).
  * - people: their role, observer class and schedule (the typed `routine` with its tiles, run by rules/npc), and a hidden
@@ -63,6 +66,9 @@ export const OBJECT_KINDS: Partial<Record<LevelProp['kind'], string>> = {
     // Somewhere to stash a body (§8.10, rules/actions/body.ts).
     dumpster: 'dumpster'
 };
+
+/** What one deposit box holds (§15.1: a Light stack, as a drawer's $5k): the generator's deposit loot split by it. */
+export const DEPOSIT_BOX_VALUE = 5000;
 
 /** Rooms a body can be stashed anywhere in (§8.10, `World.stashRooms`). */
 export const STASH_ROOMS: readonly GenRoom['type'][] = ['cleanersCloset'];
@@ -180,7 +186,21 @@ export function worldFromBank(bank: GeneratedBank): ReadonlyWorld {
         add('managerPc', prop.tx, prop.ty, PROP_FACING[prop.facing ?? 'south']);
     }
     for (const a of bank.alarms) if (!NOT_CARRIERS.has(a.name)) add('alarmButton', a.tx, a.ty, 's', { name: a.name });
-    for (const l of bank.loot) add('loot', l.tx, l.ty, 's', { name: l.name, loot: { value: l.value, weight: l.weight, ...(l.dyePack ? { dyePack: true as const } : {}), ...(l.behind ? { behind: l.behind } : {}) } });
+    // The deposit boxes (§15.3, decision 78): the wall's haul where the generator put its loot, and the boxes, one Light
+    // stack each, after the rest of the loot (so no other loot's id moves).
+    const boxes: (typeof bank.loot)[number][] = [];
+    for (const l of bank.loot) {
+        if (l.behind === 'depositBoxes') {
+            boxes.push(l);
+            add('loot', l.tx, l.ty, 's', { name: 'Deposit-box haul', loot: { value: l.value, weight: 'heavy', behind: 'depositWall' } });
+            continue;
+        }
+        add('loot', l.tx, l.ty, 's', { name: l.name, loot: { value: l.value, weight: l.weight, ...(l.dyePack ? { dyePack: true as const } : {}) } });
+    }
+    for (const l of boxes) {
+        const n = Math.max(1, Math.round(l.value / DEPOSIT_BOX_VALUE));
+        for (let k = 0; k < n; k++) add('loot', l.tx, l.ty, 's', { name: 'Deposit box', loot: { value: Math.floor(l.value / n), weight: 'light', behind: 'depositBox' } });
+    }
 
     const people: PersonDef[] = bank.people.map(p => ({
         id: p.id, name: p.name, role: p.role, observer: p.observer satisfies ObserverClass, pos: { x: p.tx, y: p.ty },
@@ -206,5 +226,7 @@ export function worldFromBank(bank: GeneratedBank): ReadonlyWorld {
     const patrol = { lane, turns: bank.timeline.filter(t => t.name === 'Patrol drive-by').map(t => t.turn).sort((a, b) => a - b) };
     // Police in N (§9.2) and dye packs or none (§15.1) by the bank's tier.
     const rules = { ...defaultRules(), policeEta: bank.policeEta, dyePacks: bank.dyePacks };
-    return freezeWorld({ width, height, tiles, edges, doors, objects, people, cameras, rules, stashRooms, building, ...(lane.length ? { patrol } : {}) });
+    // The key graph (§15.2): the rules read its keys (rules/keys.ts).
+    const locks = clonePlain(bank.locks);
+    return freezeWorld({ width, height, tiles, edges, doors, objects, people, cameras, rules, stashRooms, building, locks, ...(lane.length ? { patrol } : {}) });
 }

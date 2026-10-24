@@ -327,7 +327,8 @@ export function describeEvent(world: ReadonlyWorld, state: State, event: SimEven
         case 'alarmRaised': return state.response ? `The alarm is raised: police in ${state.response.policeIn}` : 'The alarm is raised';
         case 'policeCountdown': return event.policeIn > 0 ? `Police in ${event.policeIn}` : 'The police are here';
         case 'alarmAttempt': return `${name(event.npc)} raises the alarm`;
-        case 'alarmDead': return `${name(event.source)} pressed the button: nothing happened`;
+        case 'alarmDead': return event.kind === 'seismicSensor' || event.kind === 'motionSensor'
+            ? `The ${CARRIERS[event.kind].label.toLowerCase()} is dead: nothing happened` : `${name(event.source)} pressed the button: nothing happened`;
         case 'confronted': return `${name(event.npc)} to ${name(event.crew)}: “Hands up!”`;
         case 'panelWorked': return `${name(event.crew)} worked on the alarm panel (${event.progress}/${event.needed})`;
         case 'panelDisabled': return `${name(event.crew)} killed the alarm panel`;
@@ -352,7 +353,20 @@ export function describeEvent(world: ReadonlyWorld, state: State, event: SimEven
         case 'escorting': return `${name(event.crew)} is leading ${name(event.npc)}`;
         case 'hostageFree': return `${name(event.npc)} shook free of ${name(event.crew)}`;
         case 'coerced': return `${name(event.crew)} made ${name(event.npc)} do as told`;
-        case 'codeEntered': return `${name(event.npc)} entered their part of the vault code`;
+        case 'codeEntered': return event.npc ? `${name(event.npc)} entered their part of the vault code` : `${name(event.crew)} entered ${CODE_PART[event.part]}`;
+        case 'vaultUnlocked': return event.how === 'timeLock' ? 'The time lock opened: the vault is unlocked'
+            : event.how === 'keycard' && event.by ? `${name(event.by)} swiped the card: the vault is unlocked` : 'The code is in: the vault is unlocked';
+        case 'timeLockShut': return 'The time lock shut the vault again';
+        case 'pcHacked': return `${name(event.crew)} got into the manager’s PC: ${event.part ? CODE_PART[event.part] : 'no code'}${event.window ? `; the time lock opens on turns ${event.window.from}–${event.window.until - 1}` : ''}`;
+        case 'lockWorked': return `${name(event.crew)} worked on the lock (${event.progress}/${event.needed})`;
+        case 'doorWorked': return `${name(event.crew)} worked on the lock of ${doorName(world, event.door)} (${event.progress}/${event.needed})`;
+        case 'boxOpened': return `${name(event.crew)} opened a deposit box`;
+        case 'deviceSet': return `${name(event.crew)} set ${event.kind === 'drill' ? 'the drill' : 'thermite'} to work`;
+        case 'deviceWorked': return `${event.kind === 'drill' ? 'Drilling' : 'Thermite'}: ${event.done}/${event.needed}`;
+        case 'drillJammed': return 'The drill jammed';
+        case 'drillFixed': return `${name(event.crew)} fixed the drill`;
+        case 'vaultBreached': return `The ${event.by === 'drill' ? 'drill' : 'thermite'} is through the vault door`;
+        case 'wallDrilled': return 'The drill is through the deposit boxes';
         case 'untying': return `${name(event.by)} is untying ${name(event.npc)}`;
         case 'freed': return `${name(event.by)} freed ${name(event.npc)}`;
         case 'changedClothes': return `${name(event.crew)} changed into a ${event.uniform} uniform`;
@@ -410,6 +424,9 @@ const LAPSE_TEXT: Readonly<Record<string, string>> = {
 const PANIC_TEXT: Readonly<Record<string, string>> = {
     cower: 'cowers', flee: 'about to run for it', hide: 'about to hide', tackle: 'about to tackle', reach: 'reaching for a weapon'
 };
+
+/** A part of the vault code, as the log says it. */
+const CODE_PART: Readonly<Record<string, string>> = { whole: 'the vault code', manager: 'the manager’s half of the vault code', headTeller: 'the head teller’s half of the vault code' };
 
 /** Why a carrier stopped, as the log says it. */
 const STOP_WHY: Readonly<Record<string, string>> = {

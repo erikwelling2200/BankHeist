@@ -1,5 +1,5 @@
 import {
-    besideDoor, crewPicture, doorStatus, DRAGGABLE, draggedBy, goBlocked, inHands, inReach, interactionVerbs, isKnownNow, JAMMER, legalActions, LOOP_FROM, lootWeight,
+    besideDoor, crewPicture, doorStatus, DRAGGABLE, draggedBy, goBlocked, HACKING_KIT, inHands, inReach, interactionVerbs, isKnownNow, JAMMER, legalActions, LOCKPICK, lockActions, LOOP_FROM, lootWeight,
     pocketed, reachesObject, STASH_KINDS, throwTargets, tieIneligible, whyNot, type Command, type Pos, type ReadonlyWorld, type State
 } from '../sim';
 import type { HudIcon as HudIconName } from '../ui/hud/viewModels';
@@ -10,7 +10,10 @@ import type { HudIcon as HudIconName } from '../ui/hud/viewModels';
  * the grid offers what `legalActions` would) and otherwise with the reason for the long-press tag. Actions on a thing
  * (a door, an NPC, a stash) are for the current **target**: the one the player tapped, else the first in reach.
  *
- * - Doors beside them: open or close (whichever the door's state calls for), and lock or unlock.
+ * - Doors beside them: open or close (whichever the door's state calls for), and lock or unlock; with the kit, pick a
+ *   mechanical lock or hack a card reader (its work so far, M2-05).
+ * - Vault access (M2-05): the console's Unlock vault, the manager's PC's Hack PC and a deposit wall's Pick a box (as
+ *   interactions, with their work so far); Drill and Thermite where the sim allows them, Fix drill for a jammed one.
  * - Knockout: an NPC the crew knows of (§8.15), in reach, still on their feet.
  * - Drag: a body (knocked out, dead, tied) in reach; while dragging, Drop and Stash (a stash object in reach, or the
  *   stash room they stand in).
@@ -121,7 +124,10 @@ function ringingGuards(world: ReadonlyWorld, state: State, crewId: string): stri
 export const VERBS: Readonly<Record<string, { label: string; icon: HudIconName }>> = {
     'alarmPanel.disable': { label: 'Disable panel', icon: 'hack' },
     'recorder.take': { label: 'Take recorder', icon: 'bag' },
-    'recorder.destroy': { label: 'Smash recorder', icon: 'attack' }
+    'recorder.destroy': { label: 'Smash recorder', icon: 'attack' },
+    'vaultConsole.unlock': { label: 'Unlock vault', icon: 'lock' },
+    'managerPc.hack': { label: 'Hack PC', icon: 'hack' },
+    'depositBoxes.pick': { label: 'Pick a box', icon: 'lockpick' }
 };
 
 const DOOR_LABEL = { open: 'Open', close: 'Close', lock: 'Lock', unlock: 'Unlock' } as const;
@@ -147,6 +153,14 @@ export function actionMenu(world: ReadonlyWorld, state: State, crewId: string, t
         add(`door:${toggle}`, DOOR_LABEL[toggle], 'interact', { type: 'door', crew: crewId, door, action: toggle }, door);
         const turn = status === 'locked' ? 'unlock' : status === 'closed' ? 'lock' : undefined;
         if (turn) add(`door:${turn}`, DOOR_LABEL[turn], 'lock', { type: 'door', crew: crewId, door, action: turn }, door);
+        // Working on the lock (M2-05), with the kit for it: a mechanical lock picked, a card reader hacked.
+        const lock = world.doors[door]!.lock;
+        const work = status !== 'locked' ? undefined : lock === 'mechanical' && member.loadout.items.includes(LOCKPICK) ? 'pick'
+            : (lock === 'keycard' || lock === 'maglock') && member.loadout.items.includes(HACKING_KIT) ? 'hack' : undefined;
+        if (work) {
+            add(`door:${work}`, work === 'pick' ? 'Pick lock' : 'Hack reader', work === 'pick' ? 'lockpick' : 'hack', { type: 'door', crew: crewId, door, action: work }, door);
+            out.at(-1)!.progress = `${state.doors[door]?.work ?? 0}/${lockActions(world, world.doors[door]!)}`;
+        }
     }
 
     if (member.dragging !== null) {
@@ -185,6 +199,8 @@ export function actionMenu(world: ReadonlyWorld, state: State, crewId: string, t
             const named = VERBS[`${kind}.${verb}`];
             add(`interact:${verb}`, named?.label ?? verb.charAt(0).toUpperCase() + verb.slice(1), named?.icon ?? 'interact', { type: 'interact', crew: crewId, object, verb }, object);
             if (kind === 'alarmPanel' && verb === 'disable') out.at(-1)!.progress = `${state.objects[object]?.progress ?? 0}/${world.rules.panelActions}`;
+            if (kind === 'managerPc') out.at(-1)!.progress = `${state.objects[object]?.progress ?? 0}/${world.rules.pcActions}`;
+            if (kind === 'depositBoxes') out.at(-1)!.progress = `${state.objects[object]?.progress ?? 0}/${world.rules.lockpickActions}`;
         }
     }
 
@@ -197,6 +213,14 @@ export function actionMenu(world: ReadonlyWorld, state: State, crewId: string, t
     if (desk && camera) add('loop', 'Loop feed', 'hack', { type: 'loopFeed', crew: crewId, object: desk, camera }, camera);
 
     if (member.loadout.items.includes(JAMMER)) add('jammer', 'Jammer', 'radio', { type: 'placeJammer', crew: crewId });
+
+    // The drill and thermite (M2-05): at the vault door or a wall of deposit boxes the sim allows; a jammed drill in reach.
+    const drill = legal.find((c): c is Extract<Command, { type: 'drill' }> => c.type === 'drill' && (!target || c.at === target));
+    if (drill) add('drill', 'Drill', 'drill', drill, drill.at);
+    const charge = legal.find((c): c is Extract<Command, { type: 'thermite' }> => c.type === 'thermite');
+    if (charge) add('thermite', 'Thermite', 'charge', charge, charge.door);
+    const fix = legal.find((c): c is Extract<Command, { type: 'fixDrill' }> => c.type === 'fixDrill');
+    if (fix) add('fixDrill', 'Fix drill', 'drill', fix);
 
     const loot = pick(targets.loot);
     if (loot) add('take', `Take ${LOOT_NAME[lootWeight(world, loot)]}`, 'bag', { type: 'takeLoot', crew: crewId, loot }, loot);

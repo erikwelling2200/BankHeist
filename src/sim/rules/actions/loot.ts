@@ -32,7 +32,7 @@ import { inReach, lacksActions, registerAction } from './act';
  *   dye packs, not known clean) is `cashOut`, shown and final whichever it was: such a move may be final for a reason
  *   the player can't know yet, so it is never offered as undoable. A stack that left without bursting is known clean.
  * - What the hands hold is `State.loot` and `CrewState.dragging`; `Loadout.carrying` follows them (rules/hands.ts).
- * - Loot behind a lock M2-05 opens (the deposit boxes, `loot.behind`) isn't the heist's loot yet.
+ * - Loot behind a deposit box or its wall (`loot.behind`) is the heist's loot once opened (rules/vault.ts).
  * - A throw never passes a door the crew can't vouch for (decision 44), so its preview and its outcome can't differ.
  *
  * Commands: `takeLoot { crew, loot }`, `dropLoot { crew, loot? }` (the hands, or a ruined stack), `throwLoot { crew, to }`, `pass { crew, to }` (loot or a
@@ -109,7 +109,7 @@ registerRuleDefaults({ dyePacks: false });
 registerStateInit('loot', (world, state) => {
     state.loot = {};
     for (const o of world.objects) {
-        // Worth nothing (the manager's PC, keys, files) or behind a lock M2-05 opens (the deposit boxes): not loot yet.
+        // Worth nothing (the manager's PC, keys, files) or behind a deposit box or its wall: not loot until opened (vault.ts).
         if (o.kind !== 'loot' || !o.loot || o.loot.value <= 0 || o.loot.behind) continue;
         state.loot[o.id] = { holder: null, pos: { x: o.pos.x, y: o.pos.y }, taken: false, dyePack: !!o.loot.dyePack, inspected: false, ruined: false };
     }

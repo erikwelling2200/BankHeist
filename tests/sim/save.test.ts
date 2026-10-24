@@ -78,7 +78,7 @@ describe('saving', () => {
  * NpcStatusMap, CarrierKindMap or adds a field must also fill it in below, or a change of shape goes unnoticed.
  */
 const SHAPE_HASHES: Record<number, string> = {
-    1: 'dcff06300b8ae7eb'
+    1: '6e03e50b0aeea908'
 };
 
 /** Paths whose objects are records by id, not structs. */
@@ -159,8 +159,10 @@ describe('the save format', () => {
         full.cameraReports = [{ camera: 'cam', crew: 'jun', tile: { x: 0, y: 0 }, turn: 1, phase: 'crew' }];
         full.crew[0]!.notoriety = 2;
         full.edges['eastWest 0 1'] = { material: 'soft', blocksMove: false, blocksSight: false, blocksSound: false, midHeight: false };
-        full.doors.staffDoor = { status: 'open', propped: true };
+        full.doors.staffDoor = { status: 'open', propped: true, work: 1 };
         full.objects.panel = { disabled: true, open: false, progress: 2, codes: ['manager'] };
+        full.devices = [{ id: 'drill-4', kind: 'drill', at: 'vault', pos: { x: 1, y: 1 }, crew: 'jun', done: 2, needed: 5, jammed: true }];
+        full.codesKnown = ['whole'];
         full.objects.recorder = { taken: 'jun', destroyed: false };
         full.cameras.cam = { facing: 0, live: true, loopedUntil: 3 };
         full.crew[0]!.loadout = { items: ['pistol', 'duffel'], packed: ['assaultRifle'], uniform: 'staff', masked: false, carrying: 'lootBag' };
@@ -186,10 +188,15 @@ describe('the save format', () => {
                 patrol: { lane: [{ x: 0, y: 2 }, { x: 1, y: 2 }], turns: [5, 15] },
                 stashRooms: ['closet'],
                 building: ['lobby'],
+                locks: [{
+                    id: 'vault', name: 'Vault', target: 'd', room: 'lobby', holders: ['guard'], timeLock: { from: 3, until: 5 },
+                    social: { kind: 'code', parts: ['whole'], text: 'code' }, technical: { kind: 'drill', phases: 3, sensors: ['seismic'], text: 'drill' },
+                    violent: { kind: 'thermite', phases: 3, text: 'thermite' }
+                }],
                 objects: [
                     { id: 'panel', kind: 'alarmPanel', pos: { x: 0, y: 0 }, facing: 's' },
                     { id: 'desk', kind: 'cctvDesk', pos: { x: 0, y: 0 }, facing: 's', name: 'CCTV desk', room: 'lobby', monitors: 4 },
-                    { id: 'cash', kind: 'loot', pos: { x: 0, y: 0 }, facing: 's', loot: { value: 5000, weight: 'light', dyePack: true, behind: 'depositBoxes' } }
+                    { id: 'cash', kind: 'loot', pos: { x: 0, y: 0 }, facing: 's', loot: { value: 5000, weight: 'light', dyePack: true, behind: 'depositBox' } }
                 ],
                 cameras: [{ id: 'cam', pos: { x: 0, y: 0 }, facings: ['s', 'e'], room: 'lobby', seesInDark: true }],
                 people: world.people.map(p => ({

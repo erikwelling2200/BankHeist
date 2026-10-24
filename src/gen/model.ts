@@ -65,17 +65,64 @@ export interface Door {
     detour?: number;
 }
 
+/** The vault code's parts (§15.2): one whole code, or under dual control the manager's half and the head teller's. */
+export type CodePart = 'whole' | 'manager' | 'headTeller';
+
+/** Turns a time lock stands open (§15.2, the timeline's window): from `from` up to, not including, `until`. */
+export interface TimeWindow { from: number; until: number }
+
+/**
+ * A lock's social key (§15.2) as the rules read it (`src/sim/rules/keys.ts`), with the briefing's line for it:
+ * - `code`: the vault code entered at its console, part by part: by the people who know a part (coerced, §10.7) or by
+ *   the crew once they know it (the manager's PC);
+ * - `threeKeys`: one of `keycard`'s cards (the manager's) swiped at the console while the crew holds the CCTV room, in
+ *   the time-lock window (the Three Keys archetype, §17.2);
+ * - `keycard`: a card of one of `holders` opens the door;
+ * - `buzz`: the operator buzzes staff through (the mantrap); until he does, his card opens it;
+ * - `disarmCode`: the alarm panel's code, from an inside man or a bribe (M6).
+ */
+export type SocialKey = { text: string } & (
+    | { kind: 'code'; parts: CodePart[] }
+    | { kind: 'threeKeys'; keycard: string[] }
+    | { kind: 'keycard'; holders: string[] }
+    | { kind: 'buzz'; holders: string[] }
+    | { kind: 'disarmCode'; holders: string[] }
+);
+
+/**
+ * A lock's technical key (§15.2, §15.3, §7.2): the drill (its phases and the vault's sensors: seismic on Class II, seismic
+ * and motion on Class III), the hacking kit on a card reader or at the panel (in actions), or on the mantrap's reader
+ * once its camera is looped.
+ */
+export type TechnicalKey = { text: string } & (
+    | { kind: 'drill'; phases: number; sensors: ('seismic' | 'motion')[] }
+    | { kind: 'reader'; actions: number }
+    | { kind: 'loopedReader'; actions: number }
+    | { kind: 'panel'; actions: number }
+);
+
+/** A lock's violent key (§15.2, §14.2): thermite (its phases), a breach (by shotgun or charge), or smashing the panel. */
+export type ViolentKey = { text: string } & (
+    | { kind: 'thermite'; phases: number }
+    | { kind: 'breach'; tool: 'shotgun' | 'breachCharge' }
+    | { kind: 'smash' }
+);
+
 /** A hard lock and its three keys (§15.2, §17.2 step 4). */
 export interface KeyLock {
     id: string;
     name: string;
-    /** The door or object it locks. */
+    /** The door or room it locks. */
     target: string;
-    social: string;
-    technical: string;
-    violent: string;
+    /** The room behind it (the vault, the CCTV room). */
+    room: string;
+    social: SocialKey;
+    technical: TechnicalKey;
+    violent: ViolentKey;
     /** People who carry the social key, by id. */
     holders: string[];
+    /** The vault's time lock (§15.2): the window it stands open in, from the timeline. Codes work only then. */
+    timeLock?: TimeWindow;
 }
 
 export type ApproachCategory = 'social' | 'covert' | 'forced';

@@ -175,7 +175,7 @@ describe('coercion (§10.7)', () => {
         expect(whyNot(world, down, { type: 'coerce', crew: 'mara', npc: 'cleaner', at: 'console' })).toBe('They don\'t know any part of the code');
         const r = run(world, down, { type: 'coerce', crew: 'mara', npc: 'manager', at: 'console' });
         expect(r.objects.console!.codes).toEqual(['manager']);
-        expect(whyNot(world, fresh(r), { type: 'coerce', crew: 'mara', npc: 'manager', at: 'console' })).toBe('They have entered their part already');
+        expect(whyNot(world, fresh(r), { type: 'coerce', crew: 'mara', npc: 'manager', at: 'console' })).toBe('Their part of the code is in already');
     });
 });
 

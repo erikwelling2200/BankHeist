@@ -9,6 +9,7 @@ import {
 } from '../geo/move';
 import { makeNoise } from '../geo/sound';
 import { onFloor } from '../rules/place';
+import { cardOpens } from '../rules/keys';
 
 /*
  * Move (1 action, 5 tiles, 4 in heavy armour) and Dash (2 actions, 12 tiles, not in heavy armour, a quiet noise of
@@ -143,7 +144,7 @@ export const planningState = (world: ReadonlyWorld, state: State): State => plan
  */
 export function planMoveOptions(world: ReadonlyWorld, state: State, member: DeepReadonly<CrewState>): MoveOptions {
     const offLimits = planOffLimits(world, state);
-    return offLimits ? { ...crewMoveOptions(member), offLimits } : crewMoveOptions(member);
+    return offLimits ? { ...crewMoveOptions(world, member), offLimits } : crewMoveOptions(world, member);
 }
 
 /** Why a move stops short: how many steps of the path it keeps, the reason and the NPC or door. */
@@ -178,7 +179,7 @@ const bump: MoveLimit = (ctx, member, path) => {
  * seen): the tile before the first step the truth doesn't allow. A door found closed instead of open is opened on the way.
  */
 const lockedDoor: MoveLimit = (ctx, member, path) => {
-    const { world } = ctx, state = onFloor(ctx.state), options = crewMoveOptions(member);
+    const { world } = ctx, state = onFloor(ctx.state), options = crewMoveOptions(world, member);
     let prev: Pos = member.pos;
     for (let i = 0; i < path.length; i++) {
         const p = path[i]!, door = Math.abs(p.x - prev.x) + Math.abs(p.y - prev.y) === 1 ? doorBetween(world, prev, p) : undefined;
@@ -204,19 +205,19 @@ function cutPath(ctx: Ctx, member: CrewState, path: readonly Pos[], mode: MoveMo
 }
 
 /**
- * Whether a crew member holds the key to a locked door: a keycard door with a keycard taken in a frisk
- * (rules/actions/hostage.ts; any keycard opens any keycard door until the key graph names whose opens which, M2-05,
- * implementation plan §6 decision 60). Mechanical keys, maglocks and the vault arrive with the key graph.
+ * Whether a crew member holds the key to a locked door: a card (and the keys with it) taken in a frisk
+ * (rules/actions/hostage.ts) whose holder's card opens it, as the key graph says (rules/keys.ts `cardOpens`,
+ * implementation plan §6 decision 75). No card opens the vault.
  */
-export function crewHasKey(member: DeepReadonly<CrewState>, door: DeepReadonly<DoorDef>): boolean {
-    return door.lock === 'keycard' && member.keycards.length > 0;
+export function crewHasKey(world: ReadonlyWorld, member: DeepReadonly<CrewState>, door: DeepReadonly<DoorDef>): boolean {
+    return member.keycards.some(holder => cardOpens(world, holder, door));
 }
 
 /** The doors a crew member walks through, opening them: closed ones, and locked ones they hold the key to. */
-export function crewMoveOptions(member: DeepReadonly<CrewState>): MoveOptions {
+export function crewMoveOptions(world: ReadonlyWorld, member: DeepReadonly<CrewState>): MoveOptions {
     return {
         mover: member.id,
-        canPassDoor: (door: DeepReadonly<DoorDef>, status: DoorStatus) => status === 'closed' || (status === 'locked' && crewHasKey(member, door))
+        canPassDoor: (door: DeepReadonly<DoorDef>, status: DoorStatus) => status === 'closed' || (status === 'locked' && crewHasKey(world, member, door))
     };
 }
 
