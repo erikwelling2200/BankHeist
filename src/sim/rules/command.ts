@@ -435,9 +435,11 @@ registerWorldHook('passiveNpcs', 'command.flee', (ctx, phase) => {
         const running = state.carriers.some(c => c.kind === 'escapee' && c.source === npc.id);
         // The way it has left, past the crew as they stand: what its escapee counts down (§9.1).
         let left = out ? 0 : runLeft(world, state, npc, action.exit);
-        if (left === undefined && runLeft(world, state, npc, action.exit, { crew: false }) === undefined) {
-            // Other people hold every tile it leaves from (a crowd on and around its way out), not the crew: it keeps
-            // running for it, its carrier paused until they let it through (rules/panic.ts), no counter the crew earned.
+        // Cut off by the crew before it gets there (or held off by those they put on the floor), whoever else stands about.
+        const cut = runLeft(world, state, npc, action.exit, { ending: false }) === undefined && runLeft(world, state, npc, action.exit, { crew: false, ending: false }) !== undefined;
+        if (left === undefined && !cut && runLeft(world, state, npc, action.exit, { crew: false }) === undefined) {
+            // Other people standing on every tile it leaves from (a crowd on and around its way out), not the crew: it
+            // keeps running for it, its carrier paused until they let it through (rules/panic.ts), no counter earned.
             startEscapee(ctx, npc, runLeft(world, state, npc, action.exit, { crew: false, ending: false }) ?? 0);
             continue;
         }

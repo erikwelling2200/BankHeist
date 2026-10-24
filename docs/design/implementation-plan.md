@@ -1471,8 +1471,9 @@ Later milestones: within each milestone, the `∥` notes in §3 apply. UI packag
     longer') and the runner, setting off again, starts a fresh one at the longer way's count. The tile it leaves from is
     the nearest within one of the way out that it can end its walk on (nobody stands there or is headed there,
     `leavingTile`): the flight walks there and the count is of the way there. Only the crew earn these counters: a run
-    held up just as much with the crew out of the way (a crowd on and around its way out) is paused ('way out
-    crowded'), not countered, and ticks again once the runner can make it (cleanup review). So an escapee never raises
+    held up just as much with the crew out of the way (a crowd standing on and around its way out) is paused ('way out
+    crowded'), not countered, and ticks again once the runner can make it (cleanup review); people the crew put on the
+    floor there count as the crew's block, and a crew block on the way there counters it whatever crowd waits beyond. So an escapee never raises
     the Alarm with its runner inside (an invariant of the preview property test and the carrier fuzz). A passer-by's way out is the nearest tile anyone leaves the map by (§16.4's "nearest plot edge"). The
     phone call's "find them" (§9.1) is listed with its counters: finding a hider is what lets the crew command or knock
     it out.

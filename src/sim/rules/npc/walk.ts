@@ -117,14 +117,16 @@ export function othersTiles(
  * past the crew as they stand, that it can end its walk on (where it stands, or a tile nobody stands on and no other
  * NPC's walk ends on: `taken`, default `othersTiles`), with the way there in tiles; undefined when it can get to none.
  * The flight walks there (npc/intent.ts) and its escapee counts it down (rules/command.ts `runLeft`), so the two agree.
- * `crew: false` asks the same with the crew out of the way; `ending: false` takes any tile within one, held or not.
+ * `crew: false` asks the same with the crew out of the way, and the people they put on the floor (face down, tied, out
+ * cold: the crew's doing, §9.1 "block the route"); `ending: false` takes any tile within one, held or not.
  */
 export function leavingTile(
     world: ReadonlyWorld, state: State, npc: DeepReadonly<NpcState>, exit: DeepReadonly<Pos>,
     how: { crew?: boolean; ending?: boolean; taken?: (index: number) => boolean } = {}
 ): { tile: Pos; tiles: number } | undefined {
-    const floor = onFloor(state), from = how.crew === false ? { ...floor, crew: [] } : floor;
-    const taken = how.ending === false ? undefined : how.taken ?? othersTiles(world, floor, npc.id);
+    const floor = onFloor(state);
+    const from = how.crew === false ? { ...floor, crew: [], npcs: floor.npcs.filter(n => !LYING_STATUSES.has(n.status)) } : floor;
+    const taken = how.ending === false ? undefined : how.taken ?? othersTiles(world, from, npc.id);
     const found = reachable(world, from, { x: npc.pos.x, y: npc.pos.y }, (world.width + world.height) * 4 * HALF_STEPS_PER_TILE, npcMoveOptions(world, npc),
         t => Math.max(Math.abs(t.pos.x - exit.x), Math.abs(t.pos.y - exit.y)) <= 1 && (!taken || t.cost === 0 || (t.canEnd && !taken(indexOf(world, t.pos))))).stopped;
     return found && { tile: { x: found.pos.x, y: found.pos.y }, tiles: Math.ceil(found.cost / HALF_STEPS_PER_TILE) };

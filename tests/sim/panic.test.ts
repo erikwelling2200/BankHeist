@@ -352,6 +352,34 @@ describe('the escapee (§9.1, §16.4)', () => {
         expect(of(after.events, 'carrierStarted')).toEqual([]);
     });
 
+    it('is countered when the crew have put people on the floor on and around its way out: theirs is no crowd', () => {
+        const { world, state } = setup(MAP, [passer, ...crowd, leaving], [{ id: 'jun', pos: P(1, 8) }, { id: 'mara', pos: P(2, 8) }]);
+        for (const n of state.npcs) if (n.id !== 'walker') Object.assign(n, { status: 'unconscious', outCold: 9999, intent: { path: [] }, goal: { kind: 'still' } });
+        setOff(state, true);
+        const out = commit(world, state, { type: 'wait', crew: 'mara' });
+        expect(of(out.events, 'carrierStopped')).toMatchObject([{ carrier: 'c1', why: 'route blocked' }]);
+        const after = endTurn(world, out.state);
+        expect(after.events).toContainEqual({ type: 'gaveUp', npc: 'walker' });
+        expect(of(after.events, 'carrierPaused')).toEqual([]);
+    });
+
+    it('is countered when the crew cut it off, even with a crowd on its way out as well', () => {
+        // Mara in the only gap in the shelves, the clerks on every tile it could leave from.
+        const { world, state } = setup(MAP, [passer, ...crowd, person('c3', 'clerk', 'staff', P(12, 1))], [{ id: 'jun', pos: P(1, 8) }, { id: 'mara', pos: P(12, 2) }]);
+        setOff(state, true);
+        const blocked = commit(world, state, { type: 'wait', crew: 'mara' });
+        expect(of(blocked.events, 'carrierStopped')).toMatchObject([{ carrier: 'c1', why: 'route blocked' }]);
+        const after = endTurn(world, blocked.state);
+        expect(after.events).toContainEqual({ type: 'gaveUp', npc: 'walker' });
+        expect(of(after.events, 'carrierStarted')).toEqual([]);
+        // Without the carrier yet, as it first sets off: it gives up just the same, never paused for the crowd.
+        const fresh = setup(MAP, [passer, ...crowd, person('c3', 'clerk', 'staff', P(12, 1))], [{ id: 'jun', pos: P(1, 8) }, { id: 'mara', pos: P(12, 2) }]);
+        setOff(fresh.state, false);
+        const first = endTurn(fresh.world, fresh.state);
+        expect(first.events).toContainEqual({ type: 'gaveUp', npc: 'walker' });
+        expect(of(first.events, 'carrierPaused')).toEqual([]);
+    });
+
     it('is countered by a tackle: 1 action, in reach, and the runner goes face down', () => {
         const { world, state } = running();
         const at = npc(state, 'walker').pos;

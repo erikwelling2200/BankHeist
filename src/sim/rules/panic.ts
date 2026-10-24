@@ -8,7 +8,7 @@ import { bandAt, crewObserver, fieldOn, npcObserver, type SightField } from '../
 import { sightMap, type SightMap } from '../geo/los';
 import { reachable } from '../geo/move';
 import { inReach, lacksActions, registerAction } from './actions/act';
-import { raiseCarrier, registerCarrierCheck } from './carriers';
+import { raiseCarrier, registerCarrierCheck, type CarrierVerdict } from './carriers';
 import { commandNpc, runLeft, wayOut } from './command';
 import { registerPreviewSecret } from './knowledge';
 import { reconsider } from './npc/intent';
@@ -229,9 +229,10 @@ function nearestCrew(state: State, npc: DeepReadonly<NpcState>): string {
  * would raise the Alarm (a run of `npcRunTiles` a world phase; this world phase's tick, if it is yet to come, counts
  * against it). Either way the runner, setting off again, starts a fresh carrier at its new way's count, its flight the
  * telegraph, or with no way out left gives up (command.ts). Only the crew earn these counters: a run held up just as
- * much with the crew out of the way (other people on and around its way out, where it can't end its walk) is paused
- * instead ('way out crowded'), and ticks again once it can make it. So no escapee raises the Alarm with its runner
- * inside.
+ * much with the crew out of the way (other people standing on and around its way out, where it can't end its walk;
+ * people the crew put on the floor count as the crew's) is paused instead ('way out crowded'), unless the crew also
+ * cut it off before it gets there, and ticks again once it can make it. So no escapee raises the Alarm with its
+ * runner inside.
  */
 registerCarrierCheck('route', (world, state, carrier) => {
     if (carrier.kind !== 'escapee') return null;
@@ -241,10 +242,17 @@ registerCarrierCheck('route', (world, state, carrier) => {
     const fits = (left: number | undefined): boolean => left !== undefined && Math.ceil(left / world.rules.npcRunTiles) <= carrier.countdown - ticking;
     const left = runLeft(world, state as unknown as State, npc, npc.lapse.exit);
     if (fits(left)) return null;
-    // Held up as much with the crew out of the way: other people (a crowd on and around its way out) are what keep it
-    // in, not the crew, so they earned no counter; it waits, paused, until it can make it again.
-    if (!fits(runLeft(world, state as unknown as State, npc, npc.lapse.exit, { crew: false }))) return { halt: 'paused', why: 'way out crowded' };
-    return { halt: 'countered', why: left === undefined ? 'route blocked' : 'route longer' };
+    const s = state as unknown as State, exit = npc.lapse.exit;
+    const counter = (way: number | undefined): CarrierVerdict => ({ halt: 'countered', why: way === undefined ? 'route blocked' : 'route longer' });
+    // The crew (and whoever they put on the floor) are what keep it in: it would make it with them out of the way.
+    if (fits(runLeft(world, s, npc, exit, { crew: false }))) return counter(left);
+    // Other people standing on and around its way out hold it up too, but the crew cut it off (or lengthen the way
+    // past what the count covers) before it even gets there: the crew's block comes first.
+    const reach = runLeft(world, s, npc, exit, { ending: false });
+    if (!fits(reach) && fits(runLeft(world, s, npc, exit, { crew: false, ending: false }))) return counter(reach);
+    // Held up by other people alone (a crowd on its way out): they earned no counter; it waits, paused, until it can
+    // make it again.
+    return { halt: 'paused', why: 'way out crowded' };
 });
 
 /** Why a crew member can't tackle this NPC now (§9.1), or undefined. */
