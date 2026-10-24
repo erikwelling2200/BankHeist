@@ -474,16 +474,14 @@ export function noiseReactions(world: ReadonlyWorld, state: State, what: NoiseSo
     return hearing(world, state, ring, NOISES[what].kind, cause);
 }
 
-/** The goals of a hearer a noise turns to face it at once (decision 45): looking at it, or sent to investigate it. */
-export const LOOKING_GOALS: ReadonlySet<string> = new Set(['look', 'inspect']);
-
 /**
  * What hearing a noise does (the `hearing` noise hook): each hearer reacts as `hearing` says, and in a crew phase the
- * hearers' new intents are committed at once, and those it sends to look at it or to investigate it (`look`,
- * `inspect`) turn to face their last-heard tile straight away (`queueLook`: the command turns them once its own
- * perception is judged, and what they then see counts, perceive.ts `turnLookers`); the investigator walks there in the
- * world phase as before. A hearer whose stronger want wins keeps following it and doesn't turn. Exported for previews that put a noise on a copy without the rest of `makeNoise` (the
- * safe floor's dash band, M1-09).
+ * hearers' new intents are committed at once and every hearer turns to face its last-heard tile straight away
+ * (`queueLook`: the command turns them once its own perception is judged, and what they then see counts, perceive.ts
+ * `turnLookers`). Those it sends to look at it or to investigate it (`look`, `inspect`) take it as their goal; one whose
+ * stronger want wins (investigating a crew member, a challenge, an escort) only glances: it keeps its goal and in the
+ * world phase walks and faces as that want has it. Those face down (`hearing` leaves them out) don't turn. Exported
+ * for previews that put a noise on a copy without the rest of `makeNoise` (the safe floor's dash band, M1-09).
  */
 export function reactToNoise(ctx: Ctx, ring: Ring, kind: NoiseKind, cause: string): void {
     const heard = hearing(ctx.world, ctx.state, ring, kind, cause);
@@ -494,12 +492,12 @@ export function reactToNoise(ctx: Ctx, ring: Ring, kind: NoiseKind, cause: strin
         bark(ctx, npc, h.kind, h.noise);
         takeEvidence(ctx, npc, h.kind, h.noise, h.tile);
     }
-    // In a crew phase the hearers' new intents are telegraphed at once (§6.2), and those who look turn now.
+    // In a crew phase the hearers' new intents are telegraphed at once (§6.2), and every hearer turns to the noise now.
     reconsider(ctx);
     if (ctx.state.phase !== 'crew') return;
     for (const h of heard) {
         const npc = ctx.state.npcs.find(n => n.id === h.npc)!, facing = facingToward(npc.pos, h.tile);
-        if (LOOKING_GOALS.has(npc.goal.kind) && npc.goal.evidence === h.noise && facing && facing !== npc.facing) queueLook(ctx.state, npc.id, facing);
+        if (facing && facing !== npc.facing) queueLook(ctx.state, npc.id, facing);
     }
 }
 

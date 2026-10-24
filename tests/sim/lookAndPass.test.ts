@@ -1,11 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import {
-    assessEnd, assessPath, commit, facingToward, effectOf, explain, fixtureWorld, hashOf, initialState, pathSafety, preview, safeFloor, sightMap, soundRing,
-    type CameraDef, type Command, type CrewStart, type Facing, type FixtureWall, type ObserverClass, type PersonDef, type Pos, type ReadonlyWorld,
-    type SimEvent, type State
+    actionPreview, assessEnd, assessPath, clonePlain, commandHooks, commit, doorDoubt, facingToward, effectOf, explain, fixtureWorld, hashOf, initialState,
+    makeNoise, pathSafety, preview, registerCommandHook, safeFloor, sightMap, soundRing, type CameraDef, type Command, type CrewStart, type Facing,
+    type FixtureWall, type ObserverClass, type PersonDef, type Pos, type ReadonlyWorld, type SimEvent, type State
 } from '../../src/sim';
 import { pathView } from '../../src/game/worldUi';
-import { scouted, step } from './helpers';
+import { registerTestCommand, scouted, step, testCommand } from './helpers';
 
 /*
  * Decision 45 (§8.9): a hearer reacts toward the last tile of a noise it heard, and one sent to look turns at once and
@@ -111,6 +111,50 @@ describe('looking at a noise (decision 45)', () => {
         expect(npcOf(r.state, 't2').suspicion.mara).toBeGreaterThan(0);
         expect(events(r.events, 'suspicionRaised').filter(e => (e as { npc: string }).npc === 't2').map(e => (e as { crew: string }).crew).sort())
             .toEqual(['jun', 'mara']);
+        // The safe floor tints jun's tile with what the dash does to Mara too, and "who and why" names her.
+        const tile = safeFloor(world, state, 'jun').at(P(9, 3))!;
+        expect(JSON.stringify(tile.path)).toBe(JSON.stringify(dash.path));
+        expect(tile.teammates).toEqual([{ crew: 'mara', effect: effectOf(r.events, 'mara', state) }]);
+        expect(tile.tint.teammates).toEqual(['mara']);
+        const mara = effectOf(r.events, 'mara', state), name = state.crew.find(c => c.id === 'mara')!.name;
+        expect(tile.tint.pips.filter(p => p.crew === 'mara').map(p => [p.npc, p.pips])).toEqual(Object.entries(mara.pips).sort());
+        expect(explain(world, state, 'jun', P(9, 3)).filter(l => l.crew === 'mara').map(l => l.text).sort())
+            .toEqual(Object.entries(mara.pips).sort().map(([, n]) => `${name}: +${n} (teller)`));
+    });
+
+    it('tints a tile by what the move does to a teammate alone', () => {
+        // Clean jun dashes on public floor (nobody minds them); t2 turns to the noise and sees armed Mara on staff floor.
+        const rows = ['.'.repeat(15), '.'.repeat(15), '.'.repeat(15), '.'.repeat(15), 's'.repeat(15), 's'.repeat(15), 's'.repeat(15)];
+        const { world, state } = setup(rows, [person('t1', 'staff', P(7, 1), 'n'), person('t2', 'staff', P(7, 5), 's')],
+            [{ id: 'jun', pos: P(2, 3) }, { id: 'mara', pos: P(8, 4), items: ['pistol'] }]);
+        const done = commit(world, state, dash);
+        expect(effectOf(done.events, 'jun', state).pips).toEqual({});
+        const mara = effectOf(done.events, 'mara', state);
+        expect(Object.keys(mara.pips).length + mara.exposed.length).toBeGreaterThan(0);
+        const tile = safeFloor(world, state, 'jun').at(P(9, 3))!;
+        expect(tile.now.pips).toEqual({});
+        expect(tile.teammates).toEqual([{ crew: 'mara', effect: mara }]);
+        expect(tile.tint.kind).not.toBe('safe');
+        const drawn = pathSafety(world, state, 'jun', dash.path, { mode: 'dash' });
+        if (!drawn.ok) throw new Error(drawn.reason);
+        expect(drawn.end.tint).toEqual(tile.tint);
+        expect(drawn.firstUnsafe).toBe(dash.path.length - 1);
+    });
+
+    it('turns and sees for a noise made outside an action, before every other command hook', () => {
+        // A test command that only makes a dash's noise: the `hearing` hook turns t2, and its sightings are applied before
+        // any hook of the default order runs (here one whose name sorts before 'hearing').
+        let seen: number | undefined;
+        registerTestCommand('testNoise', ctx => { makeNoise(ctx, 'dash', dash.path, 'test'); });
+        registerCommandHook('aa.probe', ctx => { seen = ctx.state.npcs.find(n => n.id === 't2')?.suspicion.mara; });
+        const order = commandHooks();
+        expect(order.indexOf('hearing')).toBeLessThan(Math.min(...['aa.probe', 'cameras', 'carriers', 'knowledge'].map(h => order.indexOf(h))));
+        const { world, state } = setup(Array.from({ length: 7 }, () => 's'.repeat(15)), [person('t1', 'staff', P(7, 1), 'n'), person('t2', 'staff', P(7, 5), 's')],
+            [{ id: 'jun', pos: P(2, 3) }, { id: 'mara', pos: P(8, 4), items: ['pistol'] }]);
+        const r = step(world, state, testCommand({ type: 'testNoise' }));
+        expect(npcOf(r.state, 't2').facing).not.toBe('s');
+        expect(npcOf(r.state, 't2').suspicion.mara).toBeGreaterThan(0);
+        expect(seen).toBe(npcOf(r.state, 't2').suspicion.mara);
     });
 
     it('looks for a phase, then goes back to its routine', () => {
@@ -126,6 +170,52 @@ describe('looking at a noise (decision 45)', () => {
         expect(npcOf(s, 't2').evidence).toBeNull();
         expect(npcOf(s, 't2').goal.kind).toBe('routine');
         expect(npcOf(s, 't2').intent.facing).toBe('s');
+    });
+});
+
+describe('the marker of an NPC a noise turns out of sight (decision 45)', () => {
+    // A clerk seen earlier this crew phase, out of sight now behind a screen that carries sound: a dash turns it.
+    const W = 12, H = 4;
+    const screen: FixtureWall[] = Array.from({ length: W }, (_, x) => ({ between: [P(x, 2), P(x, 3)] as [Pos, Pos], blocksSound: false }));
+    const path = [P(3, 3), P(4, 3), P(5, 3), P(6, 3), P(7, 3), P(8, 3), P(9, 3)];
+    const build = (clerk: Pos, door: [Pos, Pos] | null, status: 'open' | 'closed') => {
+        const walls: FixtureWall[] = [...screen, ...(door ? [{ between: door, door: { id: 'd', start: 'closed' as const } }] : [])];
+        const world = fixtureWorld(Array.from({ length: H }, () => '.'.repeat(W)), { walls, people: [person('clerk', 'staff', clerk, 'w')] });
+        const s = clonePlain(initialState(world, { seed: 1, crew: [{ id: 'jun', pos: P(2, 3) }] }));
+        if (door) s.doors.d = { status };
+        s.knowledge.npcs.clerk = {
+            at: { ...clerk }, facing: 'w', turn: s.turn, live: true, routine: false, rota: false, watched: 1, watchedTurn: s.turn, tick: s.knowledge.phaseTick + 1
+        };
+        return { world, state: s };
+    };
+    const cmd: Command = { type: 'dash', crew: 'jun', path };
+
+    it('takes the turned facing when no door could change it', () => {
+        const { world, state } = build(P(6, 1), null, 'closed');
+        const r = commit(world, state, cmd);
+        expect(npcOf(r.state, 'clerk').facing).not.toBe('w');
+        expect(r.state.knowledge.npcs.clerk!.facing).toBe(npcOf(r.state, 'clerk').facing);
+        expect(preview(world, state, cmd).state.knowledge.npcs.clerk!.facing).toBe(r.state.knowledge.npcs.clerk!.facing);
+    });
+
+    it('keeps the facing last seen when a door the crew cannot vouch for decides where it turns', () => {
+        // Every layout where the door decides the last tile heard: the crew's knowledge is the same either way.
+        const doors: [Pos, Pos][] = [];
+        for (let x = 1; x < W - 1; x++) for (let y = 0; y < 3; y++) { doors.push([P(x, y), P(x + 1, y)]); if (y < 2) doors.push([P(x, y), P(x, y + 1)]); }
+        let decided = 0;
+        for (const door of doors) for (let cx = 0; cx < W; cx++) for (let cy = 0; cy < 3; cy++) {
+            const clerk = P(cx, cy);
+            if ((door[0].x === cx && door[0].y === cy) || (door[1].x === cx && door[1].y === cy)) continue;
+            const o = build(clerk, door, 'open'), c = build(clerk, door, 'closed');
+            const ho = soundRing(o.world, o.state, path, 2).lastHeard(clerk), hc = soundRing(c.world, c.state, path, 2).lastHeard(clerk);
+            if (!ho || !hc || (ho.x === hc.x && ho.y === hc.y) || !doorDoubt(o.world, o.state)?.doors.has('d')) continue;
+            const ro = commit(o.world, o.state, cmd), rc = commit(c.world, c.state, cmd);
+            if (npcOf(ro.state, 'clerk').facing === npcOf(rc.state, 'clerk').facing) continue;
+            decided++;
+            expect(ro.state.knowledge.npcs.clerk!.facing, JSON.stringify({ door, clerk })).toBe(rc.state.knowledge.npcs.clerk!.facing);
+            expect(JSON.stringify(actionPreview(o.world, o.state, cmd))).toBe(JSON.stringify(actionPreview(c.world, c.state, cmd)));
+        }
+        expect(decided).toBeGreaterThan(0);
     });
 });
 
@@ -168,7 +258,8 @@ describe('passing through view (decision 46)', () => {
         const path = [P(4, 2), P(5, 3), P(6, 4), P(7, 4)];
         expect(assessEnd(world, state, sightMap(world, state), 'jun', P(7, 4))).toEqual([]);
         const judged = assessPath(world, state, 'jun', path);
-        expect(judged.map(s => [s.observer, s.outcome, s.tile])).toEqual([['teller', '+2', P(5, 3)]]);
+        // The worst reaction (+2, in its Core at (5, 3)), at the last tile it reacts to jun on (its Peripheral, (6, 4)).
+        expect(judged.map(s => [s.observer, s.outcome, s.tile])).toEqual([['teller', '+2', P(6, 4)]]);
         const moved = step(world, state, { type: 'move', crew: 'jun', path });
         const stopped = step(world, state, { type: 'move', crew: 'jun', path: path.slice(0, 2) });
         expect(npcOf(moved.state, 'teller').suspicion).toEqual(npcOf(stopped.state, 'teller').suspicion);
@@ -205,5 +296,40 @@ describe('passing through view (decision 46)', () => {
         const tile = floor.at(P(6, 4))!;
         if (JSON.stringify(tile.path) === JSON.stringify(path)) expect(tile.now).toEqual(drawn.end.now);
         expect(drawn.steps[0]!.stop!.now.pips).toEqual({});
+    });
+});
+
+describe('a glance at a noise (decision 45)', () => {
+    // The teller at (7, 2) faces west over staff floor; a screen between rows 3 and 4 blocks sight but carries sound.
+    const rows = Array.from({ length: 8 }, () => 's'.repeat(15));
+    const walls: FixtureWall[] = Array.from({ length: 15 }, (_, x) => ({ between: [P(x, 3), P(x, 4)] as [Pos, Pos], blocksSound: false }));
+    const build = () => setup(rows, [person('t', 'staff', P(7, 2), 'w')], [{ id: 'mara', pos: P(4, 1), items: ['pistol'] }, { id: 'jun', pos: P(13, 5) }], { walls });
+
+    it('turns an NPC busy investigating for the crew phase; it keeps its want and walks it in the world phase', () => {
+        const { world, state } = build();
+        // Mara steps into its Core: +2, Investigating.
+        const seen = step(world, state, { type: 'move', crew: 'mara', path: [P(4, 2), P(5, 3)] }).state;
+        expect(npcOf(seen, 't').suspicion.mara).toBe(2);
+        const goal = npcOf(seen, 't').goal.kind;
+        expect(goal).toBe('investigate');
+        // Jun dashes behind the screen: the teller glances at the noise at once, its want unchanged.
+        const dash: Command = { type: 'dash', crew: 'jun', path: [P(12, 4), P(11, 4), P(10, 4), P(9, 4), P(8, 4)] };
+        const shown = preview(world, seen, dash), heard = step(world, seen, dash);
+        expect(shown.events).toEqual(heard.events);
+        expect(hashOf(shown.state)).toBe(hashOf(heard.state));
+        const t = npcOf(heard.state, 't');
+        expect(t.facing).not.toBe('w');
+        expect(t.goal.kind).toBe(goal);
+        expect(t.suspicion.mara).toBe(2);
+        // Mara walks out through what was its cone, unseen.
+        const out: Command = { type: 'move', crew: 'mara', path: [P(4, 3), P(3, 3), P(2, 2)] };
+        const quiet = preview(world, heard.state, out), left = step(world, heard.state, out);
+        expect(quiet.events).toEqual(left.events);
+        expect(effectOf(left.events, 'mara', heard.state).pips).toEqual({});
+        expect(safeFloor(world, heard.state, 'mara').at(P(2, 2))?.now.pips).toEqual({});
+        // The world phase: it carries on toward Mara's last known tile.
+        const before = Math.max(Math.abs(t.pos.x - 5), Math.abs(t.pos.y - 3));
+        const after = npcOf(step(world, left.state, { type: 'endTurn' }).state, 't');
+        expect(Math.max(Math.abs(after.pos.x - 5), Math.abs(after.pos.y - 3))).toBeLessThan(before);
     });
 });

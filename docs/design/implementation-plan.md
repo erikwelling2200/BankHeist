@@ -994,22 +994,32 @@ Later milestones: within each milestone, the `∥` notes in §3 apply. UI packag
     `turnLookers` once the command's own perception is judged: after a move's or dash's sightings are worked out, after
     an act is witnessed), and turning means seeing: their sightings of every crew member where they stand
     (`lookSightings`, ending an action there) join the command's own, still one per observer and crew member, through
-    `applySightings`. A hearer whose stronger want wins (react, challenge, escort, investigate a crew member) keeps
-    following it and doesn't turn for the noise. Only the facing changes; positions still change only in the world phase, so the fresh-tile model
-    holds; a live knowledge marker takes the new facing (`learnNpcs`); a predicted NPC that hears leaves its routine as
-    before. The `look` evidence expires as before (`evidence.settle`). The safe floor and every preview run the same
+    `applySightings`. A hearer whose stronger want wins (react, challenge, escort, investigate a crew member) glances:
+    it turns the same way for the rest of the crew phase and what it sees counts, but it keeps its goal and suspicion
+    and in the world phase walks its want, facing as that walk has it (a teammate's noise turns a guard's eyes away so
+    another crew member can leave its cone unseen). Nobody face down turns. Only the facing changes; positions still
+    change only in the world phase, so the fresh-tile model holds. A live knowledge marker of an NPC turned out of sight
+    (seen this crew phase) takes the facing the crew could foresee (`learnNpcs`, `foreseenFacing`): with no door it
+    can't vouch for, the turned facing; else the facing after the command as previewed (`previewCertain`, those doors
+    shut) when it is the same with them open, otherwise the facing last seen, so the marker never tells how such a door
+    stands; an NPC first seen during the command keeps the pose it was seen in. A predicted NPC that hears leaves its
+    routine. The `look` evidence expires in `evidence.settle`. The safe floor and every preview run the same
     steps on their copies (`judgeEnd`: `reactToNoise`, `turnLookers`, `lookSightings`; the dash band's ring gives the
     same `lastHeard` from its per-tile rings); a turned NPC that could see a crew member through a door not seen this
     turn counts as uncertain (`viewDoubted` on its new pose: door risk, its world-phase sightings skipped), as does
-    every hearer of a dash whose hearing such a door could change (`dashDoubted`, as before). Unknown observers are
+    every hearer of a dash whose hearing such a door could change (`dashDoubted`). What the turned NPCs do to the rest
+    of the crew counts on the mover's tile (`FloorTile.teammates`, the tint the worst over the crew, "who and why"
+    naming the teammate), door risk included. A hearer that no move or action turned (a noise made
+    outside one) turns in the `hearing` command hook, which runs before every other (order -10), so the carriers, the
+    cameras and the knowledge see what it saw. Unknown observers are
     already judged facing the tile at their worst, so unknown risk is unchanged. Why: an NPC that hears footsteps
     looks where they stopped, not where they first passed, and it looks then, not a turn later: a dash that ends in
     the view it turns to costs what it should.
 46. **Passing through a cone counts like stopping in it (§8.5).** During a Move or Dash each observer (NPC or camera)
     that sees the crew member on any tile of it reacts once for the move, with the worst reaction it would have at any
-    of those tiles as if the move had ended there (`assessPath`: `assessEnd` on every tile, `onePerObserver`; ties go to
-    the later tile, so the last known tile is the last seen); ending in view is one of those tiles. Before, only `!`
-    counted mid-move (`assessStep`, now gone) and every `!` tile of a move was its own sighting. The same everywhere:
+    of those tiles as if the move had ended there (`assessPath`: `assessEnd` on every tile, `onePerObserver`: the worst
+    outcome, the later of equals, sighted at the last tile it reacts to them on, where it investigates and their last
+    known tile); ending in view is one of those tiles. The same everywhere:
     the safe floor's Now (each node keeps its path's worst per observer), a drawn path's steps and eye (the first step
     anyone reacts to; each step tinted by who reacts there), `explain`, unknown risk (`unknownWatcher` has no mid-move
     option: an unknown observer's pip or challenge on a tile passed hatches the tiles beyond, `unknownPath`), the

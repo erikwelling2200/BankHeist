@@ -43,7 +43,7 @@ export * from './core/types';
 export * from './core/grid';
 export { Dice, DICE_WINDOW, OddsStop, PreviewRollError, type Mode, type PendingOdds } from './core/rng';
 export {
-    commit, preview, COMBAT_STATUSES, IllegalCommand, InvariantError, registerCommand, registerCommandHook, registerWorldHook, worldHooks, WORLD_STEPS,
+    commit, preview, COMBAT_STATUSES, IllegalCommand, InvariantError, registerCommand, registerCommandHook, commandHooks, registerWorldHook, worldHooks, WORLD_STEPS,
     type CommandHook, type Ctx, type CommitResult, type PreviewResult, type Reducer, type RegisterOptions, type WorldHook, type WorldPhase, type WorldStep
 } from './core/engine';
 export { registerEvents, eventClass, recordUndo, popUndo, type EventClass, type UndoStack } from './core/undo';
@@ -154,7 +154,7 @@ export {
     type RouteLeg, type Routes, type StopKind, type WaitOption, type WaitTarget
 } from './rules/autoAdvance';
 export { previewPicture } from './preview/picture';
-export { effectOf, isQuiet, noEffect, type Effect } from './preview/effect';
+export { effectOf, isQuiet, noEffect, teammateEffects, type Effect, type TeammateEffect } from './preview/effect';
 export {
     effectKind, judgePath, judgeStay, overlayTiles, pathSafety, safeFloor, safeFloorJob, TINT_RANK, tintOf, tintRank, type FloorBand, type FloorJob, type FloorOptions, type FloorTile, type Judged,
     type PathOptions,

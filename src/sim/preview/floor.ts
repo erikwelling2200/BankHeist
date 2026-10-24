@@ -16,11 +16,11 @@ import {
 } from '../rules/knowledge';
 import {
     applySightings, assessEnd, assessWorldPhase, lookSightings, onePerObserver, posesAlong, sightsAlongWalk, turnLookers, worldPoses, type CertainWalks,
-    type PoseAt, type Sighting, type WorldPoses
+    type PoseAt, type Sighting, type WorldPhaseOptions, type WorldPoses
 } from '../rules/perceive';
 import { onFloor, placeCrew } from '../rules/place';
 import type { CrewLook } from '../rules/profile';
-import { applyWorldSightings, effectOf, noEffect, scratchCtx, type Effect } from './effect';
+import { applyWorldSightings, effectOf, noEffect, scratchCtx, teammateEffects, type Effect, type TeammateEffect } from './effect';
 import { previewPicture } from './picture';
 
 /*
@@ -57,9 +57,13 @@ import { previewPicture } from './picture';
  *   world-phase sight through one, or from beyond a door that could stop it), the tile is `doorRisk`, drawn hatched
  *   over its tint (grey hatched where the certain tint is green); red can't get worse. Certain danger always shows.
  *
- * The tint is the worse of now and next (next only when strictly worse, then hatched): red (someone Exposes the crew
- * member, or one who already knows them sees them again: the eye) > camera (a camera sees a `!`, the operator's
- * verify) > trespass (a challenge) > amber (pips, by NPC) > green.
+ * - **Teammates**: those a dash's noise turns see the rest of the crew too (`lookSightings`); what that does to each
+ *   teammate (`teammates`, read off the same events) counts toward the tile as the mover's own now does, and a doubted
+ *   door that could change it (the turned NPC's view of them, or who hears) makes the tile `doorRisk`.
+ *
+ * The tint is the worse of now (the mover's and every teammate's) and next (only when strictly worse, then hatched): red
+ * (someone Exposes a crew member, or one who already knows them sees them again: the eye) > camera (a camera sees a
+ * `!`, the operator's verify) > trespass (a challenge) > amber (pips, by NPC) > green.
  *
  * Per-state data (the picture, the sight maps per door set, the NPCs' walks, each tile's sightings and knowledge) is
  * worked out once and cached per state object, for the other bands, `pathSafety` and `explain`. `safeFloorJob` works
@@ -75,14 +79,16 @@ export interface Tint {
     kind: TintKind;
     /** It happens in the coming world phase as the NPCs walk their committed paths, not during the move. */
     hatched: boolean;
-    /** Pips added this turn (the move and the world phase together), per NPC. */
-    pips: { npc: string; pips: number }[];
+    /** Pips added this turn (the move and the world phase together), per NPC; a teammate's (`crew`) by the move. */
+    pips: { npc: string; pips: number; crew?: string }[];
     /** The eye: someone Exposes the crew member, or one who knows them sees them. */
     eye: boolean;
     /** A camera sees a `!` (with the eye too when an NPC does as well). */
     camera: boolean;
     /** A door the crew can't vouch for could make it worse than this (hatched over it; a green tile is unknown risk). */
     doorRisk: boolean;
+    /** The teammates the move does something to, when any (`FloorTile.teammates`). */
+    teammates?: string[];
 }
 
 export type FloorBand = 'stay' | 'move' | 'dash';
@@ -111,6 +117,8 @@ export interface FloorTile {
     now: Effect;
     /** What the coming world phase then does; null when the move already Exposes them (red can't get worse). */
     next: Effect | null;
+    /** What the move does to the rest of the crew (someone its noise turned sees them), each teammate it touches. */
+    teammates: TeammateEffect[];
     tint: Tint;
 }
 
@@ -144,23 +152,35 @@ export function effectKind(e: DeepReadonly<Effect>): Exclude<TintKind, 'grey' | 
 
 /**
  * The tint of a tile from what happens now and next, and what the crew knows of it and its path. The kind is the worse
- * of the two (hatched when next is strictly worse); the pips are every pip added this turn, per NPC, now and next
- * together; the camera flag is set when a camera reports in either phase that counts toward the kind (now's always).
- * `now` and `next` are certain (see the header); with `doubt` a door the crew can't vouch for could change them, which
- * makes the tint `doorRisk` unless it is red already (nothing worse) or grey, and a green tile unknown risk.
+ * of now (the mover's and each of `teammates`') and next (hatched when next is strictly worse); the pips are every pip
+ * added this turn, per NPC, now and next together, then the teammates' (with `crew`); the camera flag is set when a
+ * camera reports in either phase that counts toward the kind (now's always). `now`, `next` and `teammates` are certain
+ * (see the header); with `doubt` a door the crew can't vouch for could change them, which makes the tint `doorRisk`
+ * unless it is red already (nothing worse) or grey, and a green tile unknown risk.
  */
-export function tintOf(now: DeepReadonly<Effect>, next: DeepReadonly<Effect> | null, knowledge: FloorKnowledge, unknownPath: boolean, doubt = false): Tint {
-    const a = effectKind(now), b = next ? effectKind(next) : 'safe';
+export function tintOf(
+    now: DeepReadonly<Effect>, next: DeepReadonly<Effect> | null, knowledge: FloorKnowledge, unknownPath: boolean, doubt = false,
+    teammates: readonly DeepReadonly<TeammateEffect>[] = []
+): Tint {
+    const a = teammates.reduce((k, t) => {
+        const m = effectKind(t.effect);
+        return TINT_RANK[m] > TINT_RANK[k] ? m : k;
+    }, effectKind(now));
+    const b = next ? effectKind(next) : 'safe';
     const hatched = TINT_RANK[b] > TINT_RANK[a], kind = hatched ? b : a;
     const added: Record<string, number> = {};
     for (const e of next ? [now, next] : [now]) for (const id of Object.keys(e.pips)) added[id] = (added[id] ?? 0) + e.pips[id]!;
-    const pips = Object.keys(added).sort().map(npc => ({ npc, pips: added[npc]! }));
+    const pips: Tint['pips'] = Object.keys(added).sort().map(npc => ({ npc, pips: added[npc]! }));
+    for (const t of teammates) for (const npc of Object.keys(t.effect.pips).sort()) pips.push({ npc, pips: t.effect.pips[npc]!, crew: t.crew });
     if (kind === 'safe') {
         const k: TintKind = knowledge === 'hidden' ? 'grey' : knowledge === 'unknownRisk' || unknownPath || doubt ? 'unknownRisk' : 'safe';
         return { kind: k, hatched: false, pips: [], eye: false, camera: false, doorRisk: doubt && k !== 'grey' };
     }
-    const camera = now.cameras.length > 0 || (hatched && next!.cameras.length > 0);
-    return { kind, hatched, pips, eye: kind === 'red', camera, doorRisk: doubt && kind !== 'red' };
+    const camera = now.cameras.length > 0 || teammates.some(t => t.effect.cameras.length > 0) || (hatched && next!.cameras.length > 0);
+    return {
+        kind, hatched, pips, eye: kind === 'red', camera, doorRisk: doubt && kind !== 'red',
+        ...(teammates.length ? { teammates: teammates.map(t => t.crew) } : {})
+    };
 }
 
 // ---------------------------------------------------------------------------------------------------------- Judging
@@ -395,6 +415,9 @@ export interface Judged {
     /** The sightings behind them, for "who and why". */
     nowSightings: Sighting[];
     nextSightings: Sighting[];
+    /** What the move does to the rest of the crew (`FloorTile.teammates`), and the sightings behind it. */
+    teammates: TeammateEffect[];
+    teammateSightings: Sighting[];
     /** NPCs of the picture that hear a dash. */
     heard: string[];
     /** A door the crew can't vouch for could change what happens, now or in the world phase (see the header). */
@@ -418,17 +441,23 @@ export function judgeEnd(
     // (then every hearer: who is sent to look depends on who hears), or turn to it and see a crew member through one.
     const atEnd = mode === 'stay' ? NOBODY : nowDoubted(judge, v, tile), heardDoubt = mode === 'dash' && path.length ? dashDoubted(judge, v, path) : NOBODY;
     const skip = new Set([...passed, ...atEnd, ...heardDoubt, ...(heardDoubt.length ? noise?.hearers ?? [] : [])]);
-    const certain = judge.doubt ? certainWalks(judge, v, skip) : undefined;
-    const options = { ...(judge.look ? { look: judge.look } : {}), ...(certain ? { certain } : {}) };
+    // The world phase's options, once `skip` is complete.
+    const optionsOf = (): WorldPhaseOptions => {
+        const certain = judge.doubt ? certainWalks(judge, v, skip) : undefined;
+        return { ...(judge.look ? { look: judge.look } : {}), ...(certain ? { certain } : {}) };
+    };
     if (!sightings.length && !noise) {
-        const nowDoubt = skip.size > 0;
+        const nowDoubt = skip.size > 0, options = optionsOf();
         // Nothing happens now: the world phase from the state with the doors opened, the crew member on `tile`
         // (`assessWorldPhase` moves them there itself and walks again only the walks that changes).
         const poses = posesOf(judge, v);
         const nextSightings = assessWorldPhase(world, v.state, v.sight, crew, tile, { ...options, poses });
         const next = nextSightings.length ? applyWorldSightings({ world }, placeCrew(v.state, crew, tile), crew, nextSightings) : noEffect();
         const doubt = nowDoubt || nextDoubted(judge, v, v.state, tile, poses);
-        return { now: noEffect(), next, nowSightings: sightings, nextSightings, heard: [], doubt, unsure: unsureOf(judge, v, v.state, skip) };
+        return {
+            now: noEffect(), next, nowSightings: sightings, nextSightings, teammates: [], teammateSightings: [], heard: [], doubt,
+            unsure: unsureOf(judge, v, v.state, skip)
+        };
     }
     // The move's own effects on a copy, in the order the move has them: the dash's noise, those it sends to look turning
     // and seeing, then the sightings. Hearing and perception write into the NPCs that hear or see (copied whole), the
@@ -456,13 +485,18 @@ export function judgeEnd(
     applySightings(ctx, all);
     const nowSightings = turned.size ? all.filter(s => s.crew === crew) : all;
     const now = effectOf(events, crew, v.state);
+    // Only those its noise turned see the rest of the crew.
+    const teammates = turned.size ? teammateEffects(events, crew, v.state) : [];
+    const teammateSightings = teammates.length ? all.filter(s => s.crew !== crew) : [];
     const heard = noise?.hearers ?? [];
-    if (now.exposed.length || now.watching.length) return { now, next: null, nowSightings, nextSightings: [], heard, doubt: nowDoubt, unsure: [] };
+    if (now.exposed.length || now.watching.length) {
+        return { now, next: null, nowSightings, nextSightings: [], teammates, teammateSightings, heard, doubt: nowDoubt, unsure: [] };
+    }
     const poses = posesAfter(judge, v, scratch, tile);
-    const nextSightings = assessWorldPhase(world, scratch, v.sight, crew, tile, { ...options, poses });
+    const nextSightings = assessWorldPhase(world, scratch, v.sight, crew, tile, { ...optionsOf(), poses });
     const next = nextSightings.length ? applyWorldSightings({ world }, scratch, crew, nextSightings) : noEffect();
     const doubt = nowDoubt || nextDoubted(judge, v, scratch, tile, poses);
-    return { now, next, nowSightings, nextSightings, heard, doubt, unsure: unsureOf(judge, v, scratch, skip) };
+    return { now, next, nowSightings, nextSightings, teammates, teammateSightings, heard, doubt, unsure: unsureOf(judge, v, scratch, skip) };
 }
 
 // ---------------------------------------------------------------------------------------------------------- Doors in doubt
@@ -748,10 +782,10 @@ function floorTile(judge: Judge, t: ReachTile, node: FloorNode, band: FloorBand)
     const pos = { x: t.pos.x, y: t.pos.y };
     const end = band === 'stay' ? [] : endAt(judge, node.v, pos);
     const judged = judgeEnd(judge, node.v, pos, node.path, band === 'stay' ? 'stay' : band, node.steps, end, node.unsure);
-    const knowledge = knowledgeAt(judge, pos), tint = tintOf(judged.now, judged.next, knowledge, node.unknown, judged.doubt);
+    const knowledge = knowledgeAt(judge, pos), tint = tintOf(judged.now, judged.next, knowledge, node.unknown, judged.doubt, judged.teammates);
     return {
         pos, band, cost: t.cost, path: node.path, knowledge, unknownPath: node.unknown, now: judged.now, next: judged.next,
-        doorRisk: tint.doorRisk, unsure: judged.unsure, tint
+        teammates: judged.teammates, doorRisk: tint.doorRisk, unsure: judged.unsure, tint
     };
 }
 
@@ -850,10 +884,10 @@ export function judgePath(
             const prefix = path.slice(0, i + 1);
             const as: MoveMode | null = options.mode === 'dash' ? 'dash' : fits(prefix, moveBudget).ok ? 'move' : 'dash';
             const judged = judgeEnd(judge, v, { x: p.x, y: p.y }, prefix, as, passed, endAt(judge, v, p), unsure);
-            const tint = tintOf(judged.now, judged.next, knowledge, unknown, judged.doubt);
+            const tint = tintOf(judged.now, judged.next, knowledge, unknown, judged.doubt, judged.teammates);
             stop = {
                 pos: { x: p.x, y: p.y }, band: as, cost: 0, path: prefix.map(q => ({ x: q.x, y: q.y })), knowledge, unknownPath: unknown,
-                now: judged.now, next: judged.next, doorRisk: tint.doorRisk, unsure: judged.unsure, tint
+                now: judged.now, next: judged.next, teammates: judged.teammates, doorRisk: tint.doorRisk, unsure: judged.unsure, tint
             };
             const cost = fits(prefix, dashBudget);
             if (cost.ok) stop.cost = cost.cost;
@@ -869,10 +903,11 @@ export function judgePath(
     });
     const tile = path[path.length - 1]!;
     const judged = judgeEnd(judge, v, { x: tile.x, y: tile.y }, path, mode, passed, steps[steps.length - 1]!.sightings, unsure);
-    const knowledge = steps[steps.length - 1]!.knowledge, tint = tintOf(judged.now, judged.next, knowledge, unknown, judged.doubt);
+    const knowledge = steps[steps.length - 1]!.knowledge;
+    const tint = tintOf(judged.now, judged.next, knowledge, unknown, judged.doubt, judged.teammates);
     const end: FloorTile = {
         pos: { x: tile.x, y: tile.y }, band: mode, cost: check.cost, path: path.map(p => ({ x: p.x, y: p.y })), knowledge, unknownPath: unknown,
-        now: judged.now, next: judged.next, doorRisk: tint.doorRisk, unsure: judged.unsure, tint
+        now: judged.now, next: judged.next, teammates: judged.teammates, doorRisk: tint.doorRisk, unsure: judged.unsure, tint
     };
     steps[steps.length - 1]!.stop = end;
     if (firstUnsafe === null && tintRank(end.tint) > 0) firstUnsafe = path.length - 1;
@@ -892,12 +927,13 @@ export const tintRank = (t: Tint): number => (t.kind === 'safe' || t.kind === 'g
  * The safe floor as the world UI overlay draws it (src/scenes/bank/overlay.ts `safeFloor`): sage, one or two pips,
  * the hand of a challenge, the eye (an NPC Exposing them, or a camera's `!`, with `camera`), grey for hidden and
  * unknown; `next` for the hatched world-phase states; `doorRisk` where a door the crew can't vouch for could make a
- * warning worse (hatched over it). The pip state is the most pips any one NPC adds this turn (the move and the world
- * phase together; 2 or more draws two), and `pips` lists them per NPC.
+ * warning worse (hatched over it). The pip state is the most pips any one NPC adds to one crew member this turn (the
+ * move and the world phase together; 2 or more draws two), and `pips` lists them per NPC (a teammate's with `crew`);
+ * `teammates` names the teammates the move does something to.
  */
 export function overlayTiles(floor: Pick<SafeFloor, 'tiles'>): {
-    pos: Pos; state: 'safe' | 'pip1' | 'pip2' | 'challenge' | 'exposed' | 'hidden' | 'unknown'; next?: boolean; camera?: boolean; pips?: { npc: string; pips: number }[];
-    doorRisk?: boolean;
+    pos: Pos; state: 'safe' | 'pip1' | 'pip2' | 'challenge' | 'exposed' | 'hidden' | 'unknown'; next?: boolean; camera?: boolean;
+    pips?: { npc: string; pips: number; crew?: string }[]; doorRisk?: boolean; teammates?: string[];
 }[] {
     return floor.tiles.map(t => {
         const k = t.tint;
@@ -906,7 +942,8 @@ export function overlayTiles(floor: Pick<SafeFloor, 'tiles'>): {
                 : Math.max(...k.pips.map(p => p.pips)) >= 2 ? 'pip2' : 'pip1';
         return {
             pos: { x: t.pos.x, y: t.pos.y }, state, ...(k.hatched ? { next: true } : {}), ...(k.camera ? { camera: true } : {}),
-            ...(k.pips.length ? { pips: k.pips.map(p => ({ ...p })) } : {}), ...(k.doorRisk && state !== 'unknown' ? { doorRisk: true } : {})
+            ...(k.pips.length ? { pips: k.pips.map(p => ({ ...p })) } : {}), ...(k.doorRisk && state !== 'unknown' ? { doorRisk: true } : {}),
+            ...(k.teammates ? { teammates: [...k.teammates] } : {})
         };
     });
 }

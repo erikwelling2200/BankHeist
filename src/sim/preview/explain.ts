@@ -12,7 +12,8 @@ import { previewPicture } from './picture';
  * "Who and why" (§8.8): long-press a tile of the safe floor (or the end of a drawn path) to see who would notice the
  * crew member there and why: the NPC's or camera's portrait, the sightline, and a line like "Guard: sees Armed". Built
  * from the very sightings the tint was judged from, on the crew's picture, so it never names someone the crew doesn't
- * know. Tiles the crew can't vouch for (grey, unknown risk, or reached through such) also say why, after any lines:
+ * know. What the move does to a teammate (someone its noise turned sees them) gets a line naming them ("Mara: +1
+ * (teller)"). Tiles the crew can't vouch for (grey, unknown risk, or reached through such) also say why, after any lines:
  * unknown risk names the worst an unseen observer could do there (`unknownWatcher`, decision 24), and every tile one
  * could stand on to do anything (`unknownWatchers`); a door not seen this turn says it could make it worse
  * than the lines say (`doorRisk`: the lines are what happens however it stands), or that it could be locked on the way
@@ -34,6 +35,8 @@ export interface Explanation {
     outcome: Outcome;
     /** The observer already knows the crew member (Exposed before). */
     known: boolean;
+    /** The teammate the line is about (someone the move's noise turned sees them); absent for the crew member's own. */
+    crew?: string;
     why: Why[];
     text: string;
     /**
@@ -117,20 +120,31 @@ function acted(s: Sighting, effect: Effect | null): boolean {
         || effect.challenged === s.observer;
 }
 
+/** The line of a sighting of a teammate: "Mara: +1 (teller)". */
+export function teammateText(world: ReadonlyWorld, state: State, s: Sighting): string {
+    const name = state.crew.find(c => c.id === s.crew)?.name ?? s.crew;
+    const what = s.known ? 'seen again' : s.outcome === '!' ? 'exposed' : s.outcome === 'T' ? 'challenged' : s.outcome;
+    return `${name}: ${what} (${observerName(world, s).toLowerCase()})`;
+}
+
 function entries(world: ReadonlyWorld, picture: State, crew: string, judged: Judged): Explanation[] {
     const out: Explanation[] = [];
-    const push = (s: Sighting, phase: 'now' | 'next'): void => {
-        if (!acted(s, phase === 'now' ? judged.now : judged.next)) return;
-        // The strongest line per observer and phase.
-        if (out.some(e => e.observer === s.observer && e.phase === phase)) return;
+    const push = (s: Sighting, phase: 'now' | 'next', effect: Effect | null): void => {
+        if (!acted(s, effect)) return;
+        // The strongest line per observer, crew member and phase.
+        const mate = s.crew !== crew;
+        if (out.some(e => e.observer === s.observer && e.phase === phase && (e.crew ?? crew) === s.crew)) return;
         out.push({
             observer: s.observer, by: s.by, phase, from: s.band === null ? null : { ...s.from }, to: { ...s.tile }, outcome: s.outcome,
-            known: s.known, why: [...s.why], text: sightingText(world, picture, s, crew)
+            known: s.known, why: [...s.why], text: mate ? teammateText(world, picture, s) : sightingText(world, picture, s, crew),
+            ...(mate ? { crew: s.crew } : {})
         });
     };
     const rank: Record<Outcome, number> = { '!': 4, '+2': 3, T: 2, '+1': 1, '-': 0 };
-    for (const s of [...judged.nowSightings].sort((a, b) => rank[b.outcome] - rank[a.outcome])) push(s, 'now');
-    for (const s of [...judged.nextSightings].sort((a, b) => rank[b.outcome] - rank[a.outcome])) push(s, 'next');
+    const byRank = (list: readonly Sighting[]): Sighting[] => [...list].sort((a, b) => rank[b.outcome] - rank[a.outcome]);
+    for (const s of byRank(judged.nowSightings)) push(s, 'now', judged.now);
+    for (const s of byRank(judged.nextSightings)) push(s, 'next', judged.next);
+    for (const s of byRank(judged.teammateSightings)) push(s, 'now', judged.teammates.find(t => t.crew === s.crew)?.effect ?? null);
     return out;
 }
 
@@ -150,7 +164,7 @@ export function explain(
         judged = judgeStay(world, state, crewId, options);
         knowledge = floorKnowledge(world, state, tile, who);
         unknownPath = false;
-        doorRisk = tintOf(judged.now, judged.next, knowledge, false, judged.doubt).doorRisk;
+        doorRisk = tintOf(judged.now, judged.next, knowledge, false, judged.doubt, judged.teammates).doorRisk;
     } else {
         const drawn = options.path ?? safeFloor(world, state, crewId, options).at(tile)?.path;
         if (!drawn?.length) return [];

@@ -243,8 +243,9 @@ squad-tactics notes].
 
 So if Jun is seen, Mara can still drop the witness in the same crew phase, and the witness never acts. Two crew
 taking down two guards in one turn is the basic stealth move, with no extra system needed. The only exceptions are
-NPCs already Hostile and on a **Watch** wedge (§11.8), whose reaction arc is drawn, and an NPC that looks at a noise
-or is sent to investigate it, which turns to face it at once (a turn, never a step) and sees what is there (§8.9).
+NPCs already Hostile and on a **Watch** wedge (§11.8), whose reaction arc is drawn, and an NPC that hears a noise,
+which turns to face it at once (a turn, never a step) and sees what is there (§8.9); one busy with a stronger want
+only glances and still carries that want out in the world phase.
 
 The same holds in the other direction: **anything an NPC decides during a world phase** (a panic reaction, a new
 exposure, a lapsed command's intent) **is shown during the next crew phase and carried out in the next world phase.**
@@ -574,7 +575,10 @@ cost nothing. The ring is drawn as exactly the tiles it reaches.
   and the one sent turn at once, as the noise is made (during the crew phase too), and turning means seeing: whoever of
   the crew stands in their new view is judged as ending an action there. The one sent then walks there in the world
   phase; the look lasts a phase, then they go back to their routine. A hearer already busy with something stronger (a
-  crew member it reacts to, challenges, escorts or investigates) keeps at that and doesn't turn.
+  crew member it reacts to, challenges, escorts or investigates) glances too: it turns to the noise for the rest of the
+  crew phase and sees what is there, but keeps its want and suspicion, and in the world phase carries on with it,
+  facing as that walk has it. So a teammate's noise can turn a guard's eyes away while someone slips out of its view.
+  Nobody face down (commanded, tied) turns.
 - **Loud:** NPCs who hear it become **Alerted, cause unknown**. Civilians panic, staff go for alarms or hide, guards
   investigate aggressively and radio in (an alarm carrier). Any loud noise makes the bank **Loud**.
 

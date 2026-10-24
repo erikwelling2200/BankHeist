@@ -48,7 +48,7 @@ describe('the generator', () => {
     }, 120000);
 
     it('places every piece of loot and every heist object where the crew can reach it from the van (§17.7)', () => {
-        // These once boxed the records room's files into a corner behind the archivist's desk.
+        // Banks whose records room has its files in a corner behind the archivist's desk: they must still be reachable.
         for (const b of [bank(8919, 1, { tier: 'small', archetype: 'twoWing', plot: 'midBlock' }), bank(1000, 0, { tier: 'hq', archetype: 'threeKeys', plot: 'plazaFront' })]) {
             const r = b.validation.results.find(x => x.rule === RULES.objectsReachable);
             expect(r?.ok, r?.detail).toBe(true);

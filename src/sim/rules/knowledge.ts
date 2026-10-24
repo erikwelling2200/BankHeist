@@ -16,7 +16,7 @@ import { buildSightMap, CLEAR, lineOfSight, sightInputs, sightMap, type SightMap
 import { doorBetween, doorStatus, LYING_STATUSES } from '../geo/move';
 import { inRing, registerNoiseHook } from '../geo/sound';
 import { liveFeeds } from './cctv';
-import { reaction, sightingsAlong, type Reaction } from './perceive';
+import { reaction, sightingsAlong, takeTurned, type Reaction } from './perceive';
 import { crewLook, type CrewLook } from './profile';
 import { isWarned } from './trespass';
 import { isPresent, npcCanPass, personOf } from './npc/walk';
@@ -619,6 +619,8 @@ export interface UpdateOptions {
     events?: readonly SimEvent[];
     /** The update at the end of a world phase: the fresh tiles start again from what the crew sees now. */
     worldPhase?: boolean;
+    /** The crew command being brought up to date after, and the state it was given: what its preview foresaw. */
+    command?: { cmd: DeepReadonly<Command>; before: DeepReadonly<State> };
 }
 
 /**
@@ -668,7 +670,7 @@ export function updateKnowledge(world: ReadonlyWorld, state: State, emit: (event
     }
     const passed = new Map<string, Passed>(pending?.npcs ?? []);
     if (options.events) passedInEvents(state, options.events, fields, passed);
-    learnNpcs(world, state, fields, passed, emit, options.worldPhase ?? false);
+    learnNpcs(world, state, fields, passed, emit, options.worldPhase ?? false, takeTurned(state), options.command);
     const oldest = state.turn - world.rules.pingTurns;
     if (k.pings.some(p => p.turn < oldest)) k.pings = k.pings.filter(p => p.turn >= oldest);
 }
@@ -705,8 +707,37 @@ function learnRoomsAndCameras(world: ReadonlyWorld, k: Knowledge, bits: Uint8Arr
     }
 }
 
+// Set while `foreseenFacing` previews a command, whose own knowledge update then needs no foresight of its own.
+let foreseeing = false;
+
+/**
+ * The facing the crew could foresee for an NPC a crew command turned out of its sight (decision 45): `facing`, the one
+ * it turned to, when no door the crew can't vouch for stands; else its facing after the command as previewed
+ * (`previewCertain`, those doors shut) when it is the same with them open, else null (how it turned could tell how such
+ * a door stands: the marker keeps the facing last seen). With doubt, only from the state the command was given, so a
+ * commit and its preview decide alike.
+ */
+function foreseenFacing(world: ReadonlyWorld, command: NonNullable<UpdateOptions['command']>, id: string, facing: Facing): Facing | null {
+    const before = command.before as State, cmd = command.cmd as Command;
+    if (!doorDoubt(world, before)) return facing;
+    if (foreseeing) return null;
+    foreseeing = true;
+    try {
+        const facingIn = (r: PreviewResult): Facing | undefined => (r.pending ? undefined : r.state.npcs.find(n => n.id === id)?.facing);
+        const shut = facingIn(previewCertain(world, before, cmd)), d = doorDoubt(world, before)!;
+        const open = facingIn(preview(world, openShut(world, d.base, d.doors).open, cmd));
+        return shut !== undefined && shut === open ? shut : null;
+    } catch {
+        // Not a command the picture allows as it is: nothing to foresee.
+        return null;
+    } finally {
+        foreseeing = false;
+    }
+}
+
 function learnNpcs(
-    world: ReadonlyWorld, state: State, fields: readonly SightField[], passed: ReadonlyMap<string, Passed>, emit: (event: SimEvent) => void, phaseEnd: boolean
+    world: ReadonlyWorld, state: State, fields: readonly SightField[], passed: ReadonlyMap<string, Passed>, emit: (event: SimEvent) => void, phaseEnd: boolean,
+    turned: ReadonlySet<string>, command: UpdateOptions['command']
 ): void {
     const k = state.knowledge, rules = world.rules, turn = state.turn, stealth = inStealth(state);
     for (const npc of state.npcs) {
@@ -735,9 +766,12 @@ function learnNpcs(
             if (rec.watchedTurn !== turn) { rec.watched++; rec.watchedTurn = turn; }
         } else if (rec) {
             rec.live = false;
-            // Seen this crew phase, it still stands there; only a noise it was sent to look at turns it (decision 45),
-            // and the crew's previews of that noise showed it turning.
-            if (rec.tick > k.phaseTick && rec.at.x === npc.pos.x && rec.at.y === npc.pos.y && rec.facing !== npc.facing) rec.facing = npc.facing;
+            // Seen this crew phase, it still stands there (`markerKind`). A noise this command made turned it out of sight
+            // (decision 45): it faces as the crew could foresee, else as last seen.
+            if (turned.has(npc.id) && command && rec.tick > k.phaseTick && rec.at.x === npc.pos.x && rec.at.y === npc.pos.y) {
+                const facing = foreseenFacing(world, command, npc.id, npc.facing);
+                if (facing && facing !== rec.facing) rec.facing = facing;
+            }
         }
         if (rec && !rec.routine && (rec.rota || rec.watched >= rules.knownRoutineTurns) && onRoutine(npc) && stealth) {
             rec.routine = true;
@@ -768,8 +802,8 @@ registerStateInit('knowledge', (world, state) => {
 });
 
 // After every command, the world phase included.
-registerCommandHook('knowledge', (ctx, cmd, events) =>
-    updateKnowledge(ctx.world, ctx.state, e => ctx.emit(e), { events, worldPhase: cmd.type === 'endTurn' }));
+registerCommandHook('knowledge', (ctx, cmd, events, before) => updateKnowledge(ctx.world, ctx.state, e => ctx.emit(e),
+    cmd.type === 'endTurn' ? { events, worldPhase: true } : { events, command: { cmd, before } }));
 
 // A move sees on its way: every tile and NPC in view at each step counts, not only at its end.
 registerMoveHook('knowledge', {

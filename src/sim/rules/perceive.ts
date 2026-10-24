@@ -36,11 +36,11 @@ import { challenge, deadlineOutcome, hasWarned, isWarned } from './trespass';
  *   doors the walk opens (`sightsAlongWalk`), and each observer reacts once, with the worst it would have at any tile
  *   it sees the crew member on (`onePerObserver`): passing through a cone counts as stopping in it. The move applies
  *   exactly this.
- * - **Turning to a noise** (§8.9, decision 45): an NPC that hears a noise in a crew phase and looks at it or is sent to
- *   investigate it (evidence.ts `reactToNoise`, `queueLook`) turns to its last-heard tile within the same command, once the command's own sightings are
- *   judged (`turnLookers`), and turning means seeing: its sightings of every crew member where they stand
- *   (`lookSightings`) join the command's, still once per observer and crew member. Only its facing changes: NPCs move
- *   only in the world phase.
+ * - **Turning to a noise** (§8.9, decision 45): every NPC that hears a noise in a crew phase (evidence.ts
+ *   `reactToNoise`, `queueLook`; not one face down) turns to its last-heard tile within the same command, once the
+ *   command's own sightings are judged (`turnLookers`), and turning means seeing: its sightings of every crew member
+ *   where they stand (`lookSightings`) join the command's, still once per observer and crew member. Only its facing
+ *   changes: NPCs move only in the world phase, and one busy with a stronger want keeps it.
  * - `sightingsAlong(world, state, sight, npc, crew, tile)`: the world phase. The NPC walks its committed intent (its
  *   standing pose, then each step facing along it, then its final facing; doors it walks through open for the rest of
  *   the walk) and adds its strongest sighting of the crew member once. `assessWorldPhase` is that for every NPC plus
@@ -501,8 +501,9 @@ export function assessWorldPhase(world: ReadonlyWorld, state: State, sight: Sigh
 }
 
 /**
- * One sighting per observer and crew member (decision 46): the worst of theirs (`OUTCOME_RANK`), the later one of
- * equals, in the order of their first sighting. `sightings` in the order they happened (a move's tiles in walk order).
+ * One sighting per observer and crew member (decision 46): the worst of theirs (`OUTCOME_RANK`, the later one of
+ * equals) at the last tile it reacts to them on (where it investigates, their last known tile), in the order of their
+ * first sighting. `sightings` in the order they happened (a move's tiles in walk order).
  */
 export function onePerObserver(sightings: readonly Sighting[]): Sighting[] {
     if (sightings.length < 2) return [...sightings];
@@ -511,6 +512,7 @@ export function onePerObserver(sightings: readonly Sighting[]): Sighting[] {
         const key = `${s.by} ${s.observer} ${s.crew}`, i = at.get(key);
         if (i === undefined) { at.set(key, out.length); out.push(s); }
         else if (OUTCOME_RANK[s.outcome] >= OUTCOME_RANK[out[i]!.outcome]) out[i] = s;
+        else if (out[i]!.tile.x !== s.tile.x || out[i]!.tile.y !== s.tile.y) out[i] = { ...out[i]!, tile: { x: s.tile.x, y: s.tile.y } };
     }
     return out;
 }
@@ -532,6 +534,8 @@ export function assessPath(world: ReadonlyWorld, state: State, crewId: string, p
 
 // NPCs a noise sends to look, by the draft state of the command that made it: their new facing (see the header).
 const LOOKS = new WeakMap<State, Map<string, Facing>>();
+// NPCs a command turned so far, by its draft state (`turnedThisCommand`).
+const TURNED = new WeakMap<State, Set<string>>();
 
 /** An NPC that heard a noise in a crew phase turns to `facing` once the command's own sightings are judged. */
 export function queueLook(state: State, npcId: string, facing: Facing): void {
@@ -540,21 +544,30 @@ export function queueLook(state: State, npcId: string, facing: Facing): void {
     looks.set(npcId, facing);
 }
 
-/**
- * Turns the NPCs queued to look (still looking at or sent to investigate the noise, not face down) and returns those
- * whose facing changed.
- */
+/** Turns the NPCs queued to look at a noise (not face down by now) and returns those whose facing changed. */
 export function turnLookers(ctx: Ctx): Set<string> {
     const looks = LOOKS.get(ctx.state), turned = new Set<string>();
     if (!looks) return turned;
     LOOKS.delete(ctx.state);
     for (const [id, facing] of looks) {
         const npc = ctx.state.npcs.find(n => n.id === id);
-        if (!npc || isEyesDown(npc) || (npc.goal.kind !== 'look' && npc.goal.kind !== 'inspect') || npc.facing === facing) continue;
+        if (!npc || isEyesDown(npc) || npc.facing === facing) continue;
         npc.facing = facing;
         turned.add(id);
     }
+    if (turned.size) {
+        let all = TURNED.get(ctx.state);
+        if (!all) TURNED.set(ctx.state, all = new Set());
+        for (const id of turned) all.add(id);
+    }
     return turned;
+}
+
+/** The NPCs a noise turned during the command whose draft state this is (`turnLookers`), taken once. */
+export function takeTurned(state: State): ReadonlySet<string> {
+    const found = TURNED.get(state);
+    TURNED.delete(state);
+    return found ?? new Set();
 }
 
 /**
@@ -644,13 +657,14 @@ registerMoveHook('perception', {
     }
 });
 
-// Anyone a command's noise sent to look and no action has turned yet (a command without the end-of-action check)
-// turns now and sees, before what the crew knows is brought up to date.
+// Any hearer of a command's noise that no move or action has turned yet (a noise outside them) turns
+// now and sees, before every other command hook (order -10): the carriers settle, the cameras pin and what the crew
+// knows is brought up to date on what those sightings did.
 registerCommandHook('hearing', ctx => {
     if (ctx.state.phase !== 'crew') return;
     const turned = turnLookers(ctx);
     if (turned.size) applySightings(ctx, lookSightings(ctx.world, ctx.state, sightMap(ctx.world, ctx.state), turned));
-});
+}, { order: -10 });
 
 // The world phase's sightings (§8.5): every NPC along its committed intent, judged before anyone moves, then applied.
 // The trespass deadlines follow (trespass.ts, order −90), judged by the same `deadlineOutcome` the overlay uses.

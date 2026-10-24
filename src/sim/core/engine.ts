@@ -70,17 +70,28 @@ const COMMANDS = new Map<string, CommandEntry>();
 
 /**
  * Runs after every command's reducer (the world phase included, since `endTurn` is a command), in preview and commit
- * alike, with the events emitted so far: for systems that follow whatever any command did, such as what the crew
- * knows (rules/knowledge.ts). Its events count toward undo like the reducer's. Not run when a preview stopped at a roll.
+ * alike, with the events emitted so far and the state the command was given (`before`, never changed): for systems
+ * that follow whatever any command did, such as what the crew knows (rules/knowledge.ts). Its events count toward undo
+ * like the reducer's. Not run when a preview stopped at a roll.
  */
-export type CommandHook = (ctx: Ctx, cmd: DeepReadonly<Command>, events: readonly SimEvent[]) => void;
+export type CommandHook = (ctx: Ctx, cmd: DeepReadonly<Command>, events: readonly SimEvent[], before: DeepReadonly<State>) => void;
 
-const COMMAND_HOOKS = new Map<string, CommandHook>();
+const COMMAND_HOOKS = new Map<string, { hook: CommandHook; order: number }>();
 
-/** Adds a named hook run after every command (see `CommandHook`). Hooks run by name. */
-export function registerCommandHook(name: string, hook: CommandHook, options: { replace?: boolean } = {}): void {
-    if (COMMAND_HOOKS.has(name) && !options.replace) throw new Error(`Command hook '${name}' already exists; pass replace: true to change it`);
-    COMMAND_HOOKS.set(name, hook);
+/** The command hooks in the order they run: by `order`, then by name. */
+const commandHooksInOrder = (): [string, CommandHook][] =>
+    [...COMMAND_HOOKS.entries()].sort(([a, x], [b, y]) => x.order - y.order || (a < b ? -1 : a > b ? 1 : 0)).map(([name, h]) => [name, h.hook]);
+
+/** Adds a named hook run after every command (see `CommandHook`). Hooks run by `order` (default 0), then by name. */
+export function registerCommandHook(name: string, hook: CommandHook, options: { replace?: boolean; order?: number } = {}): void {
+    const had = COMMAND_HOOKS.get(name);
+    if (had && !options.replace) throw new Error(`Command hook '${name}' already exists; pass replace: true to change it`);
+    COMMAND_HOOKS.set(name, { hook, order: options.order ?? had?.order ?? 0 });
+}
+
+/** The command hook names in the order they run. */
+export function commandHooks(): string[] {
+    return commandHooksInOrder().map(([name]) => name);
 }
 
 /** Registers the reducer of a command type (see `RegisterOptions`). */
@@ -200,9 +211,9 @@ function run(world: ReadonlyWorld, state: State, cmd: Command, mode: Mode): Prev
         stopped = true;
     }
     if (!stopped) {
-        for (const name of [...COMMAND_HOOKS.keys()].sort()) {
+        for (const [name, hook] of commandHooksInOrder()) {
             try {
-                COMMAND_HOOKS.get(name)!(ctx, command, events);
+                hook(ctx, command, events, state);
             } catch (e) {
                 if (dice.refused) throw dice.refused;
                 if (e instanceof IllegalCommand) throw new InvariantError(`Command hook '${name}' refused: ${e.message}`);

@@ -147,8 +147,10 @@ are:
 
 A tile is tinted for the whole move that ends there: passing through someone's view counts as stopping in it, so a
 tile beyond a cone the path crosses wears that observer's reaction (each observer once, the worst tile of the path).
-A dash's tint includes those its noise turns to look, and what they then see. Each step of a drawn path is tinted by
-who would react to the crew member on it (pips amber, a hand, an eye).
+A dash's tint includes those its noise turns to look, and what they then see, of the mover and of the rest of the
+crew: a dash that makes a teller turn and spot Mara is tinted for Mara's pips or eye (the worst over the crew), and
+"who and why" names her ("Mara: +1 (teller)"); a door not seen this turn that could change it hatches the tile. Each
+step of a drawn path is tinted by who would react to the crew member on it (pips amber, a hand, an eye).
 
 The path's eye icon sits on the **first** unsafe tile, and long-pressing that tile answers who and why: the NPC's
 position next phase is ghosted, with its cone and a sightline to the tile. Long-pressing an unknown-risk tile outlines

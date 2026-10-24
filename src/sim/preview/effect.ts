@@ -60,6 +60,20 @@ export function effectOf(events: readonly SimEvent[], crew: string, before: Deep
     return out;
 }
 
+/** What a crew member's move does to a teammate (decision 45: someone its noise turned sees them). */
+export interface TeammateEffect { crew: string; effect: Effect }
+
+/** The effects of a list of events on every crew member of `before` but `crew` that something happened to, in crew order. */
+export function teammateEffects(events: readonly SimEvent[], crew: string, before: DeepReadonly<State>): TeammateEffect[] {
+    const out: TeammateEffect[] = [];
+    for (const c of before.crew) {
+        if (c.id === crew) continue;
+        const effect = effectOf(events, c.id, before);
+        if (!isQuiet(effect)) out.push({ crew: c.id, effect });
+    }
+    return out;
+}
+
 /** A context on a scratch state that collects its events instead of reporting them. */
 export function scratchCtx(ctx: Pick<Ctx, 'world'>, state: State): { ctx: Ctx; events: SimEvent[] } {
     const events: SimEvent[] = [];
