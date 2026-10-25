@@ -24,7 +24,8 @@ import { isPresent } from './npc/walk';
  *   guard or staff member +1 (decision 121: the police are listening by then). Before it, a kill counts only if
  *   witnessed (§13.2): seen through a live camera on the monitors of an attentive operator, or by anyone present and
  *   looking. Whether anyone saw is what the crew can't know, so it is owed in secret (`HeatState.owed`, no event) and
- *   lands as a lump in the world phase that raises the Alarm, which is when the design shows the heat track at all.
+ *   lands as one summed lump ('witnessedKills', no victim) in the world phase that raises the Alarm, which is when the
+ *   design shows the heat track at all.
  *   Police officers aren't NPCs: the rules that take one down call `policeDown` (rules/police.ts), which adds +3 for
  *   the first and +1 after.
  * - **A hostage escapes to the police** +1: an NPC Commanded, tied or fleeing in a command's lapse before a command
@@ -190,10 +191,11 @@ registerWorldHook('devices', 'heat.track', (ctx, phase) => {
     const { world, state } = ctx, r = state.response;
     if (!r) return;
     if (r.raised === phase.turn) {
-        // The Alarm's own world phase: the kills witnessed before it come due, as a lump.
-        const owed = state.heat.owed;
+        // The Alarm's own world phase: the kills witnessed before it come due, as one lump with no victim, so only the
+        // total says anything about who was seen.
+        const owed = state.heat.owed.reduce((sum, o) => sum + HEAT_EVENTS[o.cause].ticks, 0);
         state.heat.owed = [];
-        for (const o of owed) addHeat(ctx, o.cause, { victim: o.victim });
+        if (owed > 0) addHeat(ctx, 'witnessedKills', { by: owed });
         return;
     }
     addHeat(ctx, 'phase');

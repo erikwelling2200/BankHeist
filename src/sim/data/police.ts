@@ -10,7 +10,7 @@ export const TICKS_PER_LEVEL = 5;
 export const MAX_HEAT = 5;
 
 /** What changes the heat (§13.2), and by how many ticks. */
-export type HeatCause = 'phase' | 'staffKilled' | 'firstPoliceKilled' | 'policeKilled' | 'civilianKilled' | 'vaultWork' | 'hostageEscaped' | 'release';
+export type HeatCause = 'phase' | 'staffKilled' | 'firstPoliceKilled' | 'policeKilled' | 'civilianKilled' | 'vaultWork' | 'hostageEscaped' | 'release' | 'witnessedKills';
 
 /** The canonical heat events (§13.2): ticks and what the HUD calls them. */
 export const HEAT_EVENTS: Readonly<Record<HeatCause, { ticks: number; label: string }>> = {
@@ -21,7 +21,9 @@ export const HEAT_EVENTS: Readonly<Record<HeatCause, { ticks: number; label: str
     civilianKilled: { ticks: 5, label: 'A civilian or hostage killed' },
     vaultWork: { ticks: 1, label: 'Drilling or burning a Class II+ vault' },
     hostageEscaped: { ticks: 1, label: 'A hostage escaped to the police' },
-    release: { ticks: -3, label: 'A hostage released' }
+    release: { ticks: -3, label: 'A hostage released' },
+    /** The kills witnessed before the Alarm, as one lump when it fires: the sum of their own ticks, passed as `by`. */
+    witnessedKills: { ticks: 0, label: 'Kills witnessed before the Alarm' }
 };
 
 /** Releases that lower the heat (§13.2: once per turn, three times per heist). */

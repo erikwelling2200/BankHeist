@@ -130,7 +130,7 @@ describe('the heat track', () => {
             expect(bankView(after, false, world).heat ?? null).toBeNull();
             const raised = run(world, after, endTurn, endTurn);
             expect(raised.state.response!.heat).toBe(owed);
-            expect(of(raised.events, 'heatChanged').map(e => [e.cause, e.by])).toEqual(owed ? [['civilianKilled', 5]] : []);
+            expect(of(raised.events, 'heatChanged').map(e => [e.cause, e.by, e.victim])).toEqual(owed ? [['witnessedKills', 5, undefined]] : []);
             expect(raised.state.heat.owed).toEqual([]);
         }
     });

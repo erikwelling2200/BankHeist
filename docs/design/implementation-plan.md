@@ -995,6 +995,8 @@ M2 is complete: every package below has landed.
       tick and the next step ("Police at Heat 4: …" during "Police in N", then "Heat 3: SWAT van, main street, east
       end" in N); the ledger's police row names the mode and the next one; the
       recap describes the new events. Drawing the units, vehicles and sirens is M3-09's.
+    - **§13.2 departure:** kills after the Alarm cost heat whether or not anyone saw them (decision 121); before it
+      only witnessed kills count, landing as one summed lump when the Alarm fires.
     - **Deferred:** police sight (a kill police see, a hostage killed where they see it ending Negotiate) to M3-05;
       Release, Trade, Stall and answering the negotiator to M3-07; ramming, wrecks freeing slots, a van that can't
       leave and the van's hold for greed to M3-08; sniper nests and the helicopter leaving when not needed to M3-05 and
@@ -1776,10 +1778,11 @@ Later milestones: within each milestone, the `∥` notes in §3 apply. UI packag
     witnessed (§13.2): an attentive operator sees it on a live feed, or any NPC present and looking sees it (a
     bystander: the design's "a civilian who reaches the police", taken as anyone who saw and will be asked, guards and
     staff too, without following them off the map). Whether anyone saw is hidden from the crew, so these are owed with
-    no event and land as a lump in the world phase that raises the Alarm, the first moment the design shows heat. After
-    the Alarm every kill counts at once, a guard's or staff member's as witnessed: the police are on their way and
-    listening (the radio, the dispatcher), and a +1 that depended on who looked would tell the crew what it can't
-    know. Police sight is M3-05's. A drill or charge working on a vault door with a seismic sensor is +1 per world
+    no event and land as one summed lump (`heatChanged` 'witnessedKills', no victim) in the world phase that raises
+    the Alarm, the first moment the design shows heat: only the total is revealed, not which kills were seen. After
+    the Alarm every kill counts at once, seen or not, a guard's or staff member's as witnessed. **This departs from
+    §13.2 on purpose**, which charges only witnessed guard and staff kills: the police are on their way and listening
+    (the radio, the dispatcher), and a +1 that depended on who looked would tell the crew what it can't know. Police sight is M3-05's. A drill or charge working on a vault door with a seismic sensor is +1 per world
     phase.
 122. **Police are not NPCs (M3-04).** They are `State.police.units` (a kind, the vehicle they ride in, then a tile), so
     no stealth rule (sight, suspicion, the knowledge picture) meets them before M3-05 gives them rules of their own.
@@ -1808,8 +1811,9 @@ Later milestones: within each milestone, the `∥` notes in §3 apply. UI packag
 127. **The forecast (M3-04, §13.1 "Heat 3 in 2 turns: SWAT van, rear lot").** `nextWave` is `planWave` for the next
     step on the state as it is: during "Police in N", the first arrival's force at the level the track will have
     reached then; after it, the next level not yet sent (or the next refill). "In N" counts what is known to come
-    (`heatAhead`: +1 a phase, and +1 a phase while a drill or charge on a Class II+ vault still has work): a kill, a
-    release or a jam changes it, and the strip shows that at once. The heat strip names the first vehicle that isn't the helicopter and how many
+    (`heatAhead`: +1 a phase, and +1 a phase while a drill or charge on a Class II+ vault still has work). It assumes
+    the drill keeps running: a jam (rolled as each crew phase begins) isn't foreseen, and once it happens the forecast
+    is worked out again from the jammed drill, as after a kill or a release, and the strip shows that at once. The heat strip names the first vehicle that isn't the helicopter and how many
     more come.
 128. **Hard promises (M3-04, §13.6).** Nothing in the director rolls or decides what the player can't see coming:
     arrivals show a phase ahead (the siren marker), mode changes are announced with their length, and breaches (which
