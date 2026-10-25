@@ -69,7 +69,9 @@ import { alertNpc, expose, isEyesDown } from './suspicion';
 export interface Commanded { pips: number; by: string }
 
 /** What a lapse rolled that outlasts the crew phase it is shown in (§10.5). */
-export type Lapse = { kind: 'flee'; exit: Pos } | { kind: 'reach'; crew: string } | { kind: 'phone'; crew: string };
+export type Lapse = { kind: 'flee'; exit: Pos } | { kind: 'reach'; crew: string } | { kind: 'phone'; crew: string }
+    // Let go by the crew (rules/negotiation.ts, §10.7): walking out at `exit`. Not a command's lapse, but carried out as one.
+    | { kind: 'released'; exit: Pos };
 
 /** What a lapse can roll (§10.5), as the `lapsed` event names it. */
 export type LapseOutcome = 'stayDown' | 'flee' | 'hide' | 'tackle' | 'alarm' | 'phone' | 'reachForWeapon';
@@ -120,7 +122,7 @@ declare module '../core/types' {
         commanded: { crew: string; npc: string; pips: number };
         /** A resister rolled its chance and resisted (§10.4). */
         resisted: { crew: string; npc: string; chance: number };
-        /** An NPC in the command ring ignored it (Hostile, or reaching for a weapon). */
+        /** An NPC in the command ring ignored it (Hostile, reaching for a weapon, or walking out released). */
         ignoredCommand: { crew: string; npc: string };
         /** A Commanded NPC's pips at the end of a world phase; `held` when a hold kept them. */
         commandPips: { npc: string; pips: number; held: boolean };
@@ -260,7 +262,7 @@ export function commandPlan(world: ReadonlyWorld, state: State, crewId: string):
         if (BEYOND_COMMAND.has(npc.status) || !isPresent(npc) || npc.stashed !== null) continue;
         const at = bodyPos(state, npc);
         if (inCommand.has(at.y * world.width + at.x)) {
-            if (npc.status === 'hostile' || npc.lapse?.kind === 'reach') targets.push({ npc: npc.id, ring: 'command', outcome: 'ignores' });
+            if (npc.status === 'hostile' || npc.lapse?.kind === 'reach' || npc.lapse?.kind === 'released') targets.push({ npc: npc.id, ring: 'command', outcome: 'ignores' });
             else if (isResister(world, npc) && npc.status !== 'commanded') {
                 targets.push({ npc: npc.id, ring: 'command', outcome: 'resists', chance: resistChance(world, state, crewId, npc, sight) });
             } else targets.push({ npc: npc.id, ring: 'command', outcome: 'complies' });

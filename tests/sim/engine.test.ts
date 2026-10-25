@@ -169,9 +169,9 @@ describe('the rules engine', () => {
         expect(WORLD_STEPS).toEqual(['fuses', 'passiveNpcs', 'combatNpcs', 'devices', 'commitIntents', 'crewPhase']);
         expect(worldHooks()).toEqual({
             fuses: ['attack.dazedEnds', 'throwables.fuses'],
-            passiveNpcs: ['knowledge.freshBefore', 'shot.leanNpcs', 'command.hold', 'evidence.judge', 'perception.world', 'evidence.notice', 'cameras.operator', 'trespass.deadlines', 'npcs.passive', 'alarms.raise', 'panic.act', 'command.called', 'command.flee', 'command.draw', 'attack.reactions', 'panic.spread', 'evidence.tell'], combatNpcs: ['npcs.combat'],
+            passiveNpcs: ['knowledge.freshBefore', 'shot.leanNpcs', 'command.hold', 'evidence.judge', 'perception.world', 'evidence.notice', 'cameras.operator', 'trespass.deadlines', 'npcs.passive', 'alarms.raise', 'panic.act', 'command.called', 'command.flee', 'command.draw', 'negotiation.told', 'attack.reactions', 'panic.spread', 'evidence.tell'], combatNpcs: ['npcs.combat'],
             devices: ['devices.carriers', 'devices.police', 'heat.track', 'police.director', 'radio.checkIns', 'wounds', 'patrol.pass', 'test.dice', 'cameras.pan', 'vault.devices', 'perception.decay', 'knockout.wake', 'evidence.settle', 'hostage.untie', 'doors.swingShut', 'throwables.smoke'],
-            commitIntents: ['perception.glances', 'attack.suppressionEnds', 'command.surprise', 'panic.calm', 'npcs.intents', 'cameras.pin'], crewPhase: ['shot.leanCrew', 'attack.watchEnds', 'crew.actions', 'evidence.forget', 'vault.timeLock', 'wounds.actions', 'panic.tackled', 'command.lapse', 'panic.react', 'vault.jams']
+            commitIntents: ['perception.glances', 'attack.suppressionEnds', 'command.surprise', 'panic.calm', 'npcs.intents', 'cameras.pin'], crewPhase: ['shot.leanCrew', 'attack.watchEnds', 'crew.actions', 'evidence.forget', 'vault.timeLock', 'wounds.actions', 'panic.tackled', 'negotiation.call', 'command.lapse', 'panic.react', 'vault.jams']
         });
         const { world, state } = smallBank();
         const { state: next, events } = step(world, play(world, state, [SCRIPT[2]!]), { type: 'endTurn' });

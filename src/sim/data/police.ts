@@ -85,3 +85,5 @@ export const ASSAULT_PHASES = 4;
 /** Regroup: 3, 2 from Heat 4. */
 export const REGROUP_PHASES = 3;
 export const REGROUP_PHASES_HIGH = 2;
+/** Stall (§13.4): Negotiate runs this many world phases longer, once a heist. */
+export const STALL_PHASES = 2;

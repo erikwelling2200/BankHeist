@@ -296,6 +296,7 @@ function describeCommand(cmd: Command, world?: ReadonlyWorld): { label: string; 
         }
         case 'loopFeed': return { label: world ? `Loop ${cameraName(world, cmd.camera)}` : 'Loop feed', icon: 'hack', cost: 1 };
         case 'answerRadio': return { label: 'Answer radio', icon: 'chat', cost: 1 };
+        case 'negotiate': return { label: NEGOTIATE_LABEL[cmd.offer], icon: 'phone', cost: 1 };
         case 'placeJammer': return { label: 'Jammer', icon: 'radio', cost: 1 };
         case 'command': return { label: 'Command', icon: 'command', cost: 1 };
         case 'hold': return { label: 'Hold', icon: 'hold', cost: 1 };
@@ -326,6 +327,8 @@ function describeCommand(cmd: Command, world?: ReadonlyWorld): { label: string; 
         default: return { label: cmd.type, icon: 'interact', cost: 1 };
     }
 }
+
+const NEGOTIATE_LABEL = { release: 'Release', trade: 'Trade', stall: 'Stall', hangUp: 'Hang up' } as const;
 
 const sameCommand = (a: Command | null, b: Command): boolean => !!a && JSON.stringify(a) === JSON.stringify(b);
 
@@ -484,6 +487,11 @@ export function describeEvent(world: ReadonlyWorld, state: State, event: SimEven
         case 'vehicleLeft': return 'A police van drove off';
         case 'policeOnFoot': return `${event.units.length} ${POLICE_LABELS[event.kind].toLowerCase()}s walking in`;
         case 'policeHit': return 'A police officer is hit';
+        case 'negotiatorCalls': return 'The negotiator is calling';
+        case 'stalled': return `Negotiate runs ${event.by} longer (${event.left})`;
+        case 'hostageReleased': return event.trade ? `${name(event.npc)} walks out, traded` : `${name(event.npc)} is let go${event.relief ? ` (heat −${event.relief})` : ''}`;
+        case 'policeTold': return `${name(event.npc)} told the police what they saw`;
+        case 'crewReturned': return `${name(event.crew)} is back, traded`;
         case 'alarmAttempt': return `${name(event.npc)} raises the alarm`;
         case 'alarmDead': return event.kind === 'seismicSensor' || event.kind === 'motionSensor'
             ? `The ${CARRIERS[event.kind].label.toLowerCase()} is dead: nothing happened` : `${name(event.source)} pressed the button: nothing happened`;

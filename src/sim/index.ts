@@ -38,6 +38,7 @@ import './rules/doors';
 import './rules/evidence';
 import './rules/heat';
 import './rules/knowledge';
+import './rules/negotiation';
 import './rules/panic';
 import './rules/panicState';
 import './rules/npc/act';
@@ -222,3 +223,6 @@ export {
     bagsSecured, greedPercent, hostagesHeld, modeAfter, modePhases, nextWave, planWave, policeDown, policeHit, policeModeView, strength,
     type NextWave, type PlannedVehicle, type PoliceModeView, type PoliceState, type PoliceUnit, type PoliceVehicle, type StagingPoint, type ArrivalKind, type VehicleKind, type WaveReason
 } from './rules/police';
+export {
+    negotiatorCalling, offerEffect, releasable, releaseExit, tradeable, type NegotiationOffer, type NegotiationState, type OfferEffect, type PoliceReport
+} from './rules/negotiation';

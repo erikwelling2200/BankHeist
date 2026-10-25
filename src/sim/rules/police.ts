@@ -45,7 +45,7 @@ import { addHeat, heatAhead, heatOf, phasesUntilHeat } from './heat';
  *   counts down once per world phase from the one after it began, and the next begins when it reaches 0, announced
  *   with its length (`policeMode`). Shooting police during Negotiate starts an immediate Assault (`policeHit`, which
  *   `policeDown` calls for a kill).
- *   Answering the negotiator, Stall and the hostage kill that police see are M3-07's and M3-05's.
+ *   Answering the negotiator and Stall are rules/negotiation.ts's; the hostage kill that police see is M3-05's.
  * - **Units** aren't NPCs: they are `State.police.units`, each a kind, the vehicle it rides in (or on foot) until it
  *   gets out, then its tile, which nobody else may step onto (geo/move.ts `occupancy`). One that finds no free tile
  *   stays aboard until it does. M3-05 and M3-06 give them sight, movement and fire; `policeDown` takes one off the force.
@@ -305,7 +305,7 @@ export function nextWave(world: ReadonlyWorld, state: DeepReadonly<State>): Next
  * The free tile nearest `from` that a unit can get out onto (no closed door between): not blocked, nobody standing
  * there, crew, NPC or officer. Null when there is none near: the unit waits aboard.
  */
-function exitTile(world: ReadonlyWorld, state: State, from: DeepReadonly<Pos>): Pos | null {
+export function exitTile(world: ReadonlyWorld, state: State, from: DeepReadonly<Pos>): Pos | null {
     const taken = new Set<number>();
     const put = (p: DeepReadonly<Pos>): void => void taken.add(p.y * world.width + p.x);
     for (const c of state.crew) put(c.pos);

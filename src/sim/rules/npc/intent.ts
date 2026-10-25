@@ -8,6 +8,7 @@ import { registerEvents } from '../../core/undo';
 import {
     behaviourGoal, comingPhase, decidesFor, evidenceReport, friskSatisfied, quarterTurn, reactionOf, settleFrisks, statusFor, topWant, type Goal, type RouteProgress
 } from './behaviour';
+import { isWounded } from '../woundsState';
 import { blockIndexAt, LEAVING_ACTIVITIES, ROUTE_ACTIVITIES, routeMode, wayBackIn } from './schedule';
 import { crewTiles, intentEnd, isPresent, leavingTile, npcMoveOptions, othersTiles, personOf, planWalk, wayOut, type WalkTarget } from './walk';
 
@@ -180,6 +181,10 @@ function planGoal(world: ReadonlyWorld, state: State, npc: NpcState, goal: Goal,
             const out = wayOut(world, state, npc);
             return out ? walkIntent(world, state, npc, { tile: out.exit, pace: 'crawl' }, taken, {}) : { path: [] };
         }
+        case 'walkOut':
+            // A hostage let go walks out (rules/negotiation.ts): it leaves the map from its way out or a tile next to it.
+            // Wounded, it crawls there (rules/wounds.ts).
+            return walkIntent(world, state, npc, { tile: goal.tile!, pace: isWounded(world, npc) ? 'crawl' : 'walk' }, taken, { action: { kind: 'leave' }, onArrival: true, within: 1 });
         case 'phone':
             // Phones it in where it lies (§16.2 the manager's phone), carried out by rules/alarms.ts.
             return { path: [], action: { kind: 'raiseAlarm', carrier: 'phoneCall', crew: goal.crew! } };

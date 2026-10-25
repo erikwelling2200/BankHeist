@@ -30,7 +30,8 @@ import { isPresent } from './npc/walk';
  *   the first and +1 after.
  * - **A hostage escapes to the police** +1: an NPC Commanded, tied or fleeing in a command's lapse before a command
  *   that leaves the map in it, once the Alarm is up.
- * - **Release** (§10.7) is M3-07's command: it asks `canRelease` and calls `releaseHeat`. Once per turn, three per heist.
+ * - **Release** (§10.7) is rules/negotiation.ts's answer: it asks `releaseBlocked` and calls `releaseHeat`. Once per turn,
+ *   three per heist; a released hostage leaving the map is no escape.
  *
  * No dice anywhere: every number here is shown before it happens.
  */
@@ -116,8 +117,11 @@ export function releaseHeat(ctx: Ctx): number {
 
 const HOSTAGE_STATUSES: ReadonlySet<string> = new Set(['commanded', 'tied']);
 
-/** Whether an NPC was a hostage as the state had them (§13.2): Commanded or tied, or running from a command's lapse. */
-const wasHostage = (npc: DeepReadonly<NpcState>): boolean => HOSTAGE_STATUSES.has(npc.status) || npc.lapse?.kind === 'flee';
+/**
+ * Whether an NPC was a hostage as the state had them (§13.2): Commanded or tied, running from a command's lapse, or
+ * walking out let go (rules/negotiation.ts: killed, still a hostage; reaching the police, not an escape).
+ */
+const wasHostage = (npc: DeepReadonly<NpcState>): boolean => HOSTAGE_STATUSES.has(npc.status) || npc.lapse?.kind === 'flee' || npc.lapse?.kind === 'released';
 
 /** Whether the operator sees a tile through a live feed now (§8.12). */
 function cameraWitness(world: ReadonlyWorld, state: State, tile: Pos): boolean {
@@ -152,7 +156,7 @@ registerCommandHook('heat', (ctx, _cmd, events, before) => {
     for (const e of events) {
         if (e.type !== 'npcLeft') continue;
         const was = before.npcs.find(n => n.id === e.npc);
-        if (was && wasHostage(was) && state.bank.alarm) addHeat(ctx, 'hostageEscaped');
+        if (was && wasHostage(was) && was.lapse?.kind !== 'released' && state.bank.alarm) addHeat(ctx, 'hostageEscaped');
     }
 }, { order: 5 });
 

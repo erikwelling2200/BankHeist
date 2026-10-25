@@ -1,5 +1,5 @@
 import {
-    besideDoor, COMBAT_COMMANDS, crewPicture, withDoubtedShut, doorStatus, DRAGGABLE, draggedBy, goBlocked, HACKING_KIT, inHands, inReach, interactionVerbs, isKnownNow, JAMMER, legalActions, LOCKPICK, lockActions, LOOP_FROM, lootWeight,
+    besideDoor, COMBAT_COMMANDS, crewPicture, negotiatorCalling, offerEffect, releasable, tradeable, withDoubtedShut, doorStatus, DRAGGABLE, draggedBy, goBlocked, HACKING_KIT, inHands, inReach, interactionVerbs, isKnownNow, JAMMER, legalActions, LOCKPICK, lockActions, LOOP_FROM, lootWeight,
     pocketed, reachesObject, STASH_KINDS, throwTargets, tieIneligible, tileVisibility, whyNot, type Command, type Pos, type ReadonlyWorld, type State
 } from '../sim';
 import type { HudIcon as HudIconName } from '../ui/hud/viewModels';
@@ -21,6 +21,8 @@ import type { HudIcon as HudIconName } from '../ui/hud/viewModels';
  * - Interact: one entry per verb of the object in reach whose kind a package handles: the alarm panel's Disable (its work
  *   so far as "2/4", §9.1), the recorder's Take and Smash (§8.12).
  * - Answer radio (§8.11): while a guard the crew knows of has a radio ringing (or a missed check-in carrier running).
+ * - The negotiator (§13.4, M3-07): while it calls, Release and Trade (a hostage the crew holds and knows of), Stall and
+ *   Hang up.
  * - Loop feed (§7.2, §8.12): at the CCTV desk or a server rack, for a camera the crew knows of: the tapped one, else
  *   the first it can loop; tapping the entry again cycles through them (the scene's `nextCamera`).
  * - Jammer (§12.2): while the member carries one.
@@ -218,6 +220,21 @@ export function actionMenu(world: ReadonlyWorld, state: State, crewId: string, t
 
     const ringing = ringingGuards(world, state, crewId), guard = pick(ringing);
     if (guard) add('answer', 'Answer radio', 'chat', { type: 'answerRadio', crew: crewId, npc: guard }, guard);
+
+    // The negotiator on the line (§13.4): each offer with its effect; a release or trade lets go the hostage tapped, else
+    // the first the crew holds. The dialog is M3-09's.
+    if (negotiatorCalling(state)) {
+        const held = state.npcs.filter(n => releasable(n) && (isKnownNow(world, state, n.id) || draggedBy(state, n.id)?.id === crewId)).map(n => n.id);
+        const hostage = pick(held);
+        if (hostage) {
+            const heat = offerEffect(state, 'release').heat;
+            add('negotiate:release', heat ? `Release (${heat} heat)` : 'Release', 'phone', { type: 'negotiate', crew: crewId, offer: 'release', npc: hostage }, hostage);
+            const back = state.custody.find(c => tradeable(state).includes(c.crew.id))?.crew;
+            if (back) add('negotiate:trade', `Trade for ${back.name}`, 'phone', { type: 'negotiate', crew: crewId, offer: 'trade', npc: hostage, member: back.id }, hostage);
+        }
+        add('negotiate:stall', `Stall (+${offerEffect(state, 'stall').phases} turns)`, 'phone', { type: 'negotiate', crew: crewId, offer: 'stall' });
+        add('negotiate:hangUp', 'Hang up', 'phone', { type: 'negotiate', crew: crewId, offer: 'hangUp' });
+    }
 
     // Only cameras the crew knows of: none known, no entry.
     const desk = loopFrom(world, state, crewId);

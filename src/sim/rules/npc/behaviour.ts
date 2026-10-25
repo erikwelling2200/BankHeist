@@ -49,6 +49,8 @@ export type GoalKind =
     | 'flee' | 'reach' | 'phone'
     // Wounded (rules/wounds.ts, §11.12): crawling for the nearest way out.
     | 'crawl'
+    // A hostage let go (rules/negotiation.ts, §10.7): walks out its way out.
+    | 'walkOut'
     // Panic (rules/panic.ts, §10.8): frozen until its reaction is picked, then cowering, hiding or tackling.
     | 'panic' | 'cower' | 'hide' | 'tackle';
 
@@ -243,12 +245,13 @@ registerReaction('*', (world, state, npc, want) => {
 export function behaviourGoal(world: ReadonlyWorld, state: State, npc: DeepReadonly<NpcState>): Goal | null {
     if (!decidesFor(npc)) return null;
     // A runner who got out (rules/command.ts) doesn't come back.
-    if (npc.lapse?.kind === 'flee' && !isPresent(npc)) return { kind: 'away' };
+    if ((npc.lapse?.kind === 'flee' || npc.lapse?.kind === 'released') && !isPresent(npc)) return { kind: 'away' };
     if (!isPresent(npc)) return null;
     // Wounded (§11.12): it crawls for a way out, whatever it wanted or was running for; a Hostile one fights on (M3-05, M3-06).
     if (npc.status !== 'hostile' && isWounded(world, npc)) return { kind: 'crawl' };
     // A lapsed command's intent (§10.5) comes before anything it wants: it was rolled and shown.
     if (npc.lapse?.kind === 'flee') return { kind: 'flee', tile: { x: npc.lapse.exit.x, y: npc.lapse.exit.y } };
+    if (npc.lapse?.kind === 'released') return { kind: 'walkOut', tile: { x: npc.lapse.exit.x, y: npc.lapse.exit.y } };
     if (npc.lapse?.kind === 'reach') return { kind: 'reach', crew: npc.lapse.crew };
     if (npc.lapse?.kind === 'phone') return { kind: 'phone', crew: npc.lapse.crew };
     // Panic (§10.8) comes before anything it wants: frozen, then what it picked, shown as it was picked.
