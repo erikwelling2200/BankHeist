@@ -181,7 +181,7 @@ function randomShots(world: ReadonlyWorld, base: State, rng: Rng, shots: number,
 
 const tally = (): Tally => ({ broken: 0, shots: 0, refused: 0, bullets: 0, checked: 0, walls: 0, bodies: 0, covered: 0, blocked: 0, through: 0, corners: 0 });
 
-/** Building three generated banks on a cold bank cache takes several seconds (as tests/generator.test.ts allows). */
+/** Three generated banks on a cold bank cache, or 2000 resolved shots per §12.1 cell, take several seconds under load. */
 const HEAVY = 60000;
 
 describe('shot previews are the outcome (M3-01)', { timeout: HEAVY }, () => {
@@ -241,7 +241,7 @@ describe('shot previews are the outcome (M3-01)', { timeout: HEAVY }, () => {
     });
 });
 
-describe('the §12.1 expected hits (tuning, warning only)', () => {
+describe('the §12.1 expected hits (tuning, warning only)', { timeout: HEAVY }, () => {
     /** Expected hits against a standing target with no cover at 2 / 5 / 9 / 14 tiles; AR fires 2 rounds. */
     const TABLE: Record<string, { bullets?: number; hits: [number, number, number, number] }> = {
         pistol: { hits: [2.0, 1.6, 1.0, 0.6] },
