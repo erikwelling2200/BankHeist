@@ -244,6 +244,7 @@ export function forgetCrew(state: State, crewId: string): void {
         if (action?.crew === crewId) npc.intent = { path: npc.intent.path, ...(npc.intent.facing ? { facing: npc.intent.facing } : {}) };
     }
     state.cameraReports = state.cameraReports.filter(r => r.crew !== crewId);
+    for (const r of state.negotiation.reports) r.seen = r.seen.filter(s => s.crew !== crewId);
 }
 
 // ---------------------------------------------------------------------------------------------------------- NPCs

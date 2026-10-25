@@ -14,6 +14,7 @@ import { isPresent } from './npc/walk';
 import { draggedBy } from './place';
 import { exitTile } from './police';
 import { alertNpc } from './suspicion';
+import { isDown } from './wounds';
 
 /*
  * Negotiation, release and trade (§10.7, §13.4). The police director (rules/police.ts) runs the modes; this is the
@@ -27,12 +28,15 @@ import { alertNpc } from './suspicion';
  *     phone. The heat falls at once by `releaseRelief` (−3, capped at Heat 1, tick 0: what the offer shows), and the
  *     hostage gets up, no longer anyone's, and walks out the nearest way out (`wayOut`: the police control every exit
  *     once they are on scene), its path the intent the crew phase shows; it leaves the map there (a `released` lapse,
- *     npc/intent.ts). At most one release a turn and three a heist (`RELEASES_PER_HEIST`, decision Q17's hard cap,
- *     `releaseBlocked`). A hostage walking out ignores commands (rules/command.ts) and still counts as a hostage if
- *     killed (+5, rules/heat.ts), but never as one escaping (+1).
+ *     npc/intent.ts; wounded, it crawls). At most one release a turn and three a heist (`RELEASES_PER_HEIST`, decision
+ *     Q17's hard cap, `releaseBlocked`). A hostage walking out can't be taken again: it ignores commands
+ *     (rules/command.ts) and can't be knocked out (so nor tied, rules/actions/knockout.ts); it still counts as a
+ *     hostage if killed (+5, rules/heat.ts), but never as one escaping (+1).
  *   - **Trade** a hostage for a crew member in police custody (`npc`, `member`): the hostage walks out as for a
  *     release, without the heat (the hostage buys the crew member, not time), and the crew member is handed back at
- *     that way out (the free tile nearest it, as police get out of a car) as the next crew phase begins. A trade isn't
+ *     that way out (the free tile nearest it, as police get out of a car) as the crew phase after the hostage reaches
+ *     the police begins (§10.7 "release a hostage to get back"). A hostage killed or downed on the way calls it off
+ *     (`tradeOff`): the member stays in custody, to be traded for again. A trade isn't
  *     a release: it counts toward neither cap. Custody is M3-03's `State.custody` (rules/wounds.ts `arrestCrew`): the
  *     member stays in it, off the map, until handed back as they were taken (a downed one still down, its bleed-out
  *     clock having stood while it was away).
@@ -59,8 +63,8 @@ export interface NegotiationState {
     answered: number | null;
     /** Whether Stall was used (once a heist). */
     stalled: boolean;
-    /** Trades made: who comes back from `State.custody`, where and on which turn's crew phase. */
-    returns: { crew: string; at: Pos; turn: number }[];
+    /** Trades made: who comes back from `State.custody` once the hostage `npc` has reached the police, and where. */
+    returns: { crew: string; npc: string; at: Pos }[];
     /** What released hostages told the police as they reached them. */
     reports: PoliceReport[];
 }
@@ -83,7 +87,9 @@ declare module '../core/types' {
         /** Negotiate runs `by` world phases longer, `left` now. */
         stalled: { by: number; left: number };
         /** A released hostage reached the police and told them what it saw. */
-        policeTold: { npc: string; crew: string[] };
+        policeTold: { npc: string };
+        /** A trade fell through: its hostage won't reach the police (killed, or down on the way), so the member stays in custody. */
+        tradeOff: { crew: string; npc: string };
         /** A crew member traded back from custody, at `at`. */
         crewReturned: { crew: string; at: Pos };
     }
@@ -180,7 +186,7 @@ registerAction('negotiate', {
             const relief = trade ? 0 : releaseHeat(ctx);
             const exit = letGo(ctx, member, cmd.npc!, relief, trade);
             if (trade) {
-                state.negotiation.returns.push({ crew: cmd.member!, at: exit, turn: state.turn + 1 });
+                state.negotiation.returns.push({ crew: cmd.member!, npc: cmd.npc!, at: exit });
             }
         }
     }
@@ -213,22 +219,31 @@ registerWorldHook('passiveNpcs', 'negotiation.told', ctx => {
         if (npc.lapse?.kind !== 'released' || isPresent(npc) || state.negotiation.reports.some(r => r.npc === npc.id)) continue;
         const seen = sortedIds(npc.lastSeen).map(crew => ({ crew, tile: { ...npc.lastSeen[crew]!.tile }, turn: npc.lastSeen[crew]!.turn }));
         state.negotiation.reports.push({ npc: npc.id, turn: state.turn, seen });
-        ctx.emit({ type: 'policeTold', npc: npc.id, crew: seen.map(s => s.crew) });
+        ctx.emit({ type: 'policeTold', npc: npc.id });
     }
 }, { order: 7 });
 
 // As a crew phase begins: crew traded back are handed over at their way out, and the negotiator calls.
 registerWorldHook('crewPhase', 'negotiation.call', ctx => {
     const { world, state } = ctx;
-    for (const r of state.negotiation.returns.filter(x => x.turn <= state.turn)) {
+    for (const r of [...state.negotiation.returns]) {
+        const npc = state.npcs.find(n => n.id === r.npc);
+        const out = !!npc && npc.lapse?.kind === 'released' && !isPresent(npc);
+        // Still walking out (up, its lapse its own): the handover waits for it.
+        if (npc && npc.lapse?.kind === 'released' && !out && npc.status !== 'dead' && npc.status !== 'unconscious') continue;
         state.negotiation.returns.splice(state.negotiation.returns.indexOf(r), 1);
+        if (!out) {
+            ctx.emit({ type: 'tradeOff', crew: r.crew, npc: r.npc });
+            continue;
+        }
         const held = state.custody.find(c => c.crew.id === r.crew);
         if (!held) continue;
         state.custody.splice(state.custody.indexOf(held), 1);
         const member = held.crew;
         // On the free tile nearest the way out; with none free near it, on the way out itself.
         member.pos = exitTile(world, state, r.at) ?? { x: r.at.x, y: r.at.y };
-        member.actionsLeft = world.rules.actionsPerTurn;
+        // Their actions as the crew phase gives them (rules/wounds.ts): none while down.
+        member.actionsLeft = isDown(member) ? 0 : world.rules.actionsPerTurn;
         state.crew.push(member);
         ctx.emit({ type: 'crewReturned', crew: member.id, at: { ...member.pos } });
     }
@@ -241,5 +256,6 @@ registerEvents({
     hostageReleased: { undoBlocking: true },
     stalled: { undoBlocking: true },
     policeTold: { undoBlocking: true },
+    tradeOff: { undoBlocking: true },
     crewReturned: { undoBlocking: true }
 });

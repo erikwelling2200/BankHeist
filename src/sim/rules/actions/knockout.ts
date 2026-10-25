@@ -69,6 +69,8 @@ export function knockoutIneligible(npc: DeepReadonly<NpcState>): string | undefi
     // Face down and doing as they are told: there is nothing to knock out (and nothing to give back when they wake).
     if (npc.status === 'tied') return 'They are tied up already';
     if (npc.status === 'commanded') return 'They are already on the floor';
+    // Let go under a deal with the police (rules/negotiation.ts): it walks out unharmed or the deal means nothing.
+    if (npc.lapse?.kind === 'released') return 'They were let go: they walk out under the deal';
     if (npc.status === 'hostile' && ![...WINDOWS.keys()].sort().some(k => WINDOWS.get(k)!(npc))) return 'They are hostile and ready for it';
     return undefined;
 }

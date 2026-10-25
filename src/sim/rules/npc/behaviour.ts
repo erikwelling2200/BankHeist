@@ -247,11 +247,12 @@ export function behaviourGoal(world: ReadonlyWorld, state: State, npc: DeepReado
     // A runner who got out (rules/command.ts) doesn't come back.
     if ((npc.lapse?.kind === 'flee' || npc.lapse?.kind === 'released') && !isPresent(npc)) return { kind: 'away' };
     if (!isPresent(npc)) return null;
+    // Let go (rules/negotiation.ts): it walks out its way out, crawling when wounded (npc/intent.ts), and leaves there.
+    if (npc.lapse?.kind === 'released') return { kind: 'walkOut', tile: { x: npc.lapse.exit.x, y: npc.lapse.exit.y } };
     // Wounded (§11.12): it crawls for a way out, whatever it wanted or was running for; a Hostile one fights on (M3-05, M3-06).
     if (npc.status !== 'hostile' && isWounded(world, npc)) return { kind: 'crawl' };
     // A lapsed command's intent (§10.5) comes before anything it wants: it was rolled and shown.
     if (npc.lapse?.kind === 'flee') return { kind: 'flee', tile: { x: npc.lapse.exit.x, y: npc.lapse.exit.y } };
-    if (npc.lapse?.kind === 'released') return { kind: 'walkOut', tile: { x: npc.lapse.exit.x, y: npc.lapse.exit.y } };
     if (npc.lapse?.kind === 'reach') return { kind: 'reach', crew: npc.lapse.crew };
     if (npc.lapse?.kind === 'phone') return { kind: 'phone', crew: npc.lapse.crew };
     // Panic (§10.8) comes before anything it wants: frozen, then what it picked, shown as it was picked.

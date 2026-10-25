@@ -46,6 +46,8 @@ function negotiating(heat = 7, mode: 'negotiate' | 'contain' = 'negotiate'): { w
     for (const n of s.npcs) n.status = 'tied';
     // Dex arrested (rules/wounds.ts `arrestCrew`): off the map, in a police van.
     const dex = s.crew.splice(s.crew.findIndex(c => c.id === 'dex'), 1)[0]!;
+    dex.wounds = { ...dex.wounds, hp: 0, downed: { left: 2, turn: s.turn - 1, phase: 'world' } };
+    dex.actionsLeft = 0;
     s.custody = [{ crew: dex, by: 'negotiator', turn: s.turn - 1 }];
     return { world, state: s };
 }
@@ -176,23 +178,78 @@ describe('a release', () => {
 });
 
 describe('a trade', () => {
-    it('lets the hostage walk out without heat and hands the crew member back at its way out next crew phase', () => {
+    /** Plays world phases until `done` holds (at most 6), gathering the events. */
+    const until = (world: ReadonlyWorld, state: State, done: (s: State) => boolean) => {
+        const all: SimEvent[] = [];
+        for (let i = 0; i < 6 && !done(state); i++) {
+            const r = run(world, state, endTurn);
+            all.push(...r.events);
+            state = r.state;
+        }
+        return { state, events: all };
+    };
+    const trade = { type: 'negotiate', crew: 'jun', offer: 'trade', npc: 'customer', member: 'dex' } as const;
+
+    it('lets the hostage walk out without heat and hands the crew member back at its way out once it is out', () => {
         const { world, state } = negotiating();
-        const { state: traded, events } = run(world, state, { type: 'negotiate', crew: 'jun', offer: 'trade', npc: 'customer', member: 'dex' });
+        const { state: traded, events } = run(world, state, trade);
         expect(traded.response!.heat).toBe(7);
         expect(traded.heat.releases).toEqual([]);
-        // Still in the van until handed over, but traded for.
+        // Still in the van until the hostage is out, but traded for.
         expect(traded.custody.map(c => c.crew.id)).toEqual(['dex']);
         expect(tradeable(traded)).toEqual([]);
         expect(of(events, 'hostageReleased')).toEqual([{ type: 'hostageReleased', npc: 'customer', crew: 'jun', exit: P(0, 5), relief: 0, trade: true }]);
-        const next = run(world, traded, endTurn);
-        const dex = next.state.crew.find(c => c.id === 'dex')!;
-        expect(of(next.events, 'crewReturned')).toEqual([{ type: 'crewReturned', crew: 'dex', at: dex.pos }]);
+        const back = until(world, traded, s => s.crew.some(c => c.id === 'dex'));
+        const out = back.events.findIndex(e => e.type === 'npcLeft' && e.npc === 'customer'), returned = back.events.findIndex(e => e.type === 'crewReturned');
+        expect(out).toBeGreaterThanOrEqual(0);
+        expect(returned).toBeGreaterThan(out);
+        const dex = back.state.crew.find(c => c.id === 'dex')!;
+        expect(back.events[returned]).toEqual({ type: 'crewReturned', crew: 'dex', at: dex.pos });
         expect(Math.max(Math.abs(dex.pos.x - 0), Math.abs(dex.pos.y - 5))).toBeLessThanOrEqual(1);
-        expect(next.state.negotiation.returns).toEqual([]);
-        expect(next.state.custody).toEqual([]);
-        expect(dex.actionsLeft).toBe(2);
-        expect(whyNot(world, next.state, { type: 'negotiate', crew: 'jun', offer: 'trade', npc: 'teller', member: 'dex' })).toBe('Nobody of the crew is in custody to trade for');
+        expect(back.state.negotiation.returns).toEqual([]);
+        expect(back.state.custody).toEqual([]);
+        // Taken down, handed back down: no actions.
+        expect(dex.actionsLeft).toBe(0);
+        expect(whyNot(world, back.state, { type: 'negotiate', crew: 'jun', offer: 'trade', npc: 'teller', member: 'dex' })).toBe('Nobody of the crew is in custody to trade for');
+    });
+
+    it('can\'t be undone by taking the hostage again, and falls through if it never gets out', () => {
+        const { world, state } = negotiating();
+        const traded = run(world, state, trade).state;
+        // Next to the hostage walking out: no knockout (so no tying), and commands are ignored.
+        const beside = clonePlain(traded);
+        beside.crew[0]!.pos = P(3, 1);
+        expect(whyNot(world, beside, { type: 'knockout', crew: 'jun', npc: 'customer' })).toBe('They were let go: they walk out under the deal');
+        expect(whyNot(world, beside, { type: 'zipTie', crew: 'jun', npc: 'customer' })).toBeDefined();
+        // Killed on the way: the trade is off and Dex can be traded for again.
+        const killed = run(world, traded, testCommand({ type: 'testKill', npc: 'customer' } as never)).state;
+        const next = run(world, killed, endTurn);
+        expect(of(next.events, 'tradeOff')).toEqual([{ type: 'tradeOff', crew: 'dex', npc: 'customer' }]);
+        expect(of(next.events, 'crewReturned')).toEqual([]);
+        expect(next.state.custody.map(c => c.crew.id)).toEqual(['dex']);
+        expect(tradeable(next.state)).toEqual(['dex']);
+    });
+
+    it('a release can\'t be taken back either', () => {
+        const { world, state } = negotiating();
+        const freed = run(world, state, release('teller')).state;
+        const beside = clonePlain(freed);
+        beside.crew[0]!.pos = P(7, 1);
+        expect(whyNot(world, beside, { type: 'knockout', crew: 'jun', npc: 'teller' })).toBe('They were let go: they walk out under the deal');
+        expect(whyNot(world, beside, { type: 'zipTie', crew: 'jun', npc: 'teller' })).toBeDefined();
+    });
+
+    it('a wounded hostage let go crawls out and leaves, and tells', () => {
+        const { world, state } = negotiating();
+        const hurt = clonePlain(state);
+        npcOf(hurt, 'customer').hp = 1;
+        const freed = run(world, hurt, { ...release('customer') }).state;
+        const walk = npcOf(freed, 'customer').intent.path;
+        expect(walk.length).toBe(1);
+        const out = until(world, freed, s => npcOf(s, 'customer').status === 'away');
+        expect(npcOf(out.state, 'customer').status).toBe('away');
+        expect(out.state.negotiation.reports.map(r => r.npc)).toEqual(['customer']);
+        expect(of(out.events, 'policeTold')).toEqual([{ type: 'policeTold', npc: 'customer' }]);
     });
 });
 

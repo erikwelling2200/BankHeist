@@ -78,7 +78,7 @@ describe('saving', () => {
  * NpcStatusMap, CarrierKindMap or adds a field must also fill it in below, or a change of shape goes unnoticed.
  */
 const SHAPE_HASHES: Record<number, string> = {
-    1: '22fa8e73cbd0f193'
+    1: 'dafd28410c209e29'
 };
 
 /** Paths whose objects are records by id, not structs. */
@@ -206,7 +206,7 @@ describe('the save format', () => {
             mode: { kind: 'negotiate', left: 2, since: { turn: 4, phase: 'world' }, after: 'contain' }, sent: 2, refills: 0, secured: ['cash']
         };
         full.negotiation = {
-            answered: 4, stalled: true, returns: [{ crew: 'jun', at: { x: 0, y: 2 }, turn: 5 }],
+            answered: 4, stalled: true, returns: [{ crew: 'jun', npc: 'teller', at: { x: 0, y: 2 } }],
             reports: [{ npc: 'teller', turn: 4, seen: [{ crew: 'jun', tile: { x: 1, y: 1 }, turn: 3 }] }]
         };
         full.radio = { calls: { guard: { next: 6, missed: 1, ringing: 4 } }, answers: 1, silentSince: 2, driveBy: 12, heard: 5 };

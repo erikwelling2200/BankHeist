@@ -1049,11 +1049,11 @@ M2 is complete: every package below has landed.
       data/police.ts; `exitTile` exported from rules/police.ts. heat.ts: a hostage walking out killed is a hostage
       killed (+5), reaching the police no escape (+1). command.ts: a hostage walking out ignores commands.
     - **State:** `State.negotiation` (answered, stalled, returns, reports); `Lapse` gains `released`. Save
-      shape hash `22fa8e73cbd0f193`.
+      shape hash `dafd28410c209e29`.
     - **Session:** the action grid offers Release ("Release (-3 heat)", the tapped hostage else the first the crew holds
       and knows of), Trade, Stall ("+2 turns") and Hang up while the negotiator calls; the recap names the new events.
-    - **Deferred:** the negotiator dialog (M3-09); phones as props (decision 130); the police using the reports (M3-05); a released hostage knocked
-      out or zip-tied on its way out stays the crew's again (bounded by the cap; revisit with M3-05's freeing).
+    - **Deferred:** the negotiator dialog (M3-09); phones as props (decision 130); the police using the reports (M3-05); the police freeing or
+      taking a hostage walking out (M3-05).
     - **Tests:** `tests/sim/negotiation.test.ts` (the call, Stall, release with its capped relief and the heist cap, a
       hostage led along, walking out and telling, ignoring commands, a kill on the way out, trade and return, the action
       grid; each command checked against its preview).
@@ -1866,14 +1866,16 @@ Later milestones: within each milestone, the `∥` notes in §3 apply. UI packag
     the hostage gets up, no longer led or held, and walks (4 tiles a phase) to the nearest way out, its path the intent,
     and leaves there. Once police are on scene they control every exit. The hard cap stands (Q17): one a turn (one
     answer a turn anyway), three a heist; a release past the cap isn't offered at all.
-132. **On the way out (M3-07).** A hostage walking out ignores commands, still counts as a hostage if killed (+5), and
+132. **On the way out (M3-07).** A hostage walking out can't be taken again: it ignores commands and can't be knocked
+    out (so nor tied). Wounded, it crawls out and still leaves. It still counts as a hostage if killed (+5), and
     reaching the police is no escape (+1). As it leaves the map it tells the police each crew member it saw, where and
     when it last saw them (`reports`, for M3-05).
 133. **Trade (M3-07, §10.7).** A hostage for a crew member in custody: the hostage walks out as for a release but takes
-    no heat off and counts toward neither cap (it buys the crew member, not time); the member is handed back on the free
-    tile nearest that way out as the next crew phase begins, whatever happens to the hostage meanwhile. Until then they
-    stay in `State.custody`, off the map; they come back as they were taken (a downed one still down, its bleed-out
-    clock having stood), with their actions. A wounded hostage walking out crawls.
+    no heat off and counts toward neither cap (it buys the crew member, not time). The member is handed back on the free
+    tile nearest that way out as the crew phase after the hostage reaches the police begins ("release a hostage to get
+    back"); until then they stay in `State.custody`, off the map. A hostage killed or downed on the way calls it off
+    (`tradeOff`): the member stays in custody and can be traded for again. They come back as they were taken: a downed
+    one still down (its bleed-out clock stood while away), with no actions.
 134. **Stall and Hang up (M3-07, §13.4).** Stall adds 2 world phases to Negotiate's count, once a heist; Hang up only
     spends the action. An unanswered call has no consequence.
 140. **Hit points (M3-03, §7.1, §12.3).** Crew 8 (`rules.crewHp`); NPCs by role (`NPC_HP`: guards and couriers 5, the
