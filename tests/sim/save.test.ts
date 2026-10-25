@@ -78,7 +78,7 @@ describe('saving', () => {
  * NpcStatusMap, CarrierKindMap or adds a field must also fill it in below, or a change of shape goes unnoticed.
  */
 const SHAPE_HASHES: Record<number, string> = {
-    1: 'bfa5f33d8bd98f36'
+    1: '008c440d6127791e'
 };
 
 /** Paths whose objects are records by id, not structs. */
@@ -172,6 +172,7 @@ describe('the save format', () => {
         };
         full.npcs[0]!.ammo = { weapon: 'pistol', loaded: 12, spare: 2 };
         full.npcs[0]!.suppressed = { turn: 2, by: 'jun', from: { x: 1, y: 1 }, reacted: false };
+        full.npcs[0]!.dazed = 3;
         full.grenades = [{ id: 'smoke-5', kind: 'smoke', by: 'jun', at: { x: 1, y: 1 }, turn: 2 }];
         full.smoke = [{ id: 'smoke-4', at: { x: 1, y: 1 }, tiles: [{ x: 1, y: 1 }], until: 3 }];
         full.flipped = [{ at: { x: 1, y: 1 }, side: 'w' }];

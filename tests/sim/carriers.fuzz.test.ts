@@ -3,7 +3,7 @@ import { Rng } from '../../src/gen/rng';
 import { archetypesFor } from '../../src/gen/generate';
 import { cachedBank } from '../bankCache';
 import { PLOTS, TIERS } from '../../src/gen/model';
-import { COMBAT_COMMANDS,
+import { COMBAT_COMMANDS, PICTURED_COMMANDS,
     carriersStarted, clonePlain, commit, crewBudget, crewMoveOptions, deserialiseState, driveByDue, hashOf, initialState, isKnownNow, legalActions,
     pendingCarriers, preview, projectCarriers, projectEvents, serialiseState, tileAt, validatePath, worldFromBank,
     type Command, type Pos, type ReadonlyWorld, type State
@@ -127,7 +127,9 @@ describe('M1-08 fuzz on generated banks', () => {
                     const member = rng.pick(state.crew);
                     if (member.actionsLeft < 1) continue;
                     if (rng.chance(0.4)) {
-                        const opts = legalActions(world, state, member.id).filter(c => c.type !== 'wait' && !COMBAT_COMMANDS.has(c.type));
+                        // The combat commands that play here (swap, reload, Watch, a strike, a flip…) now and then, so the stealth ones keep their share.
+                        const armed = rng.chance(0.15);
+                        const opts = legalActions(world, state, member.id).filter(c => c.type !== 'wait' && !PICTURED_COMMANDS.has(c.type) && (armed || !COMBAT_COMMANDS.has(c.type)));
                         if (!opts.length) continue;
                         const kinds = [...new Set(opts.map(c => c.type))];
                         const kind = rng.pick(kinds);

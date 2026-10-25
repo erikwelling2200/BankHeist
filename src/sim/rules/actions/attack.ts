@@ -70,6 +70,11 @@ declare module '../../core/types' {
     interface NpcState {
         /** Suppressed (§11.9) by `by` from `from` for the world phase of `turn`; `reacted` once its reaction shot is spent. */
         suppressed: { turn: number; by: string; from: Pos; reacted: boolean } | null;
+        /**
+         * Reeling from a flashbang (decision 103): the turn through whose crew phase it can still be knocked out though
+         * Hostile, or null. Surprised lasts only the world phase the flashbang went off in; this is the crew's chance.
+         */
+        dazed: number | null;
     }
     interface EventMap {
         /** A crew member fired (the bullets are `shotFired`'s). */
@@ -85,13 +90,17 @@ declare module '../../core/types' {
     }
 }
 
-/**
- * The combat package's commands (M3-02). The stealth property tests' random players leave them out (they go loud and
- * stop their previews at the dice); tests/sim/combat.property.test.ts plays them.
- */
+/** The combat package's commands (M3-02): tests/sim/combat.property.test.ts plays them all. */
 export const COMBAT_COMMANDS: ReadonlySet<string> = new Set([
     'attack', 'strike', 'watch', 'suppress', 'throwGrenade', 'flipTable', 'swap', 'reload', 'scavenge', 'handMag', 'brace'
 ]);
+
+/**
+ * The combat commands the stealth property tests' random players leave out (decision 108): those whose preview stops
+ * at the bullets (an attack, the taser's included, and Suppress), and grenades, whose fuse changes the world phase after
+ * them outside what the safe floor judges (decision 101). Everything else plays there.
+ */
+export const PICTURED_COMMANDS: ReadonlySet<string> = new Set(['attack', 'suppress', 'throwGrenade']);
 
 // ---------------------------------------------------------------------------------------------------------- Wedges
 
@@ -202,7 +211,8 @@ function loose(ctx: Ctx, member: CrewState): ShotTrace {
         }
         const npc = state.npcs.find(n => n.id === hit.id);
         // A dart in a crew member does nothing to the rules yet (M3-03); one in someone already down is spent.
-        if (!npc || npc.status === 'unconscious' || npc.status === 'dead' || ABSENT_STATUSES.has(npc.status)) continue;
+        // Nor in someone face down or tied: nothing to knock out, as with a knockout by hand (and it would untie them).
+        if (!npc || npc.status === 'unconscious' || npc.status === 'dead' || npc.status === 'tied' || npc.status === 'commanded' || ABSENT_STATUSES.has(npc.status)) continue;
         const stopped = armourOf(world, state, npc.id) >= TASER_STOPPED_BY;
         ctx.emit({ type: 'tased', crew: member.id, npc: npc.id, stopped });
         if (!stopped) knockOut(ctx, npc, member.id);
@@ -394,7 +404,13 @@ registerAction('suppress', {
 
 registerNpcInit('attack', (_world, _person, npc) => {
     npc.suppressed = null;
+    npc.dazed = null;
 });
+
+// Dazed by a flashbang (decision 103): still reeling through the crew phase after the world phase it lost.
+registerWorldHook('fuses', 'attack.dazedEnds', (ctx, phase) => {
+    for (const npc of ctx.state.npcs) if (npc.dazed !== null && npc.dazed <= phase.turn) npc.dazed = null;
+}, { order: -10 });
 
 // Suppressed for one world phase (§11.9): over before the next intents are committed.
 registerWorldHook('commitIntents', 'attack.suppressionEnds', (ctx, phase) => {
@@ -403,6 +419,7 @@ registerWorldHook('commitIntents', 'attack.suppressionEnds', (ctx, phase) => {
 
 registerKnockoutWindow('surprised', npc => npc.surprised !== null);
 registerKnockoutWindow('suppressed', npc => npc.suppressed !== null);
+registerKnockoutWindow('dazed', npc => npc.dazed !== null);
 
 // ---------------------------------------------------------------------------------------------------------- Reactions
 
@@ -449,8 +466,9 @@ function reactions(ctx: Ctx, phase: WorldPhase): void {
         if (typeof fire === 'string') continue;
         const origin = watch.lean ?? member.pos, range = weaponDef(fire.gun.load).range, sight = sightMap(world, state);
         const threat = crewThreat(member);
-        // A runner inside the Threat radius is shouted down, not shot (§11.8).
-        for (const npc of state.npcs) {
+        // A runner inside the Threat radius is shouted down, not shot (§11.8): once the bank is loud, when the shout costs
+        // nothing more than the guns already did (decision 100). In a quiet bank a Watch shouts no one down.
+        for (const npc of state.bank.loud ? state.npcs : []) {
             if (phase.intents[npc.id]?.action?.kind !== 'flee' || !upright(npc) || npc.status === 'hostile') continue;
             const through = walkedTiles(npc, phase).some(p => {
                 const dx = p.x - member.pos.x, dy = p.y - member.pos.y;
@@ -462,20 +480,30 @@ function reactions(ctx: Ctx, phase: WorldPhase): void {
         }
         watchReactNow(ctx, member, sight, npc => movedOrActed(npc, phase));
     }
-    for (const npc of state.npcs) {
-        const s = npc.suppressed;
-        if (!s || s.reacted || s.turn !== phase.turn || samePos(s.from, npc.pos) || !upright(npc)) continue;
-        const member = state.crew.find(c => c.id === s.by);
-        if (!member) continue;
-        // Leaving cover: it had half cover against the suppressor where it was suppressed (§11.9).
-        const map = shotMap(world, state), fabric = shotFabric(world, state, map, state.cover);
-        const had = coverAgainst(map, fabric, { id: npc.id, pos: s.from, standing: true, shield: false, armour: 0, precise: false }, member.leaning?.at ?? member.pos);
-        if (!had) continue;
-        const plan = reactionPlan(world, state, member, npc, () => 1, 1, member.leaning?.at ?? null);
-        if (!plan) continue;
-        s.reacted = true;
-        fireNow(ctx, member, plan, 'reaction');
-    }
+    for (const npc of state.npcs) suppressReact(ctx, phase, npc.id);
+}
+
+/**
+ * A Suppressed NPC leaving its cover (§11.9, decision 105): if `npcId` has walked off the tile it was suppressed on,
+ * where it had half cover against its suppressor, the suppressor fires its one free bullet at it, once. The passive
+ * step asks it of every NPC; but Suppressed NPCs are Hostile, and Hostile NPCs act one at a time (M3-05), which calls
+ * this as each one moves. Whether a shot was fired.
+ */
+export function suppressReact(ctx: Ctx, phase: WorldPhase, npcId: string): boolean {
+    const { world, state } = ctx, npc = state.npcs.find(n => n.id === npcId);
+    const s = npc?.suppressed;
+    if (!npc || !s || s.reacted || s.turn !== phase.turn || samePos(s.from, npc.pos) || !upright(npc)) return false;
+    const member = state.crew.find(c => c.id === s.by);
+    if (!member) return false;
+    // Leaving cover: it had half cover against the suppressor where it was suppressed (§11.9).
+    const map = shotMap(world, state), fabric = shotFabric(world, state, map, state.cover);
+    const had = coverAgainst(map, fabric, { id: npc.id, pos: s.from, standing: true, shield: false, armour: 0, precise: false }, member.leaning?.at ?? member.pos);
+    if (!had) return false;
+    const plan = reactionPlan(world, state, member, npc, () => 1, 1, member.leaning?.at ?? null);
+    if (!plan) return false;
+    s.reacted = true;
+    fireNow(ctx, member, plan, 'reaction');
+    return true;
 }
 
 /** A Watch wedge's volley at the first Hostile in it that `stirred` says moved or acted; ends the Watch when it fires. */

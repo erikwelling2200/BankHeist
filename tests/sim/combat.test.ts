@@ -191,6 +191,11 @@ describe('ammunition and weapons', () => {
         expect(whyNot(world, took.state, { type: 'scavenge', crew: 'jun', npc: 'guard', take: 'weapon' })).toMatch(/gone/);
         const mags = commit(world, took.state, { type: 'scavenge', crew: 'mara', npc: 'guard', take: 'ammo' });
         expect(mags.state.crew[1]!.arms.guns.pistol!.spare).toBe(5);
+        // A hidden weapon isn't the crew's to see: the same answer as no weapon at all, until a frisk finds it.
+        const cop = setup(OPEN, { items: [], people: [person('cop', P(1, 1), 'customer', 'civilian', { armed: 'hidden' }), person('cust', P(1, 0))], status: { cop: 'unconscious', cust: 'unconscious' } });
+        for (const take of ['weapon', 'ammo'] as const) {
+            expect(whyNot(cop.world, cop.state, { type: 'scavenge', crew: 'jun', npc: 'cop', take })).toBe(whyNot(cop.world, cop.state, { type: 'scavenge', crew: 'jun', npc: 'cust', take }));
+        }
         const up = clonePlain(state);
         npc(up, 'guard').status = 'calm';
         expect(whyNot(world, up, { type: 'scavenge', crew: 'jun', npc: 'guard', take: 'weapon' })).toMatch(/someone down/);
@@ -247,6 +252,9 @@ describe('Watch', () => {
         runner.status = 'alerted';
         runner.lapse = { kind: 'flee', exit: P(3, 0) };
         runner.intent = { path: [P(3, 2), P(3, 1)], action: { kind: 'flee', exit: P(3, 0) } };
+        // In a quiet bank a Watch shouts no one down: that would be a free, silent command.
+        expect(types(commit(world, set.state, { type: 'endTurn' }).events)).not.toContain('shoutedDown');
+        set.state.bank.loud = true;
         const r = commit(world, set.state, { type: 'endTurn' });
         expect(r.events.find(e => e.type === 'shoutedDown')).toEqual({ type: 'shoutedDown', crew: 'jun', npc: 'runner' });
         expect(npc(r.state, 'runner').status).toBe('commanded');
@@ -299,6 +307,16 @@ describe('grenades', () => {
         expect(npc(r.state, 'cust').status).toBe('commanded');
         expect(r.events.find(e => e.type === 'noise')).toMatchObject({ kind: 'loud', radius: 14 });
         expect(r.state.grenades).toEqual([]);
+        // Dazed: through the next crew phase a Hostile caught in it can be knocked out (decision 103).
+        const hostile = clonePlain(thrown.state);
+        npc(hostile, 'guard').status = 'hostile';
+        const after = commit(world, hostile, { type: 'endTurn' }).state;
+        after.crew[1]!.pos = P(4, 1);
+        expect(npc(after, 'guard')).toMatchObject({ surprised: null, dazed: 2 });
+        expect(whyNot(world, after, { type: 'knockout', crew: 'mara', npc: 'guard' })).toBeUndefined();
+        const later = commit(world, after, { type: 'endTurn' }).state;
+        later.crew[1]!.pos = P(4, 1);
+        expect(whyNot(world, later, { type: 'knockout', crew: 'mara', npc: 'guard' })).toMatch(/hostile/);
         // The last one takes the item off them.
         const second = commit(world, thrown.state, { type: 'throwGrenade', crew: 'jun', item: 'flashbang', to: P(4, 3) }).state;
         expect(jun(second).loadout.items).not.toContain('flashbang');
@@ -310,7 +328,7 @@ describe('grenades', () => {
     it('fill the tiles a smoke grenade reaches, blocking sight for 3 world phases', () => {
         const { world, state } = setup(['..........', '..........', '..........'], { items: ['smoke'], people: [person('guard', P(9, 1), 'lobbyGuard', 'enforcer')] });
         expect(hasLineOfSight(world, state, P(0, 1), P(9, 1))).toBe(true);
-        state.bank.alarm = true;
+        state.bank.loud = true;
         let s = commit(world, state, { type: 'throwGrenade', crew: 'jun', item: 'smoke', to: P(4, 1) }).state;
         s = commit(world, s, { type: 'endTurn' }).state;
         expect(s.smoke).toHaveLength(1);
@@ -345,5 +363,8 @@ describe('flipping a table', () => {
         expect(r.events.find(e => e.type === 'suspicionRaised')).toMatchObject({ npc: 'teller', crew: 'jun', added: 2 });
         expect(whyNot(world, r.state, { type: 'flipTable', crew: 'jun', at: P(1, 1) })).toMatch(/flipped already/);
         expect(whyNot(world, state, { type: 'flipTable', crew: 'jun', at: P(2, 2) })).toMatch(/no table/);
+        // A desk that is cover standing isn't flipped into worse, one-sided cover.
+        const desk: ReadonlyWorld = { ...world, tiles: world.tiles.map((t, i) => (i === 2 * world.width + 1 ? { ...t, blocksMove: true, halfCover: true, coverHp: 6, flipHp: 6 } : t)) };
+        expect(whyNot(desk, state, { type: 'flipTable', crew: 'jun', at: P(1, 2) })).toMatch(/cover already/);
     });
 });

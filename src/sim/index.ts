@@ -208,7 +208,7 @@ export {
 } from './rules/arms';
 export { dealHarm, harmHandlers, registerHarmHandler, type Harm, type HarmHandler } from './rules/damage';
 export {
-    attackPlan, COMBAT_COMMANDS, inWedge, strikeBlocked, suppressPlan, suppressTargets, targetsInRange, watchBlocked, watchReact, type AttackPlan
+    attackPlan, COMBAT_COMMANDS, inWedge, PICTURED_COMMANDS, strikeBlocked, suppressPlan, suppressReact, suppressTargets, targetsInRange, watchBlocked, watchReact, type AttackPlan
 } from './rules/actions/attack';
 export { blastTiles, flipBlocked, grenadeTargets, throwBlocked, type Grenade } from './rules/actions/throwables';
 export { type SmokeCloud } from './geo/los';

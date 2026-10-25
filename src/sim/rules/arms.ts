@@ -255,7 +255,8 @@ export function scavengeBlocked(world: ReadonlyWorld, state: State, member: Deep
     const npc = state.npcs.find(n => n.id === npcId);
     if (!npc) return `No one called '${npcId}'`;
     if (!SEARCHABLE.has(npc.status) || npc.stashed !== null || state.crew.some(c => c.dragging === npcId)) return 'Only someone down can be searched';
-    if (!npc.ammo) return 'They carry no weapon';
+    // A hidden weapon (an off-duty cop's) is no one's to see until a frisk finds it (§10.6): the same answer as none.
+    if (!npc.ammo || npc.armed === 'hidden') return 'They carry no weapon';
     if (!inReach(world, state, member.pos, npc.pos)) return `${member.name} can't reach them from here`;
     const item = npc.ammo.weapon;
     if (take === 'weapon') {

@@ -19,8 +19,8 @@ import { inReach, lacksActions, registerAction } from './act';
 /*
  * Grenades and improvised cover (GAME_DESIGN §11.4, §11.10, §12.2; implementation plan M3-02, decisions 101–104).
  *
- * - **Fused grenades** (`throwGrenade { crew, item, to }`): a flashbang or a smoke grenade, once the bank is Loud or
- *   the Alarm is up (decision 101), 1 action, hands free, up to
+ * - **Fused grenades** (`throwGrenade { crew, item, to }`): a flashbang or a smoke grenade, once the bank is Loud
+ *   (decision 101), 1 action, hands free, up to
  *   6 tiles (Euclidean, decision 53) to a tile the thrower sees that isn't full height; the illegal act 'attack'. It
  *   **lands** at once, visibly, its radius drawn (`State.grenades`, `grenadeLanded`), and **goes off at the start of
  *   the next world phase** (the engine's `fuses` step, before the phase is frozen), so a crew grenade goes off before
@@ -92,7 +92,7 @@ export function throwBlocked(world: ReadonlyWorld, state: State, cmd: ThrowCmd, 
     if (!isThrowable(cmd.item)) return `'${cmd.item}' isn't thrown`;
     // Combat tools (decision 101): a grenade lying through a quiet crew phase would change the world phase after it outside
     // what the safe floor judges, and stealth's previews are whole (§8.8).
-    if (!state.bank.loud && !state.bank.alarm) return 'Grenades are for when the bank is loud';
+    if (!state.bank.loud) return 'Grenades are for when the bank is loud';
     if (!((member.arms.throwables[cmd.item] ?? 0) > 0)) return `${member.name} has no ${cmd.item} left`;
     if (member.dragging !== null || member.loadout.carrying !== null) return `${member.name}'s hands are full`;
     const dx = cmd.to.x - member.pos.x, dy = cmd.to.y - member.pos.y, range = THROWABLES[cmd.item].range;
@@ -162,6 +162,7 @@ function flash(ctx: Ctx, grenade: Grenade, tiles: readonly Pos[]): void {
     for (const npc of state.npcs) {
         if (ABSENT_STATUSES.has(npc.status) || npc.stashed !== null || isEyesDown(npc) || !inside.has(tileKey(bodyPos(state, npc)))) continue;
         npc.surprised = state.turn;
+        npc.dazed = state.turn + 1;
         npc.intent = { path: [] };
         npc.goal = { kind: 'still' };
         ctx.emit({ type: 'flashed', npc: npc.id, by: grenade.by });
@@ -207,6 +208,8 @@ export function flipBlocked(world: ReadonlyWorld, state: State, member: DeepRead
     if (member.dragging !== null || member.loadout.carrying !== null) return `${member.name}'s hands are full`;
     const tile = inBounds(world, at) ? tileAt(world, at) : undefined;
     if (tile?.flipHp === undefined) return 'There is no table there to flip';
+    // A table that is cover standing stays as it is: flipped, its cover would only face one way (decision 102).
+    if (tile.halfCover) return 'It is cover already';
     if (state.flipped.some(f => f.at.x === at.x && f.at.y === at.y)) return 'It is flipped already';
     return inReach(world, state, member.pos, at) ? undefined : `${member.name} can't reach it from here`;
 }
@@ -217,7 +220,7 @@ registerAction('flipTable', {
         const out: { type: 'flipTable'; crew: string; at: Pos }[] = [];
         for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
             const at = { x: member.pos.x + dx, y: member.pos.y + dy };
-            if ((dx || dy) && inBounds(world, at) && tileAt(world, at)!.flipHp !== undefined) out.push({ type: 'flipTable', crew: member.id, at });
+            if ((dx || dy) && inBounds(world, at) && tileAt(world, at)!.flipHp !== undefined && !tileAt(world, at)!.halfCover) out.push({ type: 'flipTable', crew: member.id, at });
         }
         return out;
     },

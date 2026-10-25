@@ -1179,7 +1179,9 @@ export class PlayMode {
         const bodies = this.session.state.crew.filter(c => c.dragging !== null).map(c => this.trailOf(c));
         // The floor is judged whenever someone is selected: their own tile (what ending the turn there does) shows even
         // with no actions left or the range stepped aside.
-        const judged = this.floor(member), floor = range ? judged : undefined, stay = this.floorFor?.stay;
+        // A grenade lying (decision 101) changes the world phase after it outside what the floor judges: no floor then.
+        const lying = this.session.state.grenades.length > 0;
+        const judged = this.floor(member), floor = range && !lying ? judged : undefined, stay = lying ? undefined : this.floorFor?.stay;
         // The cones shown: those of the observers reacting to them somewhere they could go (with a path, on it: below).
         const reactors = (path?: PathSafety) => ({ reactors: reactingObservers(this.floorFor?.job, path) });
         const base = {
