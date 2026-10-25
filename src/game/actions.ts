@@ -1,5 +1,5 @@
 import {
-    besideDoor, COMBAT_COMMANDS, crewPicture, doorStatus, DRAGGABLE, draggedBy, goBlocked, HACKING_KIT, inHands, inReach, interactionVerbs, isKnownNow, JAMMER, legalActions, LOCKPICK, lockActions, LOOP_FROM, lootWeight,
+    besideDoor, COMBAT_COMMANDS, crewPicture, withDoubtedShut, doorStatus, DRAGGABLE, draggedBy, goBlocked, HACKING_KIT, inHands, inReach, interactionVerbs, isKnownNow, JAMMER, legalActions, LOCKPICK, lockActions, LOOP_FROM, lootWeight,
     pocketed, reachesObject, STASH_KINDS, throwTargets, tieIneligible, tileVisibility, whyNot, type Command, type Pos, type ReadonlyWorld, type State
 } from '../sim';
 import type { HudIcon as HudIconName } from '../ui/hud/viewModels';
@@ -40,7 +40,8 @@ import type { HudIcon as HudIconName } from '../ui/hud/viewModels';
  *   full, Swap to another weapon carried, Take gun / Take mags off a downed NPC in reach; once the bank is loud also
  *   Strike someone in reach, Watch and Suppress toward the target, Brace, Flashbang and Smoke at it, Flip a table in
  *   reach and Hand a magazine to a teammate. In stealth they come after the takeover (a full grid drops them first);
- *   once loud, after Command and Hold (before Mask up and GO).
+ *   once loud, after Command and Hold (before Mask up and GO). Each only where the rules allow it with the doors the
+ *   crew can't vouch for shut, so no offer tells how such a door stands.
  */
 
 /** One entry of the grid: its id (stable while the target is), what it shows and the command it gives. */
@@ -284,7 +285,12 @@ function combatEntries(
     add: (id: string, label: string, icon: HudIconName, command: Command, on?: string) => void
 ): void {
     const member = state.crew.find(c => c.id === crewId)!, loud = state.bank.loud || state.bank.alarm;
-    const combat = legal.filter(c => COMBAT_COMMANDS.has(c.type));
+    // Offered only as the rules offer and allow them with every door the crew can't vouch for shut (decision 44): a
+    // target in sight through such a door, or a throw past it, would tell how the door really stands. Sight only grows
+    // as doors open, so each is allowed on the truth too (`legal` keeps the grid to `legalActions`).
+    const certain = withDoubtedShut(world, state);
+    const truth = new Set(legal.map(c => JSON.stringify(c)));
+    const combat = legalActions(world, certain, crewId).filter(c => COMBAT_COMMANDS.has(c.type) && truth.has(JSON.stringify(c)));
     const onTarget = <T extends Command>(type: T['type'], npcOf: (c: T) => string | undefined, keep: (c: T) => boolean = () => true): T | undefined => {
         const mine = combat.filter((c): c is T => c.type === type && keep(c as T));
         const known = mine.filter(c => {

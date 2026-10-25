@@ -967,13 +967,14 @@ M2 is complete: every package below has landed.
     - **Review fixes:** Watch shouts runners down only in a Loud bank; a flashbang's Hostile stays knockable through the
       next crew phase (`NpcState.dazed`); half-cover tables can't be flipped; a hidden weapon can't be scavenged before
       a frisk; grenades only once Loud and no safe floor while one lies; the random players keep the stealth-legal
-      combat commands; `suppressReact` for M3-05; the taser skips the face down and tied.
+      combat commands; `suppressReact` for M3-05; the taser skips the face down and tied; the grid offers combat
+      commands only as `legalActions` gives them with the doubted doors shut (decision 44), so no Fire or throw tells
+      how such a door stands (a two-worlds test in `tests/game/actions.test.ts`).
     - **Deferred:** what harm does (M3-03); NPCs firing, their Watch and what Suppressed does to them (M3-05, M3-06;
       `watchReact` is the hook for NPCs acting one at a time); police grenades and what they do to the crew (M3-06);
       the ammo bag, the SMG's suppressor and the noisemaker (M4); smoke in stealth (decision 101); stopping a
       shouted-down runner mid-run (decision 100); `watchReact` / `suppressReact` for NPCs acting one at a time (M3-05);
-      `movedOrActed` counting an intent action due later in the passive step; the throw preview's noise ring; the grid's
-      legality on the truth's line of sight (doubted doors).
+      `movedOrActed` counting an intent action due later in the passive step; the throw preview's noise ring.
 - [ ] **M3-03 Wounds, downed and arrested.**
   - **Covers:** §11.12.
   - **Work:** Hurt crew limp, aim worse, bleed and leave blood trails as evidence; bleeding out over 3 phases; revive and medkits; NPC death, crawling and screaming; arrest.

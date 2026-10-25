@@ -4,7 +4,7 @@ import { moveRange } from '../../src/game/movement';
 import type { UiState } from '../../src/game/session';
 import { actionsView, barkText, confirmView, crewCards, describeEvent, doorName } from '../../src/game/views';
 import {
-    commit, crewPicture, dashRefusal, fixtureWorld, initialState, preview, type Facing, type ObserverClass, type PersonDef, type Pos, type ReadonlyWorld, type SimEvent, type State,
+    clonePlain, commit, crewPicture, dashRefusal, doorDoubt, fixtureWorld, isKnownNow, whyNot, type FixtureOptions, initialState, preview, type Facing, type ObserverClass, type PersonDef, type Pos, type ReadonlyWorld, type SimEvent, type State,
     type WorldObject
 } from '../../src/sim';
 import { scouted } from '../sim/helpers';
@@ -52,6 +52,30 @@ describe('the action grid', () => {
         const ui: UiState = { selected: 'jun', camera: null, pendingCommand: null };
         expect(actionsView(world, loud, ui).find(a => a.id === 'swap')).toMatchObject({ cost: 0, enabled: true });
         expect(describeEvent(world, loud, { type: 'attacked', crew: 'jun', weapon: 'pistol', bullets: 2, at: P(6, 2), target: 'guard', mode: 'attack' })).toBe('jun fired at guard');
+    });
+
+    it("offers Fire and grenades the same whether a door the crew can't vouch for is open or shut (decision 44)", () => {
+        // A wall between x 20 and 21 with door d at y 1; Jun moved to (16, 1) after the door was last seen, so it is
+        // doubted; a customer the crew saw past it, at (23, 1).
+        const build = (status: 'open' | 'closed') => {
+            const walls: FixtureOptions['walls'] = [0, 1, 2].map(y => ({ between: [P(20, y), P(21, y)] as [Pos, Pos], ...(y === 1 ? { door: { id: 'd', start: status } } : {}) }));
+            const world = fixtureWorld(Array.from({ length: 3 }, () => '.'.repeat(26)), { walls, people: [person('cus', 'customer', 'civilian', P(23, 1), 'w')] });
+            const state = clonePlain(initialState(world, { seed: 1, crew: [{ id: 'jun', pos: P(6, 1), items: ['assaultRifle', 'flashbang'] }] }));
+            state.crew[0]!.pos = P(16, 1);
+            state.bank.loud = true;
+            // Seen there a moment ago: the crew knows where the customer is.
+            state.knowledge.npcs.cus = { at: P(23, 1), facing: 'w', turn: state.turn, live: true, routine: false, rota: false, watched: 1, watchedTurn: state.turn, tick: state.knowledge.phaseTick + 1 };
+            return { world, state };
+        };
+        const open = build('open'), shut = build('closed');
+        expect(doorDoubt(open.world, open.state)?.doors.has('d')).toBe(true);
+        expect(isKnownNow(open.world, open.state, 'cus')).toBe(true);
+        // The truth differs: through the open door the customer could be shot.
+        expect(whyNot(open.world, open.state, { type: 'attack', crew: 'jun', at: P(23, 1), target: 'cus' })).toBeUndefined();
+        const shown = [open, shut].map(({ world, state }) => actionMenu(world, state, 'jun', 'cus').map(e => [e.id, JSON.stringify(e.command), !e.reason]));
+        expect(shown[0]).toEqual(shown[1]);
+        expect(shown[0]!.some(([id]) => id === 'attack' || id === 'throw:flashbang')).toBe(false);
+        expect(menuIsLegal(open.world, open.state, 'jun', actionMenu(open.world, open.state, 'jun', 'cus'))).toBe(true);
     });
 
     it('offers what the sim allows where the crew member stands, for the tapped target', () => {
