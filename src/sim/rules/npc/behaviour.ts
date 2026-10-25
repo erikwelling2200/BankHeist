@@ -245,12 +245,12 @@ export function behaviourGoal(world: ReadonlyWorld, state: State, npc: DeepReado
     // A runner who got out (rules/command.ts) doesn't come back.
     if (npc.lapse?.kind === 'flee' && !isPresent(npc)) return { kind: 'away' };
     if (!isPresent(npc)) return null;
+    // Wounded (§11.12): it crawls for a way out, whatever it wanted or was running for; a Hostile one fights on (M3-05, M3-06).
+    if (npc.status !== 'hostile' && isWounded(world, npc)) return { kind: 'crawl' };
     // A lapsed command's intent (§10.5) comes before anything it wants: it was rolled and shown.
     if (npc.lapse?.kind === 'flee') return { kind: 'flee', tile: { x: npc.lapse.exit.x, y: npc.lapse.exit.y } };
     if (npc.lapse?.kind === 'reach') return { kind: 'reach', crew: npc.lapse.crew };
     if (npc.lapse?.kind === 'phone') return { kind: 'phone', crew: npc.lapse.crew };
-    // Wounded (§11.12): it crawls for a way out, whatever it wanted; a Hostile one fights on (M3-05, M3-06).
-    if (npc.status !== 'hostile' && isWounded(world, npc)) return { kind: 'crawl' };
     // Panic (§10.8) comes before anything it wants: frozen, then what it picked, shown as it was picked.
     if (npc.panic) return panicGoal(state, npc);
     const top = topWant(npc);
@@ -320,8 +320,9 @@ export const comingPhase = (state: State): number => (state.phase === 'world' ? 
 /** The status badge a goal shows (§16.5), for an NPC whose status this module owns. */
 export function statusFor(npc: DeepReadonly<NpcState>, goal: Goal): NpcStatus {
     if (goal.kind === 'away' || goal.kind === 'enter') return 'away';
+    if (goal.kind === 'crawl') return 'alerted';
     if (npc.panic) return 'panicked';
-    if (npc.alerted || goal.kind === 'react' || goal.kind === 'report' || goal.kind === 'flee' || goal.kind === 'crawl' || goal.kind === 'reach' || goal.kind === 'phone') return 'alerted';
+    if (npc.alerted || goal.kind === 'react' || goal.kind === 'report' || goal.kind === 'flee' || goal.kind === 'reach' || goal.kind === 'phone') return 'alerted';
     if (goal.kind === 'investigate' || goal.kind === 'search' || goal.kind === 'challenge' || goal.kind === 'escort' || goal.kind === 'inspect') return 'investigating';
     if (goal.kind === 'face' || goal.kind === 'watch' || goal.kind === 'look') return 'curious';
     return 'calm';

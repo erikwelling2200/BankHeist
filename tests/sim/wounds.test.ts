@@ -125,11 +125,40 @@ describe('crew wounds', () => {
     it('lets police in reach arrest a downed crew member: off the map, into custody', () => {
         const { world, state } = setup();
         const down = commit(world, state, harm('jun', 8)).state;
-        down.police.units.push({ id: 'unit-1', kind: 'patrol', vehicle: null, staging: null, arrived: 0, pos: P(0, 2) });
+        down.police.units.push({ id: 'unit-1', kind: 'patrol', vehicle: null, staging: null, arrived: -1, pos: P(0, 2) });
         const r = commit(world, down, { type: 'endTurn' });
         expect(r.events.find(e => e.type === 'crewArrested')).toEqual({ type: 'crewArrested', crew: 'jun', by: 'unit-1' });
         expect(r.state.crew.map(c => c.id)).toEqual(['mara']);
         expect(r.state.custody.map(c => [c.crew.id, c.by])).toEqual([['jun', 'unit-1']]);
+    });
+
+    it('arrests only with an officer on foot since before the phase', () => {
+        const { world, state } = setup();
+        const down = commit(world, state, harm('jun', 8)).state;
+        down.police.units.push({ id: 'unit-1', kind: 'patrol', vehicle: null, staging: null, arrived: 0, pos: P(0, 2) });
+        down.police.units.push({ id: 'unit-2', kind: 'negotiator', vehicle: null, staging: null, arrived: -5, pos: P(1, 2) });
+        expect(commit(world, down, { type: 'endTurn' }).state.custody).toEqual([]);
+    });
+
+    it('forgets an arrested crew member everywhere: the world phases after go on', () => {
+        const { world, state } = setup({ people: [person('ann', P(4, 1)), person('bob', P(4, 2)), person('cat', P(5, 3), 'lobbyGuard', 'enforcer')] });
+        let s = commit(world, state, harm('jun', 8)).state;
+        const ann = npc(s, 'ann'), bob = npc(s, 'bob'), cat = npc(s, 'cat');
+        ann.status = 'panicked';
+        ann.panic = { since: { turn: 1, phase: 'crew' }, crew: 'jun', tile: P(0, 1), reaction: { kind: 'tackle', crew: 'jun' } };
+        bob.status = 'commanded';
+        bob.command = { pips: 2, by: 'jun' };
+        cat.suspicion = { jun: 2 };
+        cat.exposedTo = ['jun'];
+        cat.lastSeen = { jun: { tile: P(0, 1), turn: 1 } };
+        s.police.units.push({ id: 'unit-1', kind: 'swat', vehicle: null, staging: null, arrived: -1, pos: P(0, 2) });
+        const r = commit(world, s, { type: 'endTurn' });
+        expect(r.state.custody.map(c => c.crew.id)).toEqual(['jun']);
+        expect(JSON.stringify(r.state.npcs)).not.toContain('"jun"');
+        expect(npc(r.state, 'bob').command?.by).toBe('mara');
+        s = r.state;
+        for (let i = 0; i < 4; i++) s = endTurn(world, s);
+        expect(s.turn).toBe(6);
     });
 });
 

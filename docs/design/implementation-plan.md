@@ -1866,14 +1866,19 @@ Later milestones: within each milestone, the `∥` notes in §3 apply. UI packag
     Heat counts the kill off the state (decision 121). Non-lethal harm at 0 would leave 1 HP (nothing deals it yet).
 146. **Screams (M3-03, §11.12).** A wounded NPC (alive, half its hit points or less, on the map and not out cold)
     screams once per world phase in the devices step: the loud noise `scream` (radius 6) from its tile, heard at once,
-    so hearers react before the intents are committed and the crew phase shows what they will do. A guard struck
-    quietly to 2 HP thus makes the bank Loud in the next world phase.
+    so hearers react before the intents are committed and the crew phase shows what they will do (Alerted, as by any
+    loud noise; the scream itself doesn't make the bank Loud).
 147. **Crawling (M3-03, §11.12).** A wounded NPC that decides for itself and isn't Hostile has the goal `crawl`, ahead of
-    panic and anything it wants: a 1-tile walk (a diagonal one allowed) toward the nearest way out, committed and
+    a lapse's run, panic and anything it wants (its badge Alerted, not Panicked): a 1-tile walk (a diagonal one allowed) toward the nearest way out, committed and
     shown as any intent. It is Alerted. Hostile ones fight on (M3-05, M3-06). It doesn't leave the map yet.
-148. **Arrest (M3-03, §11.12).** In the devices step after the director, a downed crew member with a police unit out of
-    its vehicle in reach is arrested: taken out of `State.crew` into `State.custody` (with the unit and the turn), so
-    no rule meets them on the map. Police don't walk to them before M3-05.
+148. **Arrest (M3-03, §11.12).** In the devices step after the director, a downed crew member with an officer in reach
+    (patrol, SWAT, shield or heavy SWAT: not the negotiator or a sniper) who was already on foot before this world
+    phase (got out in an earlier one, so the crew saw it standing there for a crew phase) is arrested: taken out of
+    `State.crew` into `State.custody` (with the unit and the turn), and every reference to them is taken out of the
+    NPCs and the state (`forgetCrew`: suspicion, exposure, last seen, frisks, warnings, challenges, wants, reports,
+    camera reports, intent actions and goals aimed at them, a lapse, panic or suppression of theirs; a command they
+    gave passes to the first crew member left), so no rule looks for them on the map. Auto-advance stops on any
+    wound, downing, bleeding out, death or arrest (`wound`). Police don't walk to them before M3-05.
 
 ### Critical files for implementation
 

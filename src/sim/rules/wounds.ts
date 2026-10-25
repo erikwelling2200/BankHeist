@@ -10,6 +10,7 @@ import { inReach, registerAction } from './actions/act';
 import { releaseBody } from './actions/body';
 import { registerHarmHandler, type Harm } from './damage';
 import { placeEvidence } from './evidence';
+import type { PoliceUnit } from './police';
 import { isPresent } from './npc/walk';
 import { isWounded, npcMaxHp } from './woundsState';
 
@@ -36,10 +37,12 @@ import { isWounded, npcMaxHp } from './woundsState';
  *   status `dead`, intent and plans dropped, as a knockout does. Heat counts the kill off the state (rules/heat.ts),
  *   whatever caused it. A non-lethal harm at 0 knocks them out instead. **Wounded NPCs** (half their hit points or
  *   less, alive, conscious and on the map) scream once per world phase in the devices step: a loud noise of radius 6
- *   (`scream`), so the hearers react before the next intents are committed and the crew phase shows them.
+ *   (`scream`), so the hearers react before the next intents are committed and the crew phase shows them (Alerted; the
+ *   scream doesn't make the bank Loud by itself).
  * - **Arrest** (`arrestCrew`): a downed crew member with a police officer out of a vehicle in reach as a world phase's
- *   devices step runs is taken to a police van: off the map, out of `State.crew` into `State.custody` (traded back by
- *   M3-07, jailed at the end, §19.6). Police movement is M3-05's; until then arrests happen only where units get out.
+ *   devices step runs (an officer, on foot since an earlier world phase) is taken to a police van: off the map, out of
+ *   `State.crew` into `State.custody` (traded back by M3-07, jailed at the end, §19.6), and forgotten by every NPC
+ *   (`forgetCrew`). Police movement is M3-05's; until then arrests happen only where units get out.
  */
 
 /** A crew member's wounds. */
@@ -209,7 +212,38 @@ export function arrestCrew(ctx: Ctx, crewId: string, by: string): void {
     if (i < 0) return;
     const [member] = state.crew.splice(i, 1);
     state.custody.push({ crew: member!, by, turn: state.turn });
+    forgetCrew(state, crewId);
     ctx.emit({ type: 'crewArrested', crew: crewId, by });
+}
+
+/**
+ * Takes every reference to a crew member off the map out of the NPCs and the state (decision 148): what an NPC wants,
+ * fears, saw or was told of them, the intent actions aimed at them (the walk stays), a command they gave (passed to the
+ * first crew member left, or ended), a lapse, panic or suppression of theirs. No rule then looks for them on the map.
+ */
+export function forgetCrew(state: State, crewId: string): void {
+    const heir = state.crew[0]?.id ?? null;
+    for (const npc of state.npcs) {
+        delete npc.suspicion[crewId];
+        delete npc.lastSeen[crewId];
+        delete npc.frisked[crewId];
+        npc.exposedTo = npc.exposedTo.filter(id => id !== crewId);
+        npc.warned = npc.warned.filter(id => id !== crewId);
+        npc.reported = npc.reported.filter(id => id !== crewId);
+        npc.challenges = npc.challenges.filter(c => c.crew !== crewId);
+        npc.wants = npc.wants.filter(w => w.crew !== crewId);
+        if (npc.command?.by === crewId) npc.command = heir === null ? null : { ...npc.command, by: heir };
+        if (npc.lapse && 'crew' in npc.lapse && npc.lapse.crew === crewId) npc.lapse = null;
+        if (npc.suppressed?.by === crewId) npc.suppressed = null;
+        if (npc.panic) {
+            if (npc.panic.crew === crewId) npc.panic.crew = null;
+            if (npc.panic.reaction?.kind === 'tackle' && npc.panic.reaction.crew === crewId) npc.panic.reaction = { kind: 'cower' };
+        }
+        if (npc.goal.crew === crewId) npc.goal = { kind: 'still' };
+        const action = npc.intent.action as { crew?: string } | undefined;
+        if (action?.crew === crewId) npc.intent = { path: npc.intent.path, ...(npc.intent.facing ? { facing: npc.intent.facing } : {}) };
+    }
+    state.cameraReports = state.cameraReports.filter(r => r.crew !== crewId);
 }
 
 // ---------------------------------------------------------------------------------------------------------- NPCs
@@ -250,6 +284,12 @@ registerHarmHandler('wounds', (ctx, harm) => {
 
 // ---------------------------------------------------------------------------------------------------------- World phase
 
+/** The units that arrest (§11.12): officers, not the negotiator or a sniper. */
+const ARRESTING: ReadonlySet<string> = new Set(['patrol', 'swat', 'swatShield', 'heavy']);
+
+/** Out of its vehicle before this world phase: its wave came two or more world phases ago (it got out in the one after). */
+const onFootBefore = (u: DeepReadonly<PoliceUnit>, phase: WorldPhase): boolean => u.pos !== null && u.vehicle === null && u.arrived + 1 < phase.turn;
+
 const beganIn = (since: { turn: number; phase: Phase }, phase: WorldPhase): boolean => since.turn === phase.turn && since.phase === 'world';
 
 // Bleeding, bleeding out, arrests and screams, as a timer would (the devices step).
@@ -279,7 +319,7 @@ registerWorldHook('devices', 'wounds', (ctx, phase) => {
     // Police reaching a downed crew member arrest them.
     for (const member of [...state.crew]) {
         if (!member.wounds.downed) continue;
-        const unit = state.police.units.find(u => u.pos && inReach(world, state, u.pos, member.pos));
+        const unit = state.police.units.find(u => ARRESTING.has(u.kind) && onFootBefore(u, phase) && inReach(world, state, u.pos!, member.pos));
         if (unit) arrestCrew(ctx, member.id, unit.id);
     }
     for (const npc of state.npcs) {

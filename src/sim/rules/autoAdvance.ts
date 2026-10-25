@@ -58,7 +58,7 @@ export const NEAR_TILES = 12;
 
 /** Why auto-advance stopped (or won't start). The interrupt kinds come first, in order of urgency. */
 export type InterruptKind =
-    | 'carrier' | 'alerted' | 'exposed' | 'challenge' | 'jam' | 'moveCut' | 'suspicion' | 'intent' | 'evidence' | 'revealed' | 'arrival' | 'schedule';
+    | 'carrier' | 'wound' | 'alerted' | 'exposed' | 'challenge' | 'jam' | 'moveCut' | 'suspicion' | 'intent' | 'evidence' | 'revealed' | 'arrival' | 'schedule';
 
 export type StopKind = InterruptKind | 'unavailable' | 'arrived' | 'blocked' | 'unsafe' | 'target' | 'lost' | 'cap' | 'cancelled';
 
@@ -73,7 +73,7 @@ export interface AutoStop {
 
 export type Interrupt = AutoStop & { kind: InterruptKind };
 
-const URGENCY: readonly InterruptKind[] = ['carrier', 'alerted', 'exposed', 'challenge', 'jam', 'moveCut', 'suspicion', 'intent', 'evidence', 'revealed', 'arrival', 'schedule'];
+const URGENCY: readonly InterruptKind[] = ['carrier', 'wound', 'alerted', 'exposed', 'challenge', 'jam', 'moveCut', 'suspicion', 'intent', 'evidence', 'revealed', 'arrival', 'schedule'];
 
 /** What "Wait for…" waits for. */
 export type WaitTarget =
@@ -308,6 +308,12 @@ export function interruptsOf(world: ReadonlyWorld, before: State, result: Pick<C
                 add({ kind: 'carrier', text: `an alarm is being raised (${e.countdown} turns)`, ...(e.holder ? { npc: e.holder } : {}), ...(e.pos ? { at: { x: e.pos.x, y: e.pos.y } } : {}) });
                 break;
             case 'alerted': add({ kind: 'alerted', text: `${who(e.npc)} is alerted`, npc: e.npc, ...at(e.npc) }); break;
+            // A crew member hurt, down, bleeding out, dead or taken (M3-03): no Wait or GO sits on that.
+            case 'crewWounded': add({ kind: 'wound', text: `${crew(e.crew)} is hurt`, crew: e.crew }); break;
+            case 'crewDowned': add({ kind: 'wound', text: `${crew(e.crew)} is down`, crew: e.crew }); break;
+            case 'bleedingOut': add({ kind: 'wound', text: `${crew(e.crew)} bleeds out in ${e.phases}`, crew: e.crew }); break;
+            case 'crewDied': add({ kind: 'wound', text: `${crew(e.crew)} died`, crew: e.crew }); break;
+            case 'crewArrested': add({ kind: 'wound', text: `${crew(e.crew)} was arrested`, crew: e.crew }); break;
             case 'npcStatus':
                 if (e.status === 'alerted' || e.status === 'panicked' || e.status === 'hostile') add({ kind: 'alerted', text: `${who(e.npc)} is alerted`, npc: e.npc, ...at(e.npc) });
                 break;
