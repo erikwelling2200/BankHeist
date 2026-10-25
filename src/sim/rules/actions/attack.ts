@@ -215,8 +215,9 @@ function loose(ctx: Ctx, member: CrewState): ShotTrace {
         }
         const npc = state.npcs.find(n => n.id === hit.id);
         // A dart in a crew member does nothing to the rules yet (M3-03); one in someone already down is spent.
-        // Nor in someone face down or tied: nothing to knock out, as with a knockout by hand (and it would untie them).
-        if (!npc || npc.status === 'unconscious' || npc.status === 'dead' || npc.status === 'tied' || npc.status === 'commanded' || ABSENT_STATUSES.has(npc.status)) continue;
+        // Nor in someone face down or tied: nothing to knock out, as with a knockout by hand (and it would untie them);
+        // nor in a hostage let go, walking out under the deal (rules/negotiation.ts, `knockOut`).
+        if (!npc || npc.lapse?.kind === 'released' || npc.status === 'unconscious' || npc.status === 'dead' || npc.status === 'tied' || npc.status === 'commanded' || ABSENT_STATUSES.has(npc.status)) continue;
         const stopped = armourOf(world, state, npc.id) >= TASER_STOPPED_BY;
         ctx.emit({ type: 'tased', crew: member.id, npc: npc.id, stopped });
         if (!stopped) knockOut(ctx, npc, member.id);

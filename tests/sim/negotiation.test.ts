@@ -35,7 +35,7 @@ function negotiating(heat = 7, mode: 'negotiate' | 'contain' = 'negotiate'): { w
         rooms: [...Array.from({ length: 4 }, () => 'bbbbbbbbbbbb'), '............', '............'],
         people: [person('teller', 'staff', P(8, 1)), person('customer', 'civilian', P(2, 1))], staging: STAGING
     });
-    const s = clonePlain(scouted(world, initialState(world, { seed: 7, crew: [{ id: 'jun', pos: P(5, 1), items: ['pistol'] }, { id: 'dex', pos: P(11, 0) }] })));
+    const s = clonePlain(scouted(world, initialState(world, { seed: 7, crew: [{ id: 'jun', pos: P(5, 1), items: ['pistol', 'taser'] }, { id: 'dex', pos: P(11, 0) }] })));
     s.bank.alarm = true;
     s.bank.loud = true;
     s.response = { raised: s.turn - 1, by: 'tellerButton', policeIn: 0, heat };
@@ -237,6 +237,15 @@ describe('a trade', () => {
         beside.crew[0]!.pos = P(7, 1);
         expect(whyNot(world, beside, { type: 'knockout', crew: 'jun', npc: 'teller' })).toBe('They were let go: they walk out under the deal');
         expect(whyNot(world, beside, { type: 'zipTie', crew: 'jun', npc: 'teller' })).toBeDefined();
+    });
+
+    it('a hostage let go can\'t be tased down and tied either', () => {
+        const { world, state } = negotiating();
+        const freed = run(world, state, release('teller')).state;
+        const drawn = commit(world, freed, { type: 'swap', crew: 'jun', to: 'taser' }).state;
+        const shot = commit(world, drawn, { type: 'attack', crew: 'jun', at: npcOf(drawn, 'teller').pos, target: 'teller' });
+        expect(shot.events.filter(e => e.type === 'tased' || e.type === 'knockedOut')).toEqual([]);
+        expect(npcOf(shot.state, 'teller')).toMatchObject({ status: 'alerted', lapse: { kind: 'released' } });
     });
 
     it('a wounded hostage let go crawls out and leaves, and tells', () => {

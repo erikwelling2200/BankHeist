@@ -1053,7 +1053,8 @@ M2 is complete: every package below has landed.
     - **Session:** the action grid offers Release ("Release (-3 heat)", the tapped hostage else the first the crew holds
       and knows of), Trade, Stall ("+2 turns") and Hang up while the negotiator calls; the recap names the new events.
     - **Deferred:** the negotiator dialog (M3-09); phones as props (decision 130); the police using the reports (M3-05); the police freeing or
-      taking a hostage walking out (M3-05).
+      taking a hostage walking out (M3-05); a deadline for a trade whose hostage can't reach its way out (it waits in
+      `returns` until it does, or is killed or downed).
     - **Tests:** `tests/sim/negotiation.test.ts` (the call, Stall, release with its capped relief and the heist cap, a
       hostage led along, walking out and telling, ignoring commands, a kill on the way out, trade and return, the action
       grid; each command checked against its preview).
@@ -1867,7 +1868,7 @@ Later milestones: within each milestone, the `∥` notes in §3 apply. UI packag
     and leaves there. Once police are on scene they control every exit. The hard cap stands (Q17): one a turn (one
     answer a turn anyway), three a heist; a release past the cap isn't offered at all.
 132. **On the way out (M3-07).** A hostage walking out can't be taken again: it ignores commands and can't be knocked
-    out (so nor tied). Wounded, it crawls out and still leaves. It still counts as a hostage if killed (+5), and
+    out (so nor tied): `knockOut` itself refuses it, whatever the path, and a taser dart in it is spent. Wounded, it crawls out and still leaves. It still counts as a hostage if killed (+5), and
     reaching the police is no escape (+1). As it leaves the map it tells the police each crew member it saw, where and
     when it last saw them (`reports`, for M3-05).
 133. **Trade (M3-07, §10.7).** A hostage for a crew member in custody: the hostage walks out as for a release but takes

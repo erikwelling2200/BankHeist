@@ -113,6 +113,9 @@ registerAction('knockout', {
  */
 export function knockOut(ctx: Ctx, npc: NpcState, by: string): void {
     const { state, world } = ctx;
+    // Every way of knocking someone out ends here: a hostage let go walks out under the deal (rules/negotiation.ts),
+    // and nothing takes it back.
+    if (npc.lapse?.kind === 'released') return;
     npc.status = 'unconscious';
     npc.outCold = state.turn + world.rules.knockoutPhases - 1;
     // It never acts on anything it saw or meant to do (§6.2).
