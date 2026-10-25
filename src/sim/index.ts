@@ -214,8 +214,8 @@ export { blastTiles, flipBlocked, grenadeTargets, throwBlocked, type Grenade } f
 export { type SmokeCloud } from './geo/los';
 export { attackCone } from './preview/attack';
 export * from './data/police';
-export { addHeat, heatNow, heatOf, releaseBlocked, releaseHeat, releaseRelief, type HeatLevel, type HeatState } from './rules/heat';
+export { addHeat, heatAhead, heatNow, heatOf, phasesUntilHeat, releaseBlocked, releaseHeat, releaseRelief, type HeatLevel, type HeatState } from './rules/heat';
 export {
-    bagsSecured, greedPercent, hostagesHeld, modeAfter, modePhases, nextWave, planWave, policeDown, policeModeView, strength,
-    type NextWave, type PlannedVehicle, type PoliceModeView, type PoliceState, type PoliceUnit, type PoliceVehicle, type StagingPoint, type VehicleKind, type WaveReason
+    bagsSecured, greedPercent, hostagesHeld, modeAfter, modePhases, nextWave, planWave, policeDown, policeHit, policeModeView, strength,
+    type NextWave, type PlannedVehicle, type PoliceModeView, type PoliceState, type PoliceUnit, type PoliceVehicle, type StagingPoint, type ArrivalKind, type VehicleKind, type WaveReason
 } from './rules/police';

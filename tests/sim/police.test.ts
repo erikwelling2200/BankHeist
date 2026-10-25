@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
-    bagsSecured, clonePlain, fixtureWorld, hashOf, heatOf, initialState, nextWave, policeDown, preview, raiseCarrier, releaseBlocked, releaseHeat, releaseRelief,
+    bagsSecured, clonePlain, heatAhead, occupancy, phasesUntilHeat, policeHit, registerWorldHook, fixtureWorld, hashOf, heatOf, initialState, nextWave, policeDown, preview, raiseCarrier, releaseBlocked, releaseHeat, releaseRelief,
     strength, worldFromBank, type PersonDef, type Pos, type ReadonlyWorld, type SimEvent, type State, type WorldObject
 } from '../../src/sim';
 import { bankView } from '../../src/game/views';
@@ -29,6 +29,12 @@ registerTestCommand('testLeave', (ctx, cmd) => {
     ctx.emit({ type: 'npcLeft', npc: npc.id, at: { ...npc.pos } });
 });
 registerTestCommand('testCarrier', ctx => void raiseCarrier(ctx, { kind: 'phoneCall', source: 'dispatch', pos: P(0, 0) }));
+registerTestCommand('testHit', (ctx, cmd) => policeHit(ctx, (cmd as unknown as { unit: string }).unit));
+// Someone dying in the world phase (a bleed-out, a trap): an NPC called 'doomed' dies in the first one after the Alarm.
+registerWorldHook('devices', 'test.doom', ctx => {
+    const npc = ctx.state.npcs.find(n => n.id === 'doomed' && n.status !== 'dead');
+    if (npc && ctx.state.response) npc.status = 'dead';
+});
 registerTestEvents({});
 
 const kill = (npc: string) => testCommand({ type: 'testKill', npc } as never);
@@ -105,27 +111,48 @@ describe('the heat track', () => {
         expect(after.response!.heat).toBe(13);
     });
 
-    it('adds +1 for a guard killed only once a bystander who saw it reaches the police', () => {
-        // The guard at (5, 2); the customer looks at him, the teller faces away.
-        const { world, state } = setup([person('guard', 'enforcer', P(5, 2)), person('customer', 'civilian', P(5, 0), 's'), person('teller', 'staff', P(9, 2), 'e')]);
+    it('adds +1 for a guard or staff member killed after the Alarm, in the crew phase or the world phase', () => {
+        const { world, state } = setup([person('guard', 'enforcer', P(5, 2)), person('doomed', 'staff', P(9, 2), 'e')]);
         const s = alarmed(state, 5);
         const killed = run(world, s, kill('guard'));
-        expect(of(killed.events, 'heatChanged')).toEqual([]);
-        expect(killed.state.heat.witnesses).toEqual([{ victim: 'guard', npcs: ['customer'] }]);
-        // The teller saw nothing: her leaving tells nobody anything.
-        expect(of(run(world, killed.state, leave('teller')).events, 'heatChanged')).toEqual([]);
-        const told = run(world, killed.state, leave('customer'));
-        expect(of(told.events, 'heatChanged').map(e => [e.cause, e.by, e.victim])).toEqual([['staffKilled', 1, 'guard']]);
-        expect(told.state.heat.witnesses).toEqual([]);
+        expect(of(killed.events, 'heatChanged').map(e => [e.cause, e.by, e.victim])).toEqual([['staffKilled', 1, 'guard']]);
+        // 'doomed' dies in the world phase (the test hook): counted there, after the phase's own tick.
+        const phase = run(world, killed.state, endTurn);
+        expect(of(phase.events, 'heatChanged').map(e => [e.cause, e.victim ?? null])).toEqual([['phase', null], ['staffKilled', 'doomed']]);
     });
 
-    it('owes the kills before the Alarm and adds them in the world phase that raises it', () => {
-        const { world, state } = setup([person('customer', 'civilian', P(2, 1))]);
-        const { state: owed, events } = run(world, state, kill('customer'), testCommand({ type: 'testCarrier' }));
-        expect(of(events, 'heatOwed')).toEqual([{ type: 'heatOwed', by: 5, cause: 'civilianKilled', victim: 'customer' }]);
-        const raised = run(world, owed, endTurn, endTurn);
-        expect(raised.state.response!.heat).toBe(5);
-        expect(raised.state.heat.owed).toEqual([]);
+    it('owes only witnessed kills before the Alarm, in secret, and adds them as a lump in the phase that raises it', () => {
+        // The same kill, once with a customer looking at it and once with the customer looking away.
+        for (const [facing, owed] of [['w', 5], ['e', 0]] as const) {
+            const { world, state } = setup([person('victim', 'civilian', P(2, 1)), person('watcher', 'civilian', P(4, 1), facing)]);
+            const { state: after, events } = run(world, state, kill('victim'), testCommand({ type: 'testCarrier' }));
+            expect(events.filter(e => e.type.startsWith('heat'))).toEqual([]);
+            expect(bankView(after, false, world).heat ?? null).toBeNull();
+            const raised = run(world, after, endTurn, endTurn);
+            expect(raised.state.response!.heat).toBe(owed);
+            expect(of(raised.events, 'heatChanged').map(e => [e.cause, e.by])).toEqual(owed ? [['civilianKilled', 5]] : []);
+            expect(raised.state.heat.owed).toEqual([]);
+        }
+    });
+
+    it('shows the crew the same before the Alarm whether or not the operator watched a kill on a feed', () => {
+        const desk: WorldObject = { id: 'desk', kind: 'cctvDesk', pos: P(10, 0), facing: 's', monitors: 4 };
+        const seen: unknown[] = [];
+        for (const at of [P(10, 1), P(1, 3)]) {
+            const world = fixtureWorld(Array.from({ length: 6 }, () => '............'), {
+                rooms: [...Array.from({ length: 4 }, () => 'bbbbbbbbbbbb'), '............', '............'],
+                people: [person('guard', 'enforcer', P(5, 2), 'n'), { ...person('op', 'staff', at, 'n'), role: 'operator' }],
+                objects: [desk], cameras: [{ id: 'cam', pos: P(5, 0), facings: ['s'], room: 'b' }], staging: STAGING
+            });
+            const state = scouted(world, initialState(world, { seed: 7, crew: [{ id: 'jun', pos: P(0, 3) }] }));
+            const { state: after, events } = run(world, state, kill('guard'));
+            seen.push({ events: events.filter(e => e.type.startsWith('heat') || e.type.startsWith('police')), bank: bankView(after, false, world) });
+            // The difference lands with the Alarm, as a lump (the design's reveal).
+            const raised = run(world, after, testCommand({ type: 'testCarrier' }), endTurn, endTurn).state;
+            seen.push(raised.response!.heat);
+        }
+        expect(seen[0]).toEqual(seen[2]);
+        expect([seen[1], seen[3]]).toEqual([1, 0]);
     });
 
     it('adds +1 for each world phase a drill works on a Class II+ vault door, never on a Class I', () => {
@@ -202,6 +229,10 @@ describe('the force', () => {
         expect(bagsSecured(world, s)).toBe(1);
         s.crew[0]!.pos = P(6, 4);
         expect(bagsSecured(world, s)).toBe(2);
+        // Once out, a bag stays secured when it is carried back in.
+        const kept = step(world, s, { type: 'wait', crew: 'jun' }).state;
+        kept.crew[0]!.pos = P(6, 1);
+        expect(bagsSecured(world, kept)).toBe(2);
         s.loot.a.ruined = true;
         expect(bagsSecured(world, s)).toBe(1);
     });
@@ -269,12 +300,84 @@ describe('the police', () => {
         const shot = run(world, s, testCommand({ type: 'testPoliceDown', unit: a!.id } as never), testCommand({ type: 'testPoliceDown', unit: b!.id } as never));
         expect(of(shot.events, 'heatChanged').map(e => [e.cause, e.by])).toEqual([['firstPoliceKilled', 3], ['policeKilled', 1]]);
         expect(of(shot.events, 'policeMode').map(e => e.mode)).toEqual(['assault']);
-        // The next step refills the two lost officers, in a van: every car slot is taken (the lost officers' car stays).
+        // Heat 3 is reached: its wave goes out in the next world phase, with the SWAT team and the two lost officers, in
+        // a van: every car slot is taken (the lost officers' car stays).
         expect(shot.state.response!.heat).toBe(13);
         const next = nextWave(world, shot.state)!;
-        expect(next.level).toBe(4);
+        expect(next).toMatchObject({ level: 3, reason: 'level', inPhases: 1 });
         expect(next.vehicles.filter(v => v.units.includes('patrol')).map(v => [v.label, v.units.filter(u => u === 'patrol').length])).toEqual([['Police van', 2]]);
         expect(next.vehicles.every(v => v.kind !== 'car')).toBe(true);
+    });
+
+    it('end Negotiate in an Assault when an officer is hit, not only killed', () => {
+        const { world, state } = setup();
+        const s = run(world, alarmed(state, 1, 4), ...turns(5)).state;
+        expect(s.police.mode!.kind).toBe('negotiate');
+        const hit = run(world, s, testCommand({ type: 'testHit', unit: s.police.units[0]!.id } as never));
+        expect(hit.events.map(e => e.type)).toEqual(['policeHit', 'policeMode']);
+        expect(hit.state.police.mode).toMatchObject({ kind: 'assault' });
+        expect(hit.state.response!.heat).toBe(s.response!.heat);
+    });
+
+    it('forecast the first arrival through "Police in N", and a first arrival at Heat 4 brings teams, snipers on foot and the helicopter', () => {
+        const { world, state } = setup();
+        const s = alarmed(state, 2, 13);
+        // Heat shows from the Alarm, and so does what the police will bring: Heat 4 by the time they come.
+        expect(bankView(s, false, world).heat).toMatchObject({ level: 3, ticks: 3, next: { label: 'Police at Heat 4: Police car, main street, west end +9', inTurns: 2 } });
+        const forecast = nextWave(world, s)!;
+        expect(forecast).toMatchObject({ level: 4, reason: 'arrival', inPhases: 2 });
+        const { state: arrived, events } = run(world, s, endTurn, endTurn);
+        const sent = events.flatMap(e => (e.type === 'policeArriving' ? [[e.kind, e.label, e.staging, e.units]] : e.type === 'policeOnFoot' ? [['foot', 'Sniper team', e.staging, e.units.length]] : []));
+        expect(sent).toEqual(forecast.vehicles.map(v => [v.kind, v.label, v.staging?.id ?? null, v.units.length]));
+        expect(forecast.vehicles.filter(v => v.label === 'SWAT van').map(v => v.units)).toEqual([['swatShield', 'swat', 'swat', 'swat'], ['swatShield', 'swat', 'swat', 'swat']]);
+        expect(forecast.vehicles.filter(v => v.kind === 'foot').map(v => v.units)).toEqual([['sniper', 'sniper'], ['sniper', 'sniper']]);
+        expect(forecast.vehicles.some(v => v.kind === 'helicopter')).toBe(true);
+        // Everyone out a phase later, the snipers too, each on a tile of their own.
+        const out = run(world, arrived, endTurn).state;
+        expect(out.police.units.every(u => u.pos !== null)).toBe(true);
+        expect(new Set(out.police.units.map(u => `${u.pos!.x},${u.pos!.y}`)).size).toBe(out.police.units.length);
+    });
+
+    it('count known vault work in the forecast', () => {
+        const world = fixtureWorld(['....', '....'], {
+            walls: [{ between: [P(1, 0), P(2, 0)], material: 'vault', door: { id: 'vd', lock: 'vault' } }],
+            locks: [{
+                id: 'vault', name: 'Vault', target: 'vd', room: 'v', holders: [], social: { kind: 'code', parts: ['whole'], text: 'code' },
+                technical: { kind: 'drill', phases: 3, noise: 6, sensors: ['seismic'], text: 'drill' }, violent: { kind: 'thermite', phases: 3, noise: 6, text: 'thermite' }
+            }]
+        });
+        const s = alarmed(initialState(world, { seed: 1, crew: [{ id: 'jun', pos: P(0, 1) }] }), 9);
+        expect(phasesUntilHeat(world, s, 5)).toBe(5);
+        s.devices = [{ id: 'drill-1', kind: 'drill', at: 'vd', pos: P(1, 0), crew: 'jun', done: 1, needed: 3, jammed: false, noise: 6 }];
+        expect([heatAhead(world, s, 1), heatAhead(world, s, 2), heatAhead(world, s, 3)]).toEqual([2, 4, 5]);
+        expect(phasesUntilHeat(world, s, 5)).toBe(3);
+    });
+
+    it('send nothing when a level is reached again after a release', () => {
+        const { world, state } = setup();
+        let s = run(world, alarmed(state, 1, 5), endTurn).state;
+        expect(s.police.sent).toBe(2);
+        s = run(world, s, testCommand({ type: 'testRelease' })).state;
+        expect(s.response!.heat).toBe(3);
+        const again = run(world, s, ...turns(3));
+        expect(again.state.response!.heat).toBe(6);
+        expect(of(again.events, 'policeArriving')).toEqual([]);
+        expect(nextWave(world, again.state)).toMatchObject({ level: 3, inPhases: 4 });
+    });
+
+    it('stand in everyone\'s way, and wait aboard when there is no free tile to get out on', () => {
+        const world = fixtureWorld(['..'], { staging: [{ id: 'end', name: 'The end', pos: P(0, 0) }], rules: { policeEta: 1 } });
+        const state = initialState(world, { seed: 1, crew: [{ id: 'jun', pos: P(0, 0) }, { id: 'mara', pos: P(1, 0) }] });
+        const full = run(world, alarmed(state, 1), endTurn, endTurn).state;
+        expect(full.police.units.length).toBe(4);
+        expect(full.police.units.every(u => u.pos === null && u.vehicle !== null)).toBe(true);
+        // Mara steps aside (off the map's two tiles there is nowhere, so she is lifted out): one officer gets out there.
+        const room = clonePlain(full);
+        room.crew = room.crew.filter(c => c.id !== 'mara');
+        const out = run(world, room, endTurn).state;
+        expect(out.police.units.filter(u => u.pos !== null).map(u => u.pos)).toEqual([P(1, 0)]);
+        expect(occupancy(world, out).get(1)).toBe('blocking');
+        expect(occupancy(world, out, { mover: 'jun' }).get(1)).toBe('blocking');
     });
 
     it('never come to a bank without staging points', () => {

@@ -78,7 +78,7 @@ describe('saving', () => {
  * NpcStatusMap, CarrierKindMap or adds a field must also fill it in below, or a change of shape goes unnoticed.
  */
 const SHAPE_HASHES: Record<number, string> = {
-    1: '6edacd71b690cd89'
+    1: 'bfa5f33d8bd98f36'
 };
 
 /** Paths whose objects are records by id, not structs. */
@@ -195,14 +195,14 @@ describe('the save format', () => {
         full.jammers = [{ id: 'jammer-3', pos: { x: 1, y: 1 }, crew: 'jun', turn: 2 }];
         full.footage = [{ camera: 'cam', crew: 'jun', tile: { x: 1, y: 1 }, turn: 2 }];
         full.response = { raised: 3, by: 'guardRadio', policeIn: 5, heat: 7 };
-        full.heat = { owed: [{ cause: 'staffKilled', victim: 'guard' }], policeKilled: 1, releases: [4], witnesses: [{ victim: 'guard', npcs: ['teller'] }] };
+        full.heat = { owed: [{ cause: 'staffKilled', victim: 'guard' }], policeKilled: 1, releases: [4] };
         full.police = {
-            units: [{ id: 'police-5', kind: 'swat', vehicle: 'van-4', pos: null }, { id: 'police-6', kind: 'patrol', vehicle: null, pos: { x: 1, y: 1 } }],
+            units: [{ id: 'police-5', kind: 'swat', vehicle: 'van-4', staging: 'street-west', arrived: 4, pos: null }, { id: 'police-6', kind: 'patrol', vehicle: null, staging: null, arrived: 3, pos: { x: 1, y: 1 } }],
             vehicles: [
                 { id: 'van-4', kind: 'van', label: 'SWAT van', staging: 'street-west', pos: { x: 0, y: 2 }, arrived: 4, status: 'arriving' },
                 { id: 'helicopter-7', kind: 'helicopter', label: 'Helicopter', staging: null, pos: { x: 4, y: 1 }, arrived: 5, status: 'parked' }
             ],
-            mode: { kind: 'negotiate', left: 2, since: { turn: 4, phase: 'world' }, after: 'contain' }, sent: 2, refills: 0
+            mode: { kind: 'negotiate', left: 2, since: { turn: 4, phase: 'world' }, after: 'contain' }, sent: 2, refills: 0, secured: ['cash']
         };
         full.radio = { calls: { guard: { next: 6, missed: 1, ringing: 4 } }, answers: 1, silentSince: 2, driveBy: 12, heard: 5 };
         const save = JSON.parse(serialise({

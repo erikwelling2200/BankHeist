@@ -1,17 +1,17 @@
-import { registerWorldHook, type Ctx } from '../core/engine';
+import { registerCommandHook, registerWorldHook, type Ctx } from '../core/engine';
 import { FACING_STEP, inBounds, tileAt } from '../core/grid';
 import { sortedIds } from '../core/json';
 import { newId, registerStateInit } from '../core/state';
 import type { DeepReadonly, Phase, Pos, ReadonlyWorld, State } from '../core/types';
 import { registerEvents } from '../core/undo';
 import {
-    ASSAULT_PHASES, CAR_SEATS, CARS_PER_STAGING, CONTAIN_AGAIN_PHASES, CONTAIN_PHASES, FORCE, GREED_CAP, GREED_PER_BAG, HELICOPTER_FROM, MODE_LABELS,
+    ASSAULT_PHASES, CAR_SEATS, CARS_PER_STAGING, MAX_HEAT, TICKS_PER_LEVEL, CONTAIN_AGAIN_PHASES, CONTAIN_PHASES, FORCE, GREED_CAP, GREED_PER_BAG, HELICOPTER_FROM, MODE_LABELS,
     NEGOTIATE_HOSTAGE_CAP, NEGOTIATE_PHASES, POLICE_KINDS, REGROUP_PHASES, REGROUP_PHASES_HIGH, SWAT_KINDS, UNSCALED, VAN_SEATS, type PoliceKind, type PoliceMode
 } from '../data/police';
 import { ABSENT_STATUSES, stepCost } from '../geo/move';
 import { inBuilding } from './actions/loot';
 import { lootWeight } from './hands';
-import { addHeat, heatOf } from './heat';
+import { addHeat, heatAhead, heatOf, phasesUntilHeat } from './heat';
 
 /*
  * The police director (§13.3, §13.4): who comes, in what, where to, and the rhythm they keep once on scene. Police
@@ -23,16 +23,19 @@ import { addHeat, heatOf } from './heat';
  *   each heat level reached brings that level's force, and past Heat 5 every 5 ticks does the same (§13.1). A wave is
  *   what is missing from the level's strength (`FORCE`, scaled by greed): new units, and refills of every lost one.
  *   Units already there stay even when heat falls (§13.1), and nothing refills between steps (§13.3). A level reached
- *   between world phases (a kill in the crew phase) sends its wave in the next world phase's devices step.
+ *   between world phases (a kill in the crew phase) sends its wave in the next world phase's devices step. Steps only
+ *   go up: a level fallen from (a release) and reached again is not a new step, and neither is a refill threshold.
  * - **Greed** (§13.3): +10% per bag secured, at most +50%, rounded half up, for every kind but the negotiator. A bag
- *   secured is a Heavy or Very heavy loot item taken, not ruined, and out of the building (with its carrier or on the
- *   ground): the van's hold is M3-08's.
+ *   secured is a Heavy or Very heavy loot item that has been carried or thrown out of the building, not ruined
+ *   (`PoliceState.secured`, kept after every command: taking it back inside doesn't unsecure it). The van's hold is
+ *   M3-08's.
  * - **Vehicles** (§13.4) appear at their staging point at the end of the world phase of their wave, with the siren
  *   marker (`policeArriving`); their units get out in the next world phase (`policeDeployed`), on the free tiles nearest
  *   it. Patrol officers come 2 to a **perimeter car**, which parks and stays: at most 2 per staging point (a wreck frees
- *   its slot, M3-08). The rest come in **transport vans** of 4 (a SWAT van for the assault teams, a police van for the
- *   others), which unload in the next phase and drive off in the one after. The **helicopter** comes at Heat 4 and
- *   hovers over the plot. Where each goes is fixed by the state, not rolled: a car to the point with the most free
+ *   its slot, M3-08). The rest come in **transport vans** of 4: a SWAT van carries a team (a shield and three, or the
+ *   heavy pair and two), a police van the others; vans unload in the next phase and drive off in the one after.
+ *   **Snipers** walk in on foot (§13.4), two to a team, and are at their staging point a phase after their wave like
+ *   everyone else (their raised positions are M3-05's). The **helicopter** comes at Heat 4 and hovers over the plot. Where each goes is fixed by the state, not rolled: a car to the point with the most free
  *   slots, a van to the point with the fewest cars and vans of its wave, ties in the generator's order (the vans on
  *   the street now don't count: they leave before the next wave, so the forecast holds). `planWave` is the one function
  *   for the wave sent and for the HUD's "Heat 3 in 2: SWAT van, the alley mouth" (`nextWave`).
@@ -40,10 +43,12 @@ import { addHeat, heatOf } from './heat';
  *   negotiator is on scene, else straight to Assault (4, +1 per heat level above 2), then Regroup (3; 2 from Heat 4),
  *   then Negotiate again if hostages are held and the negotiator is there, else Contain (1) and on to Assault. A mode
  *   counts down once per world phase from the one after it began, and the next begins when it reaches 0, announced
- *   with its length (`policeMode`). Shooting police during Negotiate starts an immediate Assault (`policeDown`).
+ *   with its length (`policeMode`). Shooting police during Negotiate starts an immediate Assault (`policeHit`, which
+ *   `policeDown` calls for a kill).
  *   Answering the negotiator, Stall and the hostage kill that police see are M3-07's and M3-05's.
- * - **Units** aren't NPCs: they are `State.police.units`, each a kind, the vehicle it rides in until it gets out, then
- *   its tile. M3-05 and M3-06 give them sight, movement and fire; `policeDown` takes one off the force.
+ * - **Units** aren't NPCs: they are `State.police.units`, each a kind, the vehicle it rides in (or on foot) until it
+ *   gets out, then its tile, which nobody else may step onto (geo/move.ts `occupancy`). One that finds no free tile
+ *   stays aboard until it does. M3-05 and M3-06 give them sight, movement and fire; `policeDown` takes one off the force.
  *
  * Nothing here rolls or decides anything that isn't on the table: the breaches that §13.6 announces a phase ahead are
  * M3-05's, and police decide movement and targets when they act.
@@ -53,6 +58,8 @@ import { addHeat, heatOf } from './heat';
 export interface StagingPoint { id: string; name: string; pos: Pos }
 
 export type VehicleKind = 'car' | 'van' | 'helicopter';
+/** How a group of a wave comes: in a vehicle, or on foot (snipers). */
+export type ArrivalKind = VehicleKind | 'foot';
 
 /** A police vehicle on the street (§13.4). */
 export interface PoliceVehicle {
@@ -73,8 +80,12 @@ export interface PoliceVehicle {
 export interface PoliceUnit {
     id: string;
     kind: PoliceKind;
-    /** The vehicle it rides in, until it gets out. */
+    /** The vehicle it rides in, until it gets out; null on foot or once out. */
     vehicle: string | null;
+    /** The staging point it came to. */
+    staging: string | null;
+    /** The turn whose world phase its wave came in; it is out from the next. */
+    arrived: number;
     /** Its tile once out, else null. */
     pos: Pos | null;
 }
@@ -91,6 +102,8 @@ export interface PoliceState {
     sent: number;
     /** The refills past Heat 5 sent (§13.1). */
     refills: number;
+    /** The bags (loot ids) that have left the building, for greed (§13.3). */
+    secured: string[];
 }
 
 declare module '../core/types' {
@@ -104,8 +117,12 @@ declare module '../core/types' {
     interface EventMap {
         /** A police vehicle at its staging point with the siren marker: its units get out next world phase. */
         policeArriving: { vehicle: string; kind: VehicleKind; label: string; staging: string | null; pos: Pos; units: number; level: number; reason: WaveReason };
-        /** A police officer got out of `vehicle` at `pos`. */
-        policeDeployed: { unit: string; kind: PoliceKind; vehicle: string; pos: Pos };
+        /** Officers walking in on foot to a staging point (snipers): there next world phase. */
+        policeOnFoot: { units: string[]; kind: PoliceKind; staging: string; pos: Pos; level: number; reason: WaveReason };
+        /** A police officer got out of `vehicle` (null: on foot) at `pos`. */
+        policeDeployed: { unit: string; kind: PoliceKind; vehicle: string | null; pos: Pos };
+        /** A police officer was hit (shot at and struck): ends Negotiate (§13.4). */
+        policeHit: { unit: string };
         /** A transport van drove off. */
         vehicleLeft: { vehicle: string };
         /** The director's next mode, for `phases` world phases (§13.4). */
@@ -119,22 +136,33 @@ declare module '../core/types' {
 export type WaveReason = 'arrival' | 'level' | 'refill';
 
 registerStateInit('police', (_world, state) => {
-    state.police = { units: [], vehicles: [], mode: null, sent: 0, refills: 0 };
+    state.police = { units: [], vehicles: [], mode: null, sent: 0, refills: 0, secured: [] };
 });
 
 // ---------------------------------------------------------------------------------------------------------- The force
 
-/** Bags secured (§13.3 greed; see the header). */
-export function bagsSecured(world: ReadonlyWorld, state: DeepReadonly<State>): number {
-    let bags = 0;
-    for (const id of sortedIds(state.loot)) {
+/** The bags out of the building now: Heavy or Very heavy, taken, not ruined, with their carrier or on the ground. */
+function bagsOut(world: ReadonlyWorld, state: DeepReadonly<State>): string[] {
+    return sortedIds(state.loot).filter(id => {
         const loot = state.loot[id]!;
-        if (!loot.taken || loot.ruined || lootWeight(world, id) === 'light') continue;
+        if (!loot.taken || loot.ruined || lootWeight(world, id) === 'light') return false;
         const holder = loot.holder === null ? undefined : state.crew.find(c => c.id === loot.holder);
-        if (!inBuilding(world, holder ? holder.pos : loot.pos)) bags++;
-    }
-    return bags;
+        return !inBuilding(world, holder ? holder.pos : loot.pos);
+    });
 }
+
+/** Bags secured (§13.3 greed; see the header): out of the building once, not ruined since. */
+export function bagsSecured(world: ReadonlyWorld, state: DeepReadonly<State>): number {
+    const ids = new Set([...state.police.secured, ...bagsOut(world, state)]);
+    return [...ids].filter(id => !state.loot[id]?.ruined).length;
+}
+
+// Greed keeps every bag that has been out (see the header).
+registerCommandHook('police.secured', ctx => {
+    const { world, state } = ctx;
+    const out = bagsOut(world, state).filter(id => !state.police.secured.includes(id));
+    if (out.length) state.police.secured = [...state.police.secured, ...out].sort();
+});
 
 /** The greed scaling now, in percent (§13.3). */
 export const greedPercent = (world: ReadonlyWorld, state: DeepReadonly<State>): number => Math.min(GREED_CAP, GREED_PER_BAG * bagsSecured(world, state));
@@ -147,10 +175,32 @@ export function strength(level: number, greed: number): Record<PoliceKind, numbe
     return out;
 }
 
-/** A vehicle a wave would send: what it is, where it goes and who rides in it. */
-export interface PlannedVehicle { kind: VehicleKind; label: string; staging: StagingPoint | null; units: PoliceKind[] }
+/** A group a wave would send: in what (or on foot), where it goes and who comes. */
+export interface PlannedVehicle { kind: ArrivalKind; label: string; staging: StagingPoint | null; units: PoliceKind[] }
 
-const LABELS: Readonly<Record<VehicleKind, string>> = { car: 'Police car', van: 'Police van', helicopter: 'Helicopter' };
+const LABELS: Readonly<Record<ArrivalKind, string>> = { car: 'Police car', van: 'Police van', helicopter: 'Helicopter', foot: 'Sniper team' };
+
+/** The vans' loads: SWAT teams (a shield and three, the heavy pair and two), then everyone else but snipers, 4 a van. */
+function vanLoads(missing: Readonly<Record<PoliceKind, number>>): { swat: boolean; units: PoliceKind[] }[] {
+    const left = { ...missing }, loads: { swat: boolean; units: PoliceKind[] }[] = [];
+    const take = (kind: PoliceKind, n: number): PoliceKind[] => {
+        const k = Math.min(n, left[kind]);
+        left[kind] -= k;
+        return Array.from({ length: k }, () => kind);
+    };
+    while (left.swatShield > 0) {
+        const team = take('swatShield', 1);
+        loads.push({ swat: true, units: [...team, ...take('swat', VAN_SEATS - team.length)] });
+    }
+    while (left.heavy > 0) {
+        const team = take('heavy', 2);
+        loads.push({ swat: true, units: [...team, ...take('swat', VAN_SEATS - team.length)] });
+    }
+    while (left.swat > 0) loads.push({ swat: true, units: take('swat', VAN_SEATS) });
+    const rest = POLICE_KINDS.filter(k => !SWAT_KINDS.has(k) && k !== 'sniper').flatMap(k => take(k, left[k]));
+    for (let i = 0; i < rest.length; i += VAN_SEATS) loads.push({ swat: false, units: rest.slice(i, i + VAN_SEATS) });
+    return loads;
+}
 
 /**
  * The vehicles a wave to `level` sends now (see the header): the units missing from the level's strength, by car while
@@ -174,7 +224,7 @@ export function planWave(world: ReadonlyWorld, state: DeepReadonly<State>, level
         cars.set(v.staging, cars.get(v.staging)! + 1);
     }
     const out: PlannedVehicle[] = [];
-    const send = (kind: VehicleKind, label: string, staging: StagingPoint | null, units: PoliceKind[]): void => {
+    const send = (kind: ArrivalKind, label: string, staging: StagingPoint | null, units: PoliceKind[]): void => {
         out.push({ kind, label, staging, units });
         if (!staging) return;
         vehicles.set(staging.id, vehicles.get(staging.id)! + 1);
@@ -189,15 +239,10 @@ export function planWave(world: ReadonlyWorld, state: DeepReadonly<State>, level
         missing.patrol -= seats;
         send('car', LABELS.car, to, Array.from({ length: seats }, () => 'patrol' as const));
     }
-    // The vans: the assault teams together, everyone else together, 4 to a van, to the point with the fewest vehicles.
-    const riders = (swat: boolean): PoliceKind[] => POLICE_KINDS.filter(k => SWAT_KINDS.has(k) === swat).flatMap(k => Array.from({ length: missing[k] }, () => k));
-    for (const swat of [true, false]) {
-        const all = riders(swat);
-        for (let i = 0; i < all.length; i += VAN_SEATS) {
-            const to = points.reduce((a, b) => (vehicles.get(b.id)! < vehicles.get(a.id)! ? b : a));
-            send('van', swat ? 'SWAT van' : LABELS.van, to, all.slice(i, i + VAN_SEATS));
-        }
-    }
+    // The vans (see `vanLoads`), then the snipers on foot in pairs, each to the point with the fewest arrivals.
+    const fewest = (): StagingPoint => points.reduce((a, b) => (vehicles.get(b.id)! < vehicles.get(a.id)! ? b : a));
+    for (const load of vanLoads(missing)) send('van', load.swat ? 'SWAT van' : LABELS.van, fewest(), load.units);
+    for (let n = missing.sniper; n > 0; n -= 2) send('foot', LABELS.foot, fewest(), Array.from({ length: Math.min(2, n) }, () => 'sniper' as const));
     if (level >= HELICOPTER_FROM && !state.police.vehicles.some(v => v.kind === 'helicopter')) send('helicopter', LABELS.helicopter, null, []);
     return out;
 }
@@ -209,12 +254,18 @@ const overPlot = (world: ReadonlyWorld): Pos => ({ x: Math.floor(world.width / 2
 function sendWave(ctx: Ctx, level: number, reason: WaveReason): void {
     const { world, state } = ctx;
     for (const plan of planWave(world, state, level)) {
+        if (plan.kind === 'foot') {
+            const units = plan.units.map(kind => ({ id: newId(state, 'police'), kind, vehicle: null, staging: plan.staging!.id, arrived: state.turn, pos: null }));
+            state.police.units.push(...units);
+            ctx.emit({ type: 'policeOnFoot', units: units.map(u => u.id), kind: 'sniper', staging: plan.staging!.id, pos: { ...plan.staging!.pos }, level, reason });
+            continue;
+        }
         const vehicle: PoliceVehicle = {
             id: newId(state, plan.kind), kind: plan.kind, label: plan.label, staging: plan.staging?.id ?? null,
             pos: plan.staging ? { ...plan.staging.pos } : overPlot(world), arrived: state.turn, status: 'arriving'
         };
         state.police.vehicles.push(vehicle);
-        for (const kind of plan.units) state.police.units.push({ id: newId(state, 'police'), kind, vehicle: vehicle.id, pos: null });
+        for (const kind of plan.units) state.police.units.push({ id: newId(state, 'police'), kind, vehicle: vehicle.id, staging: vehicle.staging, arrived: state.turn, pos: null });
         ctx.emit({
             type: 'policeArriving', vehicle: vehicle.id, kind: vehicle.kind, label: vehicle.label, staging: vehicle.staging, pos: { ...vehicle.pos },
             units: plan.units.length, level, reason
@@ -233,25 +284,37 @@ export interface NextWave {
 }
 
 export function nextWave(world: ReadonlyWorld, state: DeepReadonly<State>): NextWave | null {
-    const r = state.response;
-    if (!r || state.police.sent === 0) return null;
-    const heat = heatOf(r.heat);
-    const level = Math.min(5, heat.level + 1);
-    return { level, reason: heat.level >= 5 ? 'refill' : 'level', inPhases: 5 - heat.tick, vehicles: planWave(world, state, level) };
+    const r = state.response, p = state.police;
+    if (!r || !world.staging?.length) return null;
+    // Before the first arrival: the force of the level the track will have reached when "Police in N" runs out.
+    if (p.sent === 0) {
+        const phases = Math.max(1, r.policeIn);
+        const level = heatOf(heatAhead(world, state, phases)).level;
+        return { level, reason: 'arrival', inPhases: phases, vehicles: planWave(world, state, level) };
+    }
+    const top = (MAX_HEAT - 1) * TICKS_PER_LEVEL;
+    const refill = p.sent >= MAX_HEAT;
+    const level = refill ? MAX_HEAT : p.sent + 1;
+    const ticks = refill ? top + (p.refills + 1) * TICKS_PER_LEVEL : (level - 1) * TICKS_PER_LEVEL;
+    return { level, reason: refill ? 'refill' : 'level', inPhases: Math.max(1, phasesUntilHeat(world, state, ticks)), vehicles: planWave(world, state, level) };
 }
 
 // ---------------------------------------------------------------------------------------------------------- Getting out
 
-/** The free tile nearest a vehicle that a unit can get out onto (no closed door between): not blocked, nobody standing there. */
-function exitTile(world: ReadonlyWorld, state: State, from: Pos): Pos {
+/**
+ * The free tile nearest `from` that a unit can get out onto (no closed door between): not blocked, nobody standing
+ * there, crew, NPC or officer. Null when there is none near: the unit waits aboard.
+ */
+function exitTile(world: ReadonlyWorld, state: State, from: DeepReadonly<Pos>): Pos | null {
     const taken = new Set<number>();
     const put = (p: DeepReadonly<Pos>): void => void taken.add(p.y * world.width + p.x);
     for (const c of state.crew) put(c.pos);
     for (const n of state.npcs) if (!ABSENT_STATUSES.has(n.status)) put(n.pos);
     for (const u of state.police.units) if (u.pos) put(u.pos);
     const free = (p: Pos): boolean => inBounds(world, p) && !taken.has(p.y * world.width + p.x) && !tileAt(world, p)!.blocksMove;
-    if (free(from)) return { ...from };
-    const seen = new Set<number>([from.y * world.width + from.x]), queue: Pos[] = [from];
+    const start = { x: from.x, y: from.y };
+    if (free(start)) return start;
+    const seen = new Set<number>([start.y * world.width + start.x]), queue: Pos[] = [start];
     const steps = (['n', 'e', 's', 'w', 'ne', 'se', 'sw', 'nw'] as const).map(f => FACING_STEP[f]);
     for (let i = 0; i < queue.length && i < 256; i++) {
         const at = queue[i]!;
@@ -263,27 +326,28 @@ function exitTile(world: ReadonlyWorld, state: State, from: Pos): Pos {
             queue.push(next);
         }
     }
-    return { ...from };
+    return null;
 }
 
-/** Units in arrived vehicles get out; vans that unloaded last phase drive off. */
+/** Arrived vehicles park or unload, everyone due gets out (aboard or on foot), and empty vans unloaded before drive off. */
 function unload(ctx: Ctx, turn: number): boolean {
-    const { world, state } = ctx;
+    const { world, state } = ctx, p = state.police;
     let out = false;
-    for (const v of [...state.police.vehicles]) {
-        if (v.status === 'unloaded' && v.arrived + 2 <= turn) {
-            state.police.vehicles.splice(state.police.vehicles.indexOf(v), 1);
-            ctx.emit({ type: 'vehicleLeft', vehicle: v.id });
-            continue;
-        }
-        if (v.status !== 'arriving' || v.arrived >= turn) continue;
-        v.status = v.kind === 'van' ? 'unloaded' : 'parked';
-        for (const unit of state.police.units.filter(u => u.vehicle === v.id)) {
-            unit.vehicle = null;
-            unit.pos = exitTile(world, state, v.pos);
-            out = true;
-            ctx.emit({ type: 'policeDeployed', unit: unit.id, kind: unit.kind, vehicle: v.id, pos: { ...unit.pos } });
-        }
+    for (const v of [...p.vehicles]) {
+        if (v.kind !== 'van' || v.status !== 'unloaded' || v.arrived + 2 > turn || p.units.some(u => u.vehicle === v.id)) continue;
+        p.vehicles.splice(p.vehicles.indexOf(v), 1);
+        ctx.emit({ type: 'vehicleLeft', vehicle: v.id });
+    }
+    for (const v of p.vehicles) if (v.status === 'arriving' && v.arrived < turn) v.status = v.kind === 'van' ? 'unloaded' : 'parked';
+    for (const unit of p.units) {
+        if (unit.pos !== null || unit.arrived >= turn) continue;
+        const from = unit.vehicle !== null ? p.vehicles.find(v => v.id === unit.vehicle)?.pos : world.staging?.find(s => s.id === unit.staging)?.pos;
+        const tile = from ? exitTile(world, state, from) : null;
+        if (!tile) continue;
+        ctx.emit({ type: 'policeDeployed', unit: unit.id, kind: unit.kind, vehicle: unit.vehicle, pos: { ...tile } });
+        unit.vehicle = null;
+        unit.pos = tile;
+        out = true;
     }
     return out;
 }
@@ -344,11 +408,22 @@ export function policeDown(ctx: Ctx, unitId: string, killed: boolean): void {
     const { state } = ctx;
     const unit = state.police.units.find(u => u.id === unitId);
     if (!unit) return;
+    if (killed) policeHit(ctx, unit.id);
     state.police.units.splice(state.police.units.indexOf(unit), 1);
     ctx.emit({ type: 'policeDown', unit: unit.id, kind: unit.kind, killed });
     if (!killed) return;
     state.heat.policeKilled++;
     addHeat(ctx, state.heat.policeKilled === 1 ? 'firstPoliceKilled' : 'policeKilled');
+}
+
+/**
+ * A police officer was hit (M3-02's attack, or a kill through `policeDown`): shooting police ends Negotiate in an
+ * immediate Assault (§13.4). A miss is not a hit.
+ */
+export function policeHit(ctx: Ctx, unitId: string): void {
+    const { state } = ctx;
+    if (!state.police.units.some(u => u.id === unitId)) return;
+    ctx.emit({ type: 'policeHit', unit: unitId });
     if (state.police.mode?.kind === 'negotiate') startMode(ctx, 'assault', 'negotiate');
 }
 
@@ -374,9 +449,8 @@ registerWorldHook('devices', 'police.director', (ctx, phase) => {
         p.refills = heat.beyond;
         return;
     }
-    p.sent = Math.min(p.sent, heat.level);
+    // Steps only go up (see the header): a level or a refill reached again after a fall brings nothing.
     while (p.sent < heat.level) sendWave(ctx, ++p.sent, 'level');
-    p.refills = Math.min(p.refills, heat.beyond);
     while (p.refills < heat.beyond) {
         p.refills++;
         sendWave(ctx, 5, 'refill');
@@ -388,5 +462,7 @@ registerEvents({
     policeDeployed: { undoBlocking: true },
     vehicleLeft: { undoBlocking: true },
     policeMode: { undoBlocking: true },
-    policeDown: { undoBlocking: true }
+    policeDown: { undoBlocking: true },
+    policeOnFoot: { undoBlocking: true },
+    policeHit: { undoBlocking: true }
 });

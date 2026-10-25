@@ -161,12 +161,14 @@ function nextHeatView(world: ReadonlyWorld, state: State): { label: string; inTu
     const first = next.vehicles.find(v => v.kind !== 'helicopter') ?? next.vehicles[0];
     const what = first ? `${first.label}${first.staging ? `, ${first.staging.name.charAt(0).toLowerCase()}${first.staging.name.slice(1)}` : ''}` : 'no losses to refill';
     const more = next.vehicles.length > 1 ? ` +${next.vehicles.length - 1}` : '';
-    return { label: `${next.reason === 'refill' ? 'Reinforcements' : `Heat ${next.level}`}: ${what}${more}`, inTurns: next.inPhases };
+    const head = next.reason === 'refill' ? 'Reinforcements' : next.reason === 'arrival' ? `Police at Heat ${next.level}` : `Heat ${next.level}`;
+    return { label: `${head}: ${what}${more}`, inTurns: next.inPhases };
 }
 
 /**
  * The state pill (§20.3): "QUIET", "QUIET: alarm in 2" with a carrier running, "ALARM: police in 6" once the Alarm is
- * up (§9.2), "LOUD". Heat shows once the police are on site, with what its next step brings when `world` is given.
+ * up (§9.2), "LOUD". Heat shows from the Alarm on, with what its next step brings when `world` is given (§13.1): while
+ * "Police in N" runs, what the first arrival will bring.
  */
 export function bankView(state: State, goPreview = false, world?: ReadonlyWorld): BankStatusVM {
     const running = threatLedger(state).filter(t => !t.halted);
@@ -177,7 +179,7 @@ export function bankView(state: State, goPreview = false, world?: ReadonlyWorld)
         ? r ? (r.policeIn > 0 ? `ALARM: police in ${r.policeIn}` : 'ALARM: police on site') : 'ALARM'
         : status === 'loud' ? 'LOUD' : nextAlarmIn !== null ? `QUIET: alarm in ${nextAlarmIn}` : 'QUIET';
     const level = r ? heatOf(r.heat) : null;
-    const heat = r && level && r.policeIn <= 0 ? { level: level.level, ticks: level.tick, next: world && state.police ? nextHeatView(world, state) : null } : null;
+    const heat = r && level ? { level: level.level, ticks: level.tick, next: world && state.police ? nextHeatView(world, state) : null } : null;
     // GO (§9.3): the takeover turn, or GO previewed.
     const go = goPreview || state.takeover === state.turn;
     return { status, label, nextAlarmIn, ...(r ? { policeEta: r.policeIn, heat } : {}), ...(go ? { go: true } : {}) };
@@ -477,6 +479,8 @@ export function describeEvent(world: ReadonlyWorld, state: State, event: SimEven
         case 'policeDeployed': return `${POLICE_LABELS[event.kind]} on scene`;
         case 'policeMode': return `Police: ${MODE_LABELS[event.mode]} (${event.phases})`;
         case 'vehicleLeft': return 'A police van drove off';
+        case 'policeOnFoot': return `${event.units.length} ${POLICE_LABELS[event.kind].toLowerCase()}s walking in`;
+        case 'policeHit': return 'A police officer is hit';
         case 'alarmAttempt': return `${name(event.npc)} raises the alarm`;
         case 'alarmDead': return event.kind === 'seismicSensor' || event.kind === 'motionSensor'
             ? `The ${CARRIERS[event.kind].label.toLowerCase()} is dead: nothing happened` : `${name(event.source)} pressed the button: nothing happened`;

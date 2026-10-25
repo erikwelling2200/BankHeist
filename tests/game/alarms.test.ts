@@ -87,7 +87,7 @@ describe('the Alarm', () => {
         let s = commit(world, state, { type: 'wait', crew: 'mara' }).state;
         for (let i = 0; i < 3; i++) s = commit(world, s, { type: 'endTurn' }).state;
         expect(s.bank.alarm).toBe(true);
-        expect(bankView(s)).toMatchObject({ status: 'alarm', label: 'ALARM: police in 6', policeEta: 6, nextAlarmIn: null, heat: null });
+        expect(bankView(s)).toMatchObject({ status: 'alarm', label: 'ALARM: police in 6', policeEta: 6, nextAlarmIn: null, heat: { level: 1, ticks: 0, next: null } });
         expect(threatLedger(s, world)).toEqual([expect.objectContaining({ id: 'police', kind: 'reinforcement', countdown: 6 })]);
         s = commit(world, s, { type: 'endTurn' }).state;
         expect(bankView(s).label).toBe('ALARM: police in 5');

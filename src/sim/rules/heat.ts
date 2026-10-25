@@ -19,13 +19,14 @@ import { isPresent } from './npc/walk';
  *   Class II+ vault** +1 for each world phase a drill or charge works on the vault door of a vault with a seismic sensor
  *   (rules/vault.ts), once per phase however many work.
  * - **Kills** are read off the state after every command (a command hook), so whatever kills (M3-02's attacks, M3-03's
- *   bleeding, a trap) counts without telling this module: an NPC that is dead now and wasn't before. A civilian, or
- *   anyone held as a hostage (Commanded or tied when they died), +5 by any cause. A guard or staff member +1 when
- *   witnessed: through a live camera on the operator's monitors while the operator watches (+1 at once), or by anyone
- *   present and looking who sees the body's tile, who carries it to the police (+1 when the first of them leaves the
- *   map, `HeatState.witnesses`). Police seeing it for themselves is M3-05's, which gives the police their sight. Kills
- *   before the Alarm are owed (`HeatState.owed`) and added in the world phase that raises it. Police officers aren't NPCs: the
- *   rules that take one down call `policeDown` (rules/police.ts), which adds +3 for the first and +1 after.
+ *   bleeding, a trap) counts without telling this module: an NPC that is dead now and wasn't before. After the Alarm a
+ *   civilian, or anyone held as a hostage (Commanded, tied or running in a command's lapse), is +5 by any cause, and a
+ *   guard or staff member +1 (decision 121: the police are listening by then). Before it, a kill counts only if
+ *   witnessed (§13.2): seen through a live camera on the monitors of an attentive operator, or by anyone present and
+ *   looking. Whether anyone saw is what the crew can't know, so it is owed in secret (`HeatState.owed`, no event) and
+ *   lands as a lump in the world phase that raises the Alarm, which is when the design shows the heat track at all.
+ *   Police officers aren't NPCs: the rules that take one down call `policeDown` (rules/police.ts), which adds +3 for
+ *   the first and +1 after.
  * - **A hostage escapes to the police** +1: an NPC Commanded, tied or fleeing in a command's lapse before a command
  *   that leaves the map in it, once the Alarm is up.
  * - **Release** (§10.7) is M3-07's command: it asks `canRelease` and calls `releaseHeat`. Once per turn, three per heist.
@@ -35,14 +36,12 @@ import { isPresent } from './npc/walk';
 
 /** What the heat track keeps besides the ticks themselves (`State.response.heat`). */
 export interface HeatState {
-    /** Kills witnessed before the Alarm (§13.2), each added with its cause when it fires. */
+    /** Kills witnessed before the Alarm (§13.2), each added with its cause when it fires. Secret until then. */
     owed: { cause: HeatCause; victim: string }[];
     /** Police officers killed so far (the first is +3). */
     policeKilled: number;
     /** The turns of each release so far (§13.2: once per turn, three per heist). */
     releases: number[];
-    /** Guard and staff kills only bystanders saw: +1 when the first of them reaches the police (leaves the map). */
-    witnesses: { victim: string; npcs: string[] }[];
 }
 
 declare module '../core/types' {
@@ -52,13 +51,11 @@ declare module '../core/types' {
     interface EventMap {
         /** The heat track moved by `by` ticks, now `heat` (`heatOf` reads the level); `victim` the NPC a kill was of. */
         heatChanged: { by: number; cause: HeatCause; heat: number; victim?: string };
-        /** A kill witnessed before the Alarm: its ticks are added when the Alarm fires (`heatChanged` then). */
-        heatOwed: { by: number; cause: HeatCause; victim: string };
     }
 }
 
 registerStateInit('heat', (_world, state) => {
-    state.heat = { owed: [], policeKilled: 0, releases: [], witnesses: [] };
+    state.heat = { owed: [], policeKilled: 0, releases: [] };
 });
 
 /** The heat level of a tick count (§13.1): Heat 1–5, the tick within it, and the refills past Heat 5. */
@@ -80,18 +77,12 @@ export function heatOf(ticks: number): HeatLevel {
 export const heatNow = (state: DeepReadonly<State>): HeatLevel | null => (state.response ? heatOf(state.response.heat) : null);
 
 /**
- * Moves the heat track for a cause, by its canonical ticks unless `by` says otherwise. Before the Alarm a kill's ticks
- * are owed (`heatOwed`) and anything else is ignored. Never below Heat 1, tick 0. Returns the ticks it moved.
+ * Moves the heat track for a cause, by its canonical ticks unless `by` says otherwise. Before the Alarm nothing moves
+ * (kills are owed by the kill rule itself). Never below Heat 1, tick 0. Returns the ticks it moved.
  */
 export function addHeat(ctx: Ctx, cause: HeatCause, options: { victim?: string; by?: number } = {}): number {
     const { state } = ctx, by = options.by ?? HEAT_EVENTS[cause].ticks;
-    if (!state.response) {
-        if (options.victim !== undefined && by > 0) {
-            state.heat.owed.push({ cause, victim: options.victim });
-            ctx.emit({ type: 'heatOwed', by, cause, victim: options.victim });
-        }
-        return 0;
-    }
+    if (!state.response) return 0;
     const moved = Math.max(-state.response.heat, by);
     if (moved === 0) return 0;
     state.response.heat += moved;
@@ -136,12 +127,13 @@ function cameraWitness(world: ReadonlyWorld, state: State, tile: Pos): boolean {
     });
 }
 
-/** The NPCs present and looking who see a tile now, but the one lying there. */
-function bystanders(world: ReadonlyWorld, state: State, tile: Pos, except: string): string[] {
-    return state.npcs.filter(n => n.id !== except && isPresent(n) && !neutralised(state, n)).filter(n => {
+/** Whether anyone present and looking sees a tile now, but the one lying there. */
+function bystander(world: ReadonlyWorld, state: State, tile: Pos, except: string): boolean {
+    return state.npcs.some(n => {
+        if (n.id === except || !isPresent(n) || neutralised(state, n)) return false;
         const eye = npcObserver(world, n);
         return !!eye && sees(world, state, eye, tile) !== null;
-    }).map(n => n.id);
+    });
 }
 
 // Kills and escapes, read off what any command did (see the header).
@@ -151,29 +143,39 @@ registerCommandHook('heat', (ctx, _cmd, events, before) => {
         if (npc.status !== 'dead') continue;
         const was = before.npcs.find(n => n.id === npc.id);
         if (!was || was.status === 'dead') continue;
-        state.heat.witnesses = state.heat.witnesses.map(w => ({ ...w, npcs: w.npcs.filter(id => id !== npc.id) })).filter(w => w.npcs.length > 0);
         const person = world.people.find(p => p.id === npc.id);
-        if (wasHostage(was) || person?.observer === 'civilian') {
-            addHeat(ctx, 'civilianKilled', { victim: npc.id });
-        } else if (cameraWitness(world, state, npc.pos)) {
-            addHeat(ctx, 'staffKilled', { victim: npc.id });
-        } else {
-            const seen = bystanders(world, state, npc.pos, npc.id);
-            if (seen.length) state.heat.witnesses.push({ victim: npc.id, npcs: seen });
-        }
+        const cause = wasHostage(was) || person?.observer === 'civilian' ? 'civilianKilled' : 'staffKilled';
+        if (state.response) addHeat(ctx, cause, { victim: npc.id });
+        else if (cameraWitness(world, state, npc.pos) || bystander(world, state, npc.pos, npc.id)) state.heat.owed.push({ cause, victim: npc.id });
     }
     for (const e of events) {
         if (e.type !== 'npcLeft') continue;
         const was = before.npcs.find(n => n.id === e.npc);
         if (was && wasHostage(was) && state.bank.alarm) addHeat(ctx, 'hostageEscaped');
-        for (const w of state.heat.witnesses.filter(x => x.npcs.includes(e.npc))) {
-            state.heat.witnesses.splice(state.heat.witnesses.indexOf(w), 1);
-            addHeat(ctx, 'staffKilled', { victim: w.victim });
-        }
     }
 }, { order: 5 });
 
 // ---------------------------------------------------------------------------------------------------------- The track
+
+/**
+ * The ticks the track will have gained `phases` world phases from now by what is known to come (§13.1's forecast):
+ * +1 a phase, and +1 a phase while a drill or charge on a Class II+ vault door still has work to do (a jam it hasn't
+ * had isn't counted). Kills, escapes and releases aren't foreseen. Before the Alarm, 0.
+ */
+export function heatAhead(world: ReadonlyWorld, state: DeepReadonly<State>, phases: number): number {
+    if (!state.response) return 0;
+    const door = classTwoVaultDoor(world);
+    const vault = door === undefined ? 0 : Math.max(0, ...state.devices.filter(d => d.at === door && !d.jammed).map(d => d.needed - d.done));
+    return state.response.heat + phases + Math.min(phases, vault);
+}
+
+/** World phases until the track is forecast to reach `ticks` (`heatAhead`), counting the coming one as 1; 0 if it has. */
+export function phasesUntilHeat(world: ReadonlyWorld, state: DeepReadonly<State>, ticks: number): number {
+    if (!state.response || state.response.heat >= ticks) return 0;
+    let n = 1;
+    while (heatAhead(world, state, n) < ticks) n++;
+    return n;
+}
 
 /** The vault door when its vault has a seismic sensor (Class II+), from the key graph. */
 function classTwoVaultDoor(world: ReadonlyWorld): string | undefined {
@@ -188,7 +190,7 @@ registerWorldHook('devices', 'heat.track', (ctx, phase) => {
     const { world, state } = ctx, r = state.response;
     if (!r) return;
     if (r.raised === phase.turn) {
-        // The Alarm's own world phase: the kills before it come due.
+        // The Alarm's own world phase: the kills witnessed before it come due, as a lump.
         const owed = state.heat.owed;
         state.heat.owed = [];
         for (const o of owed) addHeat(ctx, o.cause, { victim: o.victim });
@@ -200,6 +202,5 @@ registerWorldHook('devices', 'heat.track', (ctx, phase) => {
 }, { order: 2 });
 
 registerEvents({
-    heatChanged: { undoBlocking: true },
-    heatOwed: { undoBlocking: true }
+    heatChanged: { undoBlocking: true }
 });
