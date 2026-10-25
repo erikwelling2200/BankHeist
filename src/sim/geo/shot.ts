@@ -50,6 +50,8 @@ declare module '../core/types' {
     interface Tile {
         /** The hit points of the half cover on it (§11.4); absent on a half-cover tile: it can't be destroyed. */
         coverHp?: number;
+        /** A table or light desk stands on it that can be flipped into half cover, with these hit points (§11.4, M3-02). */
+        flipHp?: number;
     }
 }
 
@@ -83,6 +85,11 @@ export interface ShotMap {
     readonly northSouth: Int32Array;
     readonly eastWest: Int32Array;
     readonly edges: readonly BulletEdge[];
+    /**
+     * Per tile: the one side of it whose neighbour its half cover covers (a flipped table, whose arc faces away from
+     * the side it was flipped from, decision 102: 0 north, 1 east, 2 south, 3 west), or −1 for every side.
+     */
+    readonly coverSide: Int8Array;
 }
 
 /** What bullets change: panes, teller glass's hits and cover's hit points. Each trace gets its own copy. */
@@ -205,8 +212,18 @@ export function shotMap(world: ReadonlyWorld, state: State): ShotMap {
         const b = e.run === 'northSouth' ? (e.tx < width ? e.ty * width + e.tx : -1) : (e.ty < height ? e.ty * width + e.tx : -1);
         edges.push({ key, material: now.material, open: !now.blocksMove && !now.blocksSight, halfCover: !!e.halfCover, sides: [a, b] });
     }
-    return { width, height, tiles, raised, northSouth, eastWest, edges };
+    const coverSide = new Int8Array(width * height).fill(-1);
+    for (const f of state.flipped) if (f.at.x >= 0 && f.at.y >= 0 && f.at.x < width && f.at.y < height) coverSide[f.at.y * width + f.at.x] = SIDE_INDEX[f.side];
+    return { width, height, tiles, raised, northSouth, eastWest, edges, coverSide };
 }
+
+const SIDE_INDEX = { n: 0, e: 1, s: 2, w: 3 } as const;
+
+/** Whether the half cover on tile `ci` covers a target on its side `-n` (it lies at the target's side `n`). */
+const coversFrom = (map: ShotMap, ci: number, n: Pos): boolean => {
+    const side = map.coverSide[ci]!;
+    return side < 0 || (SIDES[side]!.x === -n.x && SIDES[side]!.y === -n.y);
+};
 
 /** The fabric of a world in a state: shattered panes, teller glass's hits, and cover's hit points (`State.cover`). */
 export function shotFabric(world: ReadonlyWorld, state: State, map: ShotMap, coverLeft: Readonly<Record<string, number>>): Fabric {
@@ -217,12 +234,15 @@ export function shotFabric(world: ReadonlyWorld, state: State, map: ShotMap, cov
         hits[i] = now.hits ?? 0;
     });
     const cover = new Int32Array(world.width * world.height).fill(NO_COVER);
+    // A flipped table is half cover with the hit points it keeps (M3-02, decision 102).
+    const flipped = new Set(state.flipped.map(f => tileKey(f.at)));
     world.tiles.forEach((t, i) => {
-        if (!t.halfCover) return;
         const key = `${i % world.width} ${Math.floor(i / world.width)}`;
-        if (t.coverHp === undefined) cover[i] = INDESTRUCTIBLE;
+        const own = t.halfCover ? t.coverHp ?? null : flipped.has(key) && t.flipHp !== undefined ? t.flipHp : undefined;
+        if (own === undefined) return;
+        if (own === null) cover[i] = INDESTRUCTIBLE;
         else {
-            const left = Object.hasOwn(coverLeft, key) ? coverLeft[key]! : t.coverHp;
+            const left = Object.hasOwn(coverLeft, key) ? coverLeft[key]! : own;
             cover[i] = left > 0 ? left : NO_COVER;
         }
     });
@@ -269,7 +289,7 @@ export function coverAgainst(map: ShotMap, fabric: Fabric, body: Body, origin: P
             const cx = t.x + n.x, cy = t.y + n.y;
             if (cx < 0 || cy < 0 || cx >= width || cy >= height || (edge && !edge.open)) continue;
             const ci = cy * width + cx;
-            if (fabric.cover[ci] !== NO_COVER) offer({ kind, at: `${cx} ${cy}`, tile: ci, score: along * along });
+            if (fabric.cover[ci] !== NO_COVER && coversFrom(map, ci, n)) offer({ kind, at: `${cx} ${cy}`, tile: ci, score: along * along });
         }
     }
     const lean = body.lean;
@@ -436,7 +456,8 @@ export function hasCover(map: ShotMap, fabric: Fabric, body: Body, origin: Pos):
         const e = sideEdge(map, t.x, t.y, n.x, n.y), edge = e >= 0 ? map.edges[e]! : undefined;
         if (edge?.halfCover) return true;
         const cx = t.x + n.x, cy = t.y + n.y;
-        return cx >= 0 && cy >= 0 && cx < width && cy < height && (!edge || edge.open) && fabric.cover[cy * width + cx] !== NO_COVER;
+        return cx >= 0 && cy >= 0 && cx < width && cy < height && (!edge || edge.open) && fabric.cover[cy * width + cx] !== NO_COVER
+            && coversFrom(map, cy * width + cx, n);
     });
 }
 

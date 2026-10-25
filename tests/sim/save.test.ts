@@ -78,13 +78,13 @@ describe('saving', () => {
  * NpcStatusMap, CarrierKindMap or adds a field must also fill it in below, or a change of shape goes unnoticed.
  */
 const SHAPE_HASHES: Record<number, string> = {
-    1: 'e3a77523265d2082'
+    1: '6edacd71b690cd89'
 };
 
 /** Paths whose objects are records by id, not structs. */
 const RECORDS = new Set([
     'world.edges', 'world.doors', 'state.doors', 'state.edges', 'state.objects', 'state.cameras', 'state.rng',
-    'state.cover', 'state.npcs[].suspicion', 'state.npcs[].lastSeen', 'state.npcs[].frisked', 'state.knowledge.npcs', 'state.knowledge.doors', 'state.radio.calls'
+    'state.cover', 'state.crew[].arms.guns', 'state.crew[].arms.throwables', 'state.npcs[].suspicion', 'state.npcs[].lastSeen', 'state.npcs[].frisked', 'state.knowledge.npcs', 'state.knowledge.doors', 'state.radio.calls'
 ]);
 
 /** Two shapes as one: the union of their fields, and "a|b" where a field has two types. */
@@ -164,8 +164,17 @@ describe('the save format', () => {
         full.npcs[0]!.leaning = { at: { x: 1, y: 0 }, corner: { x: 1, y: 1 } };
         full.shots = [{
             id: 'shot-3', turn: 2, phase: 'crew', rolls: { points: [0.5], covers: [0.25] },
-            shot: { shooter: 'jun', weapon: 'pistol', at: { x: 1, y: 1 }, target: 'guard', lean: { x: 1, y: 0 }, turn: 2, bullets: 1, moved: true, braced: false, aimFactor: 1.5 }
+            shot: { shooter: 'jun', weapon: 'pistol', at: { x: 1, y: 1 }, target: 'guard', lean: { x: 1, y: 0 }, turn: 2, bullets: 1, moved: true, braced: false, aimFactor: 1.5, spread: 2 }
         }];
+        full.crew[0]!.arms = {
+            drawn: 'pistol', guns: { pistol: { load: 'pistol', loaded: 10, spare: 3 } }, throwables: { flashbang: 2 }, swapped: 2, moved: 2, braced: true,
+            watch: { at: { x: 1, y: 1 }, arc: 60, lean: { x: 1, y: 0 }, turn: 2 }, aiming: null
+        };
+        full.npcs[0]!.ammo = { weapon: 'pistol', loaded: 12, spare: 2 };
+        full.npcs[0]!.suppressed = { turn: 2, by: 'jun', from: { x: 1, y: 1 }, reacted: false };
+        full.grenades = [{ id: 'smoke-5', kind: 'smoke', by: 'jun', at: { x: 1, y: 1 }, turn: 2 }];
+        full.smoke = [{ id: 'smoke-4', at: { x: 1, y: 1 }, tiles: [{ x: 1, y: 1 }], until: 3 }];
+        full.flipped = [{ at: { x: 1, y: 1 }, side: 'w' }];
         full.doors.staffDoor = { status: 'open', propped: true, work: 1 };
         full.objects.panel = { disabled: true, open: false, progress: 2, codes: ['manager'], sensorsCut: true };
         full.devices = [{ id: 'drill-4', kind: 'drill', at: 'vault', pos: { x: 1, y: 1 }, crew: 'jun', done: 2, needed: 5, jammed: true, noise: 6 }];
@@ -226,7 +235,7 @@ describe('the save format', () => {
                         { from: 2, activity: 'patrol' as const, label: 'patrol', room: '', route: [{ x: 0, y: 0 }, { x: 1, y: 0 }] }
                     ]
                 })),
-                tiles: world.tiles.map((t, i) => (i === 1 ? { ...t, climb: { kind: 'stairs' as const, to: 'n' as const } } : i ? t : { ...t, room: 'lobby', midHeight: true, coverHp: 6 })),
+                tiles: world.tiles.map((t, i) => (i === 1 ? { ...t, climb: { kind: 'stairs' as const, to: 'n' as const } } : i ? t : { ...t, room: 'lobby', midHeight: true, coverHp: 6, flipHp: 6 })),
                 edges: Object.fromEntries(Object.entries({
                     ...world.edges,
                     'eastWest 9 9': { run: 'eastWest', tx: 9, ty: 9, material: 'boundary', blocksSight: false, blocksMove: true, halfCover: true, door: 'd', shattered: false, hits: 0 }

@@ -1297,7 +1297,7 @@ export function knownView(world: ReadonlyWorld, state: State): KnownView {
 }
 
 /** Fields of an event that may name an NPC (a door opened `by` one, a guard told, a walk stopped `by` one). */
-const PERSON_FIELDS = ['npc', 'by', 'guard', 'source', 'observer'] as const;
+const PERSON_FIELDS = ['npc', 'by', 'guard', 'source', 'observer', 'target'] as const;
 
 /** Event types a preview never shows: what the player can't know before it happens (a hidden dye pack, §15.1). */
 const PREVIEW_SECRETS = new Set<string>();

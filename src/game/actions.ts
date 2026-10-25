@@ -1,5 +1,5 @@
 import {
-    besideDoor, crewPicture, doorStatus, DRAGGABLE, draggedBy, goBlocked, HACKING_KIT, inHands, inReach, interactionVerbs, isKnownNow, JAMMER, legalActions, LOCKPICK, lockActions, LOOP_FROM, lootWeight,
+    besideDoor, COMBAT_COMMANDS, crewPicture, doorStatus, DRAGGABLE, draggedBy, goBlocked, HACKING_KIT, inHands, inReach, interactionVerbs, isKnownNow, JAMMER, legalActions, LOCKPICK, lockActions, LOOP_FROM, lootWeight,
     pocketed, reachesObject, STASH_KINDS, throwTargets, tieIneligible, tileVisibility, whyNot, type Command, type Pos, type ReadonlyWorld, type State
 } from '../sim';
 import type { HudIcon as HudIconName } from '../ui/hud/viewModels';
@@ -35,6 +35,12 @@ import type { HudIcon as HudIconName } from '../ui/hud/viewModels';
  * - Wait.
  * - The takeover (§9.3, §10.1–10.3, M2-01), after Wait: Command always; Hold while anyone is Commanded; Mask up while
  *   unmasked; GO while it can still be pressed.
+ * - Combat (§6.3, §11, M3-02; the loud interface with aim mode, the loupe and the wedges is M3-09's): Fire the drawn
+ *   weapon at the tapped NPC (else the first the crew knows of that it could aim at), Reload when the magazine isn't
+ *   full, Swap to another weapon carried, Take gun / Take mags off a downed NPC in reach; once the bank is loud also
+ *   Strike someone in reach, Watch and Suppress toward the target, Brace, Flashbang and Smoke at it, Flip a table in
+ *   reach and Hand a magazine to a teammate. In stealth they come after the takeover (a full grid drops them first);
+ *   once loud, after Command and Hold (before Mask up and GO).
  */
 
 /** One entry of the grid: its id (stable while the target is), what it shows and the command it gives. */
@@ -253,14 +259,70 @@ export function actionMenu(world: ReadonlyWorld, state: State, crewId: string, t
     if (ruined) add('dropRuined', 'Drop ruined cash', 'flip', { type: 'dropLoot', crew: crewId, loot: ruined }, ruined);
 
 
+    const loud = state.bank.loud || state.bank.alarm;
     add('wait', 'Wait', 'wait', { type: 'wait', crew: crewId });
 
     // After Wait, so a full grid drops these first and the stealth entries keep their places; the HUD puts GO first (views.ts).
     add('command', 'Command', 'command', { type: 'command', crew: crewId });
     if (state.npcs.some(n => n.command !== null)) add('hold', 'Hold', 'hold', { type: 'hold', crew: crewId });
+    if (loud) combatEntries(world, state, crewId, target, legal, add);
     if (!member.loadout.masked) add('mask', 'Mask up', 'mask', { type: 'maskUp', crew: crewId });
     if (!goBlocked(state)) add('go', 'GO', 'star', { type: 'go', crew: crewId });
+    if (!loud) combatEntries(world, state, crewId, target, legal, add);
     return out;
+}
+
+/** The icon of a weapon's Fire entry. */
+const WEAPON_ICON: Readonly<Record<string, HudIconName>> = { pistol: 'pistol', suppressedPistol: 'pistol', smg: 'smg', machinePistol: 'smg', shotgun: 'shotgun', lmg: 'lmg', dmr: 'dmr' };
+
+/**
+ * The combat entries (see the header): each command one `legalActions` offers (so `menuIsLegal` holds), on the target
+ * when it is one of theirs, else the first whose NPC the crew knows of.
+ */
+function combatEntries(
+    world: ReadonlyWorld, state: State, crewId: string, target: string | null | undefined, legal: readonly Command[],
+    add: (id: string, label: string, icon: HudIconName, command: Command, on?: string) => void
+): void {
+    const member = state.crew.find(c => c.id === crewId)!, loud = state.bank.loud || state.bank.alarm;
+    const combat = legal.filter(c => COMBAT_COMMANDS.has(c.type));
+    const onTarget = <T extends Command>(type: T['type'], npcOf: (c: T) => string | undefined, keep: (c: T) => boolean = () => true): T | undefined => {
+        const mine = combat.filter((c): c is T => c.type === type && keep(c as T));
+        const known = mine.filter(c => {
+            const id = npcOf(c);
+            return id === undefined || isKnownNow(world, state, id);
+        });
+        return known.find(c => !!target && npcOf(c) === target) ?? known[0];
+    };
+    const npcAt = (p: Pos): string | undefined => state.npcs.find(n => n.pos.x === p.x && n.pos.y === p.y)?.id;
+    const drawn = member.arms.drawn;
+    if (drawn) {
+        const gun = member.arms.guns[drawn]!;
+        const attack = onTarget<Extract<Command, { type: 'attack' }>>('attack', c => c.target);
+        if (attack) add('attack', drawn === 'taser' ? `Tase (${gun.loaded})` : `Fire (${gun.loaded})`, WEAPON_ICON[drawn] ?? 'attack', attack, attack.target);
+        if (gun.spare > 0 && combat.some(c => c.type === 'reload' && !c.load)) add('reload', `Reload (${gun.spare})`, 'reload', { type: 'reload', crew: crewId });
+    }
+    const swap = combat.find((c): c is Extract<Command, { type: 'swap' }> => c.type === 'swap');
+    if (swap) add('swap', `Swap to ${swap.to}`, 'swap', swap);
+    const gun = onTarget<Extract<Command, { type: 'scavenge' }>>('scavenge', c => c.npc, c => c.take === 'weapon');
+    if (gun) add('scavenge:weapon', 'Take gun', 'pistol', gun, gun.npc);
+    const mags = onTarget<Extract<Command, { type: 'scavenge' }>>('scavenge', c => c.npc, c => c.take === 'ammo');
+    if (mags) add('scavenge:ammo', 'Take mags', 'reload', mags, mags.npc);
+    if (!loud) return;
+    const strike = onTarget<Extract<Command, { type: 'strike' }>>('strike', c => c.npc);
+    if (strike) add('strike', 'Strike', 'attack', strike, strike.npc);
+    const watch = onTarget<Extract<Command, { type: 'watch' }>>('watch', c => npcAt(c.at));
+    if (watch) add('watch', 'Watch', 'watch', watch, npcAt(watch.at));
+    const suppress = onTarget<Extract<Command, { type: 'suppress' }>>('suppress', c => npcAt(c.at));
+    if (suppress) add('suppress', 'Suppress', 'suppress', suppress, npcAt(suppress.at));
+    if (combat.some(c => c.type === 'brace')) add('brace', 'Brace', 'shield', { type: 'brace', crew: crewId });
+    for (const item of ['flashbang', 'smoke']) {
+        const thrown = onTarget<Extract<Command, { type: 'throwGrenade' }>>('throwGrenade', c => npcAt(c.to), c => c.item === item);
+        if (thrown) add(`throw:${item}`, `${item === 'smoke' ? 'Smoke' : 'Flashbang'} (${member.arms.throwables[item] ?? 0})`, 'grenade', thrown, npcAt(thrown.to));
+    }
+    const flip = combat.find((c): c is Extract<Command, { type: 'flipTable' }> => c.type === 'flipTable');
+    if (flip) add('flip', 'Flip table', 'flip', flip);
+    const hand = combat.find((c): c is Extract<Command, { type: 'handMag' }> => c.type === 'handMag');
+    if (hand) add('handMag', `Hand a magazine to ${state.crew.find(c => c.id === hand.to)!.name}`, 'reload', hand, hand.to);
 }
 
 /**

@@ -315,7 +315,7 @@ describe('observers', () => {
         id: 'guard', pos: P(4, 0), facing, status, suspicion: {}, exposedTo: [], intent: { path: [] }, alerted,
         alertCause: null, warned: [], challenges: [], wants: [], lastSeen: {}, goal: { kind: 'still' }, route: null, search: null,
         frisked: {}, reported: [], stashed: null, evidence: null, noticed: [], outCold: null, command: null, lapse: null, surprised: null,
-        armed: null, keycard: false, untying: null, stripped: false, panic: null, leaning: null
+        armed: null, keycard: false, untying: null, stripped: false, panic: null, leaning: null, ammo: null, suppressed: null
     });
 
     it('build NPCs, cameras and crew from the state', () => {
@@ -402,8 +402,10 @@ describe('more sight rules', () => {
         expect(sightMap(world, structuredClone(state))).toBe(base);
         const door = { ...state, doors: { ...state.doors, staffDoor: { status: 'open' as const } } };
         const edge = { ...state, edges: { [edgeKey({ run: 'northSouth', tx: 6, ty: 0 })]: { blocksSight: false } } };
-        const keys = new Set([state, door, edge].map(s => sightInputs(world, s)));
-        expect(keys.size).toBe(3);
+        const smoke = { ...state, smoke: [{ id: 'smoke-1', at: P(2, 1), tiles: [P(2, 1)], until: 3 }] };
+        const keys = new Set([state, door, edge, smoke].map(s => sightInputs(world, s)));
+        expect(keys.size).toBe(4);
+        expect(sightMap(world, smoke).tiles[1 * world.width + 2]).toBe(1);
         expect(sightMap(world, door)).not.toBe(base);
         expect(lineOfSight(sightMap(world, door), P(5, 1), P(6, 1))).toBe(true);
         expect(sightMap(world, edge)).not.toBe(base);

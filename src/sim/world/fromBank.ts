@@ -10,7 +10,7 @@ import {
     type CameraDef, type DoorDef, type Facing, type ObserverClass, type PersonDef, type ReadonlyWorld, type ScheduleBlock, type Tile,
     type WallEdge, type WorldObject, type Zone
 } from '../core/types';
-import { COVER_HP, DEFAULT_COVER_HP } from '../data/weapons';
+import { COVER_HP, DEFAULT_COVER_HP, FLIPPABLE } from '../data/weapons';
 import { freezeWorld } from './freeze';
 import { DOOR_KINDS, WALL_MATERIALS } from './materials';
 
@@ -22,7 +22,8 @@ import { DOOR_KINDS, WALL_MATERIALS } from './materials';
  *   floor height from the floor (a flight of stairs is ground floor; its top step is the climb onto the landing), lit unless the room has no light and is indoors (§6.10: the baked lamps are art, not
  *   rules), and what the furniture does from `src/level/tileProps.ts`, the grids the generator's `Nav` reads. Tiles
  *   off the map are walls of nothing: no room, blocked and tall. A half-cover tile takes its prop's hit points
- *   (`COVER_HP`, §11.4), the sturdiest where props share a tile; none where one can't be destroyed.
+ *   (`COVER_HP`, §11.4), the sturdiest where props share a tile; none where one can't be destroyed. A table or light
+ *   desk's tiles can be flipped into cover (`Tile.flipHp`, M3-02).
  * - edges: every wall segment, with its material from `materials.ts` and the door that stands in it.
  * - doors: every door with a leaf (open doorways and counter gates are gaps, not doors): closed, or locked if it has a
  *   lock (§6.9).
@@ -53,6 +54,23 @@ function coverHitPoints(width: number, height: number, props: readonly LevelProp
         for (const { x, y } of tilesOfBox(placed.box)) {
             if (x < 0 || y < 0 || x >= width || y >= height || !blocksMoveAt(placed, x, y)) continue;
             hp[y * width + x] = Math.max(hp[y * width + x]!, own ?? Infinity);
+        }
+    }
+    return hp;
+}
+
+/**
+ * The tiles of props that can be flipped into improvised cover (§11.4, `FLIPPABLE`) with the hit points they keep, 0
+ * elsewhere: the tiles the prop stands in the way on.
+ */
+function flipHitPoints(width: number, height: number, props: readonly LevelProp[], wallOn: WallAt): Float64Array {
+    const hp = new Float64Array(width * height);
+    for (const prop of props) {
+        if (!FLIPPABLE.has(prop.kind)) continue;
+        const placed = placeProp(prop, wallOn), own = Object.hasOwn(COVER_HP, prop.kind) ? COVER_HP[prop.kind] ?? DEFAULT_COVER_HP : DEFAULT_COVER_HP;
+        for (const { x, y } of tilesOfBox(placed.box)) {
+            if (x < 0 || y < 0 || x >= width || y >= height || !blocksMoveAt(placed, x, y)) continue;
+            hp[y * width + x] = Math.max(hp[y * width + x]!, own);
         }
     }
     return hp;
@@ -121,7 +139,7 @@ export function worldFromBank(bank: GeneratedBank): ReadonlyWorld {
     const height = floors.length, width = floors[0]?.length ?? 0;
     const wallOn = wallLookup(walls);
     const grids = propTileGrids(width, height, bank.props, wallOn);
-    const coverHp = coverHitPoints(width, height, bank.props, wallOn);
+    const coverHp = coverHitPoints(width, height, bank.props, wallOn), flipHp = flipHitPoints(width, height, bank.props, wallOn);
 
     // Which room each tile is in: the rooms' parts tile the map (the generator's owner grid, §17).
     const owner: (GenRoom | undefined)[] = new Array<GenRoom | undefined>(width * height).fill(undefined);
@@ -141,6 +159,7 @@ export function worldFromBank(bank: GeneratedBank): ReadonlyWorld {
             blocksMove: grids.blocked[i] === 1, tall: grids.tall[i] === 1, halfCover: grids.halfCover[i] === 1, room: room.id
         };
         if (tile.halfCover && Number.isFinite(coverHp[i]!)) tile.coverHp = coverHp[i]! || DEFAULT_COVER_HP;
+        if (flipHp[i]! > 0 && !tile.tall) tile.flipHp = flipHp[i]!;
         tiles.push(tile);
     }
 

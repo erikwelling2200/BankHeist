@@ -308,6 +308,17 @@ function describeCommand(cmd: Command, world?: ReadonlyWorld): { label: string; 
         case 'throwLoot': return { label: 'Throw', icon: 'throw', cost: 1 };
         case 'pass': return { label: 'Pass', icon: 'heavy', cost: 1 };
         case 'inspectLoot': return { label: 'Inspect', icon: 'eye', cost: 1 };
+        case 'attack': return { label: 'Fire', icon: 'attack', cost: 1 };
+        case 'strike': return { label: 'Strike', icon: 'attack', cost: 1 };
+        case 'swap': return { label: 'Swap', icon: 'swap', cost: 0 };
+        case 'reload': return { label: 'Reload', icon: 'reload', cost: 1 };
+        case 'scavenge': return { label: cmd.take === 'weapon' ? 'Take gun' : 'Take mags', icon: cmd.take === 'weapon' ? 'pistol' : 'reload', cost: 1 };
+        case 'handMag': return { label: 'Hand a magazine', icon: 'reload', cost: 1 };
+        case 'watch': return { label: 'Watch', icon: 'watch', cost: 1 };
+        case 'suppress': return { label: 'Suppress', icon: 'suppress', cost: 2 };
+        case 'brace': return { label: 'Brace', icon: 'shield', cost: 1 };
+        case 'throwGrenade': return { label: cmd.item === 'smoke' ? 'Smoke' : 'Flashbang', icon: 'grenade', cost: 1 };
+        case 'flipTable': return { label: 'Flip table', icon: 'flip', cost: 1 };
         default: return { label: cmd.type, icon: 'interact', cost: 1 };
     }
 }
@@ -327,9 +338,10 @@ export function actionsView(world: ReadonlyWorld, state: State, ui: UiState, ext
     const stuck = member.actionsLeft === 0 ? 'No actions left' : undefined;
     const out: ActionVM[] = [{ id: 'move', label: move.label, icon: move.icon, cost: move.cost, enabled: !stuck, ...(stuck ? { reason: stuck } : {}), selected: moving }];
     for (const e of actionMenu(world, state, member.id, extras.target)) {
-        // Hold spends whatever is left (§10.3), at least 1.
-        const fallback = e.command.type === 'hold' ? Math.max(1, member.actionsLeft) : describeCommand(e.command, world).cost;
-        const cost = e.command.type === 'wait' ? 0 : (!e.reason && extras.costOf?.(e.command)) || fallback;
+        // Hold, Watch and Brace spend whatever is left (§10.3, §11.8, §6.3), at least 1; a free swap nothing.
+        const rest = e.command.type === 'hold' || e.command.type === 'watch' || e.command.type === 'brace';
+        const fallback = rest ? Math.max(1, member.actionsLeft) : describeCommand(e.command, world).cost;
+        const cost = e.command.type === 'wait' ? 0 : e.command.type === 'swap' && !e.reason ? extras.costOf?.(e.command) ?? fallback : (!e.reason && extras.costOf?.(e.command)) || fallback;
         const vm: ActionVM = {
             id: e.id, label: e.label, icon: e.icon, cost, enabled: !e.reason, ...(e.reason ? { reason: e.reason } : {}), selected: sameCommand(pending, e.command),
             ...(e.progress ? { progress: e.progress } : {})
@@ -550,6 +562,24 @@ export function describeEvent(world: ReadonlyWorld, state: State, event: SimEven
         case 'tookOver': return `GO: ${name(event.crew)} starts the takeover`;
         case 'surprised': return `${name(event.npc)} is surprised`;
         case 'maskedUp': return `${name(event.crew)} masked up`;
+        case 'attacked': return event.mode === 'watch' ? `${name(event.crew)} fired from Watch` : event.mode === 'suppress' ? `${name(event.crew)} laid down suppressing fire`
+            : event.mode === 'reaction' ? `${name(event.crew)} fired at someone leaving cover` : event.target ? `${name(event.crew)} fired at ${name(event.target)}` : `${name(event.crew)} fired`;
+        case 'harmed': return event.damage ? `${name(event.target)} was hit (${event.damage})` : `${name(event.target)}’s armour took it`;
+        case 'tased': return event.stopped ? `The dart didn’t get through ${name(event.npc)}’s armour` : `${name(event.crew)} tased ${name(event.npc)}`;
+        case 'struck': return `${name(event.crew)} struck ${name(event.npc)}`;
+        case 'swapped': return `${name(event.crew)} drew the ${event.to}`;
+        case 'reloaded': return `${name(event.crew)} reloaded`;
+        case 'scavenged': return event.take === 'weapon' ? `${name(event.crew)} took ${name(event.npc)}’s ${event.weapon}` : `${name(event.crew)} took ${name(event.npc)}’s magazines`;
+        case 'magHanded': return `${name(event.crew)} handed ${name(event.to)} a magazine`;
+        case 'braced': return `${name(event.crew)} braced the ${event.weapon}`;
+        case 'watching': return `${name(event.crew)} is on Watch`;
+        case 'shoutedDown': return `${name(event.crew)} shouted ${name(event.npc)} down`;
+        case 'suppressedNpc': return `${name(event.npc)} is pinned down`;
+        case 'grenadeLanded': return `${name(event.crew)} threw a ${event.kind}`;
+        case 'grenadeWentOff': return `The ${event.kind} went off`;
+        case 'flashed': return `${name(event.npc)} was flashbanged`;
+        case 'smokeCleared': return 'The smoke cleared';
+        case 'tableFlipped': return `${name(event.crew)} flipped a table`;
         default: return event.type;
     }
 }

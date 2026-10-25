@@ -3,7 +3,7 @@ import { archetypesFor } from '../../src/gen/generate';
 import { cachedBank } from '../bankCache';
 import { PLOTS, TIERS, type KeyLock } from '../../src/gen/model';
 import { Rng } from '../../src/gen/rng';
-import {
+import { COMBAT_COMMANDS,
     actionPreview, partOf, CARRY_WEIGHT, commandPlan, commandPreview, hasLineOfSight, holdTargets, ITEMS, reachable, pathTo, addsTo, carriersStarted, DEAF_STATUSES, clonePlain, commit, crewBudget, crewMoveOptions, decodeBits, doorDoubt, effectKind, effectOf, encodeBits, explain, FACINGS, hearing,
     isKnownNow, fixtureWorld, initialState, hashOf, legalActions, noiseRadius, npcsInside, onFloor, pathSafety, pendingCarriers, planningState, previewCertain, previewPicture,
     projectCarriers, projectEvents, projectPreviewEvents, safeFloor, safeFloorJob, sightDoubted, soundRing, teammateEffects, throwPlan, TINT_RANK, tintOf, validatePath, withDoubtedShut,
@@ -445,7 +445,7 @@ function playOne(run: Run, state: State, timing: boolean): State {
     }
     // The takeover (M2-01) only where the crew knows everyone: the picture then holds every NPC, so who complies, resists
     // and hears is the truth's (an unknown NPC missing from the picture changes who is sent to look, an artefact of it).
-    const options = legalActions(world, state, member.id).filter(c => (c.type !== 'wait' || rng.chance(0.3)) && !(run.stealth && (c.type === 'knockout' || (c.type === 'door' && (c.action === 'pick' || c.action === 'hack'))))
+    const options = legalActions(world, state, member.id).filter(c => (c.type !== 'wait' || rng.chance(0.3)) && !COMBAT_COMMANDS.has(c.type) && !(run.stealth && (c.type === 'knockout' || (c.type === 'door' && (c.action === 'pick' || c.action === 'hack'))))
         && (!TAKEOVER.has(c.type) || (run.omniscient && !run.stealth)));
     if (!options.length) return state;
     const favoured = run.loot ? LOOT_COMMANDS : run.vault ? VAULT_COMMANDS : undefined;

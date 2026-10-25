@@ -100,3 +100,84 @@ export const COVER_HP: Readonly<Record<string, number | null>> = {
 };
 
 export const DEFAULT_COVER_HP = 6;
+
+// ---------------------------------------------------------------------------------------------------------- M3-02
+
+/*
+ * The weapons in the crew's hands (§11.8–11.11, §12.1, §12.2; implementation plan M3-02, decisions 93–108):
+ *
+ * - **Loads.** A weapon item fires one of the table's rows: its own, or the pump shotgun's slugs (`LOADS`). Reloading
+ *   picks the load; both come from the same spare magazines (decision 94).
+ * - **Spares** (§11.11): 3 spare magazines per weapon; the taser's 3 cartridges are its only load.
+ * - **Watch** (§11.8): the widest wedge per weapon; a volley is half the Bullets rounded up, Aim ×1.5 (×1 at 15° or
+ *   narrower).
+ * - **Suppress** (§11.9): the LMG's wedge of up to 60°, every bullet with its spread doubled, 2 actions.
+ * - **Throwables** (§12.2): how many come in a kit item, how far they are thrown and what they reach.
+ */
+
+/** The rows of the weapon table a weapon item can fire (the pump shotgun: buckshot or slugs). */
+export const LOADS: Readonly<Record<string, readonly WeaponId[]>> = { shotgun: ['shotgun', 'shotgunSlug'] };
+
+/** The rows a weapon item fires: its own (or its loads). */
+export const loadsOf = (item: string): readonly WeaponId[] => (Object.hasOwn(LOADS, item) ? LOADS[item]! : isWeapon(item) ? [item] : []);
+
+/** Spare magazines a crew member carries per weapon (§11.11), by weapon item; anything else `SPARE_MAGS`. */
+export const SPARE_MAGS = 3;
+export const SPARES_OF: Readonly<Record<string, number>> = { taser: 0 };
+
+/** The weapons that cost 2 actions to fire (§6.3: the LMG). */
+export const HEAVY_FIRE: ReadonlySet<string> = new Set(['lmg']);
+
+/** The widest Watch wedge per weapon row (§11.8), degrees. */
+export const WATCH_ARC: Readonly<Record<string, number>> = {
+    taser: 60, pistol: 60, suppressedPistol: 60, machinePistol: 60, smg: 60, shotgun: 60, shotgunSlug: 60, lmg: 60, assaultRifle: 45, dmr: 15
+};
+
+/** A Watch volley's Aim (§11.8): ×1.5, or ×1 when the wedge is `WATCH_NARROW` degrees or narrower. */
+export const WATCH_AIM = 1.5;
+export const WATCH_NARROW = 15;
+
+/** Suppress (§11.9): the wedge's widest arc, the spread's multiplier and its cost in actions. */
+export const SUPPRESS = { arc: 60, spread: 2, cost: 2, pips: 2, weapons: ['lmg'] as readonly string[] } as const;
+
+/** A suppressed NPC's Aim multiplier (§11.9), for its own shots (M3-05). */
+export const SUPPRESSED_AIM = 1.5;
+
+/** The weapons that can Brace (§6.3): the DMR and the LMG on their bipods. */
+export const BRACEABLE: ReadonlySet<string> = new Set(['dmr', 'lmg']);
+
+/** Melee strike (§11.11): adjacent, 3 damage, Pierce 0, lethal. */
+export const STRIKE = { damage: 3, pierce: 0 } as const;
+
+/** The taser's dart doesn't knock out through this much armour or more (§11.10). */
+export const TASER_STOPPED_BY = 2;
+
+/** The NPCs' guns (§12.3) by role: guards, couriers and an off-duty cop carry a pistol; police join with M3-04. */
+export const NPC_GUN: Readonly<Record<string, WeaponId>> = {};
+export const DEFAULT_NPC_GUN: WeaponId = 'pistol';
+/** Spare magazines an armed NPC carries (decision 95). */
+export const NPC_SPARE_MAGS = 2;
+
+/** A throwable (§12.2): per kit item, how far it is thrown (Euclidean, tiles) and the radius it reaches as it goes off. */
+export interface ThrowableDef { count: number; range: number; radius: number }
+
+export const THROWABLES = {
+    flashbang: { count: 2, range: 6, radius: 2 },
+    smoke: { count: 2, range: 6, radius: 2 }
+} as const satisfies Record<string, ThrowableDef>;
+
+export type ThrowableId = keyof typeof THROWABLES;
+
+export const isThrowable = (id: string): id is ThrowableId => Object.hasOwn(THROWABLES, id);
+
+/** World phases a smoke cloud blocks sight (§12.2: 3). */
+export const SMOKE_PHASES = 3;
+
+/**
+ * The props that can be flipped into improvised cover (§11.4: tables, light desks, café tables), by the generator's
+ * prop kind. A flipped one keeps its hit points (`COVER_HP`, a wooden table 6).
+ */
+export const FLIPPABLE: ReadonlySet<string> = new Set(['cafeTable', 'coffeeTable', 'diningTable', 'desk', 'writingDesk']);
+
+/** Pips anyone who sees a table flipped during stealth gains of the flipper (§11.4). */
+export const FLIP_PIPS = 2;

@@ -160,7 +160,7 @@ registerStateInit('takeover', (_world, state) => {
  * The weapons a crew member has in hand: everything with a Threat they carry, only a pistol with a Very heavy carry (a
  * crate or a body: "pistol only", §15.1; not a machine pistol or a taser).
  */
-function weaponsInHand(member: DeepReadonly<CrewState>): string[] {
+export function weaponsInHand(member: DeepReadonly<CrewState>): string[] {
     const pistolOnly = member.loadout.carrying !== null && CARRY_WEIGHT[member.loadout.carrying] === 'very heavy';
     return member.loadout.items.filter(id => itemDef(id).threat !== undefined && (!pistolOnly || itemDef(id).pistol));
 }

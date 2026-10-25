@@ -11,6 +11,8 @@ import type { DiceRoll, State } from './types';
  * Two ways to meet a roll in a preview:
  * - `odds` declares a roll whose chance the player sees ("62% to resist"): the preview stops there cleanly and returns
  *   the events so far with the pending odds; the commit rolls.
+ * - `pictured` declares rolls whose preview is drawn rather than told (an attack's cone, §11.7: no numbers): the
+ *   preview stops there cleanly with no chance (`p` null); the commit goes on to roll them with `next`.
  * - `next`, `int` and `chance` throw `PreviewRollError`: a preview that reaches one is a bug. The dice remember the
  *   refusal, so a reducer that catches the error can't make the preview carry on and quietly differ from the commit.
  */
@@ -27,8 +29,11 @@ export class PreviewRollError extends Error {
     }
 }
 
-/** A roll a preview stopped at: the chance of success the player is shown. */
-export interface PendingOdds { stream: string; p: number; reason: string }
+/**
+ * A roll a preview stopped at: the chance of success the player is shown, or null for rolls whose preview is a picture
+ * of every outcome rather than one chance (`Dice.pictured`: an attack's bullets, §11.7).
+ */
+export interface PendingOdds { stream: string; p: number | null; reason: string }
 
 /** Thrown by `odds` in a preview to stop the reducer; `preview` catches it. Reducers must let it through. */
 export class OddsStop extends Error {
@@ -85,6 +90,18 @@ export class Dice {
             throw (this.stop = new OddsStop(this.pending));
         }
         return this.log('odds', stream, reason, this.draw(stream, reason), p) < p;
+    }
+
+    /**
+     * Declares the rolls that follow as ones whose preview is a picture of every outcome, not one chance (an attack's
+     * bullets and cover rolls, §11.7): in a preview it stops the reducer here as `odds` does, with `p` null; in a commit
+     * it rolls nothing, and the rolls follow with `next`. Like `odds`, a preview stops once.
+     */
+    pictured(stream: string, reason: string): void {
+        if (this.mode !== 'preview') return;
+        if (this.stop) throw (this.refused ??= new PreviewRollError(stream, reason));
+        this.pending = { stream, p: null, reason };
+        throw (this.stop = new OddsStop(this.pending));
     }
 
     private draw(stream: string, reason: string): number {

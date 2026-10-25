@@ -931,10 +931,44 @@ M2 is complete: every package below has landed.
       resolving), `tests/sim/shot.property.test.ts` (resolve equals `traceShot` for its rolls, and bullet 1 and random
       angles agree with the fan, in a fixture with every material and in a bank of each tier; the §12.1 table against
       the fan's geometry, which it matches in every cell within range).
-- [ ] **M3-02 Weapons and combat actions.**
+- [x] **M3-02 Weapons and combat actions.**
   - **Covers:** §6.3, §11.8–11.11, §12.1–12.2.
   - **Work:** attack, the fire selector, reload, swap, scavenge, melee strike, taser, Watch reactions, Suppress, Brace, flip table, fused flashbang and smoke.
   - **Depends on:** M3-01.
+  - **Notes (done):** decisions 93–108.
+    - `rules/arms.ts` (the drawn weapon, rounds, swap, reload, scavenge, hand a magazine, Brace, the moving penalty,
+      NPCs' guns), `rules/actions/attack.ts` (attack with the fire selector and the taser, melee strike, Watch and its
+      reactions, Suppress and Suppressed, the knockout windows), `rules/actions/throwables.ts` (fused flashbangs and
+      smoke, flipping a table), `rules/damage.ts` (the harm interface M3-03 plugs into), `preview/attack.ts`
+      (`attackCone`), `data/weapons.ts` (loads, spares, Watch arcs, Suppress, throwables, flippable props).
+    - **Commands:** `attack { crew, at, target?, lean?, turn?, bullets? }`, `strike { crew, npc }`, `watch { crew, at,
+      arc, lean? }`, `suppress { crew, at, arc?, lean? }`, `brace`, `swap { crew, to }`, `reload { crew, load? }`,
+      `scavenge { crew, npc, take: weapon | ammo }`, `handMag { crew, to }`, `throwGrenade { crew, item, to }`,
+      `flipTable { crew, at }`; all in `legalActions` (`COMBAT_COMMANDS`).
+    - **Engine:** `Dice.pictured` (a preview stops at rolls it shows as a picture: `PendingOdds.p` null);
+      `ActionDef.finish` (an action's rolls after its witnesses and its end in view); the world phase's first step
+      `fuses`, before the phase is frozen.
+    - **State:** `CrewState.arms` (`drawn`, `guns` by item with `load`/`loaded`/`spare`, `throwables`, `swapped`,
+      `moved`, `braced`, `watch`, `aiming`), `NpcState.ammo`, `NpcState.suppressed`, `State.grenades`, `State.smoke`
+      (geo/los.ts: smoke tiles block sight), `State.flipped`; the World's `Tile.flipHp`; `Shot.spread`. Save shape hash
+      `6edacd71b690cd89` (with M3-04's fields).
+    - **Harm** (`dealHarm`, `registerHarmHandler`): every shot's hits and every strike, one `Harm` per person after the
+      volley, emitted as `harmed`; no handler yet: hit points, Hurt, downed and death are M3-03's.
+    - **For the UI:** the grid offers Fire/Tase (on the tapped NPC, else the first known one in range), Reload, Swap,
+      Take gun / Take mags in stealth after the takeover entries; once loud also Strike, Watch, Suppress, Brace,
+      Flashbang, Smoke, Flip table and Hand a magazine after Command and Hold; a tap on another known NPC re-aims a
+      previewed attack, wedge or grenade, and on its target again confirms. `window.sim.cone(cmd)` gives `attackCone`
+      (the truth, never for the HUD). Aim mode, the loupe, cone arcs and Watch wedges are M3-09's.
+    - **Tests:** `tests/sim/combat.test.ts` (every command, the taser's armour, the fire selector, Watch's volley and
+      a shouted-down runner, Suppress's wedge, a flashbang's Surprised and smoke's sight); `tests/sim/combat.property.test.ts`
+      (random combat play: rollless commands preview to their commit, attacks stop at the bullets with no chance shown
+      and are the start of their commit, the recorded rolls replay to the hits, bullet 1 stays in `attackCone`'s fan,
+      every grenade lay through a crew phase before going off); `tests/game/actions.test.ts` (the grid).
+    - **Deferred:** what harm does (M3-03); NPCs firing, their Watch and what Suppressed does to them (M3-05, M3-06;
+      `watchReact` is the hook for NPCs acting one at a time); police grenades and what they do to the crew (M3-06);
+      the ammo bag, the SMG's suppressor and the noisemaker (M4); smoke in stealth (decision 101); stopping a
+      shouted-down runner mid-run (decision 100). The stealth property tests'
+      random players leave the combat commands out; the combat property test plays them.
 - [ ] **M3-03 Wounds, downed and arrested.**
   - **Covers:** §11.12.
   - **Work:** Hurt crew limp, aim worse, bleed and leave blood trails as evidence; bleeding out over 3 phases; revive and medkits; NPC death, crawling and screaming; arrest.
@@ -1632,6 +1666,86 @@ Later milestones: within each milestone, the `∥` notes in §3 apply. UI packag
     preview alike. M3-09 draws from that. `resolveShot` is not a command (M3-02's
     attack calls it) and applies no damage (M3-03).
 
+93. **The drawn weapon (M3-02, §6.3, §11.11).** A crew member fires one weapon, `Arms.drawn`: at the start the primary
+    carried unpacked, else the first sidearm, else none (unarmed). Threat still comes from every weapon in hand (§10.1,
+    decision 47); with a Very heavy carry only a pistol fires, as only a pistol threatens. Swap draws any other weapon
+    carried unpacked: free once a turn (§6.3), 1 action for any further swap that turn.
+94. **Rounds (M3-02, §11.11, §12.1).** Each weapon carried has its magazine and 3 spare magazines; the taser's 3
+    cartridges are all it has. An attack takes its bullets from the magazine; the fire selector fires 1 up to the
+    weapon's Bullets and no more than is loaded (unasked: as many of both). Reload is 1 action, a spare magazine in, the
+    rounds left in the old one lost; the pump shotgun is reloaded with shells or slugs (`load`), both from the same
+    spares, and fires the table's row of what it holds. Hand a magazine: 1 action, a spare of the drawn weapon to a
+    teammate in reach who carries the same weapon.
+95. **Scavenging (M3-02, §11.11).** An armed NPC (guards, couriers, the off-duty cop) carries a pistol, a full
+    magazine and 2 spares (`NpcState.ammo`; police guns come with M3-04). Someone down (out cold, dead or tied) in reach
+    can be searched, 1 action, the illegal act 'pickPocket': take the weapon with what is left in its magazine (not one
+    of a kind the crew member already carries: take the magazines instead), or the spare magazines for a weapon of the
+    same kind they carry. A frisk takes the weapon, not the magazines on the belt.
+96. **Harm (M3-02, §11.5, §11.12).** Every attack's damage goes through `dealHarm`: one `Harm` per person (hits,
+    damage after armour, lethal) after the volley (decision 89), emitted as `harmed`, then passed to each registered
+    handler. M3-02 registers none: M3-03 adds hit points, Hurt, downed and death there. The taser and flashbangs aren't
+    harm (§11.12 non-lethal): they knock out or surprise.
+97. **An attack and its preview (M3-02, §11.7, §6.2, §13.6).** In order: the checks (the shot's own geometry
+    included, before any roll), the actions (1, the LMG 2), the rounds, the lean, the facing, the noise at the
+    weapon's radius (a loud one makes the bank Loud), the witnesses of the illegal act 'attack' and the end of the action
+    in view; then the bullets (`ActionDef.finish`), set up in `Arms.aiming` and rolled after `Dice.pictured`. A preview
+    stops there with no chance shown (`p` null): it shows the noise, the witnesses, the cost and, through `attackCone`,
+    the cone drawn on the state it stopped at (Suppress's civilians already down), never a hit, a damage or a number
+    (§11.7). What NPCs then do is the world phase's and isn't previewed in a firefight (§13.6); an end of the turn's
+    preview stops at the first volley as at any roll. The moving penalty applies when the crew member moved this
+    turn (`Arms.moved`, any command that changed their tile) and isn't braced.
+98. **The taser (M3-02, §11.10).** A dart is the taser's shot (Aim 2, range 4, one bullet, stopped by any wall or pane):
+    whoever it hits that is up is knocked out as by hand (out cold for 4 world phases, Hostile or reaching for a weapon
+    too), unless their armour is 2 or more; a dart in a crew member does nothing until M3-03. A quiet noise of 2: it
+    doesn't make the bank Loud.
+99. **Watch (M3-02, §11.8).** All remaining actions (at least 1); the wedge is whole degrees up to the weapon's widest,
+    aimed at a tile, from where they stand or a lean tile. It holds through the world phase after it and ends as the
+    next crew phase begins. After the passive walks and draws, the first Hostile NPC in resolution order that moved
+    (walked part of its committed path) or acted (carried out an intent action, or turned Hostile: drew) with its tile
+    in the wedge (within half the arc of its middle line, within range, in line of sight) draws one volley: half the
+    weapon's Bullets rounded up, no more than loaded, Aim ×1.5 (×1 at 15° or narrower); the Watch then ends. NPCs that
+    act one at a time (M3-05) call `watchReact` as they act. A volley that would be refused (someone on the lean tile)
+    isn't fired. Watch is allowed in stealth: only a Hostile draws a volley, and one is there only once the bank is loud.
+100. **Shouted down (M3-02, §11.8).** An NPC running for it (its committed intent's action `flee`) whose walked tiles
+    passed through a Watch wedge within the holder's Threat radius (Euclidean from the holder) is Commanded for free
+    (`commandPips`) where its run ended, and nobody fires. Stopping it on the first tile in the wedge would mean
+    re-resolving every walk; deferred.
+101. **Grenades (M3-02, §11.10, §12.2).** Flashbangs and smoke are combat tools: thrown only once the bank is Loud or
+    the Alarm is up, since a grenade lying through a quiet crew phase changes the world phase after it outside what the
+    safe floor judges (§8.8). 1 action, hands free, up to 6 tiles (Euclidean) to a tile the thrower sees that isn't
+    full height; the illegal act 'attack'. It lands at once (`State.grenades`, `grenadeLanded`) and goes off in the
+    world phase's first step, `fuses`, before the phase is frozen: a crew grenade goes off before any NPC acts, and a
+    police one (M3-06) lies through a crew phase. What it reaches is decided as it goes off: the tiles within 2
+    (Euclidean) that the landing tile sees.
+102. **Flipping a table (M3-02, §11.4).** Flippable props are tables and light desks (`FLIPPABLE`: café, coffee and
+    dining tables, desks, writing desks; `Tile.flipHp` on the tiles they stand in the way on). Flipping is 1 action,
+    hands free, in reach, once per tile: the tile is half cover with the prop's hit points (a wooden table 6; a desk
+    keeps its own), so a coffee table, too low for cover standing, becomes cover. Its arc faces away from the flipper:
+    it covers only a target on the side it was flipped from (`State.flipped[].side`, the shot map's `coverSide`; north
+    or south when the flipper stands so, diagonals included, else east or west), against shots within the 90° arc beyond
+    it (decision 87). A quiet noise of 4 on the tile; while the bank is quiet and no alarm is up, every NPC that sees the
+    flipper (its cone, `seesOn`) gains +2 suspicion of them.
+103. **Flashbang (M3-02, §11.10, §12.2).** Everyone up in reach (not face down, tied, out cold or away) is Surprised for
+    the world phase it goes off in: their intent dropped before the phase is frozen, so they lose it, and a Hostile one
+    can be knocked out; civilians are also Commanded by the thrower. A loud noise of 14; the bank goes Loud. The crew
+    aren't affected by their own (police flashbangs on the crew are M3-06's).
+104. **Smoke (M3-02, §12.2).** Its tiles block sight as a full-height object does (`State.smoke` in the sight map)
+    for 3 world phases: the one it goes off in and the two after, clearing as the third ends. Someone inside is seen
+    only from a tile whose line meets no other smoke tile. Bullets fly through it. A quiet noise of 4.
+105. **Suppress (M3-02, §11.9).** The LMG, 2 actions, a wedge of whole degrees up to 60°; it fires every round it has
+    up to its Bullets, each bullet's whole arc doubled (`Shot.spread`). Who is in the wedge is decided before the roll:
+    Hostile NPCs there are Suppressed until the next intents are committed (`NpcState.suppressed`: their own Aim ×1.5
+    and no Watch, M3-05/M3-06); civilians there are Commanded (2 pips). A Suppressed NPC that walks off the tile where
+    it was suppressed, having had half cover there against the suppressor, draws the suppressor's free 1-bullet shot,
+    once. Surprised and Suppressed open the knockout window on a Hostile (§11.10).
+106. **Melee strike (M3-02, §11.11).** 1 action, hands free, on anyone in reach who isn't dead or away, fighting or
+    face down; 3 damage by §11.5's formula with Pierce 0 (armour counts), lethal; a quiet noise of 2; the illegal act
+    'attack' seen on both tiles. Never rolled.
+107. **Brace (M3-02, §6.3).** The DMR or LMG drawn; their last action, spending what is left (at least 1), as Hold.
+    Braced until they move: no moving penalty, the LMG's braced recoil (decision 85's `shotArcs`).
+108. **Combat in the random players (M3-02, §2.2).** The stealth property tests' random players leave the combat
+    commands out (they go loud and stop their previews at the dice, which those tests' comparisons can't follow); the
+    combat property test plays them with moves and ends of turn in fixtures that are mostly loud.
 120. **One heat number (M3-04, §13.1).** `State.response.heat` counts ticks since the Alarm (0 is Heat 1, tick 0);
     `heatOf` reads the level, the tick within it and the refills past Heat 5 (each 5 ticks past 20). Heat never falls
     below 0. The +1 per world phase starts in the phase after the one that raised the Alarm, as "Police in N" does.

@@ -1,4 +1,4 @@
-import { registerWorldHook } from '../../core/engine';
+import { registerWorldHook, type Ctx } from '../../core/engine';
 import { registerNpcInit, registerRuleDefaults } from '../../core/state';
 import type { DeepReadonly, NpcState, Pos, ReadonlyWorld, State } from '../../core/types';
 import { registerEvents } from '../../core/undo';
@@ -99,22 +99,30 @@ registerAction('knockout', {
         tiles: [state.crew.find(c => c.id === cmd.crew)!.pos, state.npcs.find(n => n.id === cmd.npc)!.pos].map(p => ({ x: p.x, y: p.y }))
     }),
     run(ctx, member, cmd) {
-        const { state, world } = ctx;
-        const npc = state.npcs.find(n => n.id === cmd.npc)!;
-        npc.status = 'unconscious';
-        npc.outCold = state.turn + world.rules.knockoutPhases - 1;
-        // It never acts on anything it saw or meant to do (§6.2).
-        npc.intent = { path: [] };
-        npc.goal = { kind: 'still' };
-        npc.route = null;
-        npc.search = null;
-        npc.lapse = null;
-        npc.panic = null;
-        ctx.emit({ type: 'knockedOut', crew: member.id, npc: npc.id, wakes: npc.outCold });
-        ctx.emit({ type: 'npcStatus', npc: npc.id, status: 'unconscious' });
+        const npc = ctx.state.npcs.find(n => n.id === cmd.npc)!;
+        knockOut(ctx, npc, member.id);
         makeNoise(ctx, 'knockout', npc.pos, `knockout ${npc.id}`);
     }
 });
+
+/**
+ * Puts an NPC out cold for `rules.knockoutPhases` world phases (see the header), by a crew member's hands or a taser's
+ * dart (rules/actions/attack.ts). The noise is the caller's.
+ */
+export function knockOut(ctx: Ctx, npc: NpcState, by: string): void {
+    const { state, world } = ctx;
+    npc.status = 'unconscious';
+    npc.outCold = state.turn + world.rules.knockoutPhases - 1;
+    // It never acts on anything it saw or meant to do (§6.2).
+    npc.intent = { path: [] };
+    npc.goal = { kind: 'still' };
+    npc.route = null;
+    npc.search = null;
+    npc.lapse = null;
+    npc.panic = null;
+    ctx.emit({ type: 'knockedOut', crew: by, npc: npc.id, wakes: npc.outCold });
+    ctx.emit({ type: 'npcStatus', npc: npc.id, status: 'unconscious' });
+}
 
 /**
  * Where someone coming round at `p` gets up: `p` if nobody stands or lies there, else the nearest tile by NPC steps

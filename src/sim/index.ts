@@ -14,6 +14,7 @@ import './geo/cones';
 import './geo/move';
 import './geo/sound';
 import './rules/actions/act';
+import './rules/actions/attack';
 import './rules/actions/body';
 import './rules/actions/disguise';
 import './rules/actions/door';
@@ -21,15 +22,18 @@ import './rules/actions/hostage';
 import './rules/actions/interact';
 import './rules/actions/knockout';
 import './rules/actions/loot';
+import './rules/actions/throwables';
 import './rules/hands';
 import './rules/actions/wait';
 import './rules/autoAdvance';
 import './rules/alarms';
+import './rules/arms';
 import './rules/cameras';
 import './rules/carriers';
 import './rules/cctv';
 import './rules/checkins';
 import './rules/command';
+import './rules/damage';
 import './rules/doors';
 import './rules/evidence';
 import './rules/heat';
@@ -118,7 +122,7 @@ export { bodyPos, draggedBy, onFloor, placeCrew } from './rules/place';
 export { crewLoot, lootOf, mayBeDyed, pocketed, throwPlan, throwTargets, type LootState, type ThrowPlan } from './rules/actions/loot';
 export { handsCarry, inHands, lootWeight } from './rules/hands';
 export { ownDrawer, tieIneligible, type NpcWeapon } from './rules/actions/hostage';
-export { knockoutBlocked, knockoutIneligible, registerKnockoutWindow, type KnockoutWindow } from './rules/actions/knockout';
+export { knockOut, knockoutBlocked, knockoutIneligible, registerKnockoutWindow, type KnockoutWindow } from './rules/actions/knockout';
 export { interactionVerbs, reachesObject, registerInteraction, type InteractionHandler, type InteractionVerb } from './rules/actions/interact';
 export {
     applyEvidence, bodyLying, clearEvidence, evidenceOnMap, evidenceWorldPhase, hearing, isMajor, MAJOR_EVIDENCE, noiseReactions, notices, placeEvidence,
@@ -198,6 +202,17 @@ export {
     type ShotRecord, type ShotRolls, type ShotTrace
 } from './rules/shot';
 export { crewLeanOptions, crewShotPreview, crewShotView, previewShot, type CoverView, type FanSegment, type ShotPreview, type ShotPreviewBody } from './preview/shot';
+export { shotRefusal } from './rules/shot';
+export {
+    firing, isGun, movedThisTurn, npcGun, scavengeBlocked, SEARCHABLE, type Arms, type Gun, type Scavenge, type Watch
+} from './rules/arms';
+export { dealHarm, harmHandlers, registerHarmHandler, type Harm, type HarmHandler } from './rules/damage';
+export {
+    attackPlan, COMBAT_COMMANDS, inWedge, strikeBlocked, suppressPlan, suppressTargets, targetsInRange, watchBlocked, watchReact, type AttackPlan
+} from './rules/actions/attack';
+export { blastTiles, flipBlocked, grenadeTargets, throwBlocked, type Grenade } from './rules/actions/throwables';
+export { type SmokeCloud } from './geo/los';
+export { attackCone } from './preview/attack';
 export * from './data/police';
 export { addHeat, heatNow, heatOf, releaseBlocked, releaseHeat, releaseRelief, type HeatLevel, type HeatState } from './rules/heat';
 export {

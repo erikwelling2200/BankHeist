@@ -40,7 +40,22 @@ import type { Pos, ReadonlyWorld, State } from '../core/types';
  * one-off forms and look the map up each call.
  */
 
+/** A smoke grenade's cloud (§12.2, M3-02): the tiles it fills block sight like a full-height object until it clears. */
+export interface SmokeCloud {
+    id: string;
+    /** Where the grenade went off. */
+    at: Pos;
+    /** The tiles it fills, row-major. */
+    tiles: Pos[];
+    /** The turn at the end of whose world phase it clears. */
+    until: number;
+}
+
 declare module '../core/types' {
+    interface State {
+        /** Smoke clouds blocking sight (§12.2), oldest first (rules/actions/throwables.ts). */
+        smoke: SmokeCloud[];
+    }
     interface Tile {
         /** Something of middle height stands on it (a vehicle, a wreck): it blocks sight unless an end of the line is raised. */
         midHeight?: boolean;
@@ -75,7 +90,7 @@ const DOOR_ORDER = new WeakMap<ReadonlyWorld, readonly string[]>();
 
 /**
  * Everything in the State that sight depends on, as a string: equal strings give equal sight maps. Today: each door's
- * status, in id order, and the edge overrides (holes, shot-out panes) when there are any.
+ * status, in id order, the edge overrides (holes, shot-out panes) when there are any, and the smoke clouds.
  *
  * A package whose state changes sight must join it here and in `buildSightMap`: vehicles that move, smoke, darkness
  * overrides (power cuts, §8.3), barricades, destroyed full-height objects. tests/sim/sight.test.ts checks that changing
@@ -86,6 +101,7 @@ export function sightInputs(world: ReadonlyWorld, state: State): string {
     if (!order) DOOR_ORDER.set(world, order = sortedIds(world.doors));
     let key = '';
     for (const id of order) key += `${state.doors[id]?.status ?? '-'},`;
+    if (state.smoke.length) key += `|smoke ${state.smoke.map(c => c.id).join(',')}`;
     return Object.keys(state.edges).length ? `${key}|${stableJson(state.edges)}` : key;
 }
 
@@ -98,6 +114,8 @@ export function buildSightMap(world: ReadonlyWorld, state: State): SightMap {
         raised[i] = t.raised ? 1 : 0;
         lit[i] = t.lit ? 1 : 0;
     });
+    // Smoke fills its tiles to the ceiling (§12.2).
+    for (const cloud of state.smoke) for (const p of cloud.tiles) if (p.x >= 0 && p.y >= 0 && p.x < width && p.y < height) tiles[p.y * width + p.x] = BLOCKS;
     const northSouth = new Uint8Array((width + 1) * height), eastWest = new Uint8Array(width * (height + 1));
     for (const key of Object.keys(world.edges)) {
         const e = world.edges[key]!, now = edgeNow(world, state, key);

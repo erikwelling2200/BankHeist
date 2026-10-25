@@ -101,18 +101,19 @@ export function registerCommand<K extends CommandType>(type: K, reduce: Reducer<
 }
 
 /**
- * The world phase in the order of §6.1: passive NPCs (civilians, staff, guards who aren't fighting) all act at once,
- * NPCs in combat act one at a time, then devices (drills, timers, the carriers' countdowns), then every NPC commits its
- * next intent, which the crew phase shows. `crewPhase` runs once the next turn has begun (refreshing actions).
+ * The world phase in the order of §6.1, after `fuses` (grenades thrown in the crew phase go off at its start, §11.10,
+ * before anything else and before the phase is frozen, so a flashbang's Surprised lose the phase): passive NPCs
+ * (civilians, staff, guards who aren't fighting) all act at once, NPCs in combat act one at a time, then devices
+ * (drills, timers, the carriers' countdowns), then every NPC commits its next intent, which the crew phase shows. `crewPhase` runs once the next turn has begun (refreshing actions).
  */
-export const WORLD_STEPS = ['passiveNpcs', 'combatNpcs', 'devices', 'commitIntents', 'crewPhase'] as const;
+export const WORLD_STEPS = ['fuses', 'passiveNpcs', 'combatNpcs', 'devices', 'commitIntents', 'crewPhase'] as const;
 export type WorldStep = (typeof WORLD_STEPS)[number];
 
 /** The statuses that put an NPC in combat (§6.1: anyone Hostile acts one at a time). A package may add to it. */
 export const COMBAT_STATUSES = new Set<NpcStatus>(['hostile']);
 
 /**
- * What a world phase's steps share, frozen at the start of the phase (§6.2):
+ * What a world phase's steps share, frozen at the start of the phase, once its grenades have gone off (§6.2):
  * - `intents`: every NPC's intent as the last `commitIntents` left it. Telegraphed actions (raising the alarm, drawing a
  *   weapon, a radio call, a breach, a grenade) are carried out only from here, never from anything decided since, even
  *   if a step rewrites `npc.intent` on the way. Movement and shots in combat may be decided when the NPC acts (§13.6).
@@ -133,7 +134,7 @@ export type WorldHook = (ctx: Ctx, phase: WorldPhase) => void;
 interface HookEntry { name: string; order: number; run: WorldHook; placeholder: boolean }
 
 const WORLD_HOOKS: Record<WorldStep, HookEntry[]> = {
-    passiveNpcs: [], combatNpcs: [], devices: [], commitIntents: [], crewPhase: []
+    fuses: [], passiveNpcs: [], combatNpcs: [], devices: [], commitIntents: [], crewPhase: []
 };
 
 /**
@@ -255,19 +256,24 @@ registerCommand('endTurn', ctx => {
     const { state } = ctx;
     state.phase = 'world';
     ctx.emit({ type: 'phaseStarted', phase: 'world', turn: state.turn });
-    const intents: Record<string, Intent> = {}, status: Record<string, NpcStatus> = {};
-    for (const npc of state.npcs) {
-        intents[npc.id] = clonePlain(npc.intent);
-        status[npc.id] = npc.status;
-    }
-    const phase: WorldPhase = deepFreeze({
-        turn: state.turn,
-        intents,
-        status,
-        passive: state.npcs.filter(n => !COMBAT_STATUSES.has(n.status)).map(n => n.id),
-        combat: state.npcs.filter(n => COMBAT_STATUSES.has(n.status)).map(n => n.id)
-    });
+    const freeze = (): WorldPhase => {
+        const intents: Record<string, Intent> = {}, status: Record<string, NpcStatus> = {};
+        for (const npc of state.npcs) {
+            intents[npc.id] = clonePlain(npc.intent);
+            status[npc.id] = npc.status;
+        }
+        return deepFreeze({
+            turn: state.turn,
+            intents,
+            status,
+            passive: state.npcs.filter(n => !COMBAT_STATUSES.has(n.status)).map(n => n.id),
+            combat: state.npcs.filter(n => COMBAT_STATUSES.has(n.status)).map(n => n.id)
+        });
+    };
+    let phase = freeze();
     for (const step of WORLD_STEPS) {
+        // What went off at the start of the phase (a flashbang's Surprised) is what the phase acts on.
+        if (step === 'passiveNpcs') phase = freeze();
         if (step === 'crewPhase') {
             state.turn++;
             state.phase = 'crew';

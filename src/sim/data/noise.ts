@@ -38,6 +38,8 @@ export const NOISES = {
     flipTable: fixed('quiet', 4),
     /** At the landing tile. */
     noisemaker: fixed('quiet', 3),
+    /** At the landing tile, as it goes off (§12.2). */
+    smoke: fixed('quiet', 4),
     suppressedPistol: fixed('quiet', 3),
     suppressedSmg: fixed('quiet', 4),
     commandShout: { kind: 'loud', min: 0, max: 0, plusCommandRadius: 3 },
@@ -52,6 +54,8 @@ export const NOISES = {
     dmr: range('loud', 14, 18),
     lmg: range('loud', 14, 18),
     breachCharge: range('loud', 14, 18),
+    /** At the landing tile, as it goes off (§12.2). */
+    flashbang: fixed('loud', 14),
     shapedCharge: fixed('loud', 18),
     vehicleRam: fixed('loud', 16),
     /** Each world phase it runs; louder in a Three Keys bank (§17.2, the key graph's `noise`). */

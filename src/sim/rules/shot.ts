@@ -58,6 +58,8 @@ export interface Shot {
     braced?: boolean;
     /** Another multiplier on Aim (a Watch volley's ×1.5, §11.8). Default 1. */
     aimFactor?: number;
+    /** A multiplier on every bullet's whole arc (Suppress's spread doubled, §11.9). Default 1. */
+    spread?: number;
 }
 
 /** The dice of one attack: a point per bullet in [0, 1), and the cover rolls in the order the trace asked for them. */
@@ -259,7 +261,8 @@ export function shotArcs(state: DeepReadonly<State>, shot: Shot): number[] {
     const aim = w.aim * (shot.moved && !shot.braced ? w.moved : 1) * (shot.aimFactor ?? 1);
     let recoil = shot.braced && w.bracedRecoil !== undefined ? w.bracedRecoil : w.recoil;
     if (shot.braced && member && hasTrait(member, 'marksman')) recoil /= 2;
-    return Array.from({ length: n }, (_, k) => aim + k * recoil);
+    const spread = shot.spread ?? 1;
+    return Array.from({ length: n }, (_, k) => (aim + k * recoil) * spread);
 }
 
 /** Where a shooter fires from: the lean tile, or where they stand. */
@@ -287,6 +290,7 @@ function checkShot(world: ReadonlyWorld, state: DeepReadonly<State>, shot: Shot)
     if (shot.braced && !w.brace) throw new IllegalCommand(`The ${shot.weapon} has no bipod to brace on`);
     // An arc is a cone in front of the shooter: the widest must stay under a full turn.
     if (shotArcs(state, shot)[n - 1]! >= 360) throw new IllegalCommand(`A ${shotArcs(state, shot)[n - 1]}° arc is no aim`);
+    if (shot.spread !== undefined && !(shot.spread > 0)) throw new IllegalCommand(`A spread of ${shot.spread}`);
     if (!inBounds(world, shot.at)) throw new IllegalCommand(`(${shot.at.x}, ${shot.at.y}) is off the map`);
     if (shot.target !== undefined) {
         const person = personOf(state, shot.target);
@@ -295,6 +299,21 @@ function checkShot(world: ReadonlyWorld, state: DeepReadonly<State>, shot: Shot)
         if (!samePos(hitboxOf(state, person), shot.at)) throw new IllegalCommand(`${shot.target} isn't at (${shot.at.x}, ${shot.at.y})`);
     }
     return w;
+}
+
+/**
+ * Why an attack's geometry can't be fired now (`shotScene` would refuse it), or undefined: the same checks, without
+ * building the shot map, for the attack commands' legality (rules/actions/attack.ts).
+ */
+export function shotRefusal(world: ReadonlyWorld, state: DeepReadonly<State>, shot: Shot): string | undefined {
+    try {
+        checkShot(world, state, shot);
+        if (samePos(originOf(world, state, shot), shot.at)) return 'A shot needs somewhere to aim other than where it is fired from';
+    } catch (e) {
+        if (e instanceof IllegalCommand) return e.message;
+        throw e;
+    }
+    return undefined;
 }
 
 /** Everything one attack's bullets read, before the first flies. */
@@ -334,6 +353,7 @@ export function plainShot(shot: Shot): Shot {
     if (shot.moved !== undefined) out.moved = shot.moved;
     if (shot.braced !== undefined) out.braced = shot.braced;
     if (shot.aimFactor !== undefined) out.aimFactor = shot.aimFactor;
+    if (shot.spread !== undefined) out.spread = shot.spread;
     return out;
 }
 

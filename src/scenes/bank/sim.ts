@@ -56,6 +56,9 @@ const FLOOR_SLICE_MS = 6;
 const BOLD_TILES = 3;
 /** A tap snaps to a valid tile no further than this (tiles) from where it landed. */
 const SNAP_TILES = 1.5;
+
+/** Commands aimed at someone that a tap on another NPC re-aims (M3-02; the aim mode with the loupe is M3-09). */
+const AIMED: ReadonlySet<string> = new Set(['attack', 'strike', 'watch', 'suppress', 'throwGrenade']);
 /** How many tiles north of the crew the first view of a heist is centred. */
 const OPENING_LIFT = 3;
 /** How solid an NPC the crew knows of is drawn: seen now, predicted from its routine, or a ghost of where it was. */
@@ -829,6 +832,18 @@ export class PlayMode {
             if (same(pending.to, tile)) return this.confirm();
             this.preview({ ...pending, to: tile });
             return;
+        }
+        // An attack, a wedge or a grenade previewed (M3-02): a tap on another NPC the crew knows of aims it there, and on
+        // its target again commits it (the polished aim mode is M3-09's).
+        if (pending && AIMED.has(pending.type) && 'crew' in pending) {
+            const hit = this.known().npcs.find(m => m.kind !== 'ghost' && same(m.pos, tile));
+            const entry = hit && actionMenu(this.session.world, this.session.state, pending.crew, hit.id).find(e => e.command.type === pending.type && e.target === hit.id && !e.reason);
+            if (entry) {
+                if (JSON.stringify(entry.command) === JSON.stringify(pending)) return this.confirm();
+                this.target = hit.id;
+                this.preview(entry.command);
+                return;
+            }
         }
         if (onTile) return this.select(drawn && drawn.pos.y > onTile.pos.y ? drawn.id : onTile.id);
         if (pending && 'path' in pending && same(pending.path.at(-1), tile)) return this.confirm();

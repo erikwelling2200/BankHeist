@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { Rng } from '../../src/gen/rng';
-import {
+import { COMBAT_COMMANDS,
     assessEnd, assessPath, assessWorldPhase, carriersStarted, clonePlain, commit, pendingCarriers, type SimEvent, type WorldObject, crewBudget, crewMoveOptions, dashRefusal, dueChallenge, evidenceWorldPhase, EYES_DOWN, FACINGS,
     fixtureWorld, hashOf, initialState, legalActions, lookSightings, onePerObserver, preview, sightMap, validatePath, witnessOn, type CameraDef, type Command, type CrewStart,
     type FixtureWall, type Intent, type ObserverClass, type PersonDef, type Pos, type ReadonlyWorld, type ScheduleBlock, type Sighting, type State
@@ -240,7 +240,7 @@ describe('perception previews (property)', () => {
                     if (rng.chance(member.dragging !== null ? 0.2 : 0.45)) {
                         // Stealth perception: the takeover (commands, GO, masks, holds; M2-01) has its own property test
                         // in preview.property.test.ts, where rolled outcomes are told apart.
-                        const options = legalActions(world, state, member.id).filter(c => (c.type !== 'wait' || rng.chance(0.2)) && !TAKEOVER.has(c.type));
+                        const options = legalActions(world, state, member.id).filter(c => (c.type !== 'wait' || rng.chance(0.2)) && !TAKEOVER.has(c.type) && !COMBAT_COMMANDS.has(c.type));
                         if (!options.length) continue;
                         // A kind of action first, then one of its commands: every kind gets played, however many
                         // commands another offers.

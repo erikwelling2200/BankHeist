@@ -24,6 +24,8 @@ import { applySightings, lookSightings, perceiveEnd, turnLookers, witness, witne
  *    witnessed the act as they stood before it, and see the crew as they face after it.
  * 6. **Ending an action in view** (§8.5): `perceiveEnd` on where the crew member stands, with what those who turned see
  *    of the rest of the crew.
+ * 7. **Its rolls**, if it has any that a preview shows as a picture (`finish`: an attack's bullets): last, so its preview
+ *    shows everything before them.
  *
  * What NPCs witness is recorded at once but acted on only in the world phase (§6.2): perception rewrites their intents
  * now, and a witness dropped in the same crew phase never acts (its intent is cleared, knockout.ts).
@@ -44,6 +46,11 @@ export interface ActionDef<K extends CommandType> {
     illegal?: (world: ReadonlyWorld, state: State, cmd: DeepReadonly<CommandOf<K>>) => { act: IllegalAct; tiles?: Pos[] } | undefined;
     /** Does it (after the check and the spend). */
     run(ctx: Ctx, member: CrewState, cmd: CommandOf<K>): void;
+    /**
+     * What it does last, after the witnesses and the end of the action (step 7): the part that rolls, so that a preview,
+     * which stops at the first roll, still shows everything decided before it (an attack's bullets, rules/actions/attack.ts).
+     */
+    finish?(ctx: Ctx, member: CrewState, cmd: CommandOf<K>): void;
 }
 
 interface Entry {
@@ -76,6 +83,7 @@ export function registerAction<K extends CommandType>(type: K, def: ActionDef<K>
         // An action that spent nothing (waiting with none left) ends nothing in view.
         if (perceive && cost > 0) perceiveEnd(ctx, member.id, turned);
         else if (turned.size) applySightings(ctx, lookSightings(ctx.world, ctx.state, sightMap(ctx.world, ctx.state), turned));
+        def.finish?.(ctx, member, cmd);
     }, options.replace ? { replace: true } : {});
     ACTIONS.set(type, {
         whyNot: def.whyNot as Entry['whyNot'],

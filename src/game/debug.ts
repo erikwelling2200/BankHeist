@@ -1,5 +1,5 @@
 import {
-    effectOf, safeFloor, type ActionPreview, type AutoStop, type CommandRings, type Effect, type SimEvent, type WaitOption, type WaitTarget, type Explanation, type FloorBand, type PathSafety, type SafeFloor, crewBudget, planMoveOptions, crewPicture, isKnownNow, pathTo, whyNot, reachable, updateKnowledge, type Command, type CommitResult, type Pos, type PreviewResult, type ReadonlyWorld, type State
+    attackCone, type ShotPreview, effectOf, safeFloor, type ActionPreview, type AutoStop, type CommandRings, type Effect, type SimEvent, type WaitOption, type WaitTarget, type Explanation, type FloorBand, type PathSafety, type SafeFloor, crewBudget, planMoveOptions, crewPicture, isKnownNow, pathTo, whyNot, reachable, updateKnowledge, type Command, type CommitResult, type Pos, type PreviewResult, type ReadonlyWorld, type State
 } from '../sim';
 import { evidenceWarnings, type EvidenceWarning } from './evidenceWarning';
 import { AutoRun, waitMenu } from './autoAdvance';
@@ -61,6 +61,8 @@ export interface SimHandle {
      * the other.
      */
     effect(events: readonly SimEvent[], crew: string, before: State): Effect;
+    /** An attack or Suppress command's cone (`attackCone`): the truth, every body behind every wall; never for the HUD. */
+    cone(cmd: Command): ShotPreview | undefined;
     /** Why the rules refuse `cmd` on `state` (the current one by default), or undefined. */
     whyNot(cmd: Command, state?: State): string | undefined;
     /** Whether the crew knows where NPC `id` is now (§8.15) in `state` (the current one by default). */
@@ -98,6 +100,7 @@ export function installDebugHandle(session: Session, target: { sim?: SimHandle }
         commit: cmd => session.commit(cmd),
         endTurn: () => session.endTurn(),
         undo: () => session.undo(),
+        cone: cmd => attackCone(session.world, session.state, cmd),
         whyNot: (cmd, state = session.state) => whyNot(session.world, state, cmd),
         knows: (id, state = session.state) => isKnownNow(session.world, state, id),
         found: (state = session.state) => evidenceWarnings(session.world, state),

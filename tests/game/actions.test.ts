@@ -30,11 +30,28 @@ describe('the action grid', () => {
     it('offers Zip-tie and Lead on someone face down (M2-03)', () => {
         const { world, state } = scene();
         const down = commit(world, state, { type: 'command', crew: 'jun' }).state;
-        expect(ids(world, down)).toEqual(['door:open', 'door:lock', 'knockout!', 'zipTie', 'escort', 'wait', 'command', 'hold', 'mask']);
+        // Loud now: Strike joins, after Hold (M3-02).
+        expect(ids(world, down)).toEqual(['door:open', 'door:lock', 'knockout!', 'zipTie', 'escort', 'wait', 'command', 'hold', 'strike', 'mask']);
         expect(menuIsLegal(world, down, 'jun', actionMenu(world, down, 'jun'))).toBe(true);
         const tied = commit(world, down, actionMenu(world, down, 'jun').find(e => e.id === 'zipTie')!.command);
         expect(tied.state.npcs[0]!.status).toBe('tied');
         expect(describeEvent(world, tied.state, { type: 'zipTied', crew: 'jun', npc: 'clerk' })).toBe('jun zip-tied clerk');
+    });
+
+    it('offers the combat actions the sim allows, after the takeover in stealth and after Command and Hold once loud (M3-02)', () => {
+        const map = Array.from({ length: 6 }, () => '..........');
+        const world = fixtureWorld(map, { people: [person('guard', 'lobbyGuard', 'enforcer', P(6, 2), 'w'), person('cust', 'customer', 'civilian', P(8, 4), 'w')] });
+        const state = scouted(world, initialState(world, { seed: 7, crew: [{ id: 'jun', pos: P(2, 2), items: ['pistol', 'taser', 'flashbang'] }] }));
+        expect(ids(world, state)).toEqual(['wait', 'command', 'mask', 'go', 'attack', 'swap']);
+        const loud = { ...state, bank: { loud: true, alarm: false } };
+        loud.crew = state.crew.map(c => ({ ...c, arms: { ...c.arms, guns: { ...c.arms.guns, pistol: { ...c.arms.guns.pistol!, loaded: 4 } } } }));
+        expect(ids(world, loud, 'cust')).toEqual(['wait', 'command', 'attack', 'reload', 'swap', 'watch', 'throw:flashbang', 'mask']);
+        const menu = actionMenu(world, loud, 'jun', 'cust');
+        expect(menu.find(e => e.id === 'attack')).toMatchObject({ label: 'Fire (4)', target: 'cust', command: { type: 'attack', crew: 'jun', at: P(8, 4), target: 'cust' } });
+        expect(menuIsLegal(world, loud, 'jun', menu)).toBe(true);
+        const ui: UiState = { selected: 'jun', camera: null, pendingCommand: null };
+        expect(actionsView(world, loud, ui).find(a => a.id === 'swap')).toMatchObject({ cost: 0, enabled: true });
+        expect(describeEvent(world, loud, { type: 'attacked', crew: 'jun', weapon: 'pistol', bullets: 2, at: P(6, 2), target: 'guard', mode: 'attack' })).toBe('jun fired at guard');
     });
 
     it('offers what the sim allows where the crew member stands, for the tapped target', () => {
