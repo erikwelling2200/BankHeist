@@ -181,3 +181,12 @@ export const FLIPPABLE: ReadonlySet<string> = new Set(['cafeTable', 'coffeeTable
 
 /** Pips anyone who sees a table flipped during stealth gains of the flipper (§11.4). */
 export const FLIP_PIPS = 2;
+
+// ---------------------------------------------------------------------------------------------------------- M3-03
+
+/** An NPC's hit points by role (§12.3); an armed civilian (the off-duty cop) `ARMED_NPC_HP`, anyone else `DEFAULT_NPC_HP`. */
+export const NPC_HP: Readonly<Record<string, number>> = {
+    lobbyGuard: 5, patrolGuard: 5, guard: 5, courier: 5, chief: 6, officer: 6, sniper: 6, swat: 7, shieldSwat: 7, heavySwat: 12
+};
+export const ARMED_NPC_HP = 5;
+export const DEFAULT_NPC_HP = 3;

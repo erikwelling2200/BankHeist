@@ -53,6 +53,7 @@ import './rules/suspicion';
 import './rules/trespass';
 import './rules/keys';
 import './rules/vault';
+import './rules/wounds';
 // --- systems: end
 
 export * from './core/types';
@@ -64,7 +65,7 @@ export {
 } from './core/engine';
 export { registerEvents, eventClass, recordUndo, popUndo, type EventClass, type UndoStack } from './core/undo';
 export {
-    initialState, crewMember, edgeNow, spendActions, newId, defaultRules, registerRuleDefaults, registerStateInit,
+    initialState, crewMember, edgeNow, spendActions, actorRefusal, registerActorCheck, newId, defaultRules, registerRuleDefaults, registerStateInit,
     registerNpcInit, registerCrewInit, type CrewStart, type StateInit, type NpcInit, type CrewInit
 } from './core/state';
 export {
@@ -207,6 +208,8 @@ export {
     firing, isGun, movedThisTurn, npcGun, scavengeBlocked, SEARCHABLE, type Arms, type Gun, type Scavenge, type Watch
 } from './rules/arms';
 export { dealHarm, harmHandlers, registerHarmHandler, type Harm, type HarmHandler } from './rules/damage';
+export { arrestCrew, isDown, isHurt, killNpc, woundAim, type CrewWounds, type Custody } from './rules/wounds';
+export { isWounded, npcMaxHp } from './rules/woundsState';
 export {
     attackPlan, COMBAT_COMMANDS, inWedge, PICTURED_COMMANDS, strikeBlocked, suppressPlan, suppressReact, suppressTargets, targetsInRange, watchBlocked, watchReact, type AttackPlan
 } from './rules/actions/attack';

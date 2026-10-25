@@ -162,3 +162,23 @@ describe('the action grid', () => {
         expect(barkText(world, state, { type: 'bark', npc: 'clerk', cause: 'body', evidence: 'body:x', first: false })).toBe('Hey! Over here!');
     });
 });
+
+describe('wounds in the grid (M3-03)', () => {
+    it('offers Revive on a downed teammate in reach and Medkit on the one tapped, else the most hurt', () => {
+        const world = fixtureWorld(['......', '......']);
+        const state = initialState(world, { seed: 7, crew: [{ id: 'jun', pos: P(0, 0), items: ['medkit'] }, { id: 'mara', pos: P(1, 0) }] });
+        expect(ids(world, state)).not.toContain('medkit');
+        const mara = state.crew.find(c => c.id === 'mara')!;
+        mara.wounds = { ...mara.wounds, hp: 0, downed: { left: 3, turn: 1, phase: 'crew' } };
+        mara.actionsLeft = 0;
+        const menu = actionMenu(world, state, 'jun');
+        expect(menu.find(e => e.id === 'revive')).toMatchObject({ label: 'Revive mara', command: { type: 'revive', crew: 'jun', ally: 'mara' } });
+        expect(menu.find(e => e.id === 'medkit')).toMatchObject({ label: 'Medkit mara (2)', command: { type: 'medkit', crew: 'jun', ally: 'mara' } });
+        expect(menuIsLegal(world, state, 'jun', menu)).toBe(true);
+        // Mara can do nothing: whatever the grid always shows is refused.
+        expect(actionMenu(world, state, 'mara').every(e => e.reason !== undefined)).toBe(true);
+        expect(crewCards(world, state, 'jun')[1]!.hp).toEqual({ now: 0, max: 8 });
+        const up = commit(world, state, menu.find(e => e.id === 'revive')!.command);
+        expect(describeEvent(world, up.state, up.events.find(e => e.type === 'crewRevived')!)).toBe('jun got mara back up');
+    });
+});

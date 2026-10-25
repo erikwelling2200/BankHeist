@@ -9,7 +9,7 @@ import {
     behaviourGoal, comingPhase, decidesFor, evidenceReport, friskSatisfied, quarterTurn, reactionOf, settleFrisks, statusFor, topWant, type Goal, type RouteProgress
 } from './behaviour';
 import { blockIndexAt, LEAVING_ACTIVITIES, ROUTE_ACTIVITIES, routeMode, wayBackIn } from './schedule';
-import { crewTiles, intentEnd, isPresent, leavingTile, npcMoveOptions, othersTiles, personOf, planWalk, type WalkTarget } from './walk';
+import { crewTiles, intentEnd, isPresent, leavingTile, npcMoveOptions, othersTiles, personOf, planWalk, wayOut, type WalkTarget } from './walk';
 
 /*
  * Committed intents (§6.1 step 3, §6.2): at the end of every world phase each NPC commits what it will do in the next
@@ -174,6 +174,11 @@ function planGoal(world: ReadonlyWorld, state: State, npc: NpcState, goal: Goal,
             // nearest it can end its walk on, which its escapee counts (`leavingTile`), else the way out itself.
             const leave = leavingTile(world, state, npc, goal.tile!, { taken });
             return walkIntent(world, state, npc, { tile: leave?.tile ?? goal.tile!, pace: 'run' }, taken, { action: { kind: 'flee', exit: goal.tile! } });
+        }
+        case 'crawl': {
+            // Wounded (§11.12): a tile a phase toward the nearest way out (leaving by it is M3-05's).
+            const out = wayOut(world, state, npc);
+            return out ? walkIntent(world, state, npc, { tile: out.exit, pace: 'crawl' }, taken, {}) : { path: [] };
         }
         case 'phone':
             // Phones it in where it lies (§16.2 the manager's phone), carried out by rules/alarms.ts.

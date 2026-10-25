@@ -5,6 +5,7 @@ import { registerNpcInit } from '../../core/state';
 import type { CarrierKind, DeepReadonly, Facing, IntentAction, NpcState, NpcStatus, PersonDef, Pos, ReadonlyWorld, State } from '../../core/types';
 import { isEyesDown, pipsOf, type Want, type WantKind } from '../suspicion';
 import { isPresent, personOf, type Pace } from './walk';
+import { isWounded } from '../woundsState';
 
 /*
  * What an NPC means to do (§8.5–8.7, §16.1–16.2): the state machine on top of its schedule. Perception hands over
@@ -46,6 +47,8 @@ export type GoalKind =
     | 'inspect' | 'look' | 'report'
     // A lapsed command (rules/command.ts, §10.5): run for the way out, or reach for the weapon.
     | 'flee' | 'reach' | 'phone'
+    // Wounded (rules/wounds.ts, §11.12): crawling for the nearest way out.
+    | 'crawl'
     // Panic (rules/panic.ts, §10.8): frozen until its reaction is picked, then cowering, hiding or tackling.
     | 'panic' | 'cower' | 'hide' | 'tackle';
 
@@ -246,6 +249,8 @@ export function behaviourGoal(world: ReadonlyWorld, state: State, npc: DeepReado
     if (npc.lapse?.kind === 'flee') return { kind: 'flee', tile: { x: npc.lapse.exit.x, y: npc.lapse.exit.y } };
     if (npc.lapse?.kind === 'reach') return { kind: 'reach', crew: npc.lapse.crew };
     if (npc.lapse?.kind === 'phone') return { kind: 'phone', crew: npc.lapse.crew };
+    // Wounded (§11.12): it crawls for a way out, whatever it wanted; a Hostile one fights on (M3-05, M3-06).
+    if (npc.status !== 'hostile' && isWounded(world, npc)) return { kind: 'crawl' };
     // Panic (§10.8) comes before anything it wants: frozen, then what it picked, shown as it was picked.
     if (npc.panic) return panicGoal(state, npc);
     const top = topWant(npc);
@@ -316,7 +321,7 @@ export const comingPhase = (state: State): number => (state.phase === 'world' ? 
 export function statusFor(npc: DeepReadonly<NpcState>, goal: Goal): NpcStatus {
     if (goal.kind === 'away' || goal.kind === 'enter') return 'away';
     if (npc.panic) return 'panicked';
-    if (npc.alerted || goal.kind === 'react' || goal.kind === 'report' || goal.kind === 'flee' || goal.kind === 'reach' || goal.kind === 'phone') return 'alerted';
+    if (npc.alerted || goal.kind === 'react' || goal.kind === 'report' || goal.kind === 'flee' || goal.kind === 'crawl' || goal.kind === 'reach' || goal.kind === 'phone') return 'alerted';
     if (goal.kind === 'investigate' || goal.kind === 'search' || goal.kind === 'challenge' || goal.kind === 'escort' || goal.kind === 'inspect') return 'investigating';
     if (goal.kind === 'face' || goal.kind === 'watch' || goal.kind === 'look') return 'curious';
     return 'calm';

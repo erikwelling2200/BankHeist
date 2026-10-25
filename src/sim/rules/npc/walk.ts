@@ -40,15 +40,20 @@ declare module '../../core/types' {
         npcRunTiles: number;
         /** How many world phases a cautious search lasts (§16.1). */
         searchPhases: number;
+        /** Tiles a wounded NPC crawls per world phase (§11.12). */
+        npcCrawlTiles: number;
     }
 }
 
-registerRuleDefaults({ npcWalkTiles: 4, npcHurryTiles: 5, npcRunTiles: 8, searchPhases: 2 });
+registerRuleDefaults({ npcWalkTiles: 4, npcHurryTiles: 5, npcRunTiles: 8, searchPhases: 2, npcCrawlTiles: 1 });
 
-export type Pace = 'walk' | 'hurry' | 'run';
+/** How fast an NPC walks: `crawl` is the wounded's (§11.12). */
+export type Pace = 'walk' | 'hurry' | 'run' | 'crawl';
 
 /** A pace's budget per world phase in half-steps. */
 export function paceBudget(world: ReadonlyWorld, pace: Pace): number {
+    // A crawl's tile may be a diagonal one.
+    if (pace === 'crawl') return Math.max(world.rules.npcCrawlTiles * HALF_STEPS_PER_TILE, DIAGONAL_COST);
     const tiles = pace === 'walk' ? world.rules.npcWalkTiles : pace === 'hurry' ? world.rules.npcHurryTiles : world.rules.npcRunTiles;
     return tiles * HALF_STEPS_PER_TILE;
 }
@@ -417,4 +422,31 @@ export function worldWalks(
     const walked: Record<string, DeepReadonly<Intent>> = {};
     for (const n of state.npcs) walked[n.id] = walkedIntent(n, all[n.id]!, byNpc.get(n.id));
     return { walks, walked };
+}
+
+/** Where people leave the map (a schedule's `leave` or `offMap` tile), in row order. */
+function exitsOf(world: ReadonlyWorld): Pos[] {
+    const exits: Pos[] = [];
+    for (const p of world.people) for (const b of p.schedule) {
+        if ((b.activity === 'leave' || b.activity === 'offMap') && b.at && !exits.some(e => samePos(e, b.at!))) exits.push({ x: b.at.x, y: b.at.y });
+    }
+    return exits.sort((a, b) => a.y - b.y || a.x - b.x);
+}
+
+/**
+ * The nearest way out for a runner (§10.5 flee): a tile where anyone leaves the map, by walking cost, ties in row order;
+ * with its cost in tiles. `pastCrew`: past the crew as they stand (§9.1 "block the route": the runner leaves from its
+ * exit or a tile next to it, so reaching one of those it can end its walk on will do, as `runLeft`); otherwise through
+ * people. The flood stops at the first.
+ */
+export function wayOut(world: ReadonlyWorld, state: State, npc: DeepReadonly<NpcState>, pastCrew = false): { exit: Pos; tiles: number } | undefined {
+    const exits = exitsOf(world);
+    if (!exits.length) return undefined;
+    const floor = onFloor(state), taken = pastCrew ? othersTiles(world, floor, npc.id) : undefined;
+    const reach = (p: DeepReadonly<Pos>, e: Pos): boolean => (pastCrew ? Math.max(Math.abs(p.x - e.x), Math.abs(p.y - e.y)) <= 1 : samePos(p, e));
+    const options = pastCrew ? npcMoveOptions(world, npc) : { ...npcMoveOptions(world, npc), ignorePeople: true };
+    const found = reachable(world, floor, { x: npc.pos.x, y: npc.pos.y }, (world.width + world.height) * 4 * HALF_STEPS_PER_TILE, options,
+        t => exits.some(e => reach(t.pos, e)) && (!taken || t.cost === 0 || (t.canEnd && !taken(t.pos.y * world.width + t.pos.x)))).stopped;
+    const exit = found && exits.find(e => reach(found.pos, e));
+    return found && exit && { exit, tiles: Math.ceil(found.cost / HALF_STEPS_PER_TILE) };
 }

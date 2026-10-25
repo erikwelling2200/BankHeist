@@ -16,6 +16,7 @@ import { makeNoise } from '../../geo/sound';
 import { firing, movedThisTurn } from '../arms';
 import { commandNpc, crewThreat } from '../command';
 import { dealHarm } from '../damage';
+import { woundAim } from '../wounds';
 import { personOf } from '../npc/walk';
 import { bodyPos } from '../place';
 import { armourOf, leanOptions, resolveShot, shotRefusal, type Shot, type ShotTrace } from '../shot';
@@ -146,6 +147,9 @@ export function attackPlan(world: ReadonlyWorld, state: State, cmd: AttackCmd, o
     if (cmd.bullets !== undefined && cmd.bullets > gun.loaded) return `The ${item} has ${gun.loaded} rounds left`;
     const bullets = options.allBullets ? Math.min(weapon.bullets, gun.loaded) : cmd.bullets ?? Math.min(weapon.bullets, gun.loaded);
     const shot: Shot = { shooter: member.id, weapon: gun.load, at: { x: cmd.at.x, y: cmd.at.y }, bullets, moved: movedThisTurn(state, member), braced: bracedWith(member, item) };
+    // Hurt, they aim worse (§11.12).
+    const hurt = woundAim(world, member);
+    if (hurt !== 1) shot.aimFactor = hurt;
     if (cmd.target !== undefined) shot.target = cmd.target;
     // Already leaning out, they fire from the lean tile unless told otherwise (their hitbox is there, decision 90).
     const lean = cmd.lean ?? member.leaning?.at;
@@ -443,7 +447,7 @@ function reactionPlan(world: ReadonlyWorld, state: State, member: CrewState, npc
     const weapon = weaponDef(fire.gun.load);
     const shot: Shot = {
         shooter: member.id, weapon: fire.gun.load, at: { ...npcAt(state, npc) }, target: npc.id, bullets: Math.min(bullets(weapon), fire.gun.loaded),
-        moved: movedThisTurn(state, member), braced: bracedWith(member, fire.item), aimFactor
+        moved: movedThisTurn(state, member), braced: bracedWith(member, fire.item), aimFactor: aimFactor * woundAim(world, member)
     };
     const from = lean ?? member.leaning?.at;
     if (from) shot.lean = { ...from };

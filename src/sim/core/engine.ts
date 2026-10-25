@@ -296,7 +296,7 @@ registerWorldHook('passiveNpcs', 'npcs.passive', () => {}, { placeholder: true }
 registerWorldHook('combatNpcs', 'npcs.combat', () => {}, { placeholder: true });
 registerWorldHook('commitIntents', 'npcs.intents', () => {}, { placeholder: true });
 
-// A new crew phase: everyone's actions back. Downed or arrested crew will be skipped here once crew health exists.
+// A new crew phase: everyone's actions back (rules/wounds.ts then takes the downed crew's away again).
 registerWorldHook('crewPhase', 'crew.actions', ctx => {
     for (const member of ctx.state.crew) member.actionsLeft = ctx.world.rules.actionsPerTurn;
 });

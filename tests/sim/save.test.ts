@@ -78,7 +78,7 @@ describe('saving', () => {
  * NpcStatusMap, CarrierKindMap or adds a field must also fill it in below, or a change of shape goes unnoticed.
  */
 const SHAPE_HASHES: Record<number, string> = {
-    1: '008c440d6127791e'
+    1: '1e6d9d27dadd6f11'
 };
 
 /** Paths whose objects are records by id, not structs. */

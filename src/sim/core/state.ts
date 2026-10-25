@@ -139,6 +139,26 @@ export function crewMember(state: State, id: string): CrewState {
     return member;
 }
 
+/** Why a crew member can't act at all now (downed, dead: rules/wounds.ts), or undefined. */
+export type ActorCheck = (member: DeepReadonly<CrewState>) => string | undefined;
+
+const ACTOR_CHECKS = new Map<string, ActorCheck>();
+
+/** Adds a reason a crew member can't take any action (checks run by name, before each action's own `whyNot`). */
+export function registerActorCheck(name: string, check: ActorCheck): void {
+    if (ACTOR_CHECKS.has(name)) throw new Error(`Actor check '${name}' already exists`);
+    ACTOR_CHECKS.set(name, check);
+}
+
+/** Why a crew member can't act at all now, or undefined: what every action, Move and Dash refuse with first. */
+export function actorRefusal(member: DeepReadonly<CrewState>): string | undefined {
+    for (const name of [...ACTOR_CHECKS.keys()].sort()) {
+        const reason = ACTOR_CHECKS.get(name)!(member);
+        if (reason) return reason;
+    }
+    return undefined;
+}
+
 /** Spends a crew member's actions, or refuses when they don't have enough left. */
 export function spendActions(member: CrewState, cost: number): void {
     if (member.actionsLeft < cost) throw new IllegalCommand(`${member.name} has ${member.actionsLeft} of ${cost} actions left`);

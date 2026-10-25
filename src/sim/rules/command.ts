@@ -1,20 +1,18 @@
 import { registerWorldHook, type Ctx } from '../core/engine';
-import { inBounds, samePos } from '../core/grid';
+import { inBounds } from '../core/grid';
 import { crewMember, registerCrewInit, registerNpcInit, registerRuleDefaults, registerStateInit } from '../core/state';
 import type { CrewState, DeepReadonly, NpcState, Pos, ReadonlyWorld, State } from '../core/types';
 import { registerEvents } from '../core/undo';
 import { CARRY_WEIGHT, itemDef, UNARMED_THREAT } from '../data/items';
-import { HALF_STEPS_PER_TILE } from '../data/movement';
 import { lineOfSight, sightMap, type SightMap } from '../geo/los';
-import { reachable } from '../geo/move';
 import { DEAF_STATUSES, makeNoise, noiseRadius, npcsInside, soundRing } from '../geo/sound';
 import { lacksActions, registerAction } from './actions/act';
 import { releaseBody } from './actions/body';
 import { startEscapee } from './alarms';
 import { stopCarrier } from './carriers';
-import { leavingTile, npcMoveOptions, isPresent, othersTiles, personOf } from './npc/walk';
+import { leavingTile, isPresent, personOf, wayOut } from './npc/walk';
 import { reconsider } from './npc/intent';
-import { bodyPos, draggedBy, onFloor } from './place';
+import { bodyPos, draggedBy } from './place';
 import { hidingSpot, reactionOdds, rollReaction, startReaction, tackleTarget, type Reaction } from './panic';
 import { giveUp, panicsAt } from './panicState';
 import { witnessAct } from './perceive';
@@ -526,32 +524,8 @@ function rollLapse(ctx: Ctx, npc: NpcState): LapseOutcome {
     return npc.armed === 'hidden' ? 'reachForWeapon' : rolled;
 }
 
-/** Where people leave the map (a schedule's `leave` or `offMap` tile), in row order. */
-function exitsOf(world: ReadonlyWorld): Pos[] {
-    const exits: Pos[] = [];
-    for (const p of world.people) for (const b of p.schedule) {
-        if ((b.activity === 'leave' || b.activity === 'offMap') && b.at && !exits.some(e => samePos(e, b.at!))) exits.push({ x: b.at.x, y: b.at.y });
-    }
-    return exits.sort((a, b) => a.y - b.y || a.x - b.x);
-}
-
-/**
- * The nearest way out for a runner (§10.5 flee): a tile where anyone leaves the map, by walking cost, ties in row order;
- * with its cost in tiles. `pastCrew`: past the crew as they stand (§9.1 "block the route": the runner leaves from its
- * exit or a tile next to it, so reaching one of those it can end its walk on will do, as `runLeft`); otherwise through
- * people. The flood stops at the first.
- */
-export function wayOut(world: ReadonlyWorld, state: State, npc: DeepReadonly<NpcState>, pastCrew = false): { exit: Pos; tiles: number } | undefined {
-    const exits = exitsOf(world);
-    if (!exits.length) return undefined;
-    const floor = onFloor(state), taken = pastCrew ? othersTiles(world, floor, npc.id) : undefined;
-    const reach = (p: DeepReadonly<Pos>, e: Pos): boolean => (pastCrew ? Math.max(Math.abs(p.x - e.x), Math.abs(p.y - e.y)) <= 1 : samePos(p, e));
-    const options = pastCrew ? npcMoveOptions(world, npc) : { ...npcMoveOptions(world, npc), ignorePeople: true };
-    const found = reachable(world, floor, { x: npc.pos.x, y: npc.pos.y }, (world.width + world.height) * 4 * HALF_STEPS_PER_TILE, options,
-        t => exits.some(e => reach(t.pos, e)) && (!taken || t.cost === 0 || (t.canEnd && !taken(t.pos.y * world.width + t.pos.x)))).stopped;
-    const exit = found && exits.find(e => reach(found.pos, e));
-    return found && exit && { exit, tiles: Math.ceil(found.cost / HALF_STEPS_PER_TILE) };
-}
+// The way out (`wayOut`) lives with the NPCs' walks (npc/walk.ts), where the wounded's crawl reads it too.
+export { wayOut } from './npc/walk';
 
 /**
  * How far a runner has left to its way out, in tiles: to the tile it leaves from (npc/walk.ts `leavingTile`: the

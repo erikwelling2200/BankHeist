@@ -1,6 +1,6 @@
 import { IllegalCommand, registerCommand, type Ctx } from '../../core/engine';
 import { cornerEdges, edgeBetween, edgeKey, FACING_STEP, inBounds, tileAt } from '../../core/grid';
-import { crewMember, edgeNow, spendActions } from '../../core/state';
+import { actorRefusal, crewMember, edgeNow, spendActions } from '../../core/state';
 import type { Command, CommandOf, CommandType, CrewState, DeepReadonly, Pos, ReadonlyWorld, State, Tile } from '../../core/types';
 import type { IllegalAct } from '../../data/matrix';
 import { sightMap } from '../../geo/los';
@@ -71,7 +71,7 @@ export function registerAction<K extends CommandType>(type: K, def: ActionDef<K>
     const perceive = options.perceive ?? true;
     registerCommand(type, (ctx, cmd) => {
         const member = crewMember(ctx.state, crewOf(cmd as DeepReadonly<Command>));
-        const reason = def.whyNot(ctx.world, ctx.state, cmd as DeepReadonly<CommandOf<K>>);
+        const reason = actorRefusal(member) ?? def.whyNot(ctx.world, ctx.state, cmd as DeepReadonly<CommandOf<K>>);
         if (reason) throw new IllegalCommand(reason);
         const illegal = def.illegal?.(ctx.world, ctx.state, cmd as DeepReadonly<CommandOf<K>>);
         const cost = def.cost(ctx.world, ctx.state, cmd as DeepReadonly<CommandOf<K>>);
@@ -119,7 +119,7 @@ export function whyNot(world: ReadonlyWorld, state: State, cmd: DeepReadonly<Com
     if (!entry) return undefined;
     const member = state.crew.find(c => c.id === crewOf(cmd));
     if (!member) return `No crew member '${crewOf(cmd)}'`;
-    return entry.whyNot(world, state, cmd);
+    return actorRefusal(member) ?? entry.whyNot(world, state, cmd);
 }
 
 /**
@@ -129,7 +129,7 @@ export function whyNot(world: ReadonlyWorld, state: State, cmd: DeepReadonly<Com
  */
 export function legalActions(world: ReadonlyWorld, state: State, crewId: string): Command[] {
     const member = state.crew.find(c => c.id === crewId);
-    if (!member) return [];
+    if (!member || actorRefusal(member)) return [];
     const out: Command[] = [];
     for (const type of [...ACTIONS.keys()].sort()) {
         const entry = ACTIONS.get(type)!;

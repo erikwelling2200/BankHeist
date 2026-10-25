@@ -32,6 +32,8 @@ import type { HudIcon as HudIconName } from '../ui/hud/viewModels';
  *   surprised, out cold); Lead (escort) one face down or tied (Drop lets go); Coerce a hostage the crew knows of into
  *   opening a drawer or entering the vault code (the first the sim allows); Change clothes from a downed guard or the
  *   staff lockers in reach (the first the sim allows).
+ * - Wounds (§11.12, M3-03): Revive a downed teammate in reach; Medkit on the teammate tapped, else the most hurt in
+ *   reach (oneself included).
  * - Wait.
  * - The takeover (§9.3, §10.1–10.3, M2-01), after Wait: Command always; Hold while anyone is Commanded; Mask up while
  *   unmasked; GO while it can still be pressed.
@@ -259,6 +261,15 @@ export function actionMenu(world: ReadonlyWorld, state: State, crewId: string, t
     const ruined = pocketed(world, state, crewId).find(id => state.loot[id]!.ruined);
     if (ruined) add('dropRuined', 'Drop ruined cash', 'flip', { type: 'dropLoot', crew: crewId, loot: ruined }, ruined);
 
+
+    // Wounds (§11.12, M3-03): revive a downed teammate in reach; a medkit on the one tapped (or the most hurt), else oneself.
+    const revive = legal.find((c): c is Extract<Command, { type: 'revive' }> => c.type === 'revive' && (!target || c.ally === target))
+        ?? legal.find((c): c is Extract<Command, { type: 'revive' }> => c.type === 'revive');
+    if (revive) add('revive', `Revive ${state.crew.find(c => c.id === revive.ally)!.name}`, 'revive', revive, revive.ally);
+    const kits = legal.filter((c): c is Extract<Command, { type: 'medkit' }> => c.type === 'medkit');
+    const hpOf = (id: string): number => state.crew.find(c => c.id === id)!.wounds.hp;
+    const kit = kits.find(c => c.ally === target) ?? [...kits].sort((a, b) => hpOf(a.ally) - hpOf(b.ally))[0];
+    if (kit) add('medkit', kit.ally === crewId ? `Medkit (${member.wounds.medkits})` : `Medkit ${state.crew.find(c => c.id === kit.ally)!.name} (${member.wounds.medkits})`, 'medkit', kit, kit.ally);
 
     const loud = state.bank.loud || state.bank.alarm;
     add('wait', 'Wait', 'wait', { type: 'wait', crew: crewId });

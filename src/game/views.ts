@@ -221,7 +221,7 @@ export function crewCards(world: ReadonlyWorld, state: State, selected: string |
             // The profile from what shows (§7.4), before any observer's reading; the same look the safe floor reads.
             profile: crewLook(c).profile,
             exposedTo: exposedTo(state, c.id),
-            hp: null,
+            hp: { now: c.wounds.hp, max: world.rules.crewHp },
             selected: c.id === selected,
             carrying: carriedOf(state, c),
             ...(unsureOf(world, state, c) ? { mayBeDyed: true } : {})
@@ -321,6 +321,8 @@ function describeCommand(cmd: Command, world?: ReadonlyWorld): { label: string; 
         case 'brace': return { label: 'Brace', icon: 'shield', cost: 1 };
         case 'throwGrenade': return { label: cmd.item === 'smoke' ? 'Smoke' : 'Flashbang', icon: 'grenade', cost: 1 };
         case 'flipTable': return { label: 'Flip table', icon: 'flip', cost: 1 };
+        case 'revive': return { label: 'Revive', icon: 'revive', cost: 1 };
+        case 'medkit': return { label: 'Medkit', icon: 'medkit', cost: 1 };
         default: return { label: cmd.type, icon: 'interact', cost: 1 };
     }
 }
@@ -445,7 +447,7 @@ export function recapView(world: ReadonlyWorld, state: State, recent: readonly S
             status: c.actionsLeft > 0 ? 'ready' : 'done',
             actionsLeft: c.actionsLeft,
             exposed: exposedTo(state, c.id).length > 0,
-            hp: null
+            hp: { now: c.wounds.hp, max: world.rules.crewHp }
         })),
         threats: threatLedger(state, world)
     };
@@ -459,7 +461,8 @@ const lootName = (world: ReadonlyWorld, id: string): string => {
 };
 
 export function describeEvent(world: ReadonlyWorld, state: State, event: SimEvent): string {
-    const name = (id: string): string => state.crew.find(c => c.id === id)?.name ?? world.people.find(p => p.id === id)?.name ?? id;
+    const name = (id: string): string => state.crew.find(c => c.id === id)?.name ?? state.custody.find(c => c.crew.id === id)?.crew.name
+        ?? world.people.find(p => p.id === id)?.name ?? id;
     switch (event.type) {
         case 'moved': return `${name(event.crew)} moved to (${event.to.x}, ${event.to.y})`;
         case 'waited': return `${name(event.crew)} waited`;
@@ -584,6 +587,16 @@ export function describeEvent(world: ReadonlyWorld, state: State, event: SimEven
         case 'flashed': return `${name(event.npc)} was flashbanged`;
         case 'smokeCleared': return 'The smoke cleared';
         case 'tableFlipped': return `${name(event.crew)} flipped a table`;
+        case 'crewWounded': return event.cause === 'bleeding' ? `${name(event.crew)} is bleeding: ${event.hp} HP` : `${name(event.crew)} is hit: ${event.hp} HP`;
+        case 'crewDowned': return `${name(event.crew)} is down: bleeding out in ${event.phases}`;
+        case 'bleedingOut': return `${name(event.crew)} bleeds out in ${event.phases}`;
+        case 'crewDied': return `${name(event.crew)} is dead`;
+        case 'crewRevived': return `${name(event.by)} got ${name(event.crew)} back up`;
+        case 'crewHealed': return `${name(event.by)} patched ${name(event.crew)} up`;
+        case 'crewArrested': return `${name(event.crew)} was arrested`;
+        case 'npcWounded': return event.wounded ? `${name(event.npc)} is badly hurt` : `${name(event.npc)} is hit`;
+        case 'npcDied': return `${name(event.npc)} is dead`;
+        case 'screamed': return `${name(event.npc)} screams`;
         default: return event.type;
     }
 }

@@ -1,6 +1,6 @@
 import { IllegalCommand, registerCommand, type Ctx } from '../core/engine';
 import { facingToward } from '../core/grid';
-import { crewMember, spendActions } from '../core/state';
+import { actorRefusal, crewMember, spendActions } from '../core/state';
 import type { CrewState, DeepReadonly, DoorDef, DoorStatus, Pos, ReadonlyWorld, State } from '../core/types';
 import { registerEvents } from '../core/undo';
 import { DASH_ACTIONS, MOVE_ACTIONS } from '../data/movement';
@@ -252,6 +252,8 @@ function walk(ctx: Ctx, member: CrewState, planned: readonly Pos[], mode: MoveMo
 }
 
 function check(ctx: Ctx, member: CrewState, path: readonly Pos[], budget: number): void {
+    const out = actorRefusal(member);
+    if (out) throw new IllegalCommand(out);
     const result = validatePath(ctx.world, onFloor(planningState(ctx.world, ctx.state)), member.pos, path, budget, planMoveOptions(ctx.world, ctx.state, member));
     if (!result.ok) throw new IllegalCommand(result.reason);
 }

@@ -975,10 +975,32 @@ M2 is complete: every package below has landed.
       the ammo bag, the SMG's suppressor and the noisemaker (M4); smoke in stealth (decision 101); stopping a
       shouted-down runner mid-run (decision 100); `watchReact` / `suppressReact` for NPCs acting one at a time (M3-05);
       `movedOrActed` counting an intent action due later in the passive step; the throw preview's noise ring.
-- [ ] **M3-03 Wounds, downed and arrested.**
+- [x] **M3-03 Wounds, downed and arrested.** (partial: see Deferred)
   - **Covers:** §11.12.
   - **Work:** Hurt crew limp, aim worse, bleed and leave blood trails as evidence; bleeding out over 3 phases; revive and medkits; NPC death, crawling and screaming; arrest.
   - **∥** M3-02.
+  - **Notes (done):** decisions 140–148.
+    - `rules/wounds.ts` (the harm handler `wounds`: hit points, Hurt, downed, bleeding, bleeding out, NPC death and
+      screams, `arrestCrew`, the `revive` and `medkit` actions), `rules/woundsState.ts` (`npcMaxHp`, `isWounded`, apart
+      so the NPCs' behaviour can read them), `data/weapons.ts` (`NPC_HP` by role, §12.3).
+    - **Commands:** `revive { crew, ally }`, `medkit { crew, ally }` (both in `legalActions`). Every action, Move and
+      Dash first ask `actorRefusal` (core/state.ts, `registerActorCheck`): the downed and the dead can't act.
+    - **NPCs:** the goal `crawl` (npc/behaviour.ts) and the pace `crawl` (npc/walk.ts, `rules.npcCrawlTiles` 1, a
+      diagonal tile allowed); `wayOut` moved from rules/command.ts to npc/walk.ts (re-exported) so the intents can
+      read it without a cycle.
+    - **State:** `CrewState.wounds` (`hp`, `bandaged`, `bleed`, `downed`, `dead`, `medkits`), `NpcState.hp`,
+      `State.custody` (the arrested). Save shape hash `1e6d9d27dadd6f11`.
+    - **Session:** the crew rail and the recap show HP (`hp` in the view models, the HUD's existing bar); the grid
+      offers Revive (a downed teammate in reach) and Medkit (the tapped teammate, else the most hurt in reach, oneself
+      included) before Wait; the recap describes the new events.
+    - **Deferred:** carrying a downed crew member (Very Heavy carry), surrendering under "Hands up!" (§16.2), and police
+      walking to the downed and following fresh blood trails (M3-05, which also gives police units hit points and calls
+      `policeDown` when one dies); a crawler leaving the map at its way out and the escapee carrier that would start
+      (M3-05); trading back the arrested (M3-07) and jailing them at the end (§19.6, M5); what a downed crew member
+      still sees, threatens or carries (loot stays carried); blood sprays and pools drawn (M3-09).
+    - **Tests:** `tests/sim/wounds.test.ts` (hit points by role, Hurt's blood, limp and aim, Cool Head, bleeding and
+      bandaging, downed and bleeding out, revive and medkits with Medic, arrest, an NPC killed and heat owed, a wounded
+      NPC's scream and crawl; revive and medkit preview to their commit).
 - [x] **M3-04 Heat and the police director.**
   - **Covers:** §13.1–13.4.
   - **Work:** the heat track and its events; levels; arrival and refills; staging points from `GeneratedBank.staging`; perimeter cars and transport vans; the greed scaling; Contain, Negotiate, Assault, Regroup.
@@ -1819,6 +1841,39 @@ Later milestones: within each milestone, the `∥` notes in §3 apply. UI packag
 128. **Hard promises (M3-04, §13.6).** Nothing in the director rolls or decides what the player can't see coming:
     arrivals show a phase ahead (the siren marker), mode changes are announced with their length, and breaches (which
     M3-05 announces a phase ahead) and police movement and targets are left to the units as they act.
+
+140. **Hit points (M3-03, §7.1, §12.3).** Crew 8 (`rules.crewHp`); NPCs by role (`NPC_HP`: guards and couriers 5, the
+    security chief 6, police 6/7/12 for M3-05), an armed civilian (the off-duty cop) 5, anyone else 3. Every attack's
+    damage reaches them through `dealHarm`'s `wounds` handler; harm of 0 changes nothing.
+141. **Hurt (M3-03, §11.12).** Half the crew member's hit points or less while up. Limp: a Move's budget −1 tile, a
+    Dash's −2 (one per move action). Aim ×1.25 (not with Cool Head), folded into the shot's `aimFactor` by the attack
+    and the Watch volley, so `attackCone`, the commit and a replay of `State.shots` agree. Blood: one `blood` item
+    (major evidence, §8.10) on the tile where they become Hurt or go down and on every tile they walk onto, never two
+    on a tile.
+142. **Bleeding (M3-03, §11.12).** In the world phase's devices step (as a timer), each world phase a crew member spends
+    Hurt, up and unbandaged counts toward the next HP lost: −1 at every 2nd. A medkit's bandage stops it until the next
+    harm. Bleeding to 0 downs them.
+143. **Downed (M3-03, §11.12).** At 0 HP: no actions now or in later crew phases, the body or hostage let go of, the lean,
+    Watch, brace and aim ended. They bleed out over 3 world phases counted from the first world phase after the one
+    they went down in (so one downed in a crew phase dies as that turn's world phase + 2 ends), then are dead for good
+    (`crewDied`; they stay where they lie). Further harm on someone down does nothing more.
+144. **Revive and medkits (M3-03, §6.3, §12.2, §7.2).** Revive: 1 action, a downed teammate in reach, up with 3 HP (Medic
+    6), still Hurt and bleeding. Medkit: 1 action, one of 2 uses per kit carried, on a teammate in reach or oneself:
+    a downed one is revived with 4 HP (Medic 6), anyone else up heals 4 (Medic 6) up to full; either way bandaged. A
+    revived crew member gets their actions back with the next crew phase. Neither rolls: their previews are the commit.
+145. **NPC death (M3-03, §11.12).** Lethal harm (every bullet and blow) to 0 HP kills: status `dead`, intent, goal,
+    route, search, lapse, panic and lean dropped, as a knockout does; a hostage led by the arm becomes a body in hand.
+    Heat counts the kill off the state (decision 121). Non-lethal harm at 0 would leave 1 HP (nothing deals it yet).
+146. **Screams (M3-03, §11.12).** A wounded NPC (alive, half its hit points or less, on the map and not out cold)
+    screams once per world phase in the devices step: the loud noise `scream` (radius 6) from its tile, heard at once,
+    so hearers react before the intents are committed and the crew phase shows what they will do. A guard struck
+    quietly to 2 HP thus makes the bank Loud in the next world phase.
+147. **Crawling (M3-03, §11.12).** A wounded NPC that decides for itself and isn't Hostile has the goal `crawl`, ahead of
+    panic and anything it wants: a 1-tile walk (a diagonal one allowed) toward the nearest way out, committed and
+    shown as any intent. It is Alerted. Hostile ones fight on (M3-05, M3-06). It doesn't leave the map yet.
+148. **Arrest (M3-03, §11.12).** In the devices step after the director, a downed crew member with a police unit out of
+    its vehicle in reach is arrested: taken out of `State.crew` into `State.custody` (with the unit and the turn), so
+    no rule meets them on the map. Police don't walk to them before M3-05.
 
 ### Critical files for implementation
 
