@@ -116,18 +116,18 @@ const SHOT_TRIES = 24;
 // ---------------------------------------------------------------------------------------------------------- Fighters
 
 /** One who acts in the combat step: a Hostile NPC or an officer out on scene. */
-type Fighter = { kind: 'npc'; id: string; npc: NpcState } | { kind: 'police'; id: string; unit: PoliceUnit };
+export type Fighter = { kind: 'npc'; id: string; npc: NpcState } | { kind: 'police'; id: string; unit: PoliceUnit };
 
 const posOf = (f: Fighter): Pos => (f.kind === 'npc' ? f.npc.pos : f.unit.pos!);
 
 /** Whether a fighter can still act: an NPC Hostile and up, an officer still on the force. */
-function standing(state: State, f: Fighter): boolean {
+export function standing(state: State, f: Fighter): boolean {
     if (f.kind === 'police') return state.police.units.includes(f.unit) && f.unit.pos !== null;
     return f.npc.status === 'hostile' && isPresent(f.npc) && f.npc.stashed === null;
 }
 
 /** Half their hit points or less (§13.6 "If Hurt"). */
-function hurt(world: ReadonlyWorld, f: Fighter): boolean {
+export function hurt(world: ReadonlyWorld, f: Fighter): boolean {
     return f.kind === 'npc' ? isWounded(world, f.npc) : f.unit.hp * 2 <= OFFICER_STATS[f.unit.kind].hp;
 }
 
@@ -142,7 +142,7 @@ const suppressedNow = (f: Fighter, phase: WorldPhase): boolean => {
 };
 
 /** Where a crew member is hit and seen: the lean tile while leaning, else where they stand. */
-const hitbox = (member: DeepReadonly<CrewState>): Pos => ({ ...(member.leaning?.at ?? member.pos) });
+export const hitbox = (member: DeepReadonly<CrewState>): Pos => ({ ...(member.leaning?.at ?? member.pos) });
 
 /** Whether a fighter takes a crew member for one of the crew (decision 151): masked, or already known to it. */
 function marked(state: State, f: Fighter, member: DeepReadonly<CrewState>): boolean {
@@ -152,20 +152,20 @@ function marked(state: State, f: Fighter, member: DeepReadonly<CrewState>): bool
 }
 
 /** Whether `from` sees `to` in combat (all round, `COMBAT_SIGHT` tiles, line of sight). */
-function seesTile(world: ReadonlyWorld, state: State, from: Pos, to: Pos): boolean {
+export function seesTile(world: ReadonlyWorld, state: State, from: Pos, to: Pos): boolean {
     const dx = to.x - from.x, dy = to.y - from.y;
     return dx * dx + dy * dy <= COMBAT_SIGHT * COMBAT_SIGHT && lineOfSight(sightMap(world, state), from, to);
 }
 
 /** The crew members a fighter sees now, from its tile or leaning out past a corner, and takes for the crew; not dead. */
-function inSight(world: ReadonlyWorld, state: State, f: Fighter): CrewState[] {
+export function inSight(world: ReadonlyWorld, state: State, f: Fighter): CrewState[] {
     const eyes = [posOf(f), ...leanOptions(world, state, f.id).map(l => l.at)];
     // Aboard a vehicle with its doors shut nobody sees or shoots them (§14.4, M3-08).
     return state.crew.filter(c => !c.wounds.dead && !c.aboard && marked(state, f, c) && eyes.some(e => seesTile(world, state, e, hitbox(c))));
 }
 
 /** Writes what a fighter sees into what its side knows: the police's shared picture, or a guard's own. */
-function look(ctx: Ctx, f: Fighter): void {
+export function look(ctx: Ctx, f: Fighter): void {
     const { world, state } = ctx, seen = inSight(world, state, f);
     if (f.kind === 'npc') {
         for (const c of seen) f.npc.lastSeen[c.id] = { tile: { ...c.pos }, turn: state.turn };
@@ -203,7 +203,7 @@ function passDoor(world: ReadonlyWorld, f: Fighter): (door: DeepReadonly<DoorDef
     return (door, status) => door.lock !== 'vault' && status === 'closed';
 }
 
-const moveOptions = (world: ReadonlyWorld, f: Fighter): MoveOptions => ({ mover: f.id, canPassDoor: passDoor(world, f) });
+export const moveOptions = (world: ReadonlyWorld, f: Fighter): MoveOptions => ({ mover: f.id, canPassDoor: passDoor(world, f) });
 
 /** A fighter's move in one act, in half-steps. */
 const budgetOf = (world: ReadonlyWorld, f: Fighter): number =>
@@ -213,7 +213,7 @@ const budgetOf = (world: ReadonlyWorld, f: Fighter): number =>
  * Walks a fighter along `path` a step at a time, opening the doors it passes, each step answered by the crew's Watch
  * and a suppressor's reaction. Stops when it is downed. Whether it is still standing.
  */
-function walk(ctx: Ctx, phase: WorldPhase, f: Fighter, path: readonly Pos[]): boolean {
+export function walk(ctx: Ctx, phase: WorldPhase, f: Fighter, path: readonly Pos[]): boolean {
     const { world, state } = ctx;
     for (const p of path) {
         const from = posOf(f);
@@ -262,10 +262,11 @@ const chebyshev = (a: Pos, b: Pos): number => Math.max(Math.abs(a.x - b.x), Math
 
 /**
  * Advances a fighter toward `goal` (§13.6 step 2): the shortest way to a tile beside it, as far as its move goes. An
- * officer allowed to breach plans through locked doors too, and stops beside the first one on its way, announcing the
- * breach. Whether it is still standing.
+ * officer allowed to breach (`atDoor`) plans through locked doors too, and stops beside the first one on its way, where
+ * `atDoor` is told of it (the routine announces the breach, a SWAT team stacks). Whether it is still standing.
  */
-function advance(ctx: Ctx, phase: WorldPhase, f: Fighter, goal: Pos, breach: boolean): boolean {
+export function advance(ctx: Ctx, phase: WorldPhase, f: Fighter, goal: Pos, atDoor: ((door: string, moved: boolean) => void) | null): boolean {
+    const breach = atDoor !== null;
     const { world, state } = ctx, from = posOf(f);
     if (chebyshev(from, goal) <= 1) return true;
     const pass = passDoor(world, f);
@@ -281,14 +282,19 @@ function advance(ctx: Ctx, phase: WorldPhase, f: Fighter, goal: Pos, breach: boo
     const at = posOf(f), next = route[steps.length];
     const door = next && Math.abs(next.x - at.x) + Math.abs(next.y - at.y) === 1 ? doorBetween(world, at, next) : undefined;
     if (door && doorStatus(world, state, door.id) === 'locked' && besideDoor(world, door, at) && !state.police.breaches.some(b => b.door === door.id)) {
-        state.police.breaches.push({ door: door.id, unit: f.id, turn: phase.turn });
-        ctx.emit({ type: 'breachAnnounced', door: door.id, unit: f.id });
+        atDoor(door.id, steps.length > 0);
     }
     return true;
 }
 
+/** "Breach next phase" (§13.6): `unit` blows `door` in the next world phase. */
+export function announceBreach(ctx: Ctx, phase: WorldPhase, unit: string, door: string): void {
+    ctx.state.police.breaches.push({ door, unit, turn: phase.turn });
+    ctx.emit({ type: 'breachAnnounced', door, unit });
+}
+
 /** Falls back out of sight of every crew position it knows (§13.6 step 3): the nearest such tile in its move. */
-function fallBack(ctx: Ctx, phase: WorldPhase, f: Fighter, threats: readonly Pos[]): void {
+export function fallBack(ctx: Ctx, phase: WorldPhase, f: Fighter, threats: readonly Pos[]): void {
     const { world, state } = ctx;
     const seen = (p: Pos): boolean => threats.some(t => seesTile(world, state, t, p));
     if (!seen(posOf(f))) return;
@@ -365,14 +371,17 @@ function from<T>(f: Fighter, p: Pos, ask: () => T): T {
 
 /**
  * Where a fighter fires from (§13.6 step 1): the path to the nearest tile in its move, cover against the target first,
- * from which it has a clean shot at it; or why it has none. Without moving only where it stands.
+ * from which it has a clean shot at it; or why it has none. Without moving only where it stands. A flanker (SWAT,
+ * rules/swat.ts) puts first the tiles outside the target's cover, then its own cover.
  */
-function firingTile(world: ReadonlyWorld, state: State, f: Fighter, phase: WorldPhase, target: CrewState, move: boolean): Pos[] | Held {
+function firingTile(world: ReadonlyWorld, state: State, f: Fighter, phase: WorldPhase, target: CrewState, move: boolean, flank: boolean): Pos[] | Held {
     const reach = reachable(world, state, posOf(f), move ? budgetOf(world, f) : 0, moveOptions(world, f));
     const map = shotMap(world, state), fabric = shotFabric(world, state, map, state.cover), at = hitbox(target);
-    const covered = (p: Pos): boolean => !!coverAgainst(map, fabric, { id: f.id, pos: p, standing: true, shield: false, armour: 0, precise: false }, at);
-    const tiles = reach.tiles.filter(t => t.canEnd).map(t => ({ t, cover: covered(t.pos) }));
-    tiles.sort((a, b) => Number(b.cover) - Number(a.cover) || a.t.cost - b.t.cost || a.t.pos.y - b.t.pos.y || a.t.pos.x - b.t.pos.x);
+    const body = (id: string, pos: Pos) => ({ id, pos, standing: true, shield: false, armour: 0, precise: false });
+    const covered = (p: Pos): boolean => !!coverAgainst(map, fabric, body(f.id, p), at);
+    const open = (p: Pos): boolean => flank && !coverAgainst(map, fabric, body(target.id, at), p);
+    const tiles = reach.tiles.filter(t => t.canEnd).map(t => ({ t, cover: covered(t.pos), open: open(t.pos) }));
+    tiles.sort((a, b) => Number(b.open) - Number(a.open) || Number(b.cover) - Number(a.cover) || a.t.cost - b.t.cost || a.t.pos.y - b.t.pos.y || a.t.pos.x - b.t.pos.x);
     const tries: Tries = { left: SHOT_TRIES, blockers: [] };
     let why: HoldReason = 'range';
     for (const { t } of tiles) {
@@ -398,7 +407,7 @@ function holdFire(ctx: Ctx, f: Fighter, target: CrewState, h: Held): void {
 }
 
 /** A fighter acts in sight of the crew's Watch wedges (§11.8: moving or acting in one draws its volley). Whether it still stands. */
-function react(ctx: Ctx, phase: WorldPhase, f: Fighter): boolean {
+export function react(ctx: Ctx, phase: WorldPhase, f: Fighter): boolean {
     watchReact(ctx, phase, f.id);
     return standing(ctx.state, f);
 }
@@ -434,14 +443,14 @@ function fire(ctx: Ctx, phase: WorldPhase, f: Fighter, shot: Shot): boolean {
 }
 
 /**
- * Step 1 of the routine: move (if it may) to where it has a clean shot at the nearest crew member it sees, and fire.
- * Whether it fired.
+ * Step 1 of the routine: move (if it may) to where it has a clean shot at the nearest crew member it sees, and fire;
+ * a flanker looks first for where the target has no cover (see `firingTile`). Whether it fired.
  */
-function fight(ctx: Ctx, phase: WorldPhase, f: Fighter, targets: readonly CrewState[], move: boolean): boolean {
+export function fight(ctx: Ctx, phase: WorldPhase, f: Fighter, targets: readonly CrewState[], move: boolean, flank = false): boolean {
     const { world, state } = ctx, here = posOf(f);
     const d2 = (c: CrewState): number => (c.pos.x - here.x) * (c.pos.x - here.x) + (c.pos.y - here.y) * (c.pos.y - here.y);
     const target = [...targets].sort((a, b) => d2(a) - d2(b) || (a.id < b.id ? -1 : 1))[0]!;
-    const path = firingTile(world, state, f, phase, target, move);
+    const path = firingTile(world, state, f, phase, target, move, flank);
     if (!Array.isArray(path)) {
         holdFire(ctx, f, target, path);
         return false;
@@ -476,7 +485,7 @@ function free(ctx: Ctx, phase: WorldPhase, unit: PoliceUnit, npc: NpcState, cut:
 }
 
 /** An officer frees every Commanded hostage beside it, and cuts one tied one loose if its act is still free. */
-function freeHostages(ctx: Ctx, phase: WorldPhase, unit: PoliceUnit, spent: boolean): void {
+export function freeHostages(ctx: Ctx, phase: WorldPhase, unit: PoliceUnit, spent: boolean): void {
     const { world, state } = ctx;
     const up = (): boolean => state.police.units.includes(unit);
     // Held this phase (§10.3) or led by the arm, a hostage stays under the crew's guns.
@@ -499,13 +508,13 @@ function breach(ctx: Ctx, unit: PoliceUnit, door: string): void {
 }
 
 /** The crew positions a fighter knows of, as threats to keep out of sight of. */
-function threats(state: State, f: Fighter): Pos[] {
+export function threats(state: State, f: Fighter): Pos[] {
     if (f.kind === 'police') return sortedIds(state.police.known).flatMap(id => state.police.known[id]!.tile ?? []);
     return sortedIds(f.npc.lastSeen).map(id => f.npc.lastSeen[id]!.tile);
 }
 
 /** Where a fighter advances to with nobody in sight (§13.6 step 2): a known downed crew member, else the nearest known. */
-function goalOf(state: State, f: Fighter): Pos | undefined {
+export function goalOf(state: State, f: Fighter): Pos | undefined {
     const here = posOf(f), d2 = (p: Pos): number => (p.x - here.x) * (p.x - here.x) + (p.y - here.y) * (p.y - here.y);
     const known = f.kind === 'police'
         ? sortedIds(state.police.known).map(id => ({ ...state.police.known[id]!, id }))
@@ -515,17 +524,43 @@ function goalOf(state: State, f: Fighter): Pos | undefined {
     return pick(live.filter(k => k.down)) ?? pick(live.filter(k => !k.down));
 }
 
+/**
+ * Carries out the breach `unit` announced last world phase, if any, as shown: its act. Breaching is acting, so a crew
+ * Watch on it fires first, and an officer downed by it is called off (`policeDown`). The door, or null if none was due
+ * or it went down.
+ */
+export function dueBreach(ctx: Ctx, phase: WorldPhase, unit: PoliceUnit): string | null | 'down' {
+    const { state } = ctx, due = state.police.breaches.find(b => b.unit === unit.id && b.turn < phase.turn);
+    if (!due) return null;
+    if (!react(ctx, phase, { kind: 'police', id: unit.id, unit })) return 'down';
+    state.police.breaches.splice(state.police.breaches.indexOf(due), 1);
+    breach(ctx, unit, due.door);
+    return due.door;
+}
+
+/** An officer's act in a SWAT team (rules/swat.ts), in place of the routine; registered there. */
+type TeamPlay = (ctx: Ctx, phase: WorldPhase, unit: PoliceUnit) => void;
+let teamPlay: TeamPlay | null = null;
+
+/** Plugs SWAT team play into the combat step: officers with a team act by it. */
+export function registerTeamPlay(play: TeamPlay): void {
+    if (teamPlay) throw new Error('Team play is already registered');
+    teamPlay = play;
+}
+
 function officerActs(ctx: Ctx, phase: WorldPhase, unit: PoliceUnit): void {
     const { world, state } = ctx, f: Fighter = { kind: 'police', id: unit.id, unit };
-    // A breach announced last world phase is carried out as shown.
-    const due = state.police.breaches.find(b => b.unit === unit.id && b.turn < phase.turn);
-    if (due) {
-        // Breaching is acting: a crew Watch on it fires first, and an officer downed by it is called off (`policeDown`).
-        if (!react(ctx, phase, f)) return;
-        state.police.breaches.splice(state.police.breaches.indexOf(due), 1);
-        breach(ctx, unit, due.door);
+    // Caught by a flashbang (§11.10): it loses the phase, and a breach it announced is called off.
+    if (unit.surprised === phase.turn) {
+        for (const b of state.police.breaches.filter(b => b.unit === unit.id && b.turn < phase.turn)) {
+            state.police.breaches.splice(state.police.breaches.indexOf(b), 1);
+            ctx.emit({ type: 'breachCalledOff', door: b.door, unit: b.unit });
+        }
         return;
     }
+    if (unit.team !== null && teamPlay && ROUTINE_KINDS.has(unit.kind)) return teamPlay(ctx, phase, unit);
+    // A breach announced last world phase is carried out as shown.
+    if (dueBreach(ctx, phase, unit) !== null) return;
     if (!ROUTINE_KINDS.has(unit.kind)) return;
     const mode = state.police.mode?.kind ?? 'contain', assault = mode === 'assault';
     look(ctx, f);
@@ -537,7 +572,7 @@ function officerActs(ctx: Ctx, phase: WorldPhase, unit: PoliceUnit): void {
     else if (assault) {
         const goal = goalOf(state, f);
         const level = heatNow(state)?.level ?? 1;
-        if (goal) alive = advance(ctx, phase, f, goal, level >= BREACH_FROM);
+        if (goal) alive = advance(ctx, phase, f, goal, level >= BREACH_FROM ? door => announceBreach(ctx, phase, unit.id, door) : null);
     }
     if (!alive || !standing(state, f)) return;
     look(ctx, f);
@@ -561,7 +596,7 @@ function npcActs(ctx: Ctx, phase: WorldPhase, npc: NpcState): void {
     if (targets.length) fight(ctx, phase, f, targets, true);
     else {
         const goal = goalOf(state, f);
-        if (goal) advance(ctx, phase, f, goal, false);
+        if (goal) advance(ctx, phase, f, goal, null);
     }
     if (standing(state, f)) look(ctx, f);
 }

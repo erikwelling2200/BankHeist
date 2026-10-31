@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { Rng } from '../../src/gen/rng';
 import {
-    commit, fixtureWorld, hashOf, IllegalCommand, initialState, leanOptions, legalActions, OFFICER_STATS,
+    commit, fixtureWorld, hashOf, IllegalCommand, initialState, leanOptions, legalActions, newTeam, OFFICER_FLASHBANGS, OFFICER_STATS,
     type Command, type FixtureWall, type Material, type NpcStatus, type PersonDef, type PoliceKind, type PoliceMode, type Pos, type ReadonlyWorld, type SimEvent, type State
 } from '../../src/sim';
 
@@ -17,7 +17,11 @@ import {
  * - **Every breach announced a phase ahead:** each door blown in a world phase had its marker, by the same officer,
  *   standing through the crew phase before it; every marker is carried out or called off, once, and the state's markers
  *   are exactly those still open.
- * - The crew plays too, at random: Watch, Suppress, attacks (leaning now and then), moves and reloads.
+ * - **SWAT team play** (M3-06), with a team of 2 to 4 half the time: police grenades land in one world phase and go off
+ *   as the next starts, so each lies through a crew phase; the team never all moves at once (only its movers walk, but
+ *   the Hurt falling back, outside a pull back from a casualty). Its wedges' volleys are police shots like any other,
+ *   checked above, and its breaches are checked as the routine's.
+ * - The crew plays too, at random: Watch, Suppress, attacks (leaning now and then), moves, reloads and flashbangs.
  * - The same game played twice ends the same.
  */
 
@@ -58,14 +62,21 @@ function randomGame(rng: Rng): { world: ReadonlyWorld; state: State } {
             }
         }
     };
-    const crewAt = [free(0, 4), free(0, 6)];
+    const crewAt = [free(0, 4)];
+    // Half the time side by side (a cluster for a flashbang, M3-06), else anywhere near the west end.
+    const beside = [P(crewAt[0]!.x + 1, crewAt[0]!.y), P(crewAt[0]!.x, crewAt[0]!.y + 1), P(crewAt[0]!.x, crewAt[0]!.y - 1)]
+        .find(p => p.y >= 0 && p.y < h && rows[p.y]![p.x] === '.' && !taken.has(`${p.x} ${p.y}`));
+    if (beside && rng.chance(0.5)) {
+        taken.add(`${beside.x} ${beside.y}`);
+        crewAt.push(beside);
+    } else crewAt.push(free(0, 6));
     const people: PersonDef[] = [];
     const n = rng.int(3, 7);
     for (let i = 0; i < n; i++) people.push(person(`c${i}`, free(1, w - 2), 'customer', 'civilian', rng.pick(['n', 'e', 's', 'w'] as const)));
     if (rng.chance(0.5)) people.push(person('guard', free(4, w - 1), 'lobbyGuard', 'enforcer', 'w'));
     const world = fixtureWorld(rows, { walls, people });
     const s = initialState(world, {
-        seed: rng.int(1, 1e6), crew: [{ id: 'jun', pos: crewAt[0]!, items: ['pistol'] }, { id: 'mara', pos: crewAt[1]!, items: ['lmg', 'smg'] }]
+        seed: rng.int(1, 1e6), crew: [{ id: 'jun', pos: crewAt[0]!, items: ['pistol', 'flashbang'] }, { id: 'mara', pos: crewAt[1]!, items: ['lmg', 'smg'] }]
     });
     for (const c of s.crew) c.loadout.masked = rng.chance(0.85);
     s.bank.alarm = true;
@@ -92,7 +103,19 @@ function randomGame(rng: Rng): { world: ReadonlyWorld; state: State } {
     const units = rng.int(1, 4);
     for (let i = 0; i < units; i++) {
         const kind = rng.pick(KINDS);
-        s.police.units.push({ id: `police-${i + 1}`, kind, vehicle: null, staging: null, arrived: -3, pos: free(w - 5, w - 1), hp: OFFICER_STATS[kind].hp, leaning: null, suppressed: null, moved: null });
+        s.police.units.push({ id: `police-${i + 1}`, kind, vehicle: null, staging: null, arrived: -3, pos: free(w - 5, w - 1), hp: OFFICER_STATS[kind].hp, leaning: null, suppressed: null, moved: null, team: null, watch: null, flashbangs: 0, surprised: null });
+    }
+    // A SWAT team (M3-06) of 2 to 4, a shield first, half the time.
+    if (rng.chance(0.5)) {
+        s.police.teams.van = newTeam();
+        const size = rng.int(2, 4);
+        for (let i = 0; i < size; i++) {
+            const kind: PoliceKind = i === 0 ? 'swatShield' : 'swat';
+            s.police.units.push({
+                id: `swat-${i + 1}`, kind, vehicle: null, staging: null, arrived: -3, pos: free(7, w - 1), hp: OFFICER_STATS[kind].hp, leaning: null, suppressed: null, moved: null,
+                team: 'van', watch: null, flashbangs: OFFICER_FLASHBANGS[kind], surprised: null
+            });
+        }
     }
     return { world, state: s };
 }
@@ -126,17 +149,19 @@ function crewTurn(world: ReadonlyWorld, state: State, rng: Rng, seen: (events: r
     return s;
 }
 
-const PLAYED = new Set(['watch', 'suppress', 'attack', 'move', 'reload']);
+const PLAYED = new Set(['watch', 'suppress', 'attack', 'move', 'reload', 'throwGrenade']);
 
-describe('the police and guard routine (property, M3-05)', { timeout: 180000 }, () => {
+describe('the police and guard routine and SWAT team play (property, M3-05, M3-06)', { timeout: 180000 }, () => {
     it('never fires through a standing non-crew body, and announces every breach a phase ahead', () => {
-        let shots = 0, held = 0, breaches = 0, announced = 0, volleys = 0;
+        let shots = 0, held = 0, breaches = 0, announced = 0, volleys = 0, wedges = 0, grenades = 0, teamPhases = 0;
         for (let g = 0; g < GAMES; g++) {
             const rng = new Rng(9100 + g);
             const { world, state } = randomGame(rng);
             let s = state;
             // Every marker announced is carried out or called off, each once.
             const open = new Map<string, number>();
+            // Police grenades by the world phase they landed in.
+            const landed = new Map<string, number>();
             const settle = (events: readonly SimEvent[], k: number): void => {
                 for (const e of events) {
                     if (e.type === 'breachAnnounced') {
@@ -165,12 +190,30 @@ describe('the police and guard routine (property, M3-05)', { timeout: 180000 }, 
                         }
                     }
                     if (e.type === 'heldFire') held++;
+                    if (e.type === 'policeWatching') wedges++;
+                    // A police grenade lies through a crew phase: it lands in one world phase and goes off as the next starts.
+                    if (e.type === 'policeGrenade') {
+                        grenades++;
+                        landed.set(e.grenade, k);
+                        expect(r.state.grenades.find(x => x.id === e.grenade)?.turn, `game ${g} phase ${k}: ${e.grenade} not fused`).toBe(before.turn + 1);
+                    }
+                    if (e.type === 'grenadeWentOff' && landed.has(e.grenade)) expect(k, `game ${g}: ${e.grenade} went off early`).toBe(landed.get(e.grenade)! + 1);
                     if (e.type === 'breachAnnounced') announced++;
                     if (e.type === 'doorBreached') {
                         breaches++;
                         const marker = before.police.breaches.find(b => b.door === e.door && b.unit === e.unit);
                         expect(marker && marker.turn < before.turn, `game ${g} phase ${k}: ${e.door} breached unannounced`).toBe(true);
                     }
+                }
+                // A SWAT team never all moves at once (fire and movement): only its movers walk, and the members hurt falling
+                // back, but when it pulls back from a casualty (this phase's too, once a member went down mid-phase).
+                const team = r.state.police.teams.van, out = before.police.units.filter(u => u.team === 'van' && u.pos);
+                if (team && out.length >= 2 && team.planned === before.turn && !team.pulling) {
+                    teamPhases++;
+                    const hurt = (id: string): boolean => [before, r.state].some(x => x.police.units.some(u => u.id === id && u.hp * 2 <= OFFICER_STATS[u.kind].hp));
+                    const walked = new Set(r.events.flatMap(e => (e.type === 'policeMoved' && e.unit.startsWith('swat') ? [e.unit] : [])));
+                    for (const id of walked) expect(team.movers.includes(id) || hurt(id) || team.lost !== null, `game ${g} phase ${k}: ${id} moved out of turn`).toBe(true);
+                    expect(team.movers.length, `game ${g} phase ${k}: the whole team moves`).toBeLessThan(out.length);
                 }
                 // Breaches are only ever announced in the world phase, for the next one; the state holds what is open.
                 for (const b of r.state.police.breaches) expect(b.turn).toBe(before.turn);
@@ -184,6 +227,9 @@ describe('the police and guard routine (property, M3-05)', { timeout: 180000 }, 
         expect(announced).toBeGreaterThan(4);
         expect(breaches).toBeGreaterThan(4);
         expect(volleys).toBeGreaterThan(40);
+        expect(wedges).toBeGreaterThan(10);
+        expect(grenades).toBeGreaterThan(2);
+        expect(teamPhases).toBeGreaterThan(40);
     });
 
     it('plays the same twice', () => {

@@ -288,6 +288,11 @@ describe('the police', () => {
         now = until.state;
         const step3 = run(world, now, endTurn);
         expect(of(step3.events, 'policeArriving').map(e => [e.label, e.staging, e.units, e.level, e.reason])).toEqual([['SWAT van', 'west', 4, 3, 'level']]);
+        // The SWAT van brings a team (M3-06), named after it, a flashbang each; the cars and the police van none.
+        const van = of(step3.events, 'policeArriving')[0]!.vehicle;
+        expect(step3.state.police.units.filter(u => u.team === van).map(u => [u.kind, u.flashbangs])).toEqual([['swatShield', 1], ['swat', 1], ['swat', 1], ['swat', 1]]);
+        expect(step3.state.police.units.filter(u => u.team === null).length).toBe(9);
+        expect(Object.keys(step3.state.police.teams)).toEqual([van]);
         // The van unloads in the next phase and drives off in the one after; the cars stay.
         const later = run(world, step3.state, endTurn, endTurn);
         expect(of(later.events, 'vehicleLeft').length).toBe(1);

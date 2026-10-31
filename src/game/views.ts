@@ -514,6 +514,10 @@ export function describeEvent(world: ReadonlyWorld, state: State, event: SimEven
         case 'breachAnnounced': return `Breach next phase: ${doorName(world, event.door)}`;
         case 'doorBreached': return `Police breached ${doorName(world, event.door)}`;
         case 'breachCalledOff': return `The breach at ${doorName(world, event.door)} is off`;
+        case 'policeWatching': return `${who(event.unit)} is covering (${event.at.x}, ${event.at.y})`;
+        case 'policeGrenade': return `A police ${event.kind} landed at (${event.at.x}, ${event.at.y}): it goes off next phase`;
+        case 'officerFlashed': return `${who(event.unit)} was flashbanged`;
+        case 'crewFlashed': return `${name(event.crew)} was flashbanged`;
         case 'negotiatorCalls': return 'The negotiator is calling';
         case 'stalled': return `Negotiate runs ${event.by} longer (${event.left})`;
         case 'hostageReleased': return event.trade ? `${name(event.npc)} walks out, traded` : `${name(event.npc)} is let go${event.relief ? ` (heat −${event.relief})` : ''}`;

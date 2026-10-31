@@ -32,7 +32,7 @@ describe('registering systems', () => {
         registerWorldHook('combatNpcs', 'npcs.combat', () => {}, { placeholder: true });
         expect(() => registerWorldHook('combatNpcs', 'npcs.combat', () => {})).toThrow(/already registered/);
         registerWorldHook('combatNpcs', 'npcs.combat', ctx => { ctx.state.npcs[0]!.facing = 'w'; }, { replace: true });
-        expect(worldHooks().combatNpcs).toEqual(['npcs.combat']);
+        expect(worldHooks().combatNpcs).toEqual(['swat.wedges', 'npcs.combat', 'swat.breaches']);
         expect(worldHooks().passiveNpcs).toEqual(['knowledge.freshBefore', 'shot.leanNpcs', 'command.hold', 'evidence.judge', 'perception.world', 'evidence.notice', 'cameras.operator', 'trespass.deadlines', 'npcs.passive', 'alarms.raise', 'panic.act', 'command.called', 'command.flee', 'command.draw', 'negotiation.told', 'attack.reactions', 'panic.spread', 'evidence.tell']);
         const { world, state } = smallBank();
         expect(step(world, state, { type: 'endTurn' }).state.npcs[0]!.facing).toBe('w');

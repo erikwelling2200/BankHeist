@@ -49,7 +49,7 @@ function setup(map: readonly string[], options: Setup = {}): { world: ReadonlyWo
 }
 
 function officer(state: State, id: string, pos: Pos, kind: PoliceKind = 'patrol'): void {
-    state.police.units.push({ id, kind, vehicle: null, staging: null, arrived: state.turn - 3, pos, hp: OFFICER_STATS[kind].hp, leaning: null, suppressed: null, moved: null });
+    state.police.units.push({ id, kind, vehicle: null, staging: null, arrived: state.turn - 3, pos, hp: OFFICER_STATS[kind].hp, leaning: null, suppressed: null, moved: null, team: null, watch: null, flashbangs: 0, surprised: null });
 }
 
 const unit = (state: State, id: string) => state.police.units.find(u => u.id === id);

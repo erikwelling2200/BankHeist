@@ -1090,10 +1090,43 @@ M2 is complete: every package below has landed.
       flashbangs and knockout windows on officers; the wounded crawler leaving the map and its escapee carrier (from
       M3-03); carrying a downed crew member and surrendering (§16.2); projecting the recap's police lines through what
       the crew knows (M3-09).
-- [ ] **M3-06 SWAT team AI.**
+- [x] **M3-06 SWAT team AI.** (partial: see Deferred)
   - **Covers:** §13.6 SWAT.
   - **Work:** fire and movement; Watch wedges; flanking; focus fire; timed breaches; kit use; casualties.
   - **Depends on:** M3-05. Split into two sessions if it runs past about 1,500 lines.
+  - **Notes (done):** decisions 180–186.
+    - `rules/swat.ts`: a SWAT van's four are a team (`PoliceUnit.team`, the van's id; `PoliceState.teams`) acting by one
+      plan a world phase, made as the first member acts (`SwatTeam`: focus, movers, pulling, stack); rules/routine.ts
+      hands team members to it (`registerTeamPlay`) and exports its pieces (`fight` gains flanking, `advance` an
+      `atDoor` callback, `dueBreach`, `announceBreach`). Fire and movement, focus fire by §13.6's priority, flanking,
+      police Watch wedges held through the crew phase (`PoliceUnit.watch`, tripped by `tripWedges` from every crew move
+      step and every other command, fired as the next world phase's combat step starts: hook `swat.wedges`), flashbangs
+      on clustered crew and through a door just blown (`OFFICER_FLASHBANGS`, `policeGrenade`), timed breaches (stacks
+      announced together by hook `swat.breaches`), and pulling back from a casualty (`policeDown` sets `lost`).
+    - rules/actions/throwables.ts: a flashbang catches officers (`PoliceUnit.surprised`, `officerFlashed`: the phase,
+      the wedge and the lean lost; a due breach called off) and, a police one, the crew (`crewFlashed`: Watch and Brace
+      lost). rules/police.ts: Negotiate takes the wedges down. `seenWedges` gives the wedges of officers the crew sees,
+      for M3-09; `WEAPON_WEIGHT` in data/police.ts.
+    - **State:** `PoliceUnit` gains `team`, `watch`, `flashbangs`, `surprised` (`newUnit`'s `team`); `PoliceState`
+      gains `teams` (`newTeam`). The `police` state check refuses saves without them. Save shape hash `fda9ebb5783a8b3a` (with M3-08's fields).
+    - **Session:** the recap names the new events. Drawing the wedges, the police grenade and its radius is M3-09's.
+    - **Tests:** `tests/sim/swat.test.ts` (halves moving and covering, the halves swapping, focus on the exposed, a
+      mover flanking out of the target's cover, a wedge set on the last known tile, tripped and fired where crossed,
+      not tripped outside it, a hidden officer's wedge telling nothing in a move's preview nor in `seenWedges`, wedges
+      down in Negotiate, a flashbang on a cluster lying through a crew phase and costing a Watch, a crew flashbang
+      costing an officer its phase, two doors stacked and blown together with a flashbang first and the team holding, a
+      lone stacker waiting a phase, pulling back from a casualty, a team with nobody left); `tests/sim/police.test.ts`
+      (a SWAT van brings a team); `tests/sim/routine.property.test.ts` extended: a SWAT team of 2–4 half the time, the
+      crew throwing flashbangs: every police grenade lands in one world phase and goes off as the next starts, only a
+      team's movers (and the Hurt falling back) walk outside a pull back and never the whole team, and the wedges'
+      volleys meet only the crew.
+    - **Deferred (M3-06b):** the shield's frontal cover and leading through corridors; snipers' nests and fire (§13.5);
+      the patrol shotgun and patrol flashbangs from Heat 2 (overwatch camping, a held doorway); gas on barricaded rooms
+      (Heat 4) and pushing characters out of their tiles; suppressive fire as cover; wedges on the angles a plan
+      depends on beyond the crew's known positions (the doorway to flank by, the loot corridor, the route to the van);
+      a pair going to free hostages out of crew fire (§13.6, they still free those on their way); breaching windows and
+      walls, barricades and breach charges as kit; dragging a casualty out; clearing rooms after a trap; the threat
+      ledger showing police grenades and wedges (M3-09).
 - [x] **M3-07 Negotiation, release and trade.**
   - **Covers:** §10.7, §13.4. The release cap is a constant (decision Q17).
   - **∥** M3-05.
@@ -2098,6 +2131,47 @@ Later milestones: within each milestone, the `∥` notes in §3 apply. UI packag
 179. **The getaway's Drive on the grid (M3-08).** Until M3-09's overlay picks a pose by hand, the grid's Drive goes
     along the cheapest path off the plot (64 tiles ahead), as far as one Drive reaches: a pose on that path within the
     Drive's tiles has the same cost in the Drive's own reach, so the sim drives it.
+180. **SWAT teams (M3-06, §13.6).** A SWAT van's units (a shield and three, or the heavy pair and two; a refill van's
+    too) are a team named after the van (`PoliceUnit.team`, `PoliceState.teams`); the others run the routine. A team makes
+    one plan a world phase, as its first member acts, after every member has looked (what any of them sees goes on the
+    radio first); members still act one at a time in the officers' order, and decide their moves and shots as they act.
+    Nothing of the plan is announced but its breaches.
+181. **Fire and movement, focus and flanking (M3-06, §13.6).** In Assault half the team moves: members alternate by
+    their order in the team and the turn's parity (a team of one moves alone); out of Assault nobody moves. The focus
+    is kept until down or out of every member's sight, then chosen among the crew members seen by §13.6's priority:
+    exposed (leaning, or without cover against a member who sees them) → Hurt → carrying something → the heaviest
+    drawn weapon (`WEAPON_WEIGHT`) → nearest → by id. Members fire at the focus when they see it, else the nearest.
+    A mover looks for its firing tile first where the target has no cover against it (flanking), then its own cover,
+    then nearest; a coverer fires from where it stands.
+182. **Police Watch wedges (M3-06, §13.6, §11.8).** A coverer with no clean shot, or nobody in sight, sets a wedge on
+    its target's tile, else the focus's last known tile, else the nearest known (its gun's widest Watch arc), held
+    through the next crew phase. The first crew member it would take for the crew (masked or known, decision 151) to
+    step through it or to give any other command standing (or leaning) in it trips it, silently; its volley comes as the
+    next world phase's combat step starts, before anyone acts: half its gun's bullets rounded up, Aim ×1.5 (×1 at 15°
+    or narrower), aimed at the tile where they tripped it with them put back there for the shot, through `cleanShot`.
+    §11.8's volley interrupts the move; here it comes after it, so a crew move's preview (and whether it can be
+    undone) is the same whether a hidden officer watches or not. Only wedges whose officer the crew sees are given
+    out (`seenWedges`). They come down in Negotiate, and with their volley or the next world phase.
+183. **Flashbangs (M3-06, §11.10, §13.6).** SWAT carry one each, the heavy none (`OFFICER_FLASHBANGS`). In Assault a
+    member throws one on clustered crew (two or more the police saw this turn within its radius of one tile it sees in
+    range) and its breacher through a door just blown; never where its blast would catch an officer or where a police
+    one already lies. It lands with `policeGrenade` (told without its thrower, wherever thrown from) and goes off as the
+    next world phase starts, so the crew has a crew phase to move out. Caught, a crew member loses their Watch and
+    Brace (they are Surprised through the world phase it goes off in); an officer caught by a crew one loses that phase,
+    its wedge and its lean, and a breach it announced is called off. Pushing characters out of their tile is gas's.
+184. **Timed breaches (M3-06, §13.6).** A mover whose way runs through a locked door stops beside it and stacks
+    (`SwatTeam.stack`); after everyone has acted the team announces its stacked doors together once two doors are
+    stacked, a member has waited there a whole phase, or every member is stacked. Each is blown in the next world phase
+    by its own officer, all in that phase, while the team holds (no movers); each breacher then throws a flashbang
+    through (the nearest crew position it knows beyond the door, else two tiles in, else the tile beyond), so they go
+    in after it has gone off.
+185. **Casualties (M3-06, §13.6).** A member down (killed or otherwise off the force) makes the team's next plan a pull
+    back: each member steps one tile, out of sight of the crew positions the police know if it can and never closer to
+    them, then covers the nearest with a wedge; then the team re-plans. A downed officer leaves the map (decision 150),
+    so nobody is dragged out.
+186. **Hard promises (M3-06, §13.6).** Every police shot, the wedges' volleys included, goes through `cleanShot`; every
+    police grenade lies through a crew phase before it goes off; breaches are the only part of a plan shown ahead; every
+    wedge, throw, shot and breach is an act a crew Watch answers first (decision 159).
 
 ### Critical files for implementation
 

@@ -7,7 +7,7 @@ import { registerStateCheck } from '../core/save';
 import { registerEvents } from '../core/undo';
 import {
     ASSAULT_PHASES, CAR_SEATS, CARS_PER_STAGING, MAX_HEAT, TICKS_PER_LEVEL, CONTAIN_AGAIN_PHASES, CONTAIN_PHASES, FORCE, GREED_CAP, GREED_PER_BAG, HELICOPTER_FROM, MODE_LABELS,
-    NEGOTIATE_HOSTAGE_CAP, NEGOTIATE_PHASES, OFFICER_STATS, POLICE_KINDS, REGROUP_PHASES, REGROUP_PHASES_HIGH, SWAT_KINDS, UNSCALED, VAN_SEATS, type PoliceKind, type PoliceMode
+    NEGOTIATE_HOSTAGE_CAP, NEGOTIATE_PHASES, OFFICER_FLASHBANGS, OFFICER_STATS, POLICE_KINDS, REGROUP_PHASES, REGROUP_PHASES_HIGH, SWAT_KINDS, UNSCALED, VAN_SEATS, type PoliceKind, type PoliceMode
 } from '../data/police';
 import { ABSENT_STATUSES, stepCost } from '../geo/move';
 import { lootWeight } from './hands';
@@ -51,7 +51,8 @@ import { vehicleAt } from '../geo/drive';
  *   Answering the negotiator and Stall are rules/negotiation.ts's; the hostage kill that police see is deferred (M3-05's notes).
  * - **Units** aren't NPCs: they are `State.police.units`, each a kind, the vehicle it rides in (or on foot) until it
  *   gets out, then its tile, which nobody else may step onto (geo/move.ts `occupancy`). One that finds no free tile
- *   stays aboard until it does. rules/routine.ts (M3-05) gives them sight, movement and fire, M3-06 SWAT team play; `policeDown` takes one off the force.
+ *   stays aboard until it does. rules/routine.ts (M3-05) gives them sight, movement and fire, rules/swat.ts (M3-06) a
+ *   SWAT van's four their team play (`PoliceUnit.team`, `PoliceState.teams`); `policeDown` takes one off the force.
  *
  * Nothing here rolls or decides anything that isn't on the table: the breaches that §13.6 announces a phase ahead are
  * rules/routine.ts's, and police decide movement and targets when they act.
@@ -99,6 +100,37 @@ export interface PoliceUnit {
     suppressed: { turn: number; by: string; from: Pos; reacted: boolean } | null;
     /** The turn of the world phase it last walked in, or null: an arrest needs it to have stood there since (decision 157). */
     moved: number | null;
+    /** Its SWAT team (the van it came in, `PoliceState.teams`), or null: it runs the simple routine (rules/swat.ts). */
+    team: string | null;
+    /** Its Watch wedge, set in a world phase and held through the crew phase after it (rules/swat.ts), or null. */
+    watch: PoliceWatch | null;
+    /** Flashbangs left (`OFFICER_FLASHBANGS`). */
+    flashbangs: number;
+    /** Caught by a flashbang in the world phase of this turn (§11.10): it loses that phase. Null otherwise. */
+    surprised: number | null;
+}
+
+/**
+ * An officer's Watch wedge (§13.6 "locking down angles", rules/swat.ts): aimed at `at`, `arc` degrees wide, set in the
+ * world phase of `turn` and held through the crew phase after it; the first crew member to move or act inside it there
+ * is `tripped` (where), and draws its volley as the next world phase starts.
+ */
+export interface PoliceWatch { at: Pos; arc: number; turn: number; tripped: { crew: string; at: Pos } | null }
+
+/** A SWAT team (§13.6): its one plan a world phase, made as its first member acts (rules/swat.ts). */
+export interface SwatTeam {
+    /** The crew member it concentrates its fire on until they are down or out of its sight (focus fire), or null. */
+    focus: string | null;
+    /** The turn of the world phase the plan below is for. */
+    planned: number;
+    /** Who moves in that phase (fire and movement); the others cover. */
+    movers: string[];
+    /** Pulling back this phase (a member went down, `lost`). */
+    pulling: boolean;
+    /** The turn a member last went down, until a plan answers it, or null. */
+    lost: number | null;
+    /** Members stacked beside a locked door on their way since `turn`, to breach together (timed breaches). */
+    stack: { unit: string; door: string; turn: number }[];
 }
 
 /**
@@ -128,6 +160,8 @@ export interface PoliceState {
     known: Record<string, PoliceSighting>;
     /** Breaches announced, carried out in the next world phase (rules/routine.ts). */
     breaches: Breach[];
+    /** The SWAT teams on the force, by team id (the van that brought them; rules/swat.ts). */
+    teams: Record<string, SwatTeam>;
 }
 
 declare module '../core/types' {
@@ -160,7 +194,7 @@ declare module '../core/types' {
 export type WaveReason = 'arrival' | 'level' | 'refill';
 
 registerStateInit('police', (_world, state) => {
-    state.police = { units: [], vehicles: [], mode: null, sent: 0, refills: 0, secured: [], known: {}, breaches: [] };
+    state.police = { units: [], vehicles: [], mode: null, sent: 0, refills: 0, secured: [], known: {}, breaches: [], teams: {} };
 });
 
 // ---------------------------------------------------------------------------------------------------------- The force
@@ -270,9 +304,15 @@ export function planWave(world: ReadonlyWorld, state: DeepReadonly<State>, level
 const overPlot = (world: ReadonlyWorld): Pos => ({ x: Math.floor(world.width / 2), y: Math.floor(world.height / 2) });
 
 /** A new officer of a wave, aboard `vehicle` (null: on foot) for `staging`, at full hit points. */
-export function newUnit(state: State, kind: PoliceKind, vehicle: string | null, staging: string | null): PoliceUnit {
-    return { id: newId(state, 'police'), kind, vehicle, staging, arrived: state.turn, pos: null, hp: OFFICER_STATS[kind].hp, leaning: null, suppressed: null, moved: null };
+export function newUnit(state: State, kind: PoliceKind, vehicle: string | null, staging: string | null, team: string | null = null): PoliceUnit {
+    return {
+        id: newId(state, 'police'), kind, vehicle, staging, arrived: state.turn, pos: null, hp: OFFICER_STATS[kind].hp, leaning: null, suppressed: null, moved: null,
+        team, watch: null, flashbangs: OFFICER_FLASHBANGS[kind], surprised: null
+    };
 }
+
+/** A new SWAT team's state: no plan yet. */
+export const newTeam = (): SwatTeam => ({ focus: null, planned: -1, movers: [], pulling: false, lost: null, stack: [] });
 
 /** Sends a wave (see `planWave`): its vehicles arrive now with their units aboard. */
 function sendWave(ctx: Ctx, level: number, reason: WaveReason): void {
@@ -289,7 +329,10 @@ function sendWave(ctx: Ctx, level: number, reason: WaveReason): void {
             pos: plan.staging ? { ...plan.staging.pos } : overPlot(world), arrived: state.turn, status: 'arriving'
         };
         state.police.vehicles.push(vehicle);
-        for (const kind of plan.units) state.police.units.push(newUnit(state, kind, vehicle.id, vehicle.staging));
+        // A SWAT van brings a team (§13.6), named after it.
+        const team = plan.kind === 'van' && plan.units.every(k => SWAT_KINDS.has(k)) ? vehicle.id : null;
+        if (team) state.police.teams[team] = newTeam();
+        for (const kind of plan.units) state.police.units.push(newUnit(state, kind, vehicle.id, vehicle.staging, team));
         ctx.emit({
             type: 'policeArriving', vehicle: vehicle.id, kind: vehicle.kind, label: vehicle.label, staging: vehicle.staging, pos: { ...vehicle.pos },
             units: plan.units.length, level, reason
@@ -413,6 +456,8 @@ function startMode(ctx: Ctx, mode: PoliceMode, after: PoliceMode | null): void {
     ctx.emit({ type: 'policeMode', mode, phases, level: state.response ? heatOf(state.response.heat).level : 1 });
     // Breaches are an Assault's (rules/routine.ts): out of it, every marker comes down.
     if (mode !== 'assault') callOffBreaches(ctx, () => true);
+    // Police hold fire in Negotiate: their Watch wedges come down (rules/swat.ts).
+    if (mode === 'negotiate') for (const u of state.police.units) u.watch = null;
 }
 
 /** Takes down the announced breaches `which` picks, each told (`breachCalledOff`). */
@@ -458,6 +503,12 @@ export function policeDown(ctx: Ctx, unitId: string, killed: boolean): void {
     if (killed) policeHit(ctx, unit.id);
     state.police.units.splice(state.police.units.indexOf(unit), 1);
     ctx.emit({ type: 'policeDown', unit: unit.id, kind: unit.kind, killed });
+    // Its team pulls back in its next plan (§13.6 "Casualties"); a team with nobody left is gone.
+    const team = unit.team === null ? undefined : state.police.teams[unit.team];
+    if (team) {
+        if (state.police.units.some(u => u.team === unit.team)) team.lost = state.turn;
+        else delete state.police.teams[unit.team!];
+    }
     // A breach it announced won't happen (rules/routine.ts): the marker comes down at once.
     callOffBreaches(ctx, b => b.unit === unit.id);
     if (!killed) return;
@@ -506,14 +557,16 @@ registerWorldHook('devices', 'police.director', (ctx, phase) => {
     }
 }, { order: 3 });
 
-// A save from before M3-05 has no officers' hit points, nor what the police know or the breaches they announced.
+// A save from before M3-05 has no officers' hit points, nor what the police know or the breaches they announced; one
+// from before M3-06 no SWAT teams, wedges, flashbangs or Surprised.
 registerStateCheck('police', raw => {
     const p = (raw as unknown as Partial<State>).police as Partial<PoliceState> | undefined;
     if (!p || typeof p !== 'object') return 'no police';
     for (const key of ['units', 'vehicles', 'secured', 'breaches'] as const) if (!Array.isArray(p[key])) return `no police ${key} (saved by an older build)`;
     if (!p.known || typeof p.known !== 'object' || Array.isArray(p.known)) return 'no police knowledge (saved by an older build)';
+    if (!p.teams || typeof p.teams !== 'object' || Array.isArray(p.teams)) return 'no SWAT teams (saved by an older build)';
     for (const u of p.units!) {
-        for (const key of ['hp', 'leaning', 'suppressed', 'moved'] as const) if (!Object.hasOwn(u, key)) return `police unit ${u.id} has no ${key} (saved by an older build)`;
+        for (const key of ['hp', 'leaning', 'suppressed', 'moved', 'team', 'watch', 'flashbangs', 'surprised'] as const) if (!Object.hasOwn(u, key)) return `police unit ${u.id} has no ${key} (saved by an older build)`;
     }
     return undefined;
 });

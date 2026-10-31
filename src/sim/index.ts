@@ -52,6 +52,7 @@ import './rules/perceive';
 import './rules/police';
 import './rules/profile';
 import './rules/routine';
+import './rules/swat';
 import './rules/shot';
 import './rules/suspicion';
 import './rules/trespass';
@@ -224,10 +225,11 @@ export { attackCone } from './preview/attack';
 export * from './data/police';
 export { addHeat, heatAhead, heatNow, heatOf, phasesUntilHeat, releaseBlocked, releaseHeat, releaseRelief, type HeatLevel, type HeatState } from './rules/heat';
 export {
-    bagsSecured, greedPercent, hostagesHeld, modeAfter, modePhases, newUnit, nextWave, planWave, policeDown, policeHit, policeModeView, strength,
-    type Breach, type NextWave, type PoliceSighting, type PlannedVehicle, type PoliceModeView, type PoliceState, type PoliceUnit, type PoliceVehicle, type StagingPoint, type ArrivalKind, type VehicleKind, type WaveReason
+    bagsSecured, greedPercent, hostagesHeld, modeAfter, modePhases, newTeam, newUnit, nextWave, planWave, policeDown, policeHit, policeModeView, strength,
+    type Breach, type NextWave, type PoliceSighting, type PoliceWatch, type SwatTeam, type PlannedVehicle, type PoliceModeView, type PoliceState, type PoliceUnit, type PoliceVehicle, type StagingPoint, type ArrivalKind, type VehicleKind, type WaveReason
 } from './rules/police';
 export { cleanShot } from './rules/routine';
+export { seenWedges, tripWedges } from './rules/swat';
 export {
     negotiatorCalling, offerEffect, releasable, releaseExit, tradeable, type NegotiationOffer, type NegotiationState, type OfferEffect, type PoliceReport
 } from './rules/negotiation';

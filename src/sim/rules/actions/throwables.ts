@@ -13,6 +13,7 @@ import { makeNoise } from '../../geo/sound';
 import { commandNpc } from '../command';
 import { personOf } from '../npc/walk';
 import { bodyPos } from '../place';
+import { isDown } from '../wounds';
 import { addSuspicion, isEyesDown } from '../suspicion';
 import { inReach, lacksActions, registerAction } from './act';
 
@@ -67,6 +68,10 @@ declare module '../../core/types' {
         grenadeWentOff: { grenade: string; kind: string; at: Pos; tiles: Pos[] };
         /** A flashbang caught someone (Surprised; a civilian Commanded too). */
         flashed: { npc: string; by: string };
+        /** A flashbang caught an officer: it loses the world phase and its Watch wedge. */
+        officerFlashed: { unit: string; by: string };
+        /** A police flashbang caught a crew member: their Watch and Brace are gone. */
+        crewFlashed: { crew: string; grenade: string };
         smokeCleared: { cloud: string };
         tableFlipped: { crew: string; at: Pos };
     }
@@ -156,9 +161,28 @@ export function blastTiles(world: ReadonlyWorld, sight: SightMap, at: DeepReadon
     return out;
 }
 
-/** A flashbang going off: everyone up in reach Surprised for the phase, civilians Commanded (§11.10). */
+/**
+ * A flashbang going off: everyone up in reach Surprised for the phase, civilians Commanded by a crew one (§11.10).
+ * Officers in reach lose the phase (`PoliceUnit.surprised`) and their Watch wedge; a police one (rules/swat.ts) costs the
+ * crew in reach their Watch and Brace (decision 183). The crew aren't affected by their own (decision 103).
+ */
 function flash(ctx: Ctx, grenade: Grenade, tiles: readonly Pos[]): void {
     const { world, state } = ctx, inside = new Set(tiles.map(tileKey));
+    const crewThrew = state.crew.some(c => c.id === grenade.by);
+    for (const unit of state.police.units) {
+        if (!unit.pos || !inside.has(tileKey(unit.pos))) continue;
+        unit.surprised = state.turn;
+        unit.watch = null;
+        unit.leaning = null;
+        ctx.emit({ type: 'officerFlashed', unit: unit.id, by: grenade.by });
+    }
+    for (const member of crewThrew ? [] : state.crew) {
+        if (isDown(member) || !inside.has(tileKey(member.pos))) continue;
+        if (member.arms.watch) ctx.emit({ type: 'watchEnded', crew: member.id, fired: false });
+        member.arms.watch = null;
+        member.arms.braced = false;
+        ctx.emit({ type: 'crewFlashed', crew: member.id, grenade: grenade.id });
+    }
     for (const npc of state.npcs) {
         if (ABSENT_STATUSES.has(npc.status) || npc.stashed !== null || isEyesDown(npc) || !inside.has(tileKey(bodyPos(state, npc)))) continue;
         npc.surprised = state.turn;
@@ -167,7 +191,7 @@ function flash(ctx: Ctx, grenade: Grenade, tiles: readonly Pos[]): void {
         npc.goal = { kind: 'still' };
         ctx.emit({ type: 'flashed', npc: npc.id, by: grenade.by });
         ctx.emit({ type: 'surprised', npc: npc.id });
-        if (personOf(world, npc.id).observer === 'civilian' && state.crew.some(c => c.id === grenade.by)) commandNpc(ctx, npc, grenade.by, world.rules.commandPips);
+        if (personOf(world, npc.id).observer === 'civilian' && crewThrew) commandNpc(ctx, npc, grenade.by, world.rules.commandPips);
     }
     makeNoise(ctx, 'flashbang', grenade.at, `flashbang ${grenade.by}`, undefined, grenade.by);
     if (!state.bank.loud) {
@@ -249,6 +273,8 @@ registerEvents({
     grenadeLanded: { undoBlocking: false },
     grenadeWentOff: { undoBlocking: true },
     flashed: { undoBlocking: true },
+    officerFlashed: { undoBlocking: true },
+    crewFlashed: { undoBlocking: true },
     smokeCleared: { undoBlocking: false },
     tableFlipped: { undoBlocking: false }
 });

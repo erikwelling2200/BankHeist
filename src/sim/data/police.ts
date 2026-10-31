@@ -106,8 +106,22 @@ export const OFFICER_STATS: Readonly<Record<PoliceKind, OfficerStats>> = {
     sniper: { hp: 6, armour: 1, weapon: 'dmr' }
 };
 
-/** The kinds that run the officers' routine (§13.6) until M3-06 gives SWAT their team play; snipers wait for their nests. */
+/**
+ * The kinds that fight (§13.6): by the simple routine, or a SWAT van's team by its team play (rules/swat.ts); snipers
+ * wait for their nests.
+ */
 export const ROUTINE_KINDS: ReadonlySet<PoliceKind> = new Set<PoliceKind>(['patrol', 'swat', 'swatShield', 'heavy']);
+
+/**
+ * Flashbangs each officer carries (§13.3: police have them from Heat 2, §13.6 "using their kit"): SWAT one each, the
+ * heavy none. Patrol officers' are deferred (M3-06's notes).
+ */
+export const OFFICER_FLASHBANGS: Readonly<Record<PoliceKind, number>> = { patrol: 0, negotiator: 0, swat: 1, swatShield: 1, heavy: 0, sniper: 0 };
+
+/** How heavy a weapon a SWAT team reads a crew member's drawn gun as (§13.6 target priority, last): by weapon row. */
+export const WEAPON_WEIGHT: Readonly<Record<string, number>> = {
+    lmg: 5, dmr: 4, assaultRifle: 4, shotgun: 3, shotgunSlug: 3, smg: 2, machinePistol: 2, pistol: 1, suppressedPistol: 1, taser: 0
+};
 
 /** How far an officer (or a fighting guard) sees in combat, in tiles, all round (decision 151). */
 export const COMBAT_SIGHT = 10;
