@@ -484,7 +484,7 @@ test.describe('the generator bar', () => {
 
 test('shows every room type furnished in the room gallery', SMOKE, async ({ page }) => {
     // Two screenshots of a big canvas, the second of the whole gallery on the map: slow on the software renderer.
-    test.setTimeout(60000);
+    test.setTimeout(120000);
     await page.setViewportSize({ width: 1600, height: 1000 });
     const errors: string[] = [];
     page.on('pageerror', e => errors.push(e.message));

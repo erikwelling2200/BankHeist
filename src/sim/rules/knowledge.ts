@@ -694,15 +694,16 @@ export function updateKnowledge(world: ReadonlyWorld, state: State, emit: (event
     learnNpcs(world, state, fields, passed, emit, options.worldPhase ?? false, takeTurned(state), options.command);
     const oldest = state.turn - world.rules.pingTurns;
     if (k.pings.some(p => p.turn < oldest)) k.pings = k.pings.filter(p => p.turn >= oldest);
-    learnOfficers(world, state);
+    learnOfficers(world, state, emit);
 }
 
 /**
- * Officers (M3-09): each one on a tile the crew sees this turn (`officerSeen`) is remembered where it stands; a memory
+ * Officers (M3-09): each one on a tile the crew sees this turn (`officerSeen`) is remembered where it stands (seen
+ * there anew, a `revealed` event: final, as any NPC seen); a memory
  * goes once it is older than `ghostTurns`, or once the crew sees its tile and nobody it remembers is there (judged on
  * the crew's own sight, never on where the officer went).
  */
-function learnOfficers(world: ReadonlyWorld, state: State): void {
+function learnOfficers(world: ReadonlyWorld, state: State, emit: (event: SimEvent) => void): void {
     const k = state.knowledge, units = state.police?.units ?? [];
     if (!units.length && !k.officers) return;
     const fresh = tileSets(world, state).fresh, at = (p: Pos) => p.y * world.width + p.x;
@@ -713,6 +714,8 @@ function learnOfficers(world: ReadonlyWorld, state: State): void {
         const rec = k.officers?.[u.id];
         if (rec && rec.turn === state.turn && rec.at.x === u.pos.x && rec.at.y === u.pos.y) continue;
         (k.officers ??= {})[u.id] = { at: { x: u.pos.x, y: u.pos.y }, turn: state.turn, kind: u.kind };
+        // Seeing an officer is learning something: undo can't take it back (§6.6).
+        emit({ type: 'revealed', what: 'officer', id: u.id });
     }
     if (!k.officers) return;
     for (const id of sortedIds(k.officers)) {

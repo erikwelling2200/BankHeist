@@ -22,6 +22,8 @@ export interface LoudContent {
     breaches?: BreachVM[];
     /** The unit acting now in a world phase's playback: bracketed in red. */
     acting?: Pos;
+    /** Shots just fired in playback: a tracer from the shooter to where they aimed, red for the police and NPCs, the crew's in cream. */
+    tracers?: { from: Pos; to: Pos; crew: boolean }[];
 }
 
 export interface Frame {
@@ -75,6 +77,13 @@ export function drawLoud(ctx: CanvasRenderingContext2D, c: LoudContent, f: Frame
     if (c.aim) drawAim(ctx, c.aim, f);
     for (const b of c.breaches ?? []) drawBreach(ctx, b, f);
     if (c.acting) drawActing(ctx, c.acting, f, f.pal.red);
+    for (const t of c.tracers ?? []) {
+        const [x0, y0] = f.mid(t.from), [x1, y1] = f.mid(t.to);
+        inked(ctx, t.crew ? CREAM : f.pal.red, 2, dy => {
+            ctx.moveTo(x0, y0 - 8 + dy);
+            ctx.lineTo(x1, y1 - 8 + dy);
+        }, [6, 3]);
+    }
 }
 
 function drawAim(ctx: CanvasRenderingContext2D, aim: AimVM, f: Frame): void {

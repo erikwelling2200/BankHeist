@@ -1193,7 +1193,8 @@ M2 is complete: every package below has landed.
     - **Rules:** `Knowledge.officers` (rules/knowledge.ts): where each officer was last seen, kept by `updateKnowledge`
       (`learnOfficers`) while it is on a tile seen this turn, dropped once older than `ghostTurns` or once the crew sees
       that tile without it; `officerMarkers` gives the officers seen now and the ghosts (never predicted). Optional (older
-      saves: none); the state check validates it. `FanSegment.outline` (and `broken.outline`): `[angle, distance]` where
+      saves: none); the state check validates it. An officer seen anew emits `revealed` (`what: 'officer'`), so a move
+      that shows one is final, as one showing an NPC is (it could be undone before). `FanSegment.outline` (and `broken.outline`): `[angle, distance]` where
       each traced piece's bullet stops, for drawing the cone. Save shape hash `bbe89785cf6778cb`.
     - **Game:** `src/game/loudUi.ts`: `aimView` (an attack's or Suppress's cone from `crewShotPreview` on the crew's
       picture, planned with `attackPlan`/`suppressPlan` on `crewPicture`; never `attackCone`), each body placed where the
@@ -1213,12 +1214,15 @@ M2 is complete: every package below has landed.
       camera on its unit; the queue strip (`.loud-queue`) shows done, acting and next. `debugState.play.loud`.
     - **Setups:** `loud-aim` in e2e/setups.ts (two steps: Mara masked with a rifle in the thick of the lobby, then a patrol
       officer in sight, a breach and a SWAT ghost); `npm run shot -- '/?new' --setup loud-aim`.
-    - **Tests:** `tests/game/loudUi.test.ts` (officer markers and ghosts, never a lost officer's new tile; the aim view
+    - **Tests:** `tests/game/loudUi.test.ts` (officer markers and ghosts, never a lost officer's new tile; a move that
+      first shows an officer is final, the turn after isn't; the aim view
       never names someone behind a wall the truth's cone reaches; nested arcs; shields; teller glass's `ifBroken` and
       the dashed reach past it; breach markers); e2e/loud.spec.ts (`screenshots/loud-aim.png`, `loud-loupe.png`,
       `loud-world.png`: aim mode, the fire selector, the loupe, police and ghost and breach shown, the world phase one
       unit at a time with the strip).
-    - **Deferred (this half):** tracers and hit flashes for shots in playback; the sniper laser and police grenades with
+    - **Tracers:** a shot the crew is told of (`fighterFired`, the crew's `attacked`) draws a dashed tracer from the shooter
+      to its aim point for a moment (red for the police and NPCs, cream for the crew).
+    - **Deferred (this half):** hit flashes for shots in playback; the sniper laser and police grenades with
       their radius (UI.md "Police: announced versus visible"; the grenade is the second half's with the wedges); the
       cone's lean options as tap targets (`crewLeanOptions`) and the fine aim (`turn`) by drag; officers' facing (the
       rules keep none: drawn facing the nearest crew member); an officer walking out of sight mid-walk is hidden on unseen

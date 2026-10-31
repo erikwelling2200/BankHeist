@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
-    attackCone, clonePlain, fixtureWorld, initialState, OFFICER_FLASHBANGS, OFFICER_STATS, officerMarkers, updateKnowledge, type FixtureOptions, type PersonDef, type PoliceKind,
+    attackCone, clonePlain, commit, fixtureWorld, initialState, OFFICER_FLASHBANGS, OFFICER_STATS, officerMarkers, updateKnowledge, type FixtureOptions, type PersonDef, type PoliceKind,
     type Pos, type ReadonlyWorld, type State
 } from '../../src/sim';
 import { aimView, breachMarkers, fireSelector, policeMarkers } from '../../src/game/loudUi';
@@ -66,6 +66,30 @@ describe('police markers (§13.6, UI.md "Police: announced versus visible")', ()
         look(world, state, true);
         expect(officerMarkers(world, state)).toEqual([]);
         expect(state.knowledge.officers).toEqual({});
+    });
+
+    it('makes a move final that first shows an officer, and only that one', () => {
+        // The wall stands on rows 1–2 only: row 0 is a way round it.
+        const { world, state } = loud(OPEN, { walls: walls.slice(1) });
+        state.police.mode = { kind: 'negotiate', left: 9, since: { turn: state.turn - 1, phase: 'world' }, after: null };
+        // Jun has looked behind the wall before, and stands back at (4, 0) since a world phase: those tiles are known but stale.
+        state.crew[0]!.pos = P(7, 0);
+        look(world, state);
+        state.crew[0]!.pos = P(4, 0);
+        look(world, state, true);
+        // Negotiating, an officer has come in behind the wall unseen.
+        officer(state, 'o', P(8, 2));
+        look(world, state);
+        expect(officerMarkers(world, state)).toEqual([]);
+        // A step that shows nothing new can be undone; one round the wall that shows the officer can't.
+        expect(commit(world, state, { type: 'move', crew: 'jun', path: [P(3, 0)] }).undoable).toBe(true);
+        const into = commit(world, state, { type: 'move', crew: 'jun', path: [P(5, 0), P(6, 0)] });
+        expect(into.events.filter(e => e.type === 'revealed').map(e => (e as { what: string }).what)).toEqual(['officer']);
+        expect(into.undoable).toBe(false);
+        // Seen through the world phase, the officer is no news the turn after.
+        const next = commit(world, into.state, { type: 'endTurn' }).state;
+        expect(officerMarkers(world, next).map(m => [m.id, m.live])).toEqual([['o', true]]);
+        expect(commit(world, next, { type: 'move', crew: 'jun', path: [P(6, 1)] }).undoable).toBe(true);
     });
 
     it('marks each breach announced at its door', () => {

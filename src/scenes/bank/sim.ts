@@ -166,6 +166,8 @@ export class PlayMode {
     private aimFor?: { state: State; key: string; aim: AimVM | undefined };
     /** The unit acting now in a world phase's playback (red brackets), and where. */
     private acting: { id: string; pos: Pos } | null = null;
+    /** Shots shown for a moment in playback (tracers), until `until` (performance.now()). */
+    private tracers: { from: Pos; to: Pos; crew: boolean; until: number }[] = [];
     /** The units acting in the world phase being played, in order, and those done. */
     private actors?: { order: string[]; done: Set<string> };
     private readonly queueStrip: HTMLElement = document.createElement('div');
@@ -334,7 +336,7 @@ export class PlayMode {
              */
             loud: {
                 officers: this.officersShown.map(m => ({ id: m.id, live: m.live, pos: m.pos, shown: this.people.shown(this.officerSprite.get(m.id) ?? -1) })),
-                acting: this.acting, queue: this.acting ? this.actors?.order ?? [] : [],
+                acting: this.acting, queue: this.acting ? this.actors?.order ?? [] : [], tracers: this.tracers.length,
                 aim: this.overlay.state.aim, breaches: this.overlay.state.breaches
             },
             /** Auto-advance (§6.5): running, the last stop, the routes and how they split into turns. */
@@ -454,6 +456,15 @@ export class PlayMode {
             this.camera.centreOn(...centre(shownAt), VISIT_PAN_MS * speed);
             this.startWalk([{ index, points: [e.from, ...steps].map(centre) }], STEP_MS * speed);
             return;
+        }
+        // A shot the crew is told of: its tracer for a moment.
+        if (speed > 0 && (e.type === 'fighterFired' || e.type === 'attacked')) {
+            const shooter = e.type === 'fighterFired' ? e.shooter : e.crew, index = this.sprite.get(shooter);
+            if (index !== undefined) {
+                const at = this.people.at(index), ms = 700 * speed;
+                this.tracers.push({ from: { x: Math.floor(at.x / TILE), y: Math.floor(at.y / TILE) }, to: { ...e.at }, crew: e.type === 'attacked', until: performance.now() + ms });
+                window.setTimeout(() => this.refresh(), ms + 20);
+            }
         }
         const actor = this.actorOf(e);
         if (actor) {
@@ -1625,7 +1636,7 @@ export class PlayMode {
             flashes: this.liveFlashes(),
             crewColours: Object.fromEntries(state.crew.map((c, i) => [c.id, CREW_COLOURS[i % CREW_COLOURS.length]!])),
             // Breaches announced for the next world phase (M3-09), and the unit acting in a firefight's playback.
-            loud: { breaches: breachMarkers(world, state), ...(this.acting ? { acting: this.acting.pos } : {}) },
+            loud: { breaches: breachMarkers(world, state), ...(this.acting ? { acting: this.acting.pos } : {}), tracers: this.liveTracers() },
             // People walking during playback: their plates come back when it is over.
             ...(busy ? {} : {
                 badges: npcBadges(world, state, view).filter(b => !state.npcs.some(n => n.id === b.id) || shown(b.id)),
@@ -1658,6 +1669,12 @@ export class PlayMode {
             this.camerasFor = { state, cones, views };
         }
         return this.camerasFor.views;
+    }
+
+    private liveTracers(): { from: Pos; to: Pos; crew: boolean }[] {
+        const now = performance.now();
+        this.tracers = this.tracers.filter(t => t.until > now);
+        return this.tracers.map(({ until: _until, ...t }) => t);
     }
 
     private liveFlashes(): OverlayContent['flashes'] {

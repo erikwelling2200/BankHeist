@@ -72,8 +72,8 @@ test('the world phase in a firefight plays one unit at a time, the one acting br
     await page.evaluate(() => (window as any).sim.session.setPendingCommand(null));
     await page.evaluate(() => { (window as any).sim.session.playback.speed = '1x'; });
     await page.evaluate(() => (window as any).sim.endTurn());
-    // Some unit acts on screen, bracketed, with the strip naming who acts.
-    await expect.poll(async () => (await play(page)).loud.acting?.id ?? null, { timeout: 20000 }).not.toBeNull();
+    // Some unit acts on screen, bracketed, with the strip naming who acts; the officer's shot leaves a tracer.
+    await expect.poll(async () => (await play(page)).loud.tracers, { timeout: 20000, intervals: [50] }).toBeGreaterThan(0);
     const loud = (await play(page)).loud;
     expect(loud.queue).toContain(loud.acting.id);
     await expect(page.locator('.loud-queue .loud-chip.now')).toHaveCount(1);
