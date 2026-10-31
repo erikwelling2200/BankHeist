@@ -71,10 +71,34 @@ describe('police markers (§13.6, UI.md "Police: announced versus visible")', ()
         ] as SimEvent[];
         updateKnowledge(world, state, () => {}, { worldPhase: true, events });
         expect(officerMarkers(world, state)).toEqual([{ id: 'o', kind: 'patrol', pos: P(5, 1), live: false, seenAgo: 0 }]);
-        // Shot down where the crew sees its ghost: gone.
-        state.police.units = [];
-        updateKnowledge(world, state, () => {}, { events: [{ type: 'policeDown', unit: 'o', kind: 'patrol', killed: true }] as SimEvent[] });
-        expect(officerMarkers(world, state)).toEqual([]);
+    });
+
+    it('keeps the ghost of an officer downed out of sight exactly as of one still standing there', () => {
+        const { world, state } = loud(OPEN, { walls });
+        officer(state, 'o', P(3, 1));
+        look(world, state);
+        state.police.units[0]!.pos = P(8, 0);
+        state.turn++;
+        updateKnowledge(world, state, () => {}, { worldPhase: true, events: [{ type: 'policeMoved', unit: 'o', from: P(5, 1), path: [P(6, 1)] }] as SimEvent[] });
+        // Two worlds: behind the wall the officer goes down, or stands. The crew sees neither: the same ghost.
+        const down = clonePlain(state), standing = clonePlain(state);
+        down.police.units = [];
+        down.turn++;
+        standing.turn++;
+        updateKnowledge(world, down, () => {}, { worldPhase: true, events: [{ type: 'policeDown', unit: 'o', kind: 'patrol', killed: true }] as SimEvent[], before: state });
+        updateKnowledge(world, standing, () => {}, { worldPhase: true, events: [], before: state });
+        expect(officerMarkers(world, down)).toEqual([{ id: 'o', kind: 'patrol', pos: P(5, 1), live: false, seenAgo: 1 }]);
+        expect(down.knowledge).toEqual(standing.knowledge);
+    });
+
+    it('drops the ghost of an officer the crew sees go down', () => {
+        const { world, state } = loud(OPEN, { walls });
+        officer(state, 'o', P(3, 1));
+        look(world, state);
+        const after = clonePlain(state);
+        after.police.units = [];
+        updateKnowledge(world, after, () => {}, { events: [{ type: 'policeDown', unit: 'o', kind: 'patrol', killed: true }] as SimEvent[], before: state });
+        expect(officerMarkers(world, after)).toEqual([]);
     });
 
     it('makes a move final that first shows an officer, and only that one', () => {

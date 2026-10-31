@@ -642,6 +642,8 @@ export interface UpdateOptions {
     worldPhase?: boolean;
     /** The crew command being brought up to date after, and the state it was given: what its preview foresaw. */
     command?: { cmd: DeepReadonly<Command>; before: DeepReadonly<State> };
+    /** The state the command or world phase started from (for officers: who the crew saw then, where each stood). */
+    before?: DeepReadonly<State>;
 }
 
 /**
@@ -694,26 +696,38 @@ export function updateKnowledge(world: ReadonlyWorld, state: State, emit: (event
     learnNpcs(world, state, fields, passed, emit, options.worldPhase ?? false, takeTurned(state), options.command);
     const oldest = state.turn - world.rules.pingTurns;
     if (k.pings.some(p => p.turn < oldest)) k.pings = k.pings.filter(p => p.turn >= oldest);
-    learnOfficers(world, state, emit, fields, options.events ? officersPassed(options.events, fields) : new Map());
+    learnOfficers(world, state, emit, options.events ? officersPassed(world, state, options.events, fields, options.before) : new Map());
 }
 
 /**
  * Officers the crew saw walking (or getting out) during the command's events, and the last tile each was seen on (as
- * `passedInEvents` does for NPCs): one that walks out of view is a ghost there.
+ * `passedInEvents` does for NPCs): one that walks out of view is a ghost there. 'down' for one the crew saw go down:
+ * standing, when it went down, on a tile the crew sees now or saw during the command, and told of it (`projectEvents`
+ * tells a `policeDown` only of an officer seen before it). Any other officer's fall tells nothing: its ghost stays and
+ * runs out its turns. An officer down and never seen before the command tells nothing of its walk either (its
+ * `policeMoved` isn't told).
  */
-function officersPassed(events: readonly SimEvent[], fields: readonly SightField[]): Map<string, Pos | 'down'> {
-    const out = new Map<string, Pos | 'down'>();
+function officersPassed(world: ReadonlyWorld, state: State, events: readonly SimEvent[], fields: readonly SightField[], before?: DeepReadonly<State>): Map<string, Pos | 'down'> {
+    const out = new Map<string, Pos | 'down'>(), fresh = tileSets(world, state).fresh;
+    const seenNow = (p: Pos) => seenBy(fields, p) || fresh[p.y * world.width + p.x] === 1;
+    const seenBefore = (id: string) => !!before && officerSeen(world, before as State, id);
+    // Where each officer stands as the events go: from the state before, moved along by its walks.
+    const where = new Map<string, Pos>();
+    for (const u of before?.police?.units ?? []) if (u.pos) where.set(u.id, { x: u.pos.x, y: u.pos.y });
     for (const e of events) {
-        // Down where the crew saw it last (seen walking there, or at its remembered tile): no ghost; out of sight, the
-        // crew can't tell (learnOfficers checks the remembered tile).
         if (e.type === 'policeDown') {
-            const last = out.get(e.unit);
-            if (last === undefined || last === 'down' || seenBy(fields, last)) out.set(e.unit, 'down');
+            const at = where.get(e.unit);
+            if (at && seenNow(at) && seenBefore(e.unit)) out.set(e.unit, 'down');
+            else if (!seenBefore(e.unit)) out.delete(e.unit);
             continue;
         }
         if (e.type === 'policeMoved') {
+            where.set(e.unit, e.path.at(-1) ?? e.from);
             for (const p of [e.from, ...e.path]) if (seenBy(fields, p)) out.set(e.unit, { x: p.x, y: p.y });
-        } else if (e.type === 'policeDeployed' && seenBy(fields, e.pos)) out.set(e.unit, { x: e.pos.x, y: e.pos.y });
+        } else if (e.type === 'policeDeployed') {
+            where.set(e.unit, e.pos);
+            if (seenBy(fields, e.pos)) out.set(e.unit, { x: e.pos.x, y: e.pos.y });
+        }
     }
     return out;
 }
@@ -724,7 +738,7 @@ function officersPassed(events: readonly SimEvent[], fields: readonly SightField
  * remembered on the last tile it was seen on (`passed`), a ghost there (§8.15, as an NPC's). A memory goes once it is
  * older than `ghostTurns`, or is replaced when the officer is seen again.
  */
-function learnOfficers(world: ReadonlyWorld, state: State, emit: (event: SimEvent) => void, fields: readonly SightField[], passed: ReadonlyMap<string, Pos | 'down'>): void {
+function learnOfficers(world: ReadonlyWorld, state: State, emit: (event: SimEvent) => void, passed: ReadonlyMap<string, Pos | 'down'>): void {
     const k = state.knowledge, units = state.police?.units ?? [];
     if (!units.length && !k.officers && !passed.size) return;
     const fresh = tileSets(world, state).fresh, at = (p: Pos) => p.y * world.width + p.x;
@@ -741,8 +755,7 @@ function learnOfficers(world: ReadonlyWorld, state: State, emit: (event: SimEven
     for (const [id, p] of [...passed].sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))) {
         if (seen.has(id)) continue;
         if (p === 'down') {
-            const rec = k.officers?.[id];
-            if (rec && (fresh[at(rec.at)] === 1 || seenBy(fields, rec.at))) delete k.officers![id];
+            if (k.officers) delete k.officers[id];
             continue;
         }
         const kind = units.find(u => u.id === id)?.kind ?? k.officers?.[id]?.kind;
@@ -909,7 +922,7 @@ registerStateInit('knowledge', (world, state) => {
 
 // After every command, the world phase included.
 registerCommandHook('knowledge', (ctx, cmd, events, before) => updateKnowledge(ctx.world, ctx.state, e => ctx.emit(e),
-    cmd.type === 'endTurn' ? { events, worldPhase: true } : { events, command: { cmd, before } }));
+    cmd.type === 'endTurn' ? { events, worldPhase: true, before } : { events, command: { cmd, before }, before }));
 
 // A move sees on its way: every tile and NPC in view at each step counts, not only at its end.
 registerMoveHook('knowledge', {

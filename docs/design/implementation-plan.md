@@ -1193,7 +1193,9 @@ M2 is complete: every package below has landed.
     - **Rules:** `Knowledge.officers` (rules/knowledge.ts): where each officer was last seen, kept by `updateKnowledge`
       (`learnOfficers`) while it is on a tile seen this turn, and one the crew saw walk out of view during a command or
       world phase on the last tile it was seen on (`officersPassed`, as `passedInEvents` does for NPCs, §8.15); dropped
-      once older than `ghostTurns`, or when the crew sees it go down where it last saw it; `officerMarkers` gives the officers seen now and the ghosts (never predicted). Optional (older
+      once older than `ghostTurns`, or when the crew sees it go down (told of the fall, `projectEvents`' rule: seen before
+      it, and standing on a tile seen then); an unseen fall leaves the ghost to run out its turns, as a standing
+      officer's would; `officerMarkers` gives the officers seen now and the ghosts (never predicted). Optional (older
       saves: none); the state check validates it. An officer seen anew emits `revealed` (`what: 'officer'`), so a move
       that shows one is final, as one showing an NPC is (it could be undone before). `FanSegment.outline` (and `broken.outline`): `[angle, distance]` where
       each traced piece's bullet stops, for drawing the cone. Save shape hash `bbe89785cf6778cb`.
@@ -1218,7 +1220,8 @@ M2 is complete: every package below has landed.
     - **Setups:** `loud-aim` in e2e/setups.ts (two steps: Mara masked with a rifle in the thick of the lobby, then a patrol
       officer in sight, a breach and a SWAT ghost); `npm run shot -- '/?new' --setup loud-aim`.
     - **Tests:** `tests/game/loudUi.test.ts` (officer markers and ghosts, a ghost on the last tile an officer was seen
-      walking on and never its new tile, gone when seen shot down there; a move that
+      walking on and never its new tile; two worlds, downed out of sight or standing there, give the same ghost; gone
+      when seen going down; a move that
       first shows an officer is final, the turn after isn't; the aim view
       never names someone behind a wall the truth's cone reaches; nested arcs; shields; teller glass's `ifBroken` and
       the dashed reach past it; breach markers); e2e/loud.spec.ts (`screenshots/loud-aim.png`, `loud-loupe.png`,

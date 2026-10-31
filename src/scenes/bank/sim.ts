@@ -441,8 +441,11 @@ export class PlayMode {
                 const index = this.sprite.get(e.npc);
                 if (index === undefined) return;
                 const inSight = [e.from, ...e.path].filter(p => this.visibilityAt(...centre(p)) === 'seen').at(-1);
-                if (inSight) this.setActing(e.npc, inSight);
-                this.camera.centreOn(...centre(e.path.at(-1)!), VISIT_PAN_MS * speed);
+                if (inSight) {
+                    this.setActing(e.npc, inSight);
+                    // The camera goes only as far as the crew sees it walk.
+                    this.camera.centreOn(...centre(inSight), VISIT_PAN_MS * speed);
+                }
                 this.startWalk([{ index, points: [e.from, ...e.path].map(centre) }], STEP_MS * speed);
                 return;
             }
