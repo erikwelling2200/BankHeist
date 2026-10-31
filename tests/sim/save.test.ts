@@ -78,13 +78,13 @@ describe('saving', () => {
  * NpcStatusMap, CarrierKindMap or adds a field must also fill it in below, or a change of shape goes unnoticed.
  */
 const SHAPE_HASHES: Record<number, string> = {
-    1: 'dafd28410c209e29'
+    1: '5e926a44f3e501a4'
 };
 
 /** Paths whose objects are records by id, not structs. */
 const RECORDS = new Set([
     'world.edges', 'world.doors', 'state.doors', 'state.edges', 'state.objects', 'state.cameras', 'state.rng',
-    'state.cover', 'state.crew[].arms.guns', 'state.crew[].arms.throwables', 'state.npcs[].suspicion', 'state.npcs[].lastSeen', 'state.npcs[].frisked', 'state.knowledge.npcs', 'state.knowledge.doors', 'state.radio.calls'
+    'state.cover', 'state.crew[].arms.guns', 'state.crew[].arms.throwables', 'state.npcs[].suspicion', 'state.npcs[].lastSeen', 'state.npcs[].frisked', 'state.police.known', 'state.knowledge.npcs', 'state.knowledge.doors', 'state.radio.calls'
 ]);
 
 /** Two shapes as one: the union of their fields, and "a|b" where a field has two types. */
@@ -139,6 +139,7 @@ describe('the save format', () => {
         full.npcs[0]!.noticed = ['body:guard'];
         full.npcs[0]!.command = { pips: 0, by: 'jun' };
         full.npcs[0]!.lapse = { kind: 'flee', exit: { x: 2, y: 2 } };
+        full.npcs[1]!.lapse = { kind: 'released', exit: { x: 2, y: 2 }, freed: 'police-6' };
         full.npcs[0]!.surprised = 1;
         full.npcs[0]!.armed = 'hidden';
         full.npcs[0]!.untying = { by: 'guard', phases: 1 };
@@ -198,12 +199,16 @@ describe('the save format', () => {
         full.response = { raised: 3, by: 'guardRadio', policeIn: 5, heat: 7 };
         full.heat = { owed: [{ cause: 'staffKilled', victim: 'guard' }], policeKilled: 1, releases: [4] };
         full.police = {
-            units: [{ id: 'police-5', kind: 'swat', vehicle: 'van-4', staging: 'street-west', arrived: 4, pos: null }, { id: 'police-6', kind: 'patrol', vehicle: null, staging: null, arrived: 3, pos: { x: 1, y: 1 } }],
+            units: [{ id: 'police-5', kind: 'swat', vehicle: 'van-4', staging: 'street-west', arrived: 4, pos: null, hp: 7, leaning: null, suppressed: null, moved: null }, {
+                id: 'police-6', kind: 'patrol', vehicle: null, staging: null, arrived: 3, pos: { x: 1, y: 1 }, hp: 4, leaning: { at: { x: 1, y: 0 }, corner: { x: 1, y: 1 } },
+                suppressed: { turn: 4, by: 'jun', from: { x: 1, y: 1 }, reacted: true }, moved: 4
+            }],
             vehicles: [
                 { id: 'van-4', kind: 'van', label: 'SWAT van', staging: 'street-west', pos: { x: 0, y: 2 }, arrived: 4, status: 'arriving' },
                 { id: 'helicopter-7', kind: 'helicopter', label: 'Helicopter', staging: null, pos: { x: 4, y: 1 }, arrived: 5, status: 'parked' }
             ],
-            mode: { kind: 'negotiate', left: 2, since: { turn: 4, phase: 'world' }, after: 'contain' }, sent: 2, refills: 0, secured: ['cash']
+            mode: { kind: 'negotiate', left: 2, since: { turn: 4, phase: 'world' }, after: 'contain' }, sent: 2, refills: 0, secured: ['cash'],
+            known: { jun: { tile: { x: 1, y: 1 }, turn: 4, down: false } }, breaches: [{ door: 'staffDoor', unit: 'police-6', turn: 4 }]
         };
         full.negotiation = {
             answered: 4, stalled: true, returns: [{ crew: 'jun', npc: 'teller', at: { x: 0, y: 2 } }],

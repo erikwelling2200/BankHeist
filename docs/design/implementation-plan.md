@@ -1029,11 +1029,43 @@ M2 is complete: every package below has landed.
       kills in either phase, the operator's watching kept secret until the Alarm, officers in the way, a generated
       bank of each tier; each command checked against its
       preview).
-- [ ] **M3-05 Police and guard routine AI.**
+- [x] **M3-05 Police and guard routine AI.** (partial: see Deferred)
   - **Covers:** §13.5, §13.6 patrol routine, §10.10.
   - **Work:** what police know (last known positions, reports); the never-fire-through-a-standing-non-crew-body rule; freeing hostages; arrests; announced breach markers.
   - **Depends on:** M3-01, M3-04.
   - **Accept:** a property test that police never fire a shot whose preview hits a standing non-crew body; every breach is announced a phase ahead.
+  - **Notes (done):** decisions 150–159.
+    - `rules/routine.ts` fills the engine's `npcs.combat` step: Hostile NPCs, then officers, act one at a time by
+      §13.6's simple routine (fall back Hurt; move to a clean shot at the nearest crew member in sight and fire; else in
+      Assault advance on the nearest known downed crew member, then the nearest known position), what the police know,
+      `cleanShot`, freeing hostages, breaches, and the `police` harm handler. `data/police.ts`: `OFFICER_STATS` (§12.3 hit
+      points, armour and gun by kind), `ROUTINE_KINDS`, `COMBAT_SIGHT`, `BREACH_FROM`; `rules.officerMoveTiles` (4).
+    - Officers are bodies (`rules/shot.ts`: shooters, targets, leaners); the crew's Watch, Suppress and their reaction
+      shots (`watchReact`, `suppressReact`, now live) treat them as foes, as Hostile NPCs; `attack` offers them
+      (`officersInRange`). Officers pass nobody standing (`occupancy`). A freed hostage is a `released` lapse with
+      `freed` (heat.ts: its leaving is an escape, +1); escapees after the Alarm tell the police too (negotiation.ts).
+      Arrest (wounds.ts) needs the officer to have stood there since before the world phase (`PoliceUnit.moved`).
+    - **State:** `PoliceUnit` gains `hp`, `leaning`, `suppressed`, `moved` (`newUnit`); `PoliceState` gains `known`
+      (by crew id) and `breaches`; `Lapse` 'released' gains `freed`. Save shape hash `5e926a44f3e501a4`.
+    - **Session:** the recap names the new events (an officer by kind); the threat ledger shows each announced breach
+      at its door ("Breach next phase: …", 1); the grid's Fire offers officers in the shooter's sight. Drawing police,
+      their moves and the breach marker on the map are M3-09's.
+    - **Tests:** `tests/sim/routine.test.ts` (Contain fire, unmasked strangers and Negotiate left alone, a bystander
+      in the line held for and moved round in Assault, a hostage shield never fired through, advancing on a report,
+      falling back Hurt, officers as bodies with hit points and Negotiate's end, a crew Watch on an officer walking in,
+      freeing Commanded and tied hostages and a Hold keeping them, the freed walking out and telling, breaches
+      announced, carried out, refused below Heat 3 and called off, the arrest a world phase after walking up, a guard
+      firing, reloading and suppressed); `tests/sim/routine.property.test.ts` (60 random loud fixtures over 6 world
+      phases: no officer's or guard's bullet meets anyone but the crew, every door blown had its marker by the same
+      officer through the crew phase before, markers only ever for the next phase; the same game twice ends the same).
+    - **Deferred:** police hearing noises and following fresh blood trails, and a hostage killed where police see it
+      ending Negotiate (police sight of kills, from M3-04); advancing cover to cover along the way they came in, and
+      holding the exits at Heat 1 (they take the shortest way); the patrol shotgun, the shield's frontal shield, sniper
+      nests and fire, and SWAT's own play (M3-06; SWAT run this routine until then); breaching windows and walls,
+      barricades and breach charges as kit (M3-06); a melee strike or taser dart on an officer (the dart is spent);
+      flashbangs and knockout windows on officers; the wounded crawler leaving the map and its escapee carrier (from
+      M3-03); carrying a downed crew member and surrendering (§16.2); projecting the recap's police lines through what
+      the crew knows (M3-09).
 - [ ] **M3-06 SWAT team AI.**
   - **Covers:** §13.6 SWAT.
   - **Work:** fire and movement; Watch wedges; flanking; focus fire; timed breaches; kit use; casualties.
@@ -1916,6 +1948,52 @@ Later milestones: within each milestone, the `∥` notes in §3 apply. UI packag
     camera reports, intent actions and goals aimed at them, a lapse, panic or suppression of theirs; a command they
     gave passes to the first crew member left), so no rule looks for them on the map. Auto-advance stops on any
     wound, downing, bleeding out, death or arrest (`wound`). Police don't walk to them before M3-05.
+
+150. **Officers are bodies (M3-05, §12.3).** Not NPCs (decision 122), but shooters, targets and leaners in the shot
+    rules: hit points, armour and gun by kind (`OFFICER_STATS`: patrol 6/1/pistol, SWAT 7/2/AR, shield 7/2/pistol,
+    heavy 12/3/LMG, sniper 6/1/DMR, the negotiator 6/1 and unarmed). Their harm goes through `dealHarm` (handler
+    `police`): any hit that lands is `policeHit` (Negotiate ends), 0 HP is `policeDown` (killed). The crew's Watch,
+    Suppress and reaction shots treat them as Hostile NPCs; a strike or a dart on one is deferred.
+151. **Combat sight (M3-05, §13.6).** An officer, or a Hostile NPC, sees all round to `COMBAT_SIGHT` (10) tiles in line
+    of sight (smoke blocks, the dark doesn't). It takes a crew member for a target once masked or already known to it
+    (the police's shared picture; a guard's exposure or last sighting): an unmasked stranger is left alone.
+152. **What the police know (M3-05, §13.6).** One picture over the radio (`PoliceState.known`: a tile, a turn, down or
+    not, by crew member): each officer's sight as it acts, before and after moving, and the reports of hostages let go
+    or freed and of escapees after the Alarm (`NegotiationState.reports`), newer over older. A known tile an officer sees
+    with nobody there is forgotten; an arrested crew member is too. Guards keep their own `lastSeen`.
+153. **The routine and the modes (M3-05, §13.4, §13.6).** In the combat step Hostile NPCs act in resolution order, then
+    officers in the order they came; each decides as it acts. Hurt (half its hit points), it falls back to the nearest
+    tile out of sight of every crew position it knows. In Negotiate officers hold fire and position; in Contain and
+    Regroup they fire from where they stand; in Assault they move up to `officerMoveTiles` (4) and fire, or with nobody
+    in sight advance on the nearest known downed crew member, else the nearest known position, the shortest way. Guards
+    fight whatever the mode, at a hurry (5 tiles), reload as their act, and pass doors as in peace. SWAT kinds run this
+    routine until M3-06; snipers and the negotiator don't act yet. At Heat 1–2 Assault pushes in through open or unlocked
+    doors (§13.4, read over §13.6's "hold the exits at Heat 1").
+154. **Never through a standing non-crew body (M3-05, §13.5, §10.7).** A fighter fires only a shot whose preview
+    (`previewShot`: every bullet's arc, through people and through what the shot can break) meets the crew alone
+    (`cleanShot`): no bystander, no hostage held up as a shield, no other officer; lying people are passed over unless
+    aimed at. It picks its tile among those in its move, cover against the target first, then nearest, then row order,
+    trying up to 24 that see the target, from the tile and then leaning; asks again as the bullets leave; with none,
+    `heldFire`.
+155. **Fighters' shots (M3-05, §11.2, §11.9).** Through `resolveShot`, every bullet of its gun (a guard's no more than
+    its magazine; officers have rounds to spare), the moving penalty after moving, Aim ×1.5 Suppressed; the weapon's
+    noise (Loud). `Dice.pictured` before the bullets, so a preview of the world phase (`pendingCarriers`) stops there, as
+    at a crew Watch volley.
+156. **Freeing hostages (M3-05, §10.10).** An officer ending its act beside a Commanded hostage frees it for free (every
+    one), and with no shot fired cuts one tied hostage loose; not one led by the crew, nor one a Hold keeps this phase
+    (§10.3). Freed, it walks out (as a release, to the nearest way out: the police hold every exit, decision 131), its
+    leaving is an escape (+1) and it tells. Officers free only those they reach on their way (SWAT pairs, M3-06).
+157. **Walking up to arrest (M3-05, §11.12).** Officers advance on a downed crew member they know of; the arrest
+    (decision 148) needs one that hasn't walked this world phase (`PoliceUnit.moved`), so a crew phase shows it
+    standing there first.
+158. **Breaches (M3-05, §13.4, §13.6).** From Heat 3, in Assault, an officer whose shortest way runs through a locked door
+    stops beside it and announces the breach (`State.police.breaches`, one per door), which the crew phase shows (the
+    ledger: "Breach next phase", 1); in the next world phase it blows the door (breached, the breach charge's noise) as
+    its act. Its officer down, the breach is called off at once (`policeDown`). Doors only: windows, walls, barricades
+    and charges as kit are M3-06's.
+159. **Hard promises (M3-05, §13.6).** Nothing a fighter does is previewed but the breaches, announced a phase ahead and
+    carried out as shown; a Hostile NPC fires only after its telegraphed draw; officers are on the map from their
+    announced arrival. Movement and targets are decided as each acts, from what it knows then.
 
 ### Critical files for implementation
 

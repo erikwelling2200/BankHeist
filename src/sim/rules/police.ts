@@ -6,16 +6,17 @@ import type { DeepReadonly, Phase, Pos, ReadonlyWorld, State } from '../core/typ
 import { registerEvents } from '../core/undo';
 import {
     ASSAULT_PHASES, CAR_SEATS, CARS_PER_STAGING, MAX_HEAT, TICKS_PER_LEVEL, CONTAIN_AGAIN_PHASES, CONTAIN_PHASES, FORCE, GREED_CAP, GREED_PER_BAG, HELICOPTER_FROM, MODE_LABELS,
-    NEGOTIATE_HOSTAGE_CAP, NEGOTIATE_PHASES, POLICE_KINDS, REGROUP_PHASES, REGROUP_PHASES_HIGH, SWAT_KINDS, UNSCALED, VAN_SEATS, type PoliceKind, type PoliceMode
+    NEGOTIATE_HOSTAGE_CAP, NEGOTIATE_PHASES, OFFICER_STATS, POLICE_KINDS, REGROUP_PHASES, REGROUP_PHASES_HIGH, SWAT_KINDS, UNSCALED, VAN_SEATS, type PoliceKind, type PoliceMode
 } from '../data/police';
 import { ABSENT_STATUSES, stepCost } from '../geo/move';
 import { inBuilding } from './actions/loot';
 import { lootWeight } from './hands';
+import type { Lean } from './shot';
 import { addHeat, heatAhead, heatOf, phasesUntilHeat } from './heat';
 
 /*
  * The police director (§13.3, §13.4): who comes, in what, where to, and the rhythm they keep once on scene. Police
- * movement and fighting are M3-05 (officers) and M3-06 (SWAT); here the units are state at their staging points.
+ * movement and fighting are rules/routine.ts (M3-05) and M3-06 (SWAT); here the units are state at their staging points.
  *
  * - **Staging points** are the generator's (`GeneratedBank.staging`: the main street's two ends and the alley mouth),
  *   `World.staging`. A bank without them (a test fixture) gets no police.
@@ -35,7 +36,7 @@ import { addHeat, heatAhead, heatOf, phasesUntilHeat } from './heat';
  *   its slot, M3-08). The rest come in **transport vans** of 4: a SWAT van carries a team (a shield and three, or the
  *   heavy pair and two), a police van the others; vans unload in the next phase and drive off in the one after.
  *   **Snipers** walk in on foot (§13.4), two to a team, and are at their staging point a phase after their wave like
- *   everyone else (their raised positions are M3-05's). The **helicopter** comes at Heat 4 and hovers over the plot. Where each goes is fixed by the state, not rolled: a car to the point with the most free
+ *   everyone else (their raised positions are M3-06's). The **helicopter** comes at Heat 4 and hovers over the plot. Where each goes is fixed by the state, not rolled: a car to the point with the most free
  *   slots, a van to the point with the fewest cars and vans of its wave, ties in the generator's order (the vans on
  *   the street now don't count: they leave before the next wave, so the forecast holds). `planWave` is the one function
  *   for the wave sent and for the HUD's "Heat 3 in 2: SWAT van, the alley mouth" (`nextWave`).
@@ -45,13 +46,13 @@ import { addHeat, heatAhead, heatOf, phasesUntilHeat } from './heat';
  *   counts down once per world phase from the one after it began, and the next begins when it reaches 0, announced
  *   with its length (`policeMode`). Shooting police during Negotiate starts an immediate Assault (`policeHit`, which
  *   `policeDown` calls for a kill).
- *   Answering the negotiator and Stall are rules/negotiation.ts's; the hostage kill that police see is M3-05's.
+ *   Answering the negotiator and Stall are rules/negotiation.ts's; the hostage kill that police see is deferred (M3-05's notes).
  * - **Units** aren't NPCs: they are `State.police.units`, each a kind, the vehicle it rides in (or on foot) until it
  *   gets out, then its tile, which nobody else may step onto (geo/move.ts `occupancy`). One that finds no free tile
- *   stays aboard until it does. M3-05 and M3-06 give them sight, movement and fire; `policeDown` takes one off the force.
+ *   stays aboard until it does. rules/routine.ts (M3-05) gives them sight, movement and fire, M3-06 SWAT team play; `policeDown` takes one off the force.
  *
  * Nothing here rolls or decides anything that isn't on the table: the breaches that §13.6 announces a phase ahead are
- * M3-05's, and police decide movement and targets when they act.
+ * rules/routine.ts's, and police decide movement and targets when they act.
  */
 
 /** A police staging point (§13.4): where vehicles park and units get out. */
@@ -88,7 +89,21 @@ export interface PoliceUnit {
     arrived: number;
     /** Its tile once out, else null. */
     pos: Pos | null;
+    /** Hit points left (§12.3, `OFFICER_STATS`); at 0 it is down (rules/routine.ts). */
+    hp: number;
+    /** Leaning out past a corner until the next world phase or a move (§11.4), or null. */
+    leaning: Lean | null;
+    /** Suppressed by a crew member's LMG for the world phase of `turn` (§11.9), as an NPC is (`NpcState.suppressed`). */
+    suppressed: { turn: number; by: string; from: Pos; reacted: boolean } | null;
+    /** The turn of the world phase it last walked in, or null: an arrest needs it to have stood there since (decision 157). */
+    moved: number | null;
 }
+
+/** What the police know of a crew member (§13.6): where and when last seen or told, and whether down then. */
+export interface PoliceSighting { tile: Pos; turn: number; down: boolean }
+
+/** A breach announced a phase ahead (§13.4, §13.6): `unit` breaches `door` in the world phase after `turn`'s. */
+export interface Breach { door: string; unit: string; turn: number }
 
 export interface PoliceState {
     units: PoliceUnit[];
@@ -104,6 +119,10 @@ export interface PoliceState {
     refills: number;
     /** The bags (loot ids) that have left the building, for greed (§13.3). */
     secured: string[];
+    /** What the police know of each crew member, by crew id (rules/routine.ts). */
+    known: Record<string, PoliceSighting>;
+    /** Breaches announced, carried out in the next world phase (rules/routine.ts). */
+    breaches: Breach[];
 }
 
 declare module '../core/types' {
@@ -136,7 +155,7 @@ declare module '../core/types' {
 export type WaveReason = 'arrival' | 'level' | 'refill';
 
 registerStateInit('police', (_world, state) => {
-    state.police = { units: [], vehicles: [], mode: null, sent: 0, refills: 0, secured: [] };
+    state.police = { units: [], vehicles: [], mode: null, sent: 0, refills: 0, secured: [], known: {}, breaches: [] };
 });
 
 // ---------------------------------------------------------------------------------------------------------- The force
@@ -250,12 +269,17 @@ export function planWave(world: ReadonlyWorld, state: DeepReadonly<State>, level
 /** The middle of the map: where the helicopter hovers. */
 const overPlot = (world: ReadonlyWorld): Pos => ({ x: Math.floor(world.width / 2), y: Math.floor(world.height / 2) });
 
+/** A new officer of a wave, aboard `vehicle` (null: on foot) for `staging`, at full hit points. */
+export function newUnit(state: State, kind: PoliceKind, vehicle: string | null, staging: string | null): PoliceUnit {
+    return { id: newId(state, 'police'), kind, vehicle, staging, arrived: state.turn, pos: null, hp: OFFICER_STATS[kind].hp, leaning: null, suppressed: null, moved: null };
+}
+
 /** Sends a wave (see `planWave`): its vehicles arrive now with their units aboard. */
 function sendWave(ctx: Ctx, level: number, reason: WaveReason): void {
     const { world, state } = ctx;
     for (const plan of planWave(world, state, level)) {
         if (plan.kind === 'foot') {
-            const units = plan.units.map(kind => ({ id: newId(state, 'police'), kind, vehicle: null, staging: plan.staging!.id, arrived: state.turn, pos: null }));
+            const units = plan.units.map(kind => newUnit(state, kind, null, plan.staging!.id));
             state.police.units.push(...units);
             ctx.emit({ type: 'policeOnFoot', units: units.map(u => u.id), kind: 'sniper', staging: plan.staging!.id, pos: { ...plan.staging!.pos }, level, reason });
             continue;
@@ -265,7 +289,7 @@ function sendWave(ctx: Ctx, level: number, reason: WaveReason): void {
             pos: plan.staging ? { ...plan.staging.pos } : overPlot(world), arrived: state.turn, status: 'arriving'
         };
         state.police.vehicles.push(vehicle);
-        for (const kind of plan.units) state.police.units.push({ id: newId(state, 'police'), kind, vehicle: vehicle.id, staging: vehicle.staging, arrived: state.turn, pos: null });
+        for (const kind of plan.units) state.police.units.push(newUnit(state, kind, vehicle.id, vehicle.staging));
         ctx.emit({
             type: 'policeArriving', vehicle: vehicle.id, kind: vehicle.kind, label: vehicle.label, staging: vehicle.staging, pos: { ...vehicle.pos },
             units: plan.units.length, level, reason
@@ -411,6 +435,11 @@ export function policeDown(ctx: Ctx, unitId: string, killed: boolean): void {
     if (killed) policeHit(ctx, unit.id);
     state.police.units.splice(state.police.units.indexOf(unit), 1);
     ctx.emit({ type: 'policeDown', unit: unit.id, kind: unit.kind, killed });
+    // A breach it announced won't happen (rules/routine.ts): the marker comes down at once.
+    for (const b of state.police.breaches.filter(x => x.unit === unit.id)) {
+        state.police.breaches.splice(state.police.breaches.indexOf(b), 1);
+        ctx.emit({ type: 'breachCalledOff', door: b.door, unit: b.unit });
+    }
     if (!killed) return;
     state.heat.policeKilled++;
     addHeat(ctx, state.heat.policeKilled === 1 ? 'firstPoliceKilled' : 'policeKilled');

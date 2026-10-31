@@ -1,5 +1,5 @@
 import {
-    CARRIERS, commandPreview, crewLoot, crewLook, DASH_ACTIONS, hasWeaponInHand, heatOf, holdPreview, isKnownNow, knownCarriers, lootOf, markerKind, mayBeDyed, MODE_LABELS, nextWave,
+    CARRIERS, commandPreview, doorSides, crewLoot, crewLook, DASH_ACTIONS, hasWeaponInHand, heatOf, holdPreview, isKnownNow, knownCarriers, lootOf, markerKind, mayBeDyed, MODE_LABELS, nextWave,
     policeModeView, POLICE_LABELS, steadyHand, walkingToAlarm, MOVE_ACTIONS, nextDriveBy, type CarrierChanges, type CarrierPreview,
     type CommandRings, type Command, type HoldRing, type ReadonlyWorld, type SimEvent, type State
 } from '../sim';
@@ -72,6 +72,12 @@ function clocks(world: ReadonlyWorld, state: State): ThreatVM[] {
         const label = r.policeIn > 0 ? 'Police arrive' : mode ? `${mode.label}: ${MODE_LABELS[mode.next]} in ${mode.left}` : 'Police on site';
         out.push({ id: 'police', kind: 'reinforcement', source: 'police', label, countdown: mode && r.policeIn <= 0 ? mode.left : r.policeIn, halted: null,
             pos: policePos(world), portrait: 'police' });
+        // The breaches announced for the next world phase (§13.6 "breach next phase"), at the door.
+        for (const b of state.police.breaches) {
+            const at = doorSides(world, world.doors[b.door]!)?.[0];
+            out.push({ id: `breach:${b.door}`, kind: 'reinforcement', source: 'police', label: `Breach next phase: ${doorName(world, b.door)}`, countdown: 1, halted: null,
+                pos: at ? { x: at.x, y: at.y } : policePos(world), portrait: 'police', urgent: true });
+        }
         // After the Alarm nobody calls a guard or drives past to check: the police are coming anyway.
         return out;
     }
@@ -466,6 +472,11 @@ const lootName = (world: ReadonlyWorld, id: string): string => {
 export function describeEvent(world: ReadonlyWorld, state: State, event: SimEvent): string {
     const name = (id: string): string => state.crew.find(c => c.id === id)?.name ?? state.custody.find(c => c.crew.id === id)?.crew.name
         ?? world.people.find(p => p.id === id)?.name ?? id;
+    // A fighter: an NPC by name, a police officer by kind.
+    const who = (id: string): string => {
+        const unit = state.police.units.find(u => u.id === id);
+        return unit ? `A ${POLICE_LABELS[unit.kind].toLowerCase()}` : name(id);
+    };
     switch (event.type) {
         case 'moved': return `${name(event.crew)} moved to (${event.to.x}, ${event.to.y})`;
         case 'waited': return `${name(event.crew)} waited`;
@@ -487,6 +498,14 @@ export function describeEvent(world: ReadonlyWorld, state: State, event: SimEven
         case 'vehicleLeft': return 'A police van drove off';
         case 'policeOnFoot': return `${event.units.length} ${POLICE_LABELS[event.kind].toLowerCase()}s walking in`;
         case 'policeHit': return 'A police officer is hit';
+        case 'officerWounded': return event.hp ? `A police officer is hit (${event.hp} HP left)` : 'A police officer is down';
+        case 'fighterFired': return `${who(event.shooter)} fired at ${name(event.target)}`;
+        case 'heldFire': return `${who(event.shooter)} held fire: someone in the way`;
+        case 'npcReloaded': return `${name(event.npc)} reloaded`;
+        case 'hostageFreed': return `Police freed ${name(event.npc)}`;
+        case 'breachAnnounced': return `Breach next phase: ${doorName(world, event.door)}`;
+        case 'doorBreached': return `Police breached ${doorName(world, event.door)}`;
+        case 'breachCalledOff': return `The breach at ${doorName(world, event.door)} is off`;
         case 'negotiatorCalls': return 'The negotiator is calling';
         case 'stalled': return `Negotiate runs ${event.by} longer (${event.left})`;
         case 'hostageReleased': return event.trade ? `${name(event.npc)} walks out, traded` : `${name(event.npc)} is let go${event.relief ? ` (heat −${event.relief})` : ''}`;

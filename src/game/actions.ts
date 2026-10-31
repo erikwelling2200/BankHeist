@@ -323,7 +323,8 @@ function combatEntries(
         const mine = combat.filter((c): c is T => c.type === type && keep(c as T));
         const known = mine.filter(c => {
             const id = npcOf(c);
-            return id === undefined || isKnownNow(world, state, id);
+            // An officer is offered only in the shooter's sight (`officersInRange`), so the crew sees it.
+            return id === undefined || isKnownNow(world, state, id) || state.police.units.some(u => u.id === id);
         });
         return known.find(c => !!target && npcOf(c) === target) ?? known[0];
     };

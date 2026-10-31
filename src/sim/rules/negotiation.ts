@@ -43,7 +43,8 @@ import { isDown } from './wounds';
  *   - **Stall:** Negotiate lasts `STALL_PHASES` (2) world phases longer. Once a heist.
  *   - **Hang up:** nothing but the action.
  * - **What a released hostage tells.** As it leaves the map, the crew members it saw and where it last saw them go to
- *   the police (`NegotiationState.reports`), for M3-05's police knowledge.
+ *   the police (`NegotiationState.reports`), which the officers act on (rules/routine.ts); so does a hostage the police
+ *   freed, and an escapee once the Alarm is up.
  *
  * Nothing here rolls: an answer's preview is its outcome.
  */
@@ -212,11 +213,13 @@ function letGo(ctx: Ctx, member: CrewState, id: string, relief: number, trade: b
     return exit;
 }
 
-// What a released hostage tells the police as it leaves the map (after the walks, npc/act.ts).
+// What a hostage let go or freed tells the police as it leaves the map (after the walks, npc/act.ts), and an escapee
+// running from a command once the Alarm is up (§13.4 Contain: "collect escapees, who tell the police what they saw").
 registerWorldHook('passiveNpcs', 'negotiation.told', ctx => {
     const { state } = ctx;
     for (const npc of state.npcs) {
-        if (npc.lapse?.kind !== 'released' || isPresent(npc) || state.negotiation.reports.some(r => r.npc === npc.id)) continue;
+        const telling = npc.lapse?.kind === 'released' || (npc.lapse?.kind === 'flee' && !!state.response);
+        if (!telling || isPresent(npc) || state.negotiation.reports.some(r => r.npc === npc.id)) continue;
         const seen = sortedIds(npc.lastSeen).map(crew => ({ crew, tile: { ...npc.lastSeen[crew]!.tile }, turn: npc.lastSeen[crew]!.turn }));
         state.negotiation.reports.push({ npc: npc.id, turn: state.turn, seen });
         ctx.emit({ type: 'policeTold', npc: npc.id });

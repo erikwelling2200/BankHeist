@@ -4,6 +4,7 @@ import { clonePlain } from '../core/json';
 import { edgeNow, newId, registerCrewInit, registerNpcInit, registerRuleDefaults, registerStateInit } from '../core/state';
 import type { CrewState, DeepReadonly, NpcState, Phase, Pos, ReadonlyWorld, State } from '../core/types';
 import { registerEvents } from '../core/undo';
+import { OFFICER_STATS } from '../data/police';
 import { CREW_ARMOUR, NPC_ARMOUR, weaponDef, type WeaponDef } from '../data/weapons';
 import { ABSENT_STATUSES, LYING_STATUSES, stepCost } from '../geo/move';
 import {
@@ -138,6 +139,7 @@ registerEvents({ shotFired: { undoBlocking: true } });
 // crew phase's. NPCs lean only while acting in the world phase (M3-05), so theirs ends as the next one begins.
 registerWorldHook('passiveNpcs', 'shot.leanNpcs', ctx => {
     for (const npc of ctx.state.npcs) npc.leaning = null;
+    for (const unit of ctx.state.police?.units ?? []) unit.leaning = null;
 }, { order: -1000 });
 registerWorldHook('crewPhase', 'shot.leanCrew', ctx => {
     for (const member of ctx.state.crew) member.leaning = null;
@@ -154,20 +156,28 @@ registerCommandHook('shot.leanMoved', (ctx, _cmd, _events, before) => {
     }
 });
 
-type Person = { kind: 'crew'; crew: DeepReadonly<CrewState> } | { kind: 'npc'; npc: DeepReadonly<NpcState> };
+type Unit = DeepReadonly<State['police']['units'][number]>;
+type Person = { kind: 'crew'; crew: DeepReadonly<CrewState> } | { kind: 'npc'; npc: DeepReadonly<NpcState> } | { kind: 'police'; unit: Unit & { pos: Pos } };
 
+/** A crew member, an NPC, or a police officer out on scene (rules/police.ts: officers in a vehicle aren't on the map). */
 function personOf(state: DeepReadonly<State>, id: string): Person | undefined {
     const crew = state.crew.find(c => c.id === id);
     if (crew) return { kind: 'crew', crew };
     const npc = state.npcs.find(n => n.id === id);
-    return npc ? { kind: 'npc', npc } : undefined;
+    if (npc) return { kind: 'npc', npc };
+    const unit = state.police?.units.find(u => u.id === id);
+    return unit?.pos ? { kind: 'police', unit: unit as Unit & { pos: Pos } } : undefined;
 }
 
-/** A person's armour (§12.3): the crew's worn piece, an NPC's by role. */
+/** Where a person stands: a crew member's, an NPC's or an officer's tile. */
+const standsAt = (person: Person): DeepReadonly<Pos> => (person.kind === 'crew' ? person.crew.pos : person.kind === 'npc' ? person.npc.pos : person.unit.pos);
+
+/** A person's armour (§12.3): the crew's worn piece, an NPC's by role, an officer's by kind. */
 export function armourOf(world: ReadonlyWorld, state: DeepReadonly<State>, id: string): number {
     const person = personOf(state, id);
     if (!person) throw new Error(`No one is '${id}'`);
     if (person.kind === 'crew') return Math.max(0, ...person.crew.loadout.items.map(i => CREW_ARMOUR[i] ?? 0));
+    if (person.kind === 'police') return OFFICER_STATS[person.unit.kind].armour;
     const role = world.people.find(p => p.id === id)?.role ?? '', armour = Object.hasOwn(NPC_ARMOUR, role) ? NPC_ARMOUR[role]! : 0;
     return armour === 'guard' ? world.rules.guardArmour : armour;
 }
@@ -178,6 +188,7 @@ const UNWARY = new Set(['calm', 'curious']);
 /** Where a person's hitbox is: where they lean out to, or where they stand (a dragged body: with its dragger). */
 function hitboxOf(state: DeepReadonly<State>, person: Person): Pos {
     if (person.kind === 'crew') return person.crew.leaning?.at ?? person.crew.pos;
+    if (person.kind === 'police') return person.unit.leaning?.at ?? person.unit.pos;
     const npc = person.npc;
     // A body dragged or a hostage led is where its dragger is: on the lean tile while they lean (§11.4).
     const by = draggedBy(state, npc.id);
@@ -212,6 +223,14 @@ export function shotBodies(world: ReadonlyWorld, state: DeepReadonly<State>, sho
         if (n.leaning) body.lean = { x: n.leaning.corner.x, y: n.leaning.corner.y };
         put(body);
     }
+    // Officers out on scene stand (§12.3 armour by kind); the shield's frontal shield is M3-06's.
+    for (const u of state.police?.units ?? []) {
+        if (u.id === shooter || !u.pos) continue;
+        const pos = u.leaning?.at ?? u.pos;
+        const body: Body = { id: u.id, pos: { x: pos.x, y: pos.y }, standing: true, shield: false, armour: OFFICER_STATS[u.kind].armour, precise: false };
+        if (u.leaning) body.lean = { x: u.leaning.corner.x, y: u.leaning.corner.y };
+        put(body);
+    }
     for (const list of out.values()) list.sort((a, b) => Number(b.shield) - Number(a.shield) || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
     return out;
 }
@@ -231,7 +250,7 @@ const SIDES: readonly Pos[] = [{ x: 0, y: -1 }, { x: 1, y: 0 }, { x: 0, y: 1 }, 
 export function leanOptions(world: ReadonlyWorld, state: DeepReadonly<State>, id: string, hidden?: Uint8Array): Lean[] {
     const person = personOf(state, id);
     if (!person) throw new Error(`No one is '${id}'`);
-    const from = person.kind === 'crew' ? person.crew.pos : person.npc.pos;
+    const from = standsAt(person);
     const s = state as State;
     const unknown = (p: Pos): boolean => !!hidden && inBounds(world, p) && hidden[p.y * world.width + p.x] === 1;
     const wall = (a: Pos, b: Pos): boolean => !inBounds(world, b) || !!edgeNow(world, s, edgeKey(edgeBetween(a, b)))?.blocksSight;
@@ -240,6 +259,7 @@ export function leanOptions(world: ReadonlyWorld, state: DeepReadonly<State>, id
     const standing = new Set<string>();
     for (const c of state.crew) if (c.id !== id) standing.add(tileKey(c.pos));
     for (const n of state.npcs) if (n.id !== id && !ABSENT_STATUSES.has(n.status) && !LYING_STATUSES.has(n.status) && n.stashed === null) standing.add(tileKey(n.pos));
+    for (const u of state.police?.units ?? []) if (u.id !== id && u.pos) standing.add(tileKey(u.pos));
     const out: Lean[] = [];
     for (const e of SIDES) {
         const at = { x: from.x + e.x, y: from.y + e.y };
@@ -269,7 +289,7 @@ export function shotArcs(state: DeepReadonly<State>, shot: Shot): number[] {
 function originOf(world: ReadonlyWorld, state: DeepReadonly<State>, shot: Shot, hidden?: Uint8Array): Pos {
     const person = personOf(state, shot.shooter);
     if (!person) throw new IllegalCommand(`No one is '${shot.shooter}'`);
-    const pos = person.kind === 'crew' ? person.crew.pos : person.npc.pos;
+    const pos = standsAt(person);
     if (!shot.lean) return { x: pos.x, y: pos.y };
     if (!leanOptions(world, state, shot.shooter, hidden).some(l => samePos(l.at, shot.lean!))) throw new IllegalCommand(`Nowhere to lean out at (${shot.lean.x}, ${shot.lean.y})`);
     return { x: shot.lean.x, y: shot.lean.y };

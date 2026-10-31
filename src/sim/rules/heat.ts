@@ -31,7 +31,7 @@ import { isPresent } from './npc/walk';
  * - **A hostage escapes to the police** +1: an NPC Commanded, tied or fleeing in a command's lapse before a command
  *   that leaves the map in it, once the Alarm is up.
  * - **Release** (§10.7) is rules/negotiation.ts's answer: it asks `releaseBlocked` and calls `releaseHeat`. Once per turn,
- *   three per heist; a released hostage leaving the map is no escape.
+ *   three per heist; a released hostage leaving the map is no escape, but one the police freed is (§10.10, rules/routine.ts).
  *
  * No dice anywhere: every number here is shown before it happens.
  */
@@ -156,7 +156,8 @@ registerCommandHook('heat', (ctx, _cmd, events, before) => {
     for (const e of events) {
         if (e.type !== 'npcLeft') continue;
         const was = before.npcs.find(n => n.id === e.npc);
-        if (was && wasHostage(was) && was.lapse?.kind !== 'released' && state.bank.alarm) addHeat(ctx, 'hostageEscaped');
+        // Let go by the crew it is no escape; freed by the police it is (§10.10).
+        if (was && wasHostage(was) && (was.lapse?.kind !== 'released' || was.lapse.freed !== undefined) && state.bank.alarm) addHeat(ctx, 'hostageEscaped');
     }
 }, { order: 5 });
 

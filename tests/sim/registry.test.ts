@@ -28,7 +28,10 @@ describe('registering systems', () => {
     });
 
     it("fills in the engine's placeholder hooks under their names", () => {
-        registerWorldHook('combatNpcs', 'npcs.combat', ctx => { ctx.state.npcs[0]!.facing = 'w'; });
+        // M3-05's routine filled the last one: a placeholder doesn't take a real hook's place, a real one needs `replace`.
+        registerWorldHook('combatNpcs', 'npcs.combat', () => {}, { placeholder: true });
+        expect(() => registerWorldHook('combatNpcs', 'npcs.combat', () => {})).toThrow(/already registered/);
+        registerWorldHook('combatNpcs', 'npcs.combat', ctx => { ctx.state.npcs[0]!.facing = 'w'; }, { replace: true });
         expect(worldHooks().combatNpcs).toEqual(['npcs.combat']);
         expect(worldHooks().passiveNpcs).toEqual(['knowledge.freshBefore', 'shot.leanNpcs', 'command.hold', 'evidence.judge', 'perception.world', 'evidence.notice', 'cameras.operator', 'trespass.deadlines', 'npcs.passive', 'alarms.raise', 'panic.act', 'command.called', 'command.flee', 'command.draw', 'negotiation.told', 'attack.reactions', 'panic.spread', 'evidence.tell']);
         const { world, state } = smallBank();

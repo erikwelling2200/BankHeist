@@ -1,3 +1,5 @@
+import type { WeaponId } from './weapons';
+
 /*
  * The police's canonical tables (§13.1–13.4) as data: the heat events and their ticks, the force on scene at each
  * heat level, the vehicles that bring it, the greed scaling and the director's rhythm. The rules that use them are
@@ -87,3 +89,28 @@ export const REGROUP_PHASES = 3;
 export const REGROUP_PHASES_HIGH = 2;
 /** Stall (§13.4): Negotiate runs this many world phases longer, once a heist. */
 export const STALL_PHASES = 2;
+
+/** An officer's combat numbers (§12.3): hit points, armour and the gun it fires (none: the negotiator doesn't fight). */
+export interface OfficerStats { hp: number; armour: number; weapon: WeaponId | null }
+
+/**
+ * §12.3 by kind. A patrol officer carries a pistol (the table's "or shotgun" waits for kit by unit, M3-06); the shield's
+ * frontal shield and the snipers' raised positions are M3-06's.
+ */
+export const OFFICER_STATS: Readonly<Record<PoliceKind, OfficerStats>> = {
+    patrol: { hp: 6, armour: 1, weapon: 'pistol' },
+    negotiator: { hp: 6, armour: 1, weapon: null },
+    swat: { hp: 7, armour: 2, weapon: 'assaultRifle' },
+    swatShield: { hp: 7, armour: 2, weapon: 'pistol' },
+    heavy: { hp: 12, armour: 3, weapon: 'lmg' },
+    sniper: { hp: 6, armour: 1, weapon: 'dmr' }
+};
+
+/** The kinds that run the officers' routine (§13.6) until M3-06 gives SWAT their team play; snipers wait for their nests. */
+export const ROUTINE_KINDS: ReadonlySet<PoliceKind> = new Set<PoliceKind>(['patrol', 'swat', 'swatShield', 'heavy']);
+
+/** How far an officer (or a fighting guard) sees in combat, in tiles, all round (decision 151). */
+export const COMBAT_SIGHT = 10;
+
+/** The heat level from which officers breach locked doors (§13.4: at Heat 1–2 only open or unlocked ones). */
+export const BREACH_FROM = 3;

@@ -70,8 +70,9 @@ export interface Commanded { pips: number; by: string }
 
 /** What a lapse rolled that outlasts the crew phase it is shown in (§10.5). */
 export type Lapse = { kind: 'flee'; exit: Pos } | { kind: 'reach'; crew: string } | { kind: 'phone'; crew: string }
-    // Let go by the crew (rules/negotiation.ts, §10.7): walking out at `exit`. Not a command's lapse, but carried out as one.
-    | { kind: 'released'; exit: Pos };
+    // Let go by the crew (rules/negotiation.ts, §10.7), or freed by the officer `freed` (rules/routine.ts, §10.10): walking
+    // out at `exit`. Not a command's lapse, but carried out as one.
+    | { kind: 'released'; exit: Pos; freed?: string };
 
 /** What a lapse can roll (§10.5), as the `lapsed` event names it. */
 export type LapseOutcome = 'stayDown' | 'flee' | 'hide' | 'tackle' | 'alarm' | 'phone' | 'reachForWeapon';

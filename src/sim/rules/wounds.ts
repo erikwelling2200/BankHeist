@@ -42,7 +42,8 @@ import { isWounded, npcMaxHp } from './woundsState';
  * - **Arrest** (`arrestCrew`): a downed crew member with a police officer out of a vehicle in reach as a world phase's
  *   devices step runs (an officer, on foot since an earlier world phase) is taken to a police van: off the map, out of
  *   `State.crew` into `State.custody` (traded back by M3-07, jailed at the end, §19.6), and forgotten by every NPC
- *   (`forgetCrew`). Police movement is M3-05's; until then arrests happen only where units get out.
+ *   (`forgetCrew`). Officers walk up to the downed they know of (rules/routine.ts); one that walked this world phase
+ *   arrests in the next, so the crew has a crew phase to see it standing there.
  */
 
 /** A crew member's wounds. */
@@ -244,6 +245,8 @@ export function forgetCrew(state: State, crewId: string): void {
         if (action?.crew === crewId) npc.intent = { path: npc.intent.path, ...(npc.intent.facing ? { facing: npc.intent.facing } : {}) };
     }
     state.cameraReports = state.cameraReports.filter(r => r.crew !== crewId);
+    delete state.police.known[crewId];
+    for (const unit of state.police.units) if (unit.suppressed?.by === crewId) unit.suppressed = null;
     for (const r of state.negotiation.reports) r.seen = r.seen.filter(s => s.crew !== crewId);
 }
 
@@ -288,8 +291,11 @@ registerHarmHandler('wounds', (ctx, harm) => {
 /** The units that arrest (§11.12): officers, not the negotiator or a sniper. */
 const ARRESTING: ReadonlySet<string> = new Set(['patrol', 'swat', 'swatShield', 'heavy']);
 
-/** Out of its vehicle before this world phase: its wave came two or more world phases ago (it got out in the one after). */
-const onFootBefore = (u: DeepReadonly<PoliceUnit>, phase: WorldPhase): boolean => u.pos !== null && u.vehicle === null && u.arrived + 1 < phase.turn;
+/**
+ * Out of its vehicle before this world phase (its wave came two or more world phases ago: it got out in the one after)
+ * and standing where it is since then: an officer that walked up this world phase arrests in the next (decision 157).
+ */
+const onFootBefore = (u: DeepReadonly<PoliceUnit>, phase: WorldPhase): boolean => u.pos !== null && u.vehicle === null && u.arrived + 1 < phase.turn && u.moved !== phase.turn;
 
 const beganIn = (since: { turn: number; phase: Phase }, phase: WorldPhase): boolean => since.turn === phase.turn && since.phase === 'world';
 

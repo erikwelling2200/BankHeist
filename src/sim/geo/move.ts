@@ -58,18 +58,20 @@ export type Occupant = 'none' | 'passable' | 'blocking';
 
 /**
  * Who stands where, by tile index (y * width + x), as the mover sees it. A mover who is an NPC is blocked by standing
- * crew and passes NPCs; anyone else (a crew member, or nobody named) is blocked by standing NPCs and passes crew. A
- * police officer out on scene blocks everyone.
+ * crew and passes NPCs; an officer is blocked by standing crew and NPCs alike; anyone else (a crew member, or nobody
+ * named) is blocked by standing NPCs and passes crew. A police officer out on scene blocks everyone.
  */
 export function occupancy(world: ReadonlyWorld, state: State, options: MoveOptions = {}): Map<number, Occupant> {
     const out = new Map<number, Occupant>();
     if (options.ignorePeople) return out;
     const moverIsNpc = state.npcs.some(n => n.id === options.mover);
+    // An officer passes nobody standing: neither side is its own (rules/routine.ts).
+    const moverIsPolice = !moverIsNpc && !!state.police?.units.some(u => u.id === options.mover);
     const put = (p: Pos, occupant: Occupant): void => {
         const i = p.y * world.width + p.x;
         if (occupant === 'blocking' || !out.has(i)) out.set(i, occupant);
     };
-    for (const c of state.crew) if (c.id !== options.mover) put(c.pos, moverIsNpc ? 'blocking' : 'passable');
+    for (const c of state.crew) if (c.id !== options.mover) put(c.pos, moverIsNpc || moverIsPolice ? 'blocking' : 'passable');
     for (const n of state.npcs) if (n.id !== options.mover && !ABSENT_STATUSES.has(n.status)) put(n.pos, !moverIsNpc && !LYING_STATUSES.has(n.status) ? 'blocking' : 'passable');
     // Police officers out on scene (rules/police.ts) stand in everyone's way.
     for (const u of state.police?.units ?? []) if (u.pos && u.id !== options.mover) put(u.pos, 'blocking');

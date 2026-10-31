@@ -48,7 +48,8 @@ import { knockOut, registerKnockoutWindow } from './knockout';
  *   for free, where its run ended (decision 100).
  * - **Suppress** (`suppress { crew, at, arc?, lean? }`, §11.9): the LMG, 2 actions, a wedge of up to 60°: every bullet
  *   it has (up to its Bullets) with the spread doubled. Hostile NPCs in the wedge are **Suppressed** for the world phase
- *   after it (`NpcState.suppressed`): Aim ×1.5 for their own shots (M3-05), no Watch, and one leaving the cover it had
+ *   after it (`NpcState.suppressed`; officers too, `PoliceUnit.suppressed`): Aim ×1.5 for their own shots
+ *   (rules/routine.ts), no Watch, and one leaving the cover it had
  *   against the suppressor draws a free 1-bullet reaction shot; civilians in it are Commanded (2 pips). Who is in the
  *   wedge is decided before the roll, so the preview shows it.
  * - **Knockout windows** (§11.10): a Hostile NPC Surprised or Suppressed can be knocked out.
@@ -122,7 +123,7 @@ const upright = (npc: DeepReadonly<NpcState>): boolean => !ABSENT_STATUSES.has(n
 // ---------------------------------------------------------------------------------------------------------- Attack
 
 /** The noise a weapon row makes (§8.9, §12.1), at its own radius. */
-const NOISE_OF: Readonly<Record<string, NoiseSource>> = {
+export const NOISE_OF: Readonly<Record<string, NoiseSource>> = {
     taser: 'taser', pistol: 'pistol', suppressedPistol: 'suppressedPistol', machinePistol: 'machinePistol', smg: 'smg',
     shotgun: 'shotgun', shotgunSlug: 'shotgun', assaultRifle: 'assaultRifle', dmr: 'dmr', lmg: 'lmg'
 };
@@ -236,7 +237,10 @@ registerAction('attack', {
         const plan = attackPlan(world, state, cmd);
         return typeof plan === 'string' ? plan : undefined;
     },
-    candidates: (world, state, member) => targetsInRange(world, state, member).map(n => ({ type: 'attack', crew: member.id, at: { ...npcAt(state, n) }, target: n.id })),
+    candidates: (world, state, member) => [
+        ...targetsInRange(world, state, member).map(n => ({ type: 'attack' as const, crew: member.id, at: { ...npcAt(state, n) }, target: n.id })),
+        ...officersInRange(world, state, member).map(u => ({ type: 'attack' as const, crew: member.id, at: { ...u.pos! }, target: u.id }))
+    ],
     cost(world, state, cmd) {
         const plan = attackPlan(world, state, cmd);
         return typeof plan === 'string' ? 1 : plan.cost;
@@ -265,6 +269,18 @@ export function targetsInRange(world: ReadonlyWorld, state: State, member: DeepR
         if (!upright(n) || state.crew.some(c => c.dragging === n.id)) return false;
         const p = n.pos, dx = p.x - member.pos.x, dy = p.y - member.pos.y;
         return (dx || dy) && dx * dx + dy * dy <= range * range && lineOfSight(sight, member.pos, p);
+    });
+}
+
+/** The officers out on scene a crew member could aim at with the drawn weapon (as `targetsInRange`). */
+export function officersInRange(world: ReadonlyWorld, state: State, member: DeepReadonly<CrewState>): DeepReadonly<State['police']['units'][number]>[] {
+    const fire = firing(member);
+    if (typeof fire === 'string') return [];
+    const range = weaponDef(fire.gun.load).range, sight = sightMap(world, state);
+    return state.police.units.filter(u => {
+        if (!u.pos) return false;
+        const dx = u.pos.x - member.pos.x, dy = u.pos.y - member.pos.y;
+        return (dx || dy) && dx * dx + dy * dy <= range * range && lineOfSight(sight, member.pos, u.pos);
     });
 }
 
@@ -374,6 +390,8 @@ export function suppressTargets(world: ReadonlyWorld, state: State, crewId: stri
         if (npc.status === 'hostile') out.suppressed.push(npc.id);
         else if (personOf(world, npc.id).observer === 'civilian' && !isEyesDown(npc)) out.commanded.push(npc.id);
     }
+    // Officers out on scene are foes as a Hostile NPC is (rules/routine.ts).
+    for (const u of state.police.units) if (u.pos && inWedge(sight, origin, plan.shot.at, plan.arc, plan.weapon.range, u.leaning?.at ?? u.pos)) out.suppressed.push(u.id);
     return out;
 }
 
@@ -395,8 +413,8 @@ registerAction('suppress', {
         // Who is in the wedge is decided before the roll: the preview shows it (§11.9).
         const held = suppressTargets(world, state, member.id, plan);
         for (const id of held.suppressed) {
-            const npc = state.npcs.find(n => n.id === id)!;
-            npc.suppressed = { turn: state.turn, by: member.id, from: { ...npc.pos }, reacted: false };
+            const npc = state.npcs.find(n => n.id === id) ?? state.police.units.find(u => u.id === id)!;
+            npc.suppressed = { turn: state.turn, by: member.id, from: { ...npc.pos! }, reacted: false };
             ctx.emit({ type: 'suppressedNpc', crew: member.id, npc: id });
         }
         for (const id of held.commanded) commandNpc(ctx, state.npcs.find(n => n.id === id)!, member.id, SUPPRESS.pips);
@@ -420,6 +438,7 @@ registerWorldHook('fuses', 'attack.dazedEnds', (ctx, phase) => {
 // Suppressed for one world phase (§11.9): over before the next intents are committed.
 registerWorldHook('commitIntents', 'attack.suppressionEnds', (ctx, phase) => {
     for (const npc of ctx.state.npcs) if (npc.suppressed && npc.suppressed.turn <= phase.turn) npc.suppressed = null;
+    for (const unit of ctx.state.police.units) if (unit.suppressed && unit.suppressed.turn <= phase.turn) unit.suppressed = null;
 }, { order: -50 });
 
 registerKnockoutWindow('surprised', npc => npc.surprised !== null);
@@ -441,13 +460,23 @@ function movedOrActed(npc: DeepReadonly<NpcState>, phase: WorldPhase): boolean {
     return walkedTiles(npc, phase).length > 0 || !!intent?.action || phase.status[npc.id] !== npc.status;
 }
 
-/** A crew member's Watch volley or reaction shot at an NPC: the planned shot, or why it can't fly (then it doesn't). */
-function reactionPlan(world: ReadonlyWorld, state: State, member: CrewState, npc: DeepReadonly<NpcState>, bullets: (w: WeaponDef) => number, aimFactor: number, lean: Pos | null): AttackPlan | undefined {
+/** Someone the crew's reactions fire at: a Hostile NPC or a police officer out on scene, where they are hit. */
+interface Foe { id: string; at: Pos }
+
+/** The foes on the map now, in resolution order: Hostile NPCs up, then officers out on scene (rules/police.ts). */
+function foes(state: State): Foe[] {
+    const out: Foe[] = state.npcs.filter(n => n.status === 'hostile' && upright(n)).map(n => ({ id: n.id, at: { ...npcAt(state, n) } }));
+    for (const u of state.police.units) if (u.pos) out.push({ id: u.id, at: { ...(u.leaning?.at ?? u.pos) } });
+    return out;
+}
+
+/** A crew member's Watch volley or reaction shot at a foe: the planned shot, or why it can't fly (then it doesn't). */
+function reactionPlan(world: ReadonlyWorld, state: State, member: CrewState, npc: Foe, bullets: (w: WeaponDef) => number, aimFactor: number, lean: Pos | null): AttackPlan | undefined {
     const fire = firing(member);
     if (typeof fire === 'string' || fire.gun.loaded < 1) return undefined;
     const weapon = weaponDef(fire.gun.load);
     const shot: Shot = {
-        shooter: member.id, weapon: fire.gun.load, at: { ...npcAt(state, npc) }, target: npc.id, bullets: Math.min(bullets(weapon), fire.gun.loaded),
+        shooter: member.id, weapon: fire.gun.load, at: { ...npc.at }, target: npc.id, bullets: Math.min(bullets(weapon), fire.gun.loaded),
         moved: movedThisTurn(state, member), braced: bracedWith(member, fire.item), aimFactor: aimFactor * woundAim(world, member)
     };
     const from = lean ?? member.leaning?.at;
@@ -460,7 +489,7 @@ function reactionPlan(world: ReadonlyWorld, state: State, member: CrewState, npc
 /**
  * The crew's reactions in the world phase, after the passive walks and draws (§11.8, §11.9): runners through a Watch
  * wedge shouted down; each wedge's volley at the first Hostile that moved or acted in it; each suppressed Hostile that
- * left its cover drawing its suppressor's one bullet. Hostiles acting one at a time (M3-05) call `watchReact` as they act.
+ * left its cover drawing its suppressor's one bullet. Fighters acting one at a time (rules/routine.ts) call `watchReact` as they act.
  */
 function reactions(ctx: Ctx, phase: WorldPhase): void {
     const { world, state } = ctx;
@@ -483,42 +512,48 @@ function reactions(ctx: Ctx, phase: WorldPhase): void {
             commandNpc(ctx, npc, member.id, world.rules.commandPips);
             ctx.emit({ type: 'shoutedDown', crew: member.id, npc: npc.id });
         }
-        watchReactNow(ctx, member, sight, npc => movedOrActed(npc, phase));
+        // Officers act later in the phase, one at a time: they call `watchReact` as they go.
+        watchReactNow(ctx, member, sight, id => {
+            const npc = state.npcs.find(n => n.id === id);
+            return !!npc && movedOrActed(npc, phase);
+        });
     }
     for (const npc of state.npcs) suppressReact(ctx, phase, npc.id);
 }
 
 /**
- * A Suppressed NPC leaving its cover (§11.9, decision 105): if `npcId` has walked off the tile it was suppressed on,
- * where it had half cover against its suppressor, the suppressor fires its one free bullet at it, once. The passive
- * step asks it of every NPC; but Suppressed NPCs are Hostile, and Hostile NPCs act one at a time (M3-05), which calls
- * this as each one moves. Whether a shot was fired.
+ * A Suppressed foe leaving its cover (§11.9, decision 105): if `npcId` (a Hostile NPC or an officer) has walked off the
+ * tile it was suppressed on, where it had half cover against its suppressor, the suppressor fires its one free bullet
+ * at it, once. The passive step asks it of every NPC; the fighters acting one at a time (rules/routine.ts) call it as
+ * each one moves. Whether a shot was fired.
  */
 export function suppressReact(ctx: Ctx, phase: WorldPhase, npcId: string): boolean {
-    const { world, state } = ctx, npc = state.npcs.find(n => n.id === npcId);
-    const s = npc?.suppressed;
-    if (!npc || !s || s.reacted || s.turn !== phase.turn || samePos(s.from, npc.pos) || !upright(npc)) return false;
+    const { world, state } = ctx, npc = state.npcs.find(n => n.id === npcId), unit = npc ? undefined : state.police.units.find(u => u.id === npcId);
+    const s = npc?.suppressed ?? unit?.suppressed, pos = npc?.pos ?? unit?.pos;
+    if (!s || !pos || s.reacted || s.turn !== phase.turn || samePos(s.from, pos) || (npc && !upright(npc))) return false;
     const member = state.crew.find(c => c.id === s.by);
     if (!member) return false;
     // Leaving cover: it had half cover against the suppressor where it was suppressed (§11.9).
     const map = shotMap(world, state), fabric = shotFabric(world, state, map, state.cover);
-    const had = coverAgainst(map, fabric, { id: npc.id, pos: s.from, standing: true, shield: false, armour: 0, precise: false }, member.leaning?.at ?? member.pos);
+    const had = coverAgainst(map, fabric, { id: npcId, pos: s.from, standing: true, shield: false, armour: 0, precise: false }, member.leaning?.at ?? member.pos);
     if (!had) return false;
-    const plan = reactionPlan(world, state, member, npc, () => 1, 1, member.leaning?.at ?? null);
+    const foe = foes(state).find(f => f.id === npcId);
+    if (!foe) return false;
+    const plan = reactionPlan(world, state, member, foe, () => 1, 1, member.leaning?.at ?? null);
     if (!plan) return false;
     s.reacted = true;
     fireNow(ctx, member, plan, 'reaction');
     return true;
 }
 
-/** A Watch wedge's volley at the first Hostile in it that `stirred` says moved or acted; ends the Watch when it fires. */
-function watchReactNow(ctx: Ctx, member: CrewState, sight: SightMap, stirred: (npc: DeepReadonly<NpcState>) => boolean): boolean {
+/** A Watch wedge's volley at the first foe in it that `stirred` says moved or acted; ends the Watch when it fires. */
+function watchReactNow(ctx: Ctx, member: CrewState, sight: SightMap, stirred: (id: string) => boolean): boolean {
     const { world, state } = ctx, watch = member.arms.watch;
     if (!watch) return false;
     const fire = firing(member);
     if (typeof fire === 'string') return false;
     const origin = watch.lean ?? member.pos, range = weaponDef(fire.gun.load).range;
-    const npc = state.npcs.find(n => n.status === 'hostile' && upright(n) && stirred(n) && inWedge(sight, origin, watch.at, watch.arc, range, npcAt(state, n)));
+    const npc = foes(state).find(f => stirred(f.id) && inWedge(sight, origin, watch.at, watch.arc, range, f.at));
     if (!npc) return false;
     const aim = watch.arc <= WATCH_NARROW ? 1 : WATCH_AIM;
     const plan = reactionPlan(world, state, member, npc, w => Math.ceil(w.bullets / 2), aim, watch.lean);
@@ -530,14 +565,14 @@ function watchReactNow(ctx: Ctx, member: CrewState, sight: SightMap, stirred: (n
 }
 
 /**
- * For NPCs that act one at a time (M3-05, M3-06): call as `npcId` moves or acts in the world phase; every crew Watch
- * wedge it is in fires its volley at it (§11.8). Whether anyone fired.
+ * For the fighters that act one at a time (rules/routine.ts: Hostile NPCs and officers): call as `npcId` moves or acts
+ * in the world phase; every crew Watch wedge it is in fires its volley at it (§11.8). Whether anyone fired.
  */
 export function watchReact(ctx: Ctx, phase: WorldPhase, npcId: string): boolean {
     let fired = false;
     for (const member of ctx.state.crew) {
         if (!member.arms.watch || member.arms.watch.turn !== phase.turn) continue;
-        if (watchReactNow(ctx, member, sightMap(ctx.world, ctx.state), n => n.id === npcId)) fired = true;
+        if (watchReactNow(ctx, member, sightMap(ctx.world, ctx.state), id => id === npcId)) fired = true;
     }
     return fired;
 }

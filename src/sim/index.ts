@@ -49,6 +49,7 @@ import './rules/npc/walk';
 import './rules/perceive';
 import './rules/police';
 import './rules/profile';
+import './rules/routine';
 import './rules/shot';
 import './rules/suspicion';
 import './rules/trespass';
@@ -212,7 +213,7 @@ export { dealHarm, harmHandlers, registerHarmHandler, type Harm, type HarmHandle
 export { arrestCrew, isDown, isHurt, killNpc, woundAim, type CrewWounds, type Custody } from './rules/wounds';
 export { isWounded, npcMaxHp } from './rules/woundsState';
 export {
-    attackPlan, COMBAT_COMMANDS, inWedge, PICTURED_COMMANDS, strikeBlocked, suppressPlan, suppressReact, suppressTargets, targetsInRange, watchBlocked, watchReact, type AttackPlan
+    attackPlan, COMBAT_COMMANDS, inWedge, officersInRange, PICTURED_COMMANDS, strikeBlocked, suppressPlan, suppressReact, suppressTargets, targetsInRange, watchBlocked, watchReact, type AttackPlan
 } from './rules/actions/attack';
 export { blastTiles, flipBlocked, grenadeTargets, throwBlocked, type Grenade } from './rules/actions/throwables';
 export { type SmokeCloud } from './geo/los';
@@ -220,9 +221,10 @@ export { attackCone } from './preview/attack';
 export * from './data/police';
 export { addHeat, heatAhead, heatNow, heatOf, phasesUntilHeat, releaseBlocked, releaseHeat, releaseRelief, type HeatLevel, type HeatState } from './rules/heat';
 export {
-    bagsSecured, greedPercent, hostagesHeld, modeAfter, modePhases, nextWave, planWave, policeDown, policeHit, policeModeView, strength,
-    type NextWave, type PlannedVehicle, type PoliceModeView, type PoliceState, type PoliceUnit, type PoliceVehicle, type StagingPoint, type ArrivalKind, type VehicleKind, type WaveReason
+    bagsSecured, greedPercent, hostagesHeld, modeAfter, modePhases, newUnit, nextWave, planWave, policeDown, policeHit, policeModeView, strength,
+    type Breach, type NextWave, type PoliceSighting, type PlannedVehicle, type PoliceModeView, type PoliceState, type PoliceUnit, type PoliceVehicle, type StagingPoint, type ArrivalKind, type VehicleKind, type WaveReason
 } from './rules/police';
+export { cleanShot } from './rules/routine';
 export {
     negotiatorCalling, offerEffect, releasable, releaseExit, tradeable, type NegotiationOffer, type NegotiationState, type OfferEffect, type PoliceReport
 } from './rules/negotiation';

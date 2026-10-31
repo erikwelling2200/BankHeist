@@ -40,7 +40,7 @@ function negotiating(heat = 7, mode: 'negotiate' | 'contain' = 'negotiate'): { w
     s.bank.loud = true;
     s.response = { raised: s.turn - 1, by: 'tellerButton', policeIn: 0, heat };
     s.police.sent = 2;
-    s.police.units = [{ id: 'negotiator', kind: 'negotiator', vehicle: null, staging: 'east', arrived: s.turn - 2, pos: P(11, 5) }];
+    s.police.units = [{ id: 'negotiator', kind: 'negotiator', vehicle: null, staging: 'east', arrived: s.turn - 2, pos: P(11, 5), hp: 6, leaning: null, suppressed: null, moved: null }];
     s.police.mode = { kind: mode, left: 4, since: { turn: s.turn - 1, phase: 'world' }, after: mode === 'negotiate' ? 'contain' : null };
     // Tied, so no command lapses (a roll) while they are held.
     for (const n of s.npcs) n.status = 'tied';
