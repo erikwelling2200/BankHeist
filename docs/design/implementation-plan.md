@@ -1191,8 +1191,9 @@ M2 is complete: every package below has landed.
   - **Depends on:** M3-01 to M3-08.
   - **Notes (first half done):** aim mode, cones, cover, police markers and ghosts, breach markers, one-at-a-time playback.
     - **Rules:** `Knowledge.officers` (rules/knowledge.ts): where each officer was last seen, kept by `updateKnowledge`
-      (`learnOfficers`) while it is on a tile seen this turn, dropped once older than `ghostTurns` or once the crew sees
-      that tile without it; `officerMarkers` gives the officers seen now and the ghosts (never predicted). Optional (older
+      (`learnOfficers`) while it is on a tile seen this turn, and one the crew saw walk out of view during a command or
+      world phase on the last tile it was seen on (`officersPassed`, as `passedInEvents` does for NPCs, §8.15); dropped
+      once older than `ghostTurns`, or when the crew sees it go down where it last saw it; `officerMarkers` gives the officers seen now and the ghosts (never predicted). Optional (older
       saves: none); the state check validates it. An officer seen anew emits `revealed` (`what: 'officer'`), so a move
       that shows one is final, as one showing an NPC is (it could be undone before). `FanSegment.outline` (and `broken.outline`): `[angle, distance]` where
       each traced piece's bullet stops, for drawing the cone. Save shape hash `bbe89785cf6778cb`.
@@ -1209,12 +1210,15 @@ M2 is complete: every package below has landed.
       first time the crew is shown it (police or SWAT look), drawn live only on tiles seen this turn and faded as a
       ghost with "seen N turns ago". Aim mode: with an attack or Suppress previewed, a drag that doesn't start on the
       shooter moves the aim point a tile at a time (on the known person there, or the bare tile) under the loupe; the
-      fire selector (HTML, `.fire-selector`) sets `bullets`. Playback: each officer's `policeMoved` steps are one walk,
-      the camera and the red bracket following it only over tiles seen this turn; a shot, a wedge or a breach holds the
-      camera on its unit; the queue strip (`.loud-queue`) shows done, acting and next. `debugState.play.loud`.
+      fire selector (HTML, `.fire-selector`, beside the action grid in the right thumb's zone, fewest rounds lowest) sets
+      `bullets`. Playback: each officer's `policeMoved` steps are one walk, the sprite entering at its first step in
+      sight and walking to its last (hidden on tiles between not seen this turn), the camera and the red bracket there;
+      a shot, a wedge or a breach holds the camera on its unit where the crew last saw it (`shownPos`, never its true
+      tile), its tracer starting there; the queue strip (`.loud-queue`) shows done, acting and next. `debugState.play.loud`.
     - **Setups:** `loud-aim` in e2e/setups.ts (two steps: Mara masked with a rifle in the thick of the lobby, then a patrol
       officer in sight, a breach and a SWAT ghost); `npm run shot -- '/?new' --setup loud-aim`.
-    - **Tests:** `tests/game/loudUi.test.ts` (officer markers and ghosts, never a lost officer's new tile; a move that
+    - **Tests:** `tests/game/loudUi.test.ts` (officer markers and ghosts, a ghost on the last tile an officer was seen
+      walking on and never its new tile, gone when seen shot down there; a move that
       first shows an officer is final, the turn after isn't; the aim view
       never names someone behind a wall the truth's cone reaches; nested arcs; shields; teller glass's `ifBroken` and
       the dashed reach past it; breach markers); e2e/loud.spec.ts (`screenshots/loud-aim.png`, `loud-loupe.png`,
