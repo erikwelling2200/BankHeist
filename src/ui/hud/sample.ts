@@ -227,5 +227,18 @@ export const SAMPLE_STATES: Record<string, () => SampleState> = {
             threats: vm.ledger
         };
         return { title: 'Resume: the recap card', vm };
+    },
+    outcome: () => {
+        const vm = base();
+        vm.turn = 24;
+        vm.outcome = {
+            result: 'partial', title: 'Partial success', turn: 24, value: 45000, target: 75000, ruined: 5000, payout: 45000, heat: 2,
+            crew: [
+                { id: 'mara', name: 'Mara', colour: CREW_COLOURS[0]!, portrait: 'mara', fate: 'escaped' },
+                { id: 'jun', name: 'Jun', colour: CREW_COLOURS[1]!, portrait: 'jun', fate: 'arrested' }
+            ],
+            loot: [{ name: 'Cash bag', value: 40000 }, { name: 'Cash drawer', value: 5000 }]
+        };
+        return { title: 'The outcome screen', vm };
     }
 };

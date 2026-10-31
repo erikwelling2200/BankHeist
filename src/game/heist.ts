@@ -1,6 +1,6 @@
 import type { GeneratedBank } from '../gen/model';
 import {
-    initialState, reachable, tileAt, worldFromBank, type CrewStart, type Facing, type Pos, type ReadonlyWorld, type State
+    initialState, reachable, tileAt, vehicleAt, worldFromBank, type CrewStart, type Facing, type Pos, type ReadonlyWorld, type State
 } from '../sim';
 import { seedText } from '../gen/generate';
 import { HEIST_KEY, Session, type ResumeOptions } from './session';
@@ -33,10 +33,10 @@ export function crewOrigin(bank: GeneratedBank): Pos {
     return { x: lobby.x + Math.floor(lobby.w / 2), y: lobby.y + lobby.h };
 }
 
-/** Whether someone can stand on `p` at the start: walkable ground floor in the plot, nobody there. */
-function free(world: ReadonlyWorld, taken: readonly Pos[], p: Pos): boolean {
+/** Whether someone can stand on `p` at the start: walkable ground floor in the plot, no vehicle, nobody there. */
+function free(world: ReadonlyWorld, state: State, taken: readonly Pos[], p: Pos): boolean {
     const tile = tileAt(world, p);
-    return !!tile && !!tile.room && !tile.blocksMove && !tile.raised && !taken.some(q => q.x === p.x && q.y === p.y);
+    return !!tile && !!tile.room && !tile.blocksMove && !tile.raised && vehicleAt(world, state, p) === undefined && !taken.some(q => q.x === p.x && q.y === p.y);
 }
 
 /**
@@ -46,10 +46,12 @@ function free(world: ReadonlyWorld, taken: readonly Pos[], p: Pos): boolean {
  */
 export function crewStarts(world: ReadonlyWorld, origin: Pos, count: number): Pos[] {
     const npcs = world.people.map(p => p.pos);
+    // An empty bank but for the NPCs and the vehicles where they wait.
+    const empty = initialState(world, { seed: 0, crew: [] });
     let first: Pos | undefined;
     for (let r = 0; r < Math.max(world.width, world.height) && !first; r++) {
         for (let y = origin.y - r; y <= origin.y + r && !first; y++) for (let x = origin.x - r; x <= origin.x + r && !first; x++) {
-            if (Math.max(Math.abs(x - origin.x), Math.abs(y - origin.y)) === r && free(world, npcs, { x, y })) first = { x, y };
+            if (Math.max(Math.abs(x - origin.x), Math.abs(y - origin.y)) === r && free(world, empty, npcs, { x, y })) first = { x, y };
         }
     }
     if (!first) throw new Error('No free tile for the crew to start on');
@@ -61,7 +63,7 @@ export function crewStarts(world: ReadonlyWorld, origin: Pos, count: number): Po
     const order = [...reach.tiles].sort((a, b) => a.cost - b.cost || Math.abs(a.pos.y - first!.y) - Math.abs(b.pos.y - first!.y));
     for (const t of order) {
         if (starts.length >= count) break;
-        if (t.canEnd && free(world, [...npcs, ...starts], t.pos)) starts.push({ x: t.pos.x, y: t.pos.y });
+        if (t.canEnd && free(world, empty, [...npcs, ...starts], t.pos)) starts.push({ x: t.pos.x, y: t.pos.y });
     }
     if (starts.length < count) throw new Error(`Only ${starts.length} of ${count} crew members have somewhere to start`);
     return starts;

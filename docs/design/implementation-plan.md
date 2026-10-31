@@ -1102,10 +1102,41 @@ M2 is complete: every package below has landed.
     - **Tests:** `tests/sim/negotiation.test.ts` (the call, Stall, release with its capped relief and the heist cap, a
       hostage led along, walking out and telling, ignoring commands, a kill on the way out, trade and return, the action
       grid; each command checked against its preview).
-- [ ] **M3-08 Getaway driving and the outcome.**
+- [x] **M3-08 Getaway driving and the outcome.** (partial: see Deferred)
   - **Covers:** §14.4 (driving, boarding, doors; no ram), §15.4, §15.5.
   - **Work:** reachable vehicle footprints with turning curves; leaving the plot; the outcome screen and debrief data.
   - **Accept:** the swept-path preview equals the real path.
+  - **Notes (done):** decisions 170–179.
+    - `geo/drive.ts` (poses, footprints, door tiles, the manoeuvres and their sweeps, `driveReach`/`drivePath`, `vehicleAt`),
+      `rules/vehicles.ts` (`board`, `getOut`, `stow`, `drive`; `driveMap`, `vehicleReach`, `drivePlan`, the actor check
+      'aboard'), `rules/getaway.ts` (leaving the plot, Failure, `State.outcome`, the command gate), `data/vehicles.ts`.
+      The engine gains `registerCommandGate` (no command once the heist is over). `worldFromBank` takes the generator's
+      van out of the furniture into `World.vehicles` and marks outdoor ground `Tile.drivable`; the fixture takes
+      `vehicles` and `drivable`. Vehicles block steps (`stepCost`), sight and bullets (full height) where they stand
+      now; crew aboard are skipped by perception, shots, occupancy and command aiming. Greed now counts bags in the
+      getaway (`inGetaway`), replacing M3-04's "bags out" placeholder.
+    - **State:** `State.vehicles` (pose, driver, hold, gone), `CrewState.aboard`, `State.outcome`; `World.vehicles`,
+      `Tile.drivable`, `rules.driveTiles`/`wheelmanDriveTiles`/`contractTarget`. Loot in a hold has the vehicle's id as
+      its `holder`. Save shape hash `6931d7e188213ab4` (with M3-05's fields).
+    - **Session:** the grid offers Get in and Load the van at the van's doors, and aboard the driver's Drive (toward the
+      plot's edge, `getawayDrive`, decision 179) and Get out; Move is off aboard. `outcomeView` and the HUD's outcome
+      screen (HTML, over everything, New heist clears the save); `/?scene=hud&state=outcome`. The scene draws the van
+      where the state has it (`scenes/bank/vehicles.ts`, baked afresh where it stops) and hides crew aboard;
+      `sim.getaway()` gives the next Drive. The recap and event log name the new events.
+    - **Deferred:** the driving overlay (the highlight, rotate buttons, the swept path drawn, picking any pose, the
+      drive animated) to M3-09; hitting people in the way, ramming, vehicle hit points, armour, a disabled van and the
+      backup car (M4-04, M4); throwing loot into the van and taking it back out; the side door opened to shoot from;
+      police cars parking to block the van, the Heat 5 roadblock and wrecks (with M3-05's police movement and M4-04's
+      ram); carrying a downed ally or a hostage aboard; the other exits (sewer, roof, the garage's backup car, §14.7);
+      "none can still escape" as a Failure while someone is up; the crew's shares (§19.4), style (§19.8) and jail
+      (§19.6) in the payout; the police's reaction to the van (M3-05); choosing the getaway spot in planning (M4); the
+      van's baked sun shadow stays where it was parked; the overlay must project NPCs the crew can't see out of the
+      drive's reach before M3-09 draws it (`vehicleReach` is the truth).
+    - **Tests:** `tests/sim/getaway.test.ts` (footprints and doors, turns as curves and in reverse, drifts, boarding and
+      the hold, aboard, getting out, every reachable pose's swept path equal to the preview's and the commit's, walls
+      and people in the way, the Wheelman, leaving the plot with Success and Partial, Failure, the generated van and its
+      way off the plot); `tests/game/getaway.test.ts` (the grid's entries, a drive at a time off the plot, the outcome
+      view); the e2e "the getaway" (`screenshots/play-drive.png`, `screenshots/play-outcome.png`).
 - [ ] **M3-09 Loud interface.**
   - **Covers:** UI.md "Loud".
   - **Work:** aim mode with the loupe; nested cone arcs; cover shields; dragging Watch wedges; police markers, ghosts and pings; one-at-a-time world phase playback; the negotiator dialog; the heat strip; the driving overlay.
@@ -1877,7 +1908,7 @@ Later milestones: within each milestone, the `∥` notes in §3 apply. UI packag
     stay however far heat falls.
 124. **Greed (M3-04, §13.3).** A bag secured is a Heavy or Very heavy loot item that has been out of the building
     (carried or on the ground) and isn't ruined; once out it stays secured (`State.police.secured`, kept after every
-    command), so stepping back inside doesn't shrink the next wave. The van's hold is M3-08's. Each kind's count is scaled and rounded half up;
+    command), so stepping back inside doesn't shrink the next wave. M3-08 counts the getaway instead (decision 176). Each kind's count is scaled and rounded half up;
     the negotiator isn't scaled.
 125. **Vehicles (M3-04, §13.4).** Patrol officers ride 2 to a perimeter car while a staging point has one of its 2 car
     slots free (the point with the most free slots, ties in the generator's order). SWAT vans carry whole teams: a
@@ -2021,6 +2052,40 @@ Later milestones: within each milestone, the `∥` notes in §3 apply. UI packag
 161. **Hard promises (M3-05, §13.6).** Nothing a fighter does is previewed but the breaches, announced a phase ahead and
     carried out as shown; a Hostile NPC fires only after its telegraphed draw; officers are on the map from their
     announced arrival. Movement and targets are decided as each acts, from what it knows then.
+170. **The van in the rules (M3-08, §14.4, §15.4).** The generator's van is `World.vehicles`, not furniture: the tiles
+    under it are street, so it can drive away. Its footprint is the 2×4 of §14.4, the tiles its box stands in the way
+    on where it was parked, its heading the way its nose points. Where it stands now it blocks every step, sight and
+    bullets (full cover, §14.4), as the parked van did as full-height furniture. Nothing is thrown onto it.
+171. **Manoeuvres (M3-08, §14.4).** A Drive is a path of manoeuvres: 1 tile forward or back (1 tile of path), a drift of 2
+    along and 1 across (2), a quarter turn forward or in reverse, left or right (3: the middle follows a quarter circle
+    of radius 2, π rounded to whole tiles). A half turn is two quarter turns and ends beside the start, 2 tiles clear,
+    facing back. A turn sweeps every tile the body covers on the way, sampled every 3° from a whole-number table, 16
+    points a tile, worked out once and turned onto every heading; a reverse turn sweeps what the forward turn back does.
+    Reach is Dijkstra over poses with fixed tie-breaks, so the overlay, the preview and the commit share one path.
+172. **People in the way (M3-08, §14.4).** Nobody is driven over: anyone standing or lying on a tile blocks it, and the
+    path goes round them. Hitting people (6 damage) comes with ramming (M4-04), whose damage rules it shares.
+173. **Off the plot (M3-08, §15.4).** The street goes on past the map's west and east edges where its edge tile is
+    drivable (the generator's plot exits are all there); a pose with a tile off the map has left the plot and ends the
+    path.
+174. **Aboard (M3-08, §14.4).** Getting in (1 action, from a tile a door opens onto: the sliding door on the right, the
+    rear doors) is seen as ending an action at the door; getting out is seen where they step. Aboard, the doors are
+    shut: nobody sees them, nobody shoots them, they block nobody, and they act only through the vehicle (getting out,
+    driving). The first aboard drives; the seat passes on in crew order. Driving is no illegal act and makes no noise
+    in M3 (a parked vehicle is ignored, §14.4; the police's eyes on it are M3-05's).
+175. **The contract's target (M3-08, §15.1).** By tier until the campaign's contracts (M6): $75k for a small branch,
+    $150k for a city branch (§3), $200k for a headquarters.
+176. **Greed counts the getaway (M3-08, §13.3).** A bag is secured once it has been in a crew vehicle (in the hold, or
+    carried by someone aboard), not when it leaves the building: "secured" is what the crew has got away with so far.
+177. **The end (M3-08, §15.4, §15.5).** The crew's one vehicle leaving ends the heist: those aboard escape with what they
+    carry and the hold; everyone else alive is arrested, the dead stay dead. Every crew member dead or in custody after
+    any command is a Failure; a crew all down is played on until each is arrested or has bled out (§15.5 counts them
+    out already, but the debrief then tells which, and nobody up can change it). Success needs the target in value (not ruined) and someone away; below it, Partial.
+    The payout is the value that left until shares and style (M6). Once over, no command is given, End Turn included.
+178. **The hold (M3-08, §14.4).** A bag or crate in the hands goes into the hold on getting in, or with Load the van (1
+    action) from a door tile. Cash stays pocketed. Loot in the hold has the vehicle's id as its holder and stays there.
+179. **The getaway's Drive on the grid (M3-08).** Until M3-09's overlay picks a pose by hand, the grid's Drive goes
+    along the cheapest path off the plot (64 tiles ahead), as far as one Drive reaches: a pose on that path within the
+    Drive's tiles has the same cost in the Drive's own reach, so the sim drives it.
 
 ### Critical files for implementation
 

@@ -1,6 +1,7 @@
 import {
     besideDoor, COMBAT_COMMANDS, crewPicture, negotiatorCalling, offerEffect, releasable, tradeable, withDoubtedShut, doorStatus, DRAGGABLE, draggedBy, goBlocked, HACKING_KIT, inHands, inReach, interactionVerbs, isKnownNow, JAMMER, officerSeen, legalActions, LOCKPICK, lockActions, LOOP_FROM, lootWeight,
-    pocketed, reachesObject, STASH_KINDS, throwTargets, tieIneligible, tileVisibility, whyNot, type Command, type Pos, type ReadonlyWorld, type State
+    pocketed, preview, IllegalCommand, reachesObject, STASH_KINDS, throwTargets, tieIneligible, tileVisibility, whyNot, driveBudget, driveMap, driveReach, exitTiles, poseKey, vehicleBeside,
+    vehicleDef, type Command, type Pose, type Pos, type ReadonlyWorld, type State
 } from '../sim';
 import type { HudIcon as HudIconName } from '../ui/hud/viewModels';
 
@@ -148,15 +149,70 @@ const DOOR_LABEL = { open: 'Open', close: 'Close', lock: 'Lock', unlock: 'Unlock
 /** What a Take button names, by weight (§15.1). */
 const LOOT_NAME = { light: 'cash', heavy: 'bag', 'very heavy': 'crate' } as const;
 
+/** How many tiles of path the getaway route looks ahead for the way off the plot. */
+const ROUTE_TILES = 64;
+
+/**
+ * The getaway's next Drive (M3-08, until M3-09's driving overlay picks poses by hand): along the cheapest path off the
+ * plot, as far as one Drive goes. The pose it ends on and whether that is off the plot, or null with no way off. A pose
+ * on the cheapest path within one Drive's tiles is reached by that Drive at the same cost, so the sim drives it.
+ */
+export function getawayDrive(world: ReadonlyWorld, state: State, vehicle: string): { to: Pose; off: boolean; tilesLeft: number } | null {
+    const def = vehicleDef(world, vehicle), v = state.vehicles[vehicle];
+    const driver = v?.driver ? state.crew.find(c => c.id === v.driver) : undefined;
+    if (!def || !v || v.gone || !driver) return null;
+    const route = driveReach(def, v.pose, ROUTE_TILES, driveMap(world, state, vehicle));
+    let end = [...route.nodes.values()].find(n => n.off);
+    if (!end) return null;
+    const total = end.cost, budget = driveBudget(world, driver);
+    while (end.cost > budget && end.parent) end = route.nodes.get(end.parent)!;
+    return poseKey(end.pose) === poseKey(v.pose) ? null : { to: end.pose, off: end.off, tilesLeft: total - end.cost };
+}
+
+/** A crew member aboard a vehicle: drive it toward the plot's edge (the driver), and get out. */
+function vehicleMenu(world: ReadonlyWorld, state: State, crewId: string, vehicle: string): ActionEntry[] {
+    const out: ActionEntry[] = [];
+    const add = (id: string, label: string, command: Command, refusal?: string) => {
+        const reason = refusal ?? vehicleRefusal(world, state, command);
+        out.push({ id, label, icon: 'car', command, ...(reason ? { reason } : {}) });
+    };
+    const drive = getawayDrive(world, state, vehicle), v = state.vehicles[vehicle]!;
+    if (v.driver === crewId) {
+        if (drive) add('drive', drive.off ? 'Drive off' : `Drive (${drive.tilesLeft} to go)`, { type: 'drive', crew: crewId, vehicle, to: drive.to });
+        else add('drive', 'Drive off', { type: 'drive', crew: crewId, vehicle, to: { ...v.pose } }, 'No way off the plot from here');
+    }
+    const exit = exitTiles(world, state, crewId)[0];
+    add('getOut', 'Get out', { type: 'getOut', crew: crewId, to: exit ?? { x: -1, y: -1 } }, exit ? undefined : 'Every door is blocked');
+    return out;
+}
+
+/** Why a vehicle command can't be given: the sim's own refusal, from a preview (they aren't registered actions). */
+function vehicleRefusal(world: ReadonlyWorld, state: State, command: Command): string | undefined {
+    try {
+        preview(world, state, command);
+        return undefined;
+    } catch (e) {
+        if (e instanceof IllegalCommand) return e.message;
+        throw e;
+    }
+}
+
 /** The grid's entries (movement is the HUD's own first entry), for `target` when it is one of the member's targets. */
 export function actionMenu(world: ReadonlyWorld, state: State, crewId: string, target?: string | null): ActionEntry[] {
     const member = state.crew.find(c => c.id === crewId);
     if (!member) return [];
+    if (member.aboard) return vehicleMenu(world, state, crewId, member.aboard);
     const targets = targetsOf(world, state, crewId), out: ActionEntry[] = [];
     const add = (id: string, label: string, icon: HudIconName, command: Command, on?: string) => {
         const reason = whyNot(world, state, command);
         out.push({ id, label, icon, command, ...(reason ? { reason } : {}), ...(on ? { target: on } : {}) });
     };
+    // The getaway (§14.4): get in by a door of the van, or load the bag in hand into it.
+    const van = vehicleBeside(world, state, member.pos);
+    if (van) {
+        add('board', 'Get in', 'car', { type: 'board', crew: crewId, vehicle: van });
+        if (inHands(world, state, crewId) !== undefined) add('stow', 'Load the van', 'bag', { type: 'stow', crew: crewId, vehicle: van });
+    }
     const pick = (ids: string[]) => (target && ids.includes(target) ? target : ids[0]);
 
     const door = pick(targets.doors);
@@ -372,7 +428,8 @@ const handsFreeOf = (member: State['crew'][number]): boolean => member.loadout.c
 /** Whether `menu` agrees with the sim's `legalActions`: every enabled entry is one of them (for tests). */
 export function menuIsLegal(world: ReadonlyWorld, state: State, crewId: string, menu: readonly ActionEntry[]): boolean {
     const legal = new Set(legalActions(world, state, crewId).map(c => JSON.stringify(c)));
-    return menu.every(e => !!e.reason || legal.has(JSON.stringify(e.command)));
+    // Driving and getting out aren't registered actions: their own check is the preview.
+    return menu.every(e => !!e.reason || legal.has(JSON.stringify(e.command)) || ((e.command.type === 'drive' || e.command.type === 'getOut') && !vehicleRefusal(world, state, e.command)));
 }
 
 /** The tile a door stands on the edge of, as the middle of that edge in tile units (for taps and markers). */

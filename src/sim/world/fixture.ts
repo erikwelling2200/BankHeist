@@ -7,6 +7,7 @@ import { DEFAULT_COVER_HP } from '../data/weapons';
 import { freezeWorld } from './freeze';
 import type { KeyLock } from '../../gen/model';
 import type { StagingPoint } from '../rules/police';
+import type { VehicleDef } from '../geo/drive';
 
 /*
  * Small worlds for unit tests, drawn as text: one character per tile.
@@ -56,6 +57,13 @@ export interface FixtureOptions {
     locks?: readonly KeyLock[];
     /** The police staging points (rules/police.ts). Absent: no police come. */
     staging?: readonly StagingPoint[];
+    /**
+     * Where vehicles can drive (§14.4 Drivable): a grid like the map, 'd' for drivable; true for every ground tile with
+     * nothing on it. Absent: nowhere.
+     */
+    drivable?: true | readonly string[];
+    /** The crew's vehicles (rules/vehicles.ts). */
+    vehicles?: readonly VehicleDef[];
 }
 
 const ZONES: Readonly<Record<string, Zone>> = { '.': 'public', s: 'staff', x: 'secure' };
@@ -71,7 +79,8 @@ export function fixtureWorld(map: readonly string[], options: FixtureOptions = {
     const height = map.length, width = map[0]?.length ?? 0;
     if (!width) throw new Error('A fixture needs at least one tile');
     const zones = options.zones, rooms = options.rooms;
-    for (const [name, grid] of [['zones', zones], ['rooms', rooms]] as const) {
+    const drivable = options.drivable;
+    for (const [name, grid] of [['zones', zones], ['rooms', rooms], ['drivable', drivable === true ? undefined : drivable]] as const) {
         if (grid && (grid.length !== height || grid.some(row => row.length !== width))) throw new Error(`The ${name} grid must be ${width}x${height}, like the map`);
     }
     const tiles: Tile[] = [];
@@ -84,6 +93,7 @@ export function fixtureWorld(map: readonly string[], options: FixtureOptions = {
             if (!zone) throw new Error(`Unknown zone '${z}' at (${x}, ${y}): zones are '.', 's' and 'x'`);
             const tile: Tile = { zone, raised: c === '^', floor: c === '^' ? RAISED_HEIGHT : 0, lit: true, blocksMove: OBJECTS.has(c), tall: c === 'T', halfCover: c === '#', room: rooms && rooms[y]![x] !== '.' ? rooms[y]![x]! : null };
             if (c === '#') tile.coverHp = DEFAULT_COVER_HP;
+            if (drivable) tile.drivable = drivable === true ? !OBJECTS.has(c) && !FLOORS.has(c) : drivable[y]![x] === 'd';
             tiles.push(tile);
         });
     });
@@ -137,6 +147,7 @@ export function fixtureWorld(map: readonly string[], options: FixtureOptions = {
         rules: { ...defaultRules(), ...options.rules },
         ...(options.patrol ? { patrol: { lane: clonePlain([...options.patrol.lane]), turns: [...options.patrol.turns] } } : {}),
         ...(options.locks ? { locks: clonePlain([...options.locks]) } : {}),
-        ...(options.staging ? { staging: clonePlain([...options.staging]) } : {})
+        ...(options.staging ? { staging: clonePlain([...options.staging]) } : {}),
+        ...(options.vehicles ? { vehicles: clonePlain([...options.vehicles]) } : {})
     });
 }

@@ -11,7 +11,9 @@ import { addFloor } from './bank/floor';
 import { Heights } from './bank/heights';
 import { Knowledge } from './bank/knowledge';
 import { People } from './bank/people';
-import { addProps, bankLamps, placeProps } from './bank/props';
+import { addProps, bankLamps, placeProps, type ShownProp } from './bank/props';
+import { Vehicles } from './bank/vehicles';
+import { VEHICLE_PROPS } from '../sim';
 import { RaisedFloors } from './bank/raised';
 import { PlayMode, type PlayParts } from './bank/sim';
 import { Walls } from './bank/walls';
@@ -87,7 +89,11 @@ export class BankScene extends Phaser.Scene {
 
         const floor = this.timed('floor', () => addFloor(baker, level, props.filter(({ box }) => box.h === 0)));
         this.timed('walls', () => this.walls.build(baker));
-        const { occluders, casters, shown } = this.timed('props', () => addProps(this, baker, this.walls, props.filter(({ box }) => box.h > 0), heights));
+        const standing = props.filter(({ box }) => box.h > 0);
+        const { occluders, casters, shown } = this.timed('props', () => addProps(this, baker, this.walls, standing, heights));
+        // The crew's vehicles, as rules/vehicles.ts names them: in the order the generator placed them.
+        const built = new Map<string, ShownProp>();
+        standing.forEach(({ p }, i) => { if (VEHICLE_PROPS.has(p.kind)) built.set(built.size ? `van-${built.size}` : 'van', shown[i]!); });
         knowledge.trackProps(shown);
         knowledge.trackRaised(raised);
         this.timed('people', () => this.people.build(this.bank.people, play ? play.session.state.crew.map((c, i) => ({
@@ -103,7 +109,7 @@ export class BankScene extends Phaser.Scene {
         });
         if (play?.setupMs !== undefined) this.timings.heist = play.setupMs;
         if (play) this.timed('play', () => {
-            this.play = new PlayMode(this, { ...play, people: this.people, walls: this.walls, camera: this.camera, knowledge });
+            this.play = new PlayMode(this, { ...play, people: this.people, walls: this.walls, camera: this.camera, knowledge, vehicles: new Vehicles(baker, this.bank, built) });
             this.camera.prepareZoomIn();
             // Play mode opens on the crew: the walls stand as that view asks from the first frame.
             this.walls.update(0, this.cameras.main.midPoint.y, this.camera.onMap);

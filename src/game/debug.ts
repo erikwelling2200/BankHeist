@@ -3,6 +3,7 @@ import {
 } from '../sim';
 import { evidenceWarnings, type EvidenceWarning } from './evidenceWarning';
 import { AutoRun, waitMenu } from './autoAdvance';
+import { getawayDrive } from './actions';
 import { Session, UI_KEY, type PlayerPreview } from './session';
 
 /*
@@ -75,6 +76,8 @@ export interface SimHandle {
      * there is added to what they know, as after a command.
      */
     restart(state: State): void;
+    /** The getaway's next Drive toward the plot's edge, as the action grid offers it (M3-08), or null with no way off. */
+    getaway(vehicle?: string): ReturnType<typeof getawayDrive>;
 }
 
 /** How far a scripted route may reach, in half-steps (60 tiles). */
@@ -113,6 +116,7 @@ export function installDebugHandle(session: Session, target: { sim?: SimHandle }
             }
         },
         effect: (events, crew, before) => effectOf(events, crew, before),
+        getaway: (vehicle = 'van') => getawayDrive(session.world, session.state, vehicle),
         restart: state => {
             updateKnowledge(session.world, state, () => {});
             session.retire();

@@ -15,6 +15,7 @@ import type { NoiseKind } from '../data/noise';
 import { bandAt, bandOf, fieldOn, profilesOf, rangeOn, seesOn, type Observer, type SightField, type VisionProfile } from '../geo/cones';
 import { buildSightMap, CLEAR, lineOfSight, sightInputs, sightMap, type SightMap } from '../geo/los';
 import { doorBetween, doorStatus, LYING_STATUSES } from '../geo/move';
+import { footprint } from '../geo/drive';
 import { inRing, registerNoiseHook } from '../geo/sound';
 import { liveFeeds } from './cctv';
 import { reaction, sightingsAlong, takeTurned, type Reaction } from './perceive';
@@ -920,6 +921,8 @@ interface RiskCache {
     sight: SightMap;
     /** Each tile's visibility code (`visibilityMap`). */
     visibility: Uint8Array;
+    /** Per tile, 1 where nobody can stand: known furniture (`blocksMove`) or a crew vehicle where it is now. */
+    blocked: Uint8Array;
 }
 
 const RISK = new WeakMap<ReadonlyWorld, RiskCache[]>();
@@ -938,7 +941,7 @@ function riskCache(world: ReadonlyWorld, state: State): RiskCache {
         const n = tilesOf(world), sets = tileSets(world, state);
         cache = {
             key, far: new Int32Array(n).fill(-2), close: new Int32Array(n).fill(-2), camera: new Int32Array(n).fill(-2), fresh: sets.fresh,
-            sight: knownSight(world, sets, sightMap(world, seenAs)), visibility: sets.visibility
+            sight: knownSight(world, sets, sightMap(world, seenAs)), visibility: sets.visibility, blocked: standBlocked(world, state)
         };
         list.unshift(cache);
         if (list.length > RISK_KEEP) list.length = RISK_KEEP;
@@ -986,8 +989,20 @@ function offsetsWithin(r: number): Int32Array {
  * one, whatever stands there (it isn't known), or a stale one a person can stand on (not known furniture: what movement
  * can't enter, `blocksMove`); a camera on a hidden tile (a camera anywhere else would be known, and cameras don't move).
  */
-function unknownNpcAt(world: ReadonlyWorld, c: RiskCache, j: number): boolean {
-    return !c.fresh[j] && (c.visibility[j] === HIDDEN || !world.tiles[j]!.blocksMove);
+function unknownNpcAt(c: RiskCache, j: number): boolean {
+    return !c.fresh[j] && (c.visibility[j] === HIDDEN || !c.blocked[j]);
+}
+
+/** Where nobody stands: furniture, and the crew's vehicles where they are (the crew's own, so always known). */
+function standBlocked(world: ReadonlyWorld, state: State): Uint8Array {
+    const out = new Uint8Array(world.width * world.height);
+    world.tiles.forEach((t, i) => { if (t.blocksMove) out[i] = 1; });
+    for (const v of world.vehicles ?? []) {
+        const now = state.vehicles?.[v.id];
+        if (!now || now.gone) continue;
+        for (const p of footprint(v, now.pose)) if (inBounds(world, p)) out[p.y * world.width + p.x] = 1;
+    }
+    return out;
 }
 
 const unknownCameraAt = (c: RiskCache, j: number): boolean => c.visibility[j] === HIDDEN;
@@ -1007,7 +1022,7 @@ function nearestUnknown(world: ReadonlyWorld, c: RiskCache, p: Pos, kind: 'far' 
             const dx = offsets[k]!, dy = offsets[k + 1]!, x = p.x + dx, y = p.y + dy;
             if (Math.max(Math.abs(dx), Math.abs(dy)) > frisk || x < 0 || y < 0 || x >= w || y >= world.height) continue;
             const j = y * w + x;
-            if (kind === 'camera' ? !unknownCameraAt(c, j) : !unknownNpcAt(world, c, j)) continue;
+            if (kind === 'camera' ? !unknownCameraAt(c, j) : !unknownNpcAt(c, j)) continue;
             // Someone could stand on a stale tile itself.
             if ((!dx && !dy) || lineOfSight(c.sight, { x, y }, p)) { found = j; break; }
         }
@@ -1128,7 +1143,7 @@ export function unknownWatchers(world: ReadonlyWorld, state: State, crewId: stri
         const dx = offsets[k]!, dy = offsets[k + 1]!, x = p.x + dx, y = p.y + dy;
         if (x < 0 || y < 0 || x >= w || y >= world.height) continue;
         const j = y * w + x, d = dx * dx + dy * dy;
-        const npc = d <= npcs * npcs && unknownNpcAt(world, c, j), camera = d <= cameras * cameras && unknownCameraAt(c, j);
+        const npc = d <= npcs * npcs && unknownNpcAt(c, j), camera = d <= cameras * cameras && unknownCameraAt(c, j);
         if (!npc && !camera) continue;
         // Someone could stand on a stale tile itself.
         if ((dx || dy) && !lineOfSight(c.sight, { x, y }, p)) continue;

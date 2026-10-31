@@ -2,6 +2,7 @@ import { cornerEdges, edgeBetween, edgeKey, FACING_STEP, FACINGS, inBounds, tile
 import { edgeNow, registerRuleDefaults } from '../core/state';
 import type { ClimbSide, CrewState, DeepReadonly, DoorDef, DoorStatus, NpcStatus, Pos, ReadonlyWorld, State, Tile } from '../core/types';
 import { DIAGONAL_COST, HALF_STEPS_PER_TILE, HEAVY_ARMOUR_ITEM, ORTHOGONAL_COST } from '../data/movement';
+import { vehicleAt } from './drive';
 
 /*
  * Where someone can walk (§6.3, §14.7): the cost of one step, every tile within a budget with a path to it, and the
@@ -17,7 +18,8 @@ import { DIAGONAL_COST, HALF_STEPS_PER_TILE, HEAVY_ARMOUR_ITEM, ORTHOGONAL_COST 
  *   that blocks movement, nor a door frame, open or not (a breached door has no frame left). Furniture doesn't stop a
  *   diagonal: §6.3 names only walls, and a desk is smaller than its tile. Nor do people: a diagonal may squeeze between
  *   two NPCs standing on the corner's other two tiles (they stand in the middle of their tiles).
- * - Tiles that block movement (desks, columns) are never entered, nor are those a plan has off limits (`offLimits`).
+ * - Tiles that block movement (desks, columns) are never entered, nor are those a vehicle stands on (geo/drive.ts), nor
+ *   those a plan has off limits (`offLimits`).
  * - Raised tiles (§14.7) are reached only by stairs or ladders: a climb tile is ground floor and leads one way, to the
  *   raised tile on its `climb.to` side. A step between tiles of different height must be that one step, either way.
  * - People: a mover may pass through their own side (crew through crew, NPCs through NPCs) and through anyone lying
@@ -71,7 +73,8 @@ export function occupancy(world: ReadonlyWorld, state: State, options: MoveOptio
         const i = p.y * world.width + p.x;
         if (occupant === 'blocking' || !out.has(i)) out.set(i, occupant);
     };
-    for (const c of state.crew) if (c.id !== options.mover) put(c.pos, moverIsNpc || moverIsPolice ? 'blocking' : 'passable');
+    // Crew aboard a vehicle sit on its footprint, which nobody enters anyway.
+    for (const c of state.crew) if (c.id !== options.mover && !c.aboard) put(c.pos, moverIsNpc || moverIsPolice ? 'blocking' : 'passable');
     for (const n of state.npcs) if (n.id !== options.mover && !ABSENT_STATUSES.has(n.status)) put(n.pos, !moverIsNpc && !LYING_STATUSES.has(n.status) ? 'blocking' : 'passable');
     // Police officers out on scene (rules/police.ts) stand in everyone's way.
     for (const u of state.police?.units ?? []) if (u.pos && u.id !== options.mover) put(u.pos, 'blocking');
@@ -112,7 +115,7 @@ export function stepCost(world: ReadonlyWorld, state: State, a: Pos, b: Pos, opt
     const dx = b.x - a.x, dy = b.y - a.y, adx = Math.abs(dx), ady = Math.abs(dy);
     if (adx > 1 || ady > 1 || adx + ady === 0) return undefined;
     const from = tileAt(world, a), to = tileAt(world, b);
-    if (!from || !to || to.blocksMove || options.offLimits?.[b.y * world.width + b.x]) return undefined;
+    if (!from || !to || to.blocksMove || options.offLimits?.[b.y * world.width + b.x] || vehicleAt(world, state, b) !== undefined) return undefined;
     if (from.raised !== to.raised && !leadsTo(from, a, b) && !leadsTo(to, b, a)) return undefined;
     if (adx + ady === 1) return edgeStops(world, state, a, b, options) ? undefined : ORTHOGONAL_COST;
     for (const edge of cornerEdges(a, b)) {

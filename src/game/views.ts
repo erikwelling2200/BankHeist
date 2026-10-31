@@ -1,11 +1,11 @@
 import {
     CARRIERS, commandPreview, doorSides, crewLoot, crewLook, DASH_ACTIONS, hasWeaponInHand, heatOf, holdPreview, isKnownNow, knownCarriers, lootOf, markerKind, mayBeDyed, MODE_LABELS, nextWave,
     policeModeView, POLICE_LABELS, steadyHand, walkingToAlarm, MOVE_ACTIONS, nextDriveBy, type CarrierChanges, type CarrierPreview,
-    type CommandRings, type Command, type HoldRing, type ReadonlyWorld, type SimEvent, type State
+    type CommandRings, type Command, type HoldRing, type OutcomeResult, type ReadonlyWorld, type SimEvent, type State
 } from '../sim';
 import {
     CREW_COLOURS, OVERLAY_IDS, type ActionVM, type BankStatus, type CommitKind, type ConfirmVM, type HudIcon, type BankStatusVM, type CrewVM, type HudViewModel, type LootVM, MAX_ACTIONS, type OverlayId,
-    type RecapEventVM, type RecapVM, type RingsVM, type ThreatVM
+    type OutcomeCrewVM, type OutcomeVM, type RecapEventVM, type RecapVM, type RingsVM, type ThreatVM
 } from '../ui/hud/viewModels';
 import { actionMenu, cameraName, VERBS } from './actions';
 import type { UiState } from './session';
@@ -330,6 +330,10 @@ function describeCommand(cmd: Command, world?: ReadonlyWorld): { label: string; 
         case 'flipTable': return { label: 'Flip table', icon: 'flip', cost: 1 };
         case 'revive': return { label: 'Revive', icon: 'revive', cost: 1 };
         case 'medkit': return { label: 'Medkit', icon: 'medkit', cost: 1 };
+        case 'board': return { label: 'Get in', icon: 'car', cost: 1 };
+        case 'getOut': return { label: 'Get out', icon: 'car', cost: 1 };
+        case 'stow': return { label: 'Load the van', icon: 'bag', cost: 1 };
+        case 'drive': return { label: 'Drive', icon: 'car', cost: 1 };
         default: return { label: cmd.type, icon: 'interact', cost: 1 };
     }
 }
@@ -348,7 +352,7 @@ export function actionsView(world: ReadonlyWorld, state: State, ui: UiState, ext
     if (!member || state.phase !== 'crew') return [];
     const pending = ui.pendingCommand, moving = !pending || pending.type === 'move' || pending.type === 'dash';
     const move = describeCommand(pending?.type === 'dash' ? pending : { type: 'move', crew: member.id, path: [] }, world);
-    const stuck = member.actionsLeft === 0 ? 'No actions left' : undefined;
+    const stuck = member.aboard ? `${member.name} is in the van: get out first` : member.actionsLeft === 0 ? 'No actions left' : undefined;
     const out: ActionVM[] = [{ id: 'move', label: move.label, icon: move.icon, cost: move.cost, enabled: !stuck, ...(stuck ? { reason: stuck } : {}), selected: moving }];
     for (const e of actionMenu(world, state, member.id, extras.target)) {
         // Hold, Watch and Brace spend whatever is left (§10.3, §11.8, §6.3), at least 1; a free swap nothing.
@@ -434,7 +438,8 @@ export function hudView(world: ReadonlyWorld, state: State, ui: UiState, extras:
         undoEnabled: extras.undoEnabled ?? false,
         ledger: threatLedger(state, world),
         overlays: Object.fromEntries(OVERLAY_IDS.map(id => [id, extras.overlays?.[id] ?? false])) as Record<OverlayId, boolean>,
-        mapOn: extras.mapOn ?? false
+        mapOn: extras.mapOn ?? false,
+        outcome: outcomeView(world, state)
     };
 }
 
@@ -627,6 +632,12 @@ export function describeEvent(world: ReadonlyWorld, state: State, event: SimEven
         case 'npcWounded': return event.wounded ? `${name(event.npc)} is badly hurt` : `${name(event.npc)} is hit`;
         case 'npcDied': return `${name(event.npc)} is dead`;
         case 'screamed': return `${name(event.npc)} screams`;
+        case 'boarded': return `${name(event.crew)} got in the van${event.driver ? ', at the wheel' : ''}`;
+        case 'gotOut': return `${name(event.crew)} got out of the van`;
+        case 'stowed': return `${name(event.crew)} put ${lootName(world, event.loot)} in the van`;
+        case 'driverChanged': return event.driver ? `${name(event.driver)} took the wheel` : 'Nobody is at the wheel';
+        case 'driven': return event.off ? `${name(event.crew)} drove off the plot` : `${name(event.crew)} drove the van ${event.cost} tiles`;
+        case 'heistEnded': return OUTCOME_TITLES[event.result];
         default: return event.type;
     }
 }
@@ -710,3 +721,36 @@ export function barkText(world: ReadonlyWorld, _state: State, e: Extract<SimEven
 }
 
 const MAJOR_KINDS: ReadonlySet<string> = new Set(['body', 'tied', 'hole', 'weapon', 'blood', 'lootBag', 'drill', 'assault']);
+
+// ------------------------------------------------------------------------------------------------------------ Outcome
+
+/** What the outcome screen calls each result (§15.5). */
+export const OUTCOME_TITLES: Readonly<Record<OutcomeResult, string>> = { success: 'Clean getaway', partial: 'Partial success', failure: 'Heist failed' };
+
+/** The outcome screen (§15.5): the result, the money against the target and what became of each crew member; null while the heist goes on. */
+export function outcomeView(world: ReadonlyWorld, state: State): OutcomeVM | null {
+    const o = state.outcome;
+    if (!o) return null;
+    const everyone = [...state.crew, ...state.custody.map(c => c.crew)];
+    const fate = (id: string): OutcomeCrewVM['fate'] => (o.escaped.includes(id) ? 'escaped' : o.dead.includes(id) ? 'dead' : 'arrested');
+    const order = [...o.escaped, ...o.arrested, ...o.dead];
+    return {
+        result: o.result,
+        title: OUTCOME_TITLES[o.result],
+        turn: o.turn,
+        value: o.value,
+        target: o.target,
+        ruined: o.ruined,
+        // The crew's shares (§19.4) and style (§19.8) are the campaign's (M6): the payout is what left.
+        payout: o.value,
+        heat: o.heat,
+        crew: order.map(id => {
+            const c = everyone.find(x => x.id === id)!, i = Math.max(0, everyone.indexOf(c));
+            return { id, name: c.name, colour: crewColour(i), ...portraitOf(c), fate: fate(id) };
+        }),
+        loot: o.loot.map(id => {
+            const name = lootName(world, id).replace(/^the /, '');
+            return { name: name.charAt(0).toUpperCase() + name.slice(1), value: world.objects.find(x => x.id === id)?.loot?.value ?? 0 };
+        })
+    };
+}

@@ -11,6 +11,8 @@ import {
     type WallEdge, type WorldObject, type Zone
 } from '../core/types';
 import { COVER_HP, DEFAULT_COVER_HP, FLIPPABLE } from '../data/weapons';
+import { CONTRACT_TARGETS, VEHICLES } from '../data/vehicles';
+import type { Heading, VehicleDef } from '../geo/drive';
 import { freezeWorld } from './freeze';
 import { DOOR_KINDS, WALL_MATERIALS } from './materials';
 
@@ -36,6 +38,8 @@ import { DOOR_KINDS, WALL_MATERIALS } from './materials';
  * - people: their role, observer class and schedule (the typed `routine` with its tiles, run by rules/npc), and a hidden
  *   weapon on an off-duty cop (rules/actions/hostage.ts; everyone else carries what their class does); cameras with
  *   their facings, two for a panning one.
+ * - vehicles: the crew's van where the generator parked it (`World.vehicles`, rules/vehicles.ts), not furniture: its
+ *   tiles are street. Outdoor ground is Drivable (`Tile.drivable`, §14.4).
  * - the patrol car's lane along the main street and the timeline's drive-by turns (rules/checkins.ts), and the police
  *   arrival time of the bank's tier (`rules.policeEta`, §9.2), whether it hides dye packs (`rules.dyePacks`, §15.1),
  *   and its guards' armour (`rules.guardArmour`: 1 from City tier, §12.3); the police staging points (§13.4).
@@ -109,6 +113,9 @@ export const OBJECT_KINDS: Partial<Record<LevelProp['kind'], string>> = {
 /** What one deposit box holds (§15.1: a Light stack, as a drawer's $5k): the generator's deposit loot split by it. */
 export const DEPOSIT_BOX_VALUE = 5000;
 
+/** The props that are the crew's vehicles (§14.4): `World.vehicles`, not furniture. */
+export const VEHICLE_PROPS: ReadonlySet<LevelProp['kind']> = new Set<LevelProp['kind']>(['van']);
+
 /** Rooms a body can be stashed anywhere in (§8.10, `World.stashRooms`). */
 export const STASH_ROOMS: readonly GenRoom['type'][] = ['cleanersCloset'];
 
@@ -138,8 +145,10 @@ export function worldFromBank(bank: GeneratedBank): ReadonlyWorld {
     const { tiles: floors, walls } = bank.level;
     const height = floors.length, width = floors[0]?.length ?? 0;
     const wallOn = wallLookup(walls);
-    const grids = propTileGrids(width, height, bank.props, wallOn);
-    const coverHp = coverHitPoints(width, height, bank.props, wallOn), flipHp = flipHitPoints(width, height, bank.props, wallOn);
+    // The crew's van drives away from where it was built: its tiles are street, and it is `World.vehicles`.
+    const props = bank.props.filter(p => !VEHICLE_PROPS.has(p.kind));
+    const grids = propTileGrids(width, height, props, wallOn);
+    const coverHp = coverHitPoints(width, height, props, wallOn), flipHp = flipHitPoints(width, height, props, wallOn);
 
     // Which room each tile is in: the rooms' parts tile the map (the generator's owner grid, §17).
     const owner: (GenRoom | undefined)[] = new Array<GenRoom | undefined>(width * height).fill(undefined);
@@ -150,7 +159,7 @@ export function worldFromBank(bank: GeneratedBank): ReadonlyWorld {
     for (let y = 0; y < height; y++) for (let x = 0; x < width; x++) {
         const i = y * width + x, room = owner[i];
         if (!room) {
-            tiles.push({ zone: 'public', raised: false, floor: 0, lit: false, blocksMove: true, tall: true, halfCover: false, room: null });
+            tiles.push({ zone: 'public', raised: false, floor: 0, lit: false, blocksMove: true, tall: true, halfCover: false, room: null, drivable: false });
             continue;
         }
         const floor = floorHeight(floors, x, y);
@@ -159,6 +168,8 @@ export function worldFromBank(bank: GeneratedBank): ReadonlyWorld {
             blocksMove: grids.blocked[i] === 1, tall: grids.tall[i] === 1, halfCover: grids.halfCover[i] === 1, room: room.id
         };
         if (tile.halfCover && Number.isFinite(coverHp[i]!)) tile.coverHp = coverHp[i]! || DEFAULT_COVER_HP;
+        // Outdoors on the ground, a vehicle can drive (§14.4 Drivable). On every tile, so the save packs it as bits.
+        tile.drivable = room.zone === 'outdoors' && floor === 0;
         if (flipHp[i]! > 0 && !tile.tall) tile.flipHp = flipHp[i]!;
         tiles.push(tile);
     }
@@ -268,10 +279,28 @@ export function worldFromBank(bank: GeneratedBank): ReadonlyWorld {
     }
     const patrol = { lane, turns: bank.timeline.filter(t => t.name === 'Patrol drive-by').map(t => t.turn).sort((a, b) => a - b) };
     // Police in N (§9.2), dye packs or none (§15.1) and the guards' armour (§12.3) by the bank's tier.
-    const rules = { ...defaultRules(), policeEta: bank.policeEta, dyePacks: bank.dyePacks, guardArmour: bank.tier === 'small' ? 0 : 1 };
+    const rules = {
+        ...defaultRules(), policeEta: bank.policeEta, dyePacks: bank.dyePacks, guardArmour: bank.tier === 'small' ? 0 : 1,
+        // The contract's target (§15.1) by tier, until the campaign's contracts set it (decision 175).
+        contractTarget: CONTRACT_TARGETS[bank.tier] ?? 0
+    };
     // The key graph (§15.2): the rules read its keys (rules/keys.ts).
     const locks = clonePlain(bank.locks);
     // The police staging points (§13.4), as the generator chose them.
     const staging = bank.staging.map(s => ({ id: s.id, name: s.name, pos: { x: s.tx, y: s.ty } }));
-    return freezeWorld({ width, height, tiles, edges, doors, objects, people, cameras, rules, stashRooms, building, locks, staging, ...(lane.length ? { patrol } : {}) });
+    // The crew's vehicles (§14.4): the van where the generator parked it, its footprint the tiles its box stands in the
+    // way on (the 2×4 of §14.4), its heading the way its nose points.
+    const vehicles: VehicleDef[] = [];
+    for (const prop of bank.props) {
+        if (!VEHICLE_PROPS.has(prop.kind)) continue;
+        const placed = placeProp(prop, wallOn), on = tilesOfBox(placed.box).filter(t => blocksMoveAt(placed, t.x, t.y));
+        const x = Math.min(...on.map(t => t.x)), y = Math.min(...on.map(t => t.y));
+        const heading = PROP_FACING[prop.facing ?? CATALOG[prop.kind].facing ?? 'south'] as Heading;
+        const spec = VEHICLES.van;
+        vehicles.push({ id: vehicles.length ? `van-${vehicles.length}` : 'van', type: 'van', name: spec.name, width: spec.width, length: spec.length, start: { x, y, heading } });
+    }
+    return freezeWorld({
+        width, height, tiles, edges, doors, objects, people, cameras, rules, stashRooms, building, locks, staging, ...(lane.length ? { patrol } : {}),
+        ...(vehicles.length ? { vehicles } : {})
+    });
 }

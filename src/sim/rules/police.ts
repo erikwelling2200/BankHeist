@@ -10,10 +10,11 @@ import {
     NEGOTIATE_HOSTAGE_CAP, NEGOTIATE_PHASES, OFFICER_STATS, POLICE_KINDS, REGROUP_PHASES, REGROUP_PHASES_HIGH, SWAT_KINDS, UNSCALED, VAN_SEATS, type PoliceKind, type PoliceMode
 } from '../data/police';
 import { ABSENT_STATUSES, stepCost } from '../geo/move';
-import { inBuilding } from './actions/loot';
 import { lootWeight } from './hands';
 import type { Lean } from './shot';
 import { addHeat, heatAhead, heatOf, phasesUntilHeat } from './heat';
+import { inGetaway } from './vehicles';
+import { vehicleAt } from '../geo/drive';
 
 /*
  * The police director (§13.3, §13.4): who comes, in what, where to, and the rhythm they keep once on scene. Police
@@ -28,9 +29,9 @@ import { addHeat, heatAhead, heatOf, phasesUntilHeat } from './heat';
  *   between world phases (a kill in the crew phase) sends its wave in the next world phase's devices step. Steps only
  *   go up: a level fallen from (a release) and reached again is not a new step, and neither is a refill threshold.
  * - **Greed** (§13.3): +10% per bag secured, at most +50%, rounded half up, for every kind but the negotiator. A bag
- *   secured is a Heavy or Very heavy loot item that has been carried or thrown out of the building, not ruined
- *   (`PoliceState.secured`, kept after every command: taking it back inside doesn't unsecure it). The van's hold is
- *   M3-08's.
+ *   secured is a Heavy or Very heavy loot item that has been in a crew vehicle (in its hold or carried by someone
+ *   aboard, rules/vehicles.ts `inGetaway`; decision 176), not ruined (`PoliceState.secured`, kept after every
+ *   command).
  * - **Vehicles** (§13.4) appear at their staging point at the end of the world phase of their wave, with the siren
  *   marker (`policeArriving`); their units get out in the next world phase (`policeDeployed`), on the free tiles nearest
  *   it. Patrol officers come 2 to a **perimeter car**, which parks and stays: at most 2 per staging point (a wreck frees
@@ -121,7 +122,7 @@ export interface PoliceState {
     sent: number;
     /** The refills past Heat 5 sent (§13.1). */
     refills: number;
-    /** The bags (loot ids) that have left the building, for greed (§13.3). */
+    /** The bags (loot ids) that have been in a crew vehicle, for greed (§13.3). */
     secured: string[];
     /** What the police know of each crew member, by crew id (rules/routine.ts). */
     known: Record<string, PoliceSighting>;
@@ -164,26 +165,21 @@ registerStateInit('police', (_world, state) => {
 
 // ---------------------------------------------------------------------------------------------------------- The force
 
-/** The bags out of the building now: Heavy or Very heavy, taken, not ruined, with their carrier or on the ground. */
-function bagsOut(world: ReadonlyWorld, state: DeepReadonly<State>): string[] {
-    return sortedIds(state.loot).filter(id => {
-        const loot = state.loot[id]!;
-        if (!loot.taken || loot.ruined || lootWeight(world, id) === 'light') return false;
-        const holder = loot.holder === null ? undefined : state.crew.find(c => c.id === loot.holder);
-        return !inBuilding(world, holder ? holder.pos : loot.pos);
-    });
+/** The bags in a crew vehicle now: Heavy or Very heavy, not ruined, in its hold or carried by someone aboard. */
+function bagsAboard(world: ReadonlyWorld, state: DeepReadonly<State>): string[] {
+    return sortedIds(state.loot).filter(id => !state.loot[id]!.ruined && lootWeight(world, id) !== 'light' && inGetaway(state, id));
 }
 
-/** Bags secured (§13.3 greed; see the header): out of the building once, not ruined since. */
+/** Bags secured (§13.3 greed; see the header): in a crew vehicle once, not ruined since. */
 export function bagsSecured(world: ReadonlyWorld, state: DeepReadonly<State>): number {
-    const ids = new Set([...state.police.secured, ...bagsOut(world, state)]);
+    const ids = new Set([...state.police.secured, ...bagsAboard(world, state)]);
     return [...ids].filter(id => !state.loot[id]?.ruined).length;
 }
 
-// Greed keeps every bag that has been out (see the header).
+// Greed keeps every bag that has been in a crew vehicle (see the header).
 registerCommandHook('police.secured', ctx => {
     const { world, state } = ctx;
-    const out = bagsOut(world, state).filter(id => !state.police.secured.includes(id));
+    const out = bagsAboard(world, state).filter(id => !state.police.secured.includes(id));
     if (out.length) state.police.secured = [...state.police.secured, ...out].sort();
 });
 
@@ -336,10 +332,10 @@ export function nextWave(world: ReadonlyWorld, state: DeepReadonly<State>): Next
 export function exitTile(world: ReadonlyWorld, state: State, from: DeepReadonly<Pos>): Pos | null {
     const taken = new Set<number>();
     const put = (p: DeepReadonly<Pos>): void => void taken.add(p.y * world.width + p.x);
-    for (const c of state.crew) put(c.pos);
+    for (const c of state.crew) if (!c.aboard) put(c.pos);
     for (const n of state.npcs) if (!ABSENT_STATUSES.has(n.status)) put(n.pos);
     for (const u of state.police.units) if (u.pos) put(u.pos);
-    const free = (p: Pos): boolean => inBounds(world, p) && !taken.has(p.y * world.width + p.x) && !tileAt(world, p)!.blocksMove;
+    const free = (p: Pos): boolean => inBounds(world, p) && !taken.has(p.y * world.width + p.x) && !tileAt(world, p)!.blocksMove && vehicleAt(world, state, p) === undefined;
     const start = { x: from.x, y: from.y };
     if (free(start)) return start;
     const seen = new Set<number>([start.y * world.width + start.x]), queue: Pos[] = [start];

@@ -4,7 +4,7 @@ import {
     type PathVM
 } from '../../game/worldUi';
 import {
-    actionMenu, AutoRun, rolePortrait, throwTiles, autoBarView, bankView, barkText, cameraName, doorMiddle, nextCamera, moveAlong, moveRange, moveTo, routeViews, stopNeedsAttention, targetsOf, waitMenu, type ActionId, type FloorJob, type MoveRange,
+    actionMenu, AutoRun, HEIST_KEY, rolePortrait, throwTiles, autoBarView, bankView, barkText, cameraName, doorMiddle, nextCamera, moveAlong, moveRange, moveTo, routeViews, stopNeedsAttention, targetsOf, waitMenu, type ActionId, type FloorJob, type MoveRange,
     type PlaybackItem, type PlaybackSpeed, type Session, type SessionChange
 } from '../../game';
 import { shownWarnings, warningLines, type EvidenceWarning } from '../../game/evidenceWarning';
@@ -26,6 +26,7 @@ import { WorldOverlay, type OverlayContent } from './overlay';
 import type { Knowledge } from './knowledge';
 import type { People } from './people';
 import type { Walls } from './walls';
+import type { Vehicles } from './vehicles';
 
 /*
  * Play mode (the game on `/`, implementation plan §2.5, M1-13): the bank scene driven by a Session. What the crew knows
@@ -100,6 +101,8 @@ export interface PlayParts {
     walls: Walls;
     camera: BankCamera;
     knowledge: Knowledge;
+    /** The crew's vehicles as drawn (M3-08). */
+    vehicles: Vehicles;
     /** The heist was resumed: show the recap card first (§20.6). */
     resumed: boolean;
 }
@@ -110,6 +113,7 @@ export class PlayMode {
     private readonly walls: Walls;
     private readonly camera: BankCamera;
     private readonly knowledge: Knowledge;
+    private readonly vehicles: Vehicles;
     private readonly hud: HudHandle;
     private readonly overlay: WorldOverlay;
     private readonly input: MapInput;
@@ -192,6 +196,7 @@ export class PlayMode {
         this.walls = walls;
         this.camera = camera;
         this.knowledge = knowledge;
+        this.vehicles = parts.vehicles;
         this.recap = parts.resumed && session.recent.length > 0;
         this.lastStop = session.ui.autoStop ?? null;
         bank.people.forEach((p, i) => {
@@ -234,6 +239,11 @@ export class PlayMode {
             resume: () => {
                 this.recap = false;
                 this.refresh();
+            },
+            // A new heist once this one is over (§15.5): the saved one is done with; the page starts afresh.
+            newHeist: () => {
+                this.session.storage.remove(HEIST_KEY);
+                window.location.reload();
             }
         });
         this.autoBar = mountAutoBar(document.body, {
@@ -691,8 +701,12 @@ export class PlayMode {
         };
         for (const c of state.crew) {
             const index = this.sprite.get(c.id);
-            if (index !== undefined) place(index, c.pos, c.facing);
+            if (index === undefined) continue;
+            place(index, c.pos, c.facing);
+            // Aboard a vehicle they are inside it, out of sight (§14.4).
+            this.people.setAway(index, c.aboard !== null);
         }
+        this.vehicles.sync(state.vehicles, id => world.vehicles?.find(v => v.id === id)?.start);
         for (const n of state.npcs) {
             const index = this.sprite.get(n.id), m = markers.get(n.id);
             if (index === undefined) continue;

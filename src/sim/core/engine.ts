@@ -94,6 +94,29 @@ export function commandHooks(): string[] {
     return commandHooksInOrder().map(([name]) => name);
 }
 
+/**
+ * Why no command at all may be given now (the heist is over, rules/getaway.ts), or undefined. Checked before every
+ * command, `endTurn` included, in preview and commit alike.
+ */
+export type CommandGate = (world: ReadonlyWorld, state: DeepReadonly<State>) => string | undefined;
+
+const COMMAND_GATES = new Map<string, CommandGate>();
+
+/** Adds a named gate every command passes first (see `CommandGate`); gates run by name. */
+export function registerCommandGate(name: string, gate: CommandGate): void {
+    if (COMMAND_GATES.has(name)) throw new Error(`Command gate '${name}' already exists`);
+    COMMAND_GATES.set(name, gate);
+}
+
+/** Why no command may be given now, or undefined. */
+export function commandGate(world: ReadonlyWorld, state: DeepReadonly<State>): string | undefined {
+    for (const name of [...COMMAND_GATES.keys()].sort()) {
+        const reason = COMMAND_GATES.get(name)!(world, state);
+        if (reason) return reason;
+    }
+    return undefined;
+}
+
 /** Registers the reducer of a command type (see `RegisterOptions`). */
 export function registerCommand<K extends CommandType>(type: K, reduce: Reducer<K>, options: RegisterOptions & { final?: boolean } = {}): void {
     if (!supersedes('Command', type, COMMANDS.get(type), options)) return;
@@ -181,6 +204,8 @@ function run(world: ReadonlyWorld, state: State, cmd: Command, mode: Mode): Prev
     const entry = COMMANDS.get(cmd.type);
     if (!entry) throw new Error(`No reducer for command '${cmd.type}': is its module imported (src/sim/index.ts)?`);
     if (state.phase !== 'crew') throw new IllegalCommand(`Commands are given in the crew phase, not the ${state.phase} phase`);
+    const gate = commandGate(world, state);
+    if (gate) throw new IllegalCommand(gate);
     const check = mode === 'commit' || devChecksOn();
     if (check) assertPlainJson(cmd, 'command');
     // The reducer gets its own frozen copy, so nothing it keeps can change under it and it can't change the caller's.

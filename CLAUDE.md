@@ -27,7 +27,7 @@ Top-down 2D pixel-art stealth game. Phaser 4 + TypeScript + Vite, shipped as an 
     (`heist.ts` builds the crew at the van), queues events for playback and makes the HUD's view models.
   - `BankScene` draws it: `src/scenes/bank/sim.ts` (people and doors from the state, playback), `input.ts` (taps and
     path drags), `overlay.ts` (the 2× world UI) and the HTML HUD (`src/ui/hud/`).
-  `window.sim` is the debug handle (`sim.path(crew, to)`, `sim.safeFloor`, `sim.waitFor`, `sim.effect` for scripted
+  `window.sim` is the debug handle (`sim.path(crew, to)`, `sim.safeFloor`, `sim.waitFor`, `sim.effect`, `sim.getaway()` for scripted
   runs; the M1 run in `e2e/play.spec.ts` plays through it alone); `debugState.play` and `tileOnPage(x, y)` help e2e tests.
 - `docs/design/research.md` holds the key research findings behind each design decision, with the full notes per area in
   `docs/design/research/`.

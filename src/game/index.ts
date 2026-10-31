@@ -8,9 +8,9 @@ export {
     importance, PlaybackQueue, registerImportance, SPEED_FACTOR, type ImportanceRule, type ImportantReason, type PlaybackItem, type PlaybackSpeed
 } from './playback';
 export {
-    actionsView, bankView, barkText, confirmView, doorName, crewCards, describeEvent, hudView, RECAP_EVENTS, recapView, rolePortrait, threatLedger, type ActionId, type HudExtras
+    actionsView, bankView, barkText, confirmView, doorName, crewCards, describeEvent, hudView, outcomeView, OUTCOME_TITLES, RECAP_EVENTS, recapView, rolePortrait, threatLedger, type ActionId, type HudExtras
 } from './views';
-export { actionMenu, cameraName, doorMiddle, knownCameras, menuIsLegal, nextCamera, targetsOf, throwTiles, VERBS, type ActionEntry, type Targets } from './actions';
+export { actionMenu, getawayDrive, cameraName, doorMiddle, knownCameras, menuIsLegal, nextCamera, targetsOf, throwTiles, VERBS, type ActionEntry, type Targets } from './actions';
 export { moveAlong, moveKind, moveRange, moveTo, type MoveRange } from './movement';
 export { deserialiseHeist, deserialiseUi, heistWorldId, serialiseHeist, serialiseUi, serialiseWorld, type HeistExtras } from './persist';
 export type { FloorJob } from '../sim';

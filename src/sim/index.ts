@@ -11,6 +11,7 @@ import './core/engine';
 import './crew/actions';
 import './crew/movement';
 import './geo/cones';
+import './geo/drive';
 import './geo/move';
 import './geo/sound';
 import './rules/actions/act';
@@ -36,6 +37,7 @@ import './rules/command';
 import './rules/damage';
 import './rules/doors';
 import './rules/evidence';
+import './rules/getaway';
 import './rules/heat';
 import './rules/knowledge';
 import './rules/negotiation';
@@ -53,6 +55,7 @@ import './rules/routine';
 import './rules/shot';
 import './rules/suspicion';
 import './rules/trespass';
+import './rules/vehicles';
 import './rules/keys';
 import './rules/vault';
 import './rules/wounds';
@@ -62,8 +65,8 @@ export * from './core/types';
 export * from './core/grid';
 export { Dice, DICE_WINDOW, OddsStop, PreviewRollError, type Mode, type PendingOdds } from './core/rng';
 export {
-    commit, preview, COMBAT_STATUSES, IllegalCommand, InvariantError, registerCommand, registerCommandHook, commandHooks, registerWorldHook, worldHooks, WORLD_STEPS,
-    type CommandHook, type Ctx, type CommitResult, type PreviewResult, type Reducer, type RegisterOptions, type WorldHook, type WorldPhase, type WorldStep
+    commit, preview, commandGate, registerCommandGate, COMBAT_STATUSES, IllegalCommand, InvariantError, registerCommand, registerCommandHook, commandHooks, registerWorldHook, worldHooks, WORLD_STEPS,
+    type CommandGate, type CommandHook, type Ctx, type CommitResult, type PreviewResult, type Reducer, type RegisterOptions, type WorldHook, type WorldPhase, type WorldStep
 } from './core/engine';
 export { registerEvents, eventClass, recordUndo, popUndo, type EventClass, type UndoStack } from './core/undo';
 export {
@@ -117,7 +120,7 @@ export {
     inArc, npcObserver, profilesOf, rangeOn, sees, seenTiles, seesOn, visionProfiles,
     type Arc, type Band, type HalfAngle, type Observer, type SightField, type VisionProfile, type VisionProfiles
 } from './geo/cones';
-export { worldFromBank, DEPOSIT_BOX_VALUE, NOT_CARRIERS, OBJECT_KINDS, STASH_ROOMS } from './world/fromBank';
+export { worldFromBank, DEPOSIT_BOX_VALUE, NOT_CARRIERS, OBJECT_KINDS, STASH_ROOMS, VEHICLE_PROPS } from './world/fromBank';
 export { inReach, lacksActions, legalActions, registerAction, whyNot, witnessActOn, witnessOn, type ActionDef } from './rules/actions/act';
 export { besideDoor, DOOR_ACTIONS, doorActionBlocked, doorSides, innerSide, LOCKPICK, lockActions, type DoorAction } from './rules/actions/door';
 export { bodyAway, DRAGGABLE, releaseBody, STASH_KINDS, stashes } from './rules/actions/body';
@@ -228,3 +231,12 @@ export { cleanShot } from './rules/routine';
 export {
     negotiatorCalling, offerEffect, releasable, releaseExit, tradeable, type NegotiationOffer, type NegotiationState, type OfferEffect, type PoliceReport
 } from './rules/negotiation';
+export {
+    doorTiles, drivePath, driveReach, footprint, forwardOf, HEADINGS, manoeuvre, MANOEUVRES, poseKey, rightOf, vehicleAt, type DriveMap, type DriveNode,
+    type DrivePath, type DriveReach, type DriveTile, type Heading, type Manoeuvre, type Pose, type Swept, type VehicleDef, type VehicleSize, type VehicleState
+} from './geo/drive';
+export {
+    aboard, driveBudget, driveMap, drivePlan, exitTiles, holdOf, holdValue, inGetaway, vehicleBeside, vehicleDef, vehicleDoors, vehicleReach
+} from './rules/vehicles';
+export { crewOut, outcomeNow, type HeistOutcome, type OutcomeResult } from './rules/getaway';
+export * from './data/vehicles';

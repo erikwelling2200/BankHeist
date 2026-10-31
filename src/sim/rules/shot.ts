@@ -204,7 +204,8 @@ export function shotBodies(world: ReadonlyWorld, state: DeepReadonly<State>, sho
         else out.set(i, [body]);
     };
     for (const c of state.crew) {
-        if (c.id === shooter) continue;
+        // Aboard a vehicle with its doors shut nobody can be shot (§14.4).
+        if (c.id === shooter || c.aboard) continue;
         const pos = hitboxOf(state, { kind: 'crew', crew: c });
         const body: Body = { id: c.id, pos: { x: pos.x, y: pos.y }, standing: true, shield: false, armour: armourOf(world, state, c.id), precise: false };
         if (c.leaning) body.lean = { x: c.leaning.corner.x, y: c.leaning.corner.y };

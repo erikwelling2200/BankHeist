@@ -253,6 +253,34 @@ export interface LootVM {
     mayBeDyed: boolean;
 }
 
+// ---------------------------------------------------------------------------------------------------------- Outcome
+
+/** A crew member on the outcome screen: got away, arrested or dead (§15.4, §15.5). */
+export interface OutcomeCrewVM {
+    id: string;
+    name: string;
+    colour: string;
+    portrait?: PortraitName;
+    fate: 'escaped' | 'arrested' | 'dead';
+}
+
+/** The outcome screen (§15.5): shown over everything once the heist has ended. */
+export interface OutcomeVM {
+    result: 'success' | 'partial' | 'failure';
+    /** "Clean getaway", "Partial success", "Heist failed". */
+    title: string;
+    turn: number;
+    /** The loot that left the map, the contract's target, what dye packs ruined and the payout, in dollars. */
+    value: number;
+    target: number;
+    ruined: number;
+    payout: number;
+    /** The heat level at the end (0: the Alarm never went off). */
+    heat: number;
+    crew: OutcomeCrewVM[];
+    loot: { name: string; value: number }[];
+}
+
 // ---------------------------------------------------------------------------------------------------------- The HUD
 
 export interface HudViewModel {
@@ -284,6 +312,8 @@ export interface HudViewModel {
     loot?: LootVM | null;
     /** Shown over everything until the player resumes. */
     recap?: RecapVM | null;
+    /** Shown over everything once the heist has ended (§15.5). */
+    outcome?: OutcomeVM | null;
 }
 
 /** What the HUD reports back. Every input arrives here; the HUD changes nothing in the game itself. */
@@ -300,6 +330,8 @@ export interface HudCallbacks {
     toggleMap?(): void;
     /** The recap card's Resume. */
     resume?(): void;
+    /** The outcome screen's New heist. */
+    newHeist?(): void;
 }
 
 /** The HUD's hotkeys (§20.7), by what they do; `KeyboardEvent.key` values, lower-case for letters. */

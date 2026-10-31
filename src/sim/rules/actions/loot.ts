@@ -6,6 +6,7 @@ import { registerEvents } from '../../core/undo';
 import { registerBudgetModifier, registerDashCheck, registerMoveHook } from '../../crew/movement';
 import { BRUISER_CARRY_PENALTY, CARRY_WEIGHT, HEAVY_CARRY_PENALTY, HOSTAGE, POCKETS, THROW_RANGE, type CarryWeight } from '../../data/items';
 import { HALF_STEPS_PER_TILE } from '../../data/movement';
+import { vehicleAt } from '../../geo/drive';
 import { attended, registerEvidenceSource, type Evidence } from '../evidence';
 import { inHands, lootObject, lootWeight, syncHands } from '../hands';
 import { doorDoubt, registerPreviewSecret } from '../knowledge';
@@ -235,7 +236,8 @@ export interface ThrowPlan {
  */
 function throwFlies(world: ReadonlyWorld, state: State, from: DeepReadonly<Pos>, to: DeepReadonly<Pos>): boolean {
     const dx = to.x - from.x, dy = to.y - from.y, d2 = dx * dx + dy * dy;
-    if (!d2 || d2 > THROW_RANGE * THROW_RANGE || !inBounds(world, to) || tileAt(world, to)!.blocksMove) return false;
+    // Nothing lands on a vehicle (rules/vehicles.ts: a bag goes into its hold through a door).
+    if (!d2 || d2 > THROW_RANGE * THROW_RANGE || !inBounds(world, to) || tileAt(world, to)!.blocksMove || vehicleAt(world, state, to) !== undefined) return false;
     if (Math.max(Math.abs(dx), Math.abs(dy)) === 1) return inReach(world, state, from, to);
     // Two tiles in a straight line: over the tile between.
     const mid = { x: from.x + dx / 2, y: from.y + dy / 2 };

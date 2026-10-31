@@ -78,13 +78,14 @@ describe('saving', () => {
  * NpcStatusMap, CarrierKindMap or adds a field must also fill it in below, or a change of shape goes unnoticed.
  */
 const SHAPE_HASHES: Record<number, string> = {
-    1: '400a89e4928a5e1e'
+    1: '6931d7e188213ab4'
 };
 
 /** Paths whose objects are records by id, not structs. */
 const RECORDS = new Set([
     'world.edges', 'world.doors', 'state.doors', 'state.edges', 'state.objects', 'state.cameras', 'state.rng',
-    'state.cover', 'state.crew[].arms.guns', 'state.crew[].arms.throwables', 'state.npcs[].suspicion', 'state.npcs[].lastSeen', 'state.npcs[].frisked', 'state.police.known', 'state.knowledge.npcs', 'state.knowledge.doors', 'state.radio.calls'
+    'state.cover', 'state.crew[].arms.guns', 'state.crew[].arms.throwables', 'state.npcs[].suspicion', 'state.npcs[].lastSeen', 'state.npcs[].frisked', 'state.police.known', 'state.knowledge.npcs', 'state.knowledge.doors', 'state.radio.calls',
+    'state.vehicles'
 ]);
 
 /** Two shapes as one: the union of their fields, and "a|b" where a field has two types. */
@@ -214,6 +215,11 @@ describe('the save format', () => {
             answered: 4, stalled: true, returns: [{ crew: 'jun', npc: 'teller', at: { x: 0, y: 2 } }],
             reports: [{ npc: 'teller', turn: 4, seen: [{ crew: 'jun', tile: { x: 1, y: 1 }, turn: 3 }] }]
         };
+        full.vehicles = { van: { pose: { x: 1, y: 1, heading: 'w' }, driver: 'jun', hold: ['cash'], gone: false } };
+        full.crew[0]!.aboard = 'van';
+        full.outcome = {
+            result: 'partial', turn: 9, vehicle: 'van', escaped: ['jun'], arrested: ['mara'], dead: [], loot: ['cash'], value: 5000, ruined: 0, target: 75000, heat: 2
+        };
         full.radio = { calls: { guard: { next: 6, missed: 1, ringing: 4 } }, answers: 1, silentSince: 2, driveBy: 12, heard: 5 };
         const save = JSON.parse(serialise({
             genVersion: 'fixture',
@@ -223,6 +229,7 @@ describe('the save format', () => {
                 patrol: { lane: [{ x: 0, y: 2 }, { x: 1, y: 2 }], turns: [5, 15] },
                 stashRooms: ['closet'],
                 staging: [{ id: 'street-west', name: 'Main street, west end', pos: { x: 0, y: 2 } }],
+                vehicles: [{ id: 'van', type: 'van', name: 'Crew van', width: 2, length: 4, start: { x: 1, y: 1, heading: 'w' } }],
                 building: ['lobby'],
                 locks: [{
                     id: 'vault', name: 'Vault', target: 'd', room: 'lobby', holders: ['guard'], timeLock: { from: 3, until: 5 },
@@ -245,7 +252,7 @@ describe('the save format', () => {
                         { from: 2, activity: 'patrol' as const, label: 'patrol', room: '', route: [{ x: 0, y: 0 }, { x: 1, y: 0 }] }
                     ]
                 })),
-                tiles: world.tiles.map((t, i) => (i === 1 ? { ...t, climb: { kind: 'stairs' as const, to: 'n' as const } } : i ? t : { ...t, room: 'lobby', midHeight: true, coverHp: 6, flipHp: 6 })),
+                tiles: world.tiles.map((t, i) => ({ ...(i === 1 ? { ...t, climb: { kind: 'stairs' as const, to: 'n' as const } } : i ? t : { ...t, room: 'lobby', midHeight: true, coverHp: 6, flipHp: 6 }), drivable: i > 1 })),
                 edges: Object.fromEntries(Object.entries({
                     ...world.edges,
                     'eastWest 9 9': { run: 'eastWest', tx: 9, ty: 9, material: 'boundary', blocksSight: false, blocksMove: true, halfCover: true, door: 'd', shattered: false, hits: 0 }

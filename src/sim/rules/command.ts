@@ -243,7 +243,7 @@ const BEYOND_COMMAND = new Set(['unconscious', 'dead', 'tied', 'away']);
  * at it (armed, within their own command radius, in line of sight); halved by an Intimidating shouter.
  */
 export function resistChance(world: ReadonlyWorld, state: State, crewId: string, npc: DeepReadonly<NpcState>, sight = sightMap(world, state)): number {
-    const aiming = state.crew.filter(c => hasWeaponInHand(c) && inCommandReach(sight, c.pos, commandRadius(state, c), npc.pos)).length;
+    const aiming = state.crew.filter(c => !c.aboard && hasWeaponInHand(c) && inCommandReach(sight, c.pos, commandRadius(state, c), npc.pos)).length;
     const base = npc.surprised !== null || aiming >= 2 ? 0.1 : 0.4;
     return crewMember(state, crewId).traits.includes('intimidating') ? base / 2 : base;
 }

@@ -30,8 +30,10 @@ export interface MoveRange {
  * `dashRefusal` coming back null.
  */
 export function moveRange(world: ReadonlyWorld, picture: State, member: Member, canDash: boolean): MoveRange {
-    const move = member.actionsLeft >= MOVE_ACTIONS ? crewBudget(world, member, 'move') : null;
-    const dash = canDash && member.actionsLeft >= DASH_ACTIONS ? crewBudget(world, member, 'dash') : null;
+    // Aboard a vehicle nobody walks (§14.4): they get out first.
+    const afoot = !member.aboard;
+    const move = afoot && member.actionsLeft >= MOVE_ACTIONS ? crewBudget(world, member, 'move') : null;
+    const dash = afoot && canDash && member.actionsLeft >= DASH_ACTIONS ? crewBudget(world, member, 'dash') : null;
     const reach = reachable(world, picture, member.pos, Math.max(move ?? 0, dash ?? 0), planMoveOptions(world, picture, member));
     const walk: Pos[] = [], run: Pos[] = [];
     for (const t of reach.tiles) {

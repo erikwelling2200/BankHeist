@@ -159,7 +159,8 @@ function seesTile(world: ReadonlyWorld, state: State, from: Pos, to: Pos): boole
 /** The crew members a fighter sees now and takes for the crew, not dead. */
 function inSight(world: ReadonlyWorld, state: State, f: Fighter): CrewState[] {
     const from = posOf(f);
-    return state.crew.filter(c => !c.wounds.dead && marked(state, f, c) && seesTile(world, state, from, hitbox(c)));
+    // Aboard a vehicle with its doors shut nobody sees or shoots them (§14.4, M3-08).
+    return state.crew.filter(c => !c.wounds.dead && !c.aboard && marked(state, f, c) && seesTile(world, state, from, hitbox(c)));
 }
 
 /** Writes what a fighter sees into what its side knows: the police's shared picture, or a guard's own. */

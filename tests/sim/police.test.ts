@@ -218,20 +218,24 @@ describe('the force', () => {
         expect(strength(5, 50)).toMatchObject({ patrol: 12, negotiator: 1, swat: 12, swatShield: 3, heavy: 3, sniper: 6 });
     });
 
-    it('counts a bag secured once it is out of the building, not in it or ruined', () => {
+    it('counts a bag secured once it is in the getaway (the hold, or carried aboard), not out on the street or ruined', () => {
         const bag = (id: string, pos: Pos): WorldObject => ({ id, kind: 'loot', pos, facing: 's', loot: { value: 10000, weight: 'heavy' } });
         const { world, state } = setup([], { objects: [bag('a', P(1, 1)), bag('b', P(2, 1)), { id: 'c', kind: 'loot', pos: P(3, 1), facing: 's', loot: { value: 500, weight: 'light' } }] });
         const s = clonePlain(state);
+        s.vehicles = { van: { pose: { x: 6, y: 4, heading: 'w' }, driver: null, hold: [], gone: false } };
         expect(bagsSecured(world, s)).toBe(0);
+        // Out of the building isn't secured; in the hold is (M3-08, decision 176).
         s.loot.a = { ...s.loot.a!, taken: true, pos: P(1, 5) };
+        expect(bagsSecured(world, s)).toBe(0);
+        s.loot.a = { ...s.loot.a, holder: 'van' };
         s.loot.b = { ...s.loot.b!, taken: true, holder: 'jun' };
-        s.loot.c = { ...s.loot.c!, taken: true, pos: P(3, 5) };
+        s.loot.c = { ...s.loot.c!, taken: true, holder: 'van' };
         expect(bagsSecured(world, s)).toBe(1);
-        s.crew[0]!.pos = P(6, 4);
+        s.crew[0]!.aboard = 'van';
         expect(bagsSecured(world, s)).toBe(2);
-        // Once out, a bag stays secured when it is carried back in.
-        const kept = step(world, s, { type: 'wait', crew: 'jun' }).state;
-        kept.crew[0]!.pos = P(6, 1);
+        // Once secured, a bag stays secured.
+        const kept = step(world, s, { type: 'endTurn' }).state;
+        kept.crew[0]!.aboard = null;
         expect(bagsSecured(world, kept)).toBe(2);
         s.loot.a.ruined = true;
         expect(bagsSecured(world, s)).toBe(1);

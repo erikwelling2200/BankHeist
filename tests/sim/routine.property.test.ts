@@ -149,7 +149,7 @@ describe('the police and guard routine (property, M3-05)', { timeout: 180000 }, 
                     }
                 }
             };
-            for (let k = 0; k < PHASES && s.crew.length; k++) {
+            for (let k = 0; k < PHASES && s.crew.length && !s.outcome; k++) {
                 s = crewTurn(world, s, rng, events => {
                     settle(events, k);
                     volleys += events.filter(e => e.type === 'attacked').length;

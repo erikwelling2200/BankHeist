@@ -1,5 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
-import { effectKind, TINT_RANK, type Effect } from '../src/sim';
+import { doorTiles, effectKind, TINT_RANK, type Effect } from '../src/sim';
 import { M1_INSIDE, M1_OPENING } from './m1Run';
 import { ALARM_HELPERS, HATCHED_SETUP, PAGE_HELPERS, SAFE_FLOOR_SETUP, TAKEOVER, takeoverShout } from './setups';
 
@@ -1160,5 +1160,58 @@ test('the M1 heist: walk in, wait, slip through behind the cleaner, knock out th
     await page.evaluate(() => (window as any).game.scene.getScene('bank').lookAt(45 * 16 + 8, 8 * 16));
     await page.waitForTimeout(600);
     await page.screenshot({ path: 'screenshots/play-m1.png' });
+    expect(errors).toEqual([]);
+});
+
+test('the getaway: both get in the van through the grid, Mara drives it off the plot, the outcome screen shows (M3-08)', async ({ page }) => {
+    const errors = await boot(page);
+    // The van's side door, as the rules have it: Mara walks there, then Jun to the other side-door tile.
+    const doors = await page.evaluate(() => {
+        const w = (window as any).sim.world, v = w.vehicles[0];
+        return { id: v.id as string, start: v.start as { x: number; y: number; heading: string } };
+    });
+    const side = doorTiles({ width: 2, length: 4 }, doors.start as never).slice(0, 2);
+    for (const [i, id] of ['mara', 'jun'].entries()) {
+        const path = await page.evaluate(([c, to]) => (window as any).sim.path(c, to), [id, side[i]] as const);
+        expect(path, `${id} walks to the van's door`).toBeTruthy();
+        await page.evaluate(([c, p]) => (window as any).sim.commit({ type: 'move', crew: c, path: p }), [id, path] as const);
+        await idle(page);
+        await page.locator('.sh-rail .sh-crew').nth(i).click();
+        await page.locator('.sh-actions button[data-action="board"]').click();
+        await expect(page.locator('.sh-confirm')).toContainText('GET IN');
+        await page.locator('.sh-confirm').click();
+        await idle(page);
+        expect(await page.evaluate(c => (window as any).sim.state.crew.find((m: any) => m.id === c).aboard, id)).toBe('van');
+    }
+    // Mara has the wheel: the grid's Drive takes the van along the way off the plot, a drive at a time.
+    await page.evaluate(() => (window as any).sim.endTurn());
+    await idle(page);
+    await page.locator('.sh-rail .sh-crew').nth(0).click();
+    for (let i = 0; i < 12 && !(await page.evaluate(() => !!(window as any).sim.state.outcome)); i++) {
+        if (await page.evaluate(() => (window as any).sim.state.crew[0].actionsLeft === 0)) {
+            await page.evaluate(() => (window as any).sim.endTurn());
+            await idle(page);
+        }
+        await page.locator('.sh-actions button[data-action="drive"]').click();
+        await expect(page.locator('.sh-confirm')).toContainText('DRIVE');
+        await page.locator('.sh-confirm').click();
+        await idle(page);
+        if (i === 0) {
+            // The van where its first drive left it, the camera on it.
+            await page.evaluate(() => {
+                const v = (window as any).sim.state.vehicles.van.pose;
+                (window as any).game.scene.getScene('bank').camera.centreOn((v.x + 2) * 16, (v.y + 1) * 16, 0);
+            });
+            await page.waitForTimeout(400);
+            await page.screenshot({ path: 'screenshots/play-drive.png' });
+        }
+    }
+    const outcome = await page.evaluate(() => (window as any).sim.state.outcome);
+    expect(outcome).toMatchObject({ result: 'partial', escaped: ['mara', 'jun'], arrested: [], value: 0 });
+    await expect(page.locator('[data-region="outcome"]')).toBeVisible();
+    await expect(page.locator('[data-region="outcome"]')).toContainText('PARTIAL SUCCESS');
+    await expect(page.locator('[data-region="outcome"]')).toContainText('Got away');
+    await page.waitForTimeout(300);
+    await page.screenshot({ path: 'screenshots/play-outcome.png' });
     expect(errors).toEqual([]);
 });

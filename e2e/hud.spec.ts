@@ -13,7 +13,8 @@ async function open(page: Page, state: string, extra = ''): Promise<string[]> {
     page.on('pageerror', e => errors.push(e.message));
     page.on('console', m => { if (m.type() === 'error') errors.push(m.text()); });
     await page.goto(`/?scene=hud&bare&state=${state}${extra}`);
-    await page.waitForSelector('.sh [data-region="confirm"]');
+    // The HUD's Confirm, or the outcome screen over everything once the heist is over.
+    await page.locator('.sh [data-region="confirm"], .sh [data-region="outcome"]').filter({ visible: true }).first().waitFor();
     await page.evaluate(() => document.fonts.ready);
     return errors;
 }
@@ -25,7 +26,7 @@ async function layout(page: Page): Promise<{ regions: Box[]; buttons: Box[]; rec
         const visible = (e: Element) => { const r = e.getBoundingClientRect(); return r.width > 0 && r.height > 0 && getComputedStyle(e).visibility !== 'hidden'; };
         const regions = [...document.querySelectorAll('.sh [data-region]')].filter(visible).map(e => box(e, (e as HTMLElement).dataset.region!));
         const buttons = [...document.querySelectorAll('.sh button')].filter(visible).map(e => box(e, e.getAttribute('aria-label') ?? e.className));
-        const recap = !!document.querySelector('.sh-recap-back:not([hidden])');
+        const recap = !!document.querySelector('.sh-recap-back:not([hidden]), .sh-outcome-back:not([hidden])');
         return { regions, buttons, recap };
     });
 }

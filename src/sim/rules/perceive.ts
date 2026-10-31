@@ -278,6 +278,8 @@ function sightingsNow(
 ): Sighting[] {
     const member = crewMember(state, crewId), seen = look ?? crewLook(member);
     const out: Sighting[] = [];
+    // Aboard a vehicle nobody sees them (§14.4: the doors are shut).
+    if (member.aboard) return out;
     for (const npc of state.npcs) {
         if (isEyesDown(npc) || (only && !only.has(npc.id))) continue;
         const pose = npcObserver(world, npc);
@@ -461,6 +463,7 @@ function worldSightings(
 ): Sighting[] {
     const out: Sighting[] = [];
     const member = crewMember(state, crewId), seen = look ?? crewLook(member);
+    if (member.aboard) return out;
     for (const npc of state.npcs) {
         const all = poses.byNpc.get(npc.id);
         if (!all) continue;

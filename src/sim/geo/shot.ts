@@ -3,6 +3,7 @@ import { edgeNow } from '../core/state';
 import type { EdgeKey, Material, Pos, ReadonlyWorld, State } from '../core/types';
 import { COVER_BLOCK, OVERPENETRATION, PRECISION, SOFT_WALL, TELLER_GLASS } from '../data/weapons';
 import { rotate } from './angles';
+import { footprint } from './drive';
 
 /*
  * The bullet trace (GAME_DESIGN §11.2–11.6, §14.2 Bullets; implementation plan §6 decisions 85–92). One function
@@ -196,6 +197,12 @@ export function shotMap(world: ReadonlyWorld, state: State): ShotMap {
         tiles[i] = t.tall ? 1 : t.midHeight ? 2 : 0;
         raised[i] = t.raised ? 1 : 0;
     });
+    // The crew's vehicles, full cover where they stand now (§14.4).
+    for (const v of world.vehicles ?? []) {
+        const now = state.vehicles?.[v.id];
+        if (!now || now.gone) continue;
+        for (const p of footprint(v, now.pose)) if (p.x >= 0 && p.y >= 0 && p.x < width && p.y < height) tiles[p.y * width + p.x] = 1;
+    }
     const northSouth = new Int32Array((width + 1) * height).fill(-1), eastWest = new Int32Array(width * (height + 1)).fill(-1);
     const edges: BulletEdge[] = [];
     for (const key of sortedIds(world.edges)) {

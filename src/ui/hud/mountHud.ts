@@ -113,9 +113,11 @@ export function mountHud(root: HTMLElement, callbacks: HudCallbacks, options: Hu
     ledger.append(h('div.sh-sheet-title', {}, img(iconUrl('bell')), h('span', {}, 'THREATS')), ledgerRows);
     const prompt = h('div.sh-sheet.sh-prompt', { role: 'alertdialog', 'aria-modal': 'true', 'aria-labelledby': 'sh-prompt-title', 'data-region': 'prompt', tabindex: '-1', hidden: true });
     const recap = h('div.sh-recap-back', { hidden: true });
+    // The outcome screen (§15.5): over everything once the heist has ended, until a new one starts.
+    const outcome = h('div.sh-outcome-back', { hidden: true });
     const tag = h('div.sh-tag', { 'aria-hidden': 'true', hidden: true });
 
-    el.append(top, rings, endTurn, rail, ltools, drawer, actions, undo, confirm, confirmNote, ledger, prompt, recap, tag);
+    el.append(top, rings, endTurn, rail, ltools, drawer, actions, undo, confirm, confirmNote, ledger, prompt, recap, outcome, tag);
     root.append(el);
     if (options.textScale) el.style.setProperty('--sh-text', String(options.textScale));
     el.classList.toggle('cb', !!options.colourBlind);
@@ -239,6 +241,8 @@ export function mountHud(root: HTMLElement, callbacks: HudCallbacks, options: Hu
         const free = focusFree(t);
         // A focused button answers Space and Enter itself; the hotkeys don't press anything a second time.
         if (!free && (keyIs(e, ' ') || keyIs(e, 'Enter'))) return;
+        // Once the heist is over, nothing but the outcome screen takes a key.
+        if (!outcome.hidden) return;
         if (!recap.hidden) {
             if (keyIs(e, keys.confirm) || keyIs(e, keys.endTurn)) { e.preventDefault(); if (!e.repeat) resume(); }
             return;
@@ -553,6 +557,37 @@ export function mountHud(root: HTMLElement, callbacks: HudCallbacks, options: Hu
         if (wasHidden) card.focus();
     }
 
+    function renderOutcome(v: HudViewModel): void {
+        const o = v.outcome ?? null, wasHidden = outcome.hidden;
+        outcome.hidden = !o;
+        el.classList.toggle('over', !!o);
+        if (!o || !changed(outcome, JSON.stringify(o))) return;
+        const money = (n: number) => `$${n.toLocaleString('en-US')}`;
+        const FATES = { escaped: 'Got away', arrested: 'Arrested', dead: 'Dead' } as const;
+        const crew = o.crew.map(c => h(`div.sh-ofate.${c.fate}` as 'div', { style: `--c: ${c.colour}` },
+            portrait(c.portrait, c.name, 'sh-face'), h('span.sh-oname', {}, c.name), h('span.sh-otag', {}, FATES[c.fate])));
+        const loot = o.loot.length
+            ? o.loot.map(l => h('div.sh-oloot', {}, h('span', {}, l.name), h('span.sh-num', {}, money(l.value))))
+            : [h('div.sh-oloot.none', {}, h('span', {}, 'Nothing left the map'))];
+        const row = (label: string, value: string, tone = '') => h(`div.sh-orow${tone ? `.${tone}` : ''}` as 'div', {}, h('span', {}, label), h('span.sh-num', {}, value));
+        const again = h('button.sh-confirm.clean.sh-resume', { 'aria-label': 'New heist' }, img(iconUrl('play')), h('span.sh-cname', {}, 'NEW HEIST'));
+        again.addEventListener('click', () => callbacks.newHeist?.());
+        const card = h(`div.sh-sheet.sh-recap.sh-outcome.${o.result}` as 'div', { role: 'dialog', 'aria-modal': 'true', 'aria-labelledby': 'sh-outcome-title', 'data-region': 'outcome', tabindex: '-1' },
+            h('div.sh-rcol', {},
+                h('div.sh-otitle', { id: 'sh-outcome-title' }, o.title.toUpperCase()),
+                h('div.sh-tiny', {}, `Turn ${o.turn}${o.heat ? ` · Heat ${o.heat}` : ''}`),
+                ...crew),
+            h('div.sh-rcol', {},
+                ...loot,
+                row('Left the map', money(o.value)),
+                row('Contract target', money(o.target), o.value >= o.target ? 'met' : 'short'),
+                o.ruined ? row('Ruined by dye', `−${money(o.ruined)}`, 'short') : null,
+                row('Payout', money(o.payout), 'total'),
+                again));
+        outcome.replaceChildren(card);
+        if (wasHidden) card.focus();
+    }
+
     function renderOverlays(v: HudViewModel): void {
         for (const [id, b] of overlayBtns) {
             b.classList.toggle('on', !!v.overlays[id]);
@@ -572,6 +607,7 @@ export function mountHud(root: HTMLElement, callbacks: HudCallbacks, options: Hu
             renderLedger(next);
             renderOverlays(next);
             renderRecap(next);
+            renderOutcome(next);
             if (panel === 'prompt' && changed(prompt, JSON.stringify(crewWithActionsLeft(next.crew)))) renderPrompt();
         },
         setTextScale(scale: number): void {
