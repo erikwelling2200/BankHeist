@@ -1060,6 +1060,12 @@ M2 is complete: every package below has landed.
       it may pass, as on its rounds; the grid offers Watch and Suppress on officers the crew sees; `heldFire` names its
       `blockers` and is told `why` only when the crew knows them all; fighters look from their lean tiles too; a
       fighter's shot is told (`fighterFired`, then the bullets, then its noise and Loud) only once it is fired.
+    - **Known limitations:** the carriers' preview of the coming world phase (`pendingCarriers`, `carrierPreview`)
+      stops at the first fighter's shot (`Dice.pictured`), so carriers that phase would start later (check-ins, vault
+      sensors and the patrol car in `devices`) are missing from "this would start"; with a Hostile guard about, that is
+      every phase. Cost: on a 40×24 fixture with 8 officers in Assault an end of turn commits in about 20 ms, and each
+      move's `actionPreview` takes about 22 ms because `pendingCarriers` replays the whole world phase, the routine
+      included, even after the Alarm; fine for now, but it grows with the force.
     - **Session:** the recap names the new events (an officer by kind); the threat ledger shows each announced breach
       at its door ("Breach next phase: …", 1); the grid's Fire offers officers in the shooter's sight. Drawing police,
       their moves and the breach marker on the map are M3-09's.
