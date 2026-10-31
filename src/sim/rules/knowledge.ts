@@ -694,18 +694,39 @@ export function updateKnowledge(world: ReadonlyWorld, state: State, emit: (event
     learnNpcs(world, state, fields, passed, emit, options.worldPhase ?? false, takeTurned(state), options.command);
     const oldest = state.turn - world.rules.pingTurns;
     if (k.pings.some(p => p.turn < oldest)) k.pings = k.pings.filter(p => p.turn >= oldest);
-    learnOfficers(world, state, emit);
+    learnOfficers(world, state, emit, fields, options.events ? officersPassed(options.events, fields) : new Map());
+}
+
+/**
+ * Officers the crew saw walking (or getting out) during the command's events, and the last tile each was seen on (as
+ * `passedInEvents` does for NPCs): one that walks out of view is a ghost there.
+ */
+function officersPassed(events: readonly SimEvent[], fields: readonly SightField[]): Map<string, Pos | 'down'> {
+    const out = new Map<string, Pos | 'down'>();
+    for (const e of events) {
+        // Down where the crew saw it last (seen walking there, or at its remembered tile): no ghost; out of sight, the
+        // crew can't tell (learnOfficers checks the remembered tile).
+        if (e.type === 'policeDown') {
+            const last = out.get(e.unit);
+            if (last === undefined || last === 'down' || seenBy(fields, last)) out.set(e.unit, 'down');
+            continue;
+        }
+        if (e.type === 'policeMoved') {
+            for (const p of [e.from, ...e.path]) if (seenBy(fields, p)) out.set(e.unit, { x: p.x, y: p.y });
+        } else if (e.type === 'policeDeployed' && seenBy(fields, e.pos)) out.set(e.unit, { x: e.pos.x, y: e.pos.y });
+    }
+    return out;
 }
 
 /**
  * Officers (M3-09): each one on a tile the crew sees this turn (`officerSeen`) is remembered where it stands (seen
- * there anew, a `revealed` event: final, as any NPC seen); a memory
- * goes once it is older than `ghostTurns`, or once the crew sees its tile and nobody it remembers is there (judged on
- * the crew's own sight, never on where the officer went).
+ * there anew, a `revealed` event: final, as any NPC seen); one the crew saw walk out of view during the command is
+ * remembered on the last tile it was seen on (`passed`), a ghost there (§8.15, as an NPC's). A memory goes once it is
+ * older than `ghostTurns`, or is replaced when the officer is seen again.
  */
-function learnOfficers(world: ReadonlyWorld, state: State, emit: (event: SimEvent) => void): void {
+function learnOfficers(world: ReadonlyWorld, state: State, emit: (event: SimEvent) => void, fields: readonly SightField[], passed: ReadonlyMap<string, Pos | 'down'>): void {
     const k = state.knowledge, units = state.police?.units ?? [];
-    if (!units.length && !k.officers) return;
+    if (!units.length && !k.officers && !passed.size) return;
     const fresh = tileSets(world, state).fresh, at = (p: Pos) => p.y * world.width + p.x;
     const seen = new Set<string>();
     for (const u of units) {
@@ -717,11 +738,20 @@ function learnOfficers(world: ReadonlyWorld, state: State, emit: (event: SimEven
         // Seeing an officer is learning something: undo can't take it back (§6.6).
         emit({ type: 'revealed', what: 'officer', id: u.id });
     }
+    for (const [id, p] of [...passed].sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))) {
+        if (seen.has(id)) continue;
+        if (p === 'down') {
+            const rec = k.officers?.[id];
+            if (rec && (fresh[at(rec.at)] === 1 || seenBy(fields, rec.at))) delete k.officers![id];
+            continue;
+        }
+        const kind = units.find(u => u.id === id)?.kind ?? k.officers?.[id]?.kind;
+        if (kind === undefined) continue;
+        (k.officers ??= {})[id] = { at: { x: p.x, y: p.y }, turn: state.turn, kind };
+    }
     if (!k.officers) return;
     for (const id of sortedIds(k.officers)) {
-        const rec = k.officers[id]!;
-        if (seen.has(id)) continue;
-        if (state.turn - rec.turn > world.rules.ghostTurns || fresh[at(rec.at)] === 1) delete k.officers[id];
+        if (!seen.has(id) && state.turn - k.officers[id]!.turn > world.rules.ghostTurns) delete k.officers[id];
     }
 }
 

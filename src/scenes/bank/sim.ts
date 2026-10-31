@@ -169,6 +169,8 @@ export class PlayMode {
     private readonly officerGhost = new Set<number>();
     /** The officers the crew knows of as last synced (`policeMarkers`). */
     private officersShown: PoliceMarkerVM[] = [];
+    /** Where each officer was last shown in the playback under way (its last step in sight), by unit id. */
+    private readonly officerAt = new Map<string, Pos>();
     /** A previewed attack's cone, once per state and command. */
     private aimFor?: { state: State; key: string; aim: AimVM | undefined };
     /** The unit acting now in a world phase's playback (red brackets), and where. */
@@ -438,7 +440,8 @@ export class PlayMode {
             if (this.inCombat(e.npc)) {
                 const index = this.sprite.get(e.npc);
                 if (index === undefined) return;
-                this.setActing(e.npc, e.path.at(-1)!);
+                const inSight = [e.from, ...e.path].filter(p => this.visibilityAt(...centre(p)) === 'seen').at(-1);
+                if (inSight) this.setActing(e.npc, inSight);
                 this.camera.centreOn(...centre(e.path.at(-1)!), VISIT_PAN_MS * speed);
                 this.startWalk([{ index, points: [e.from, ...e.path].map(centre) }], STEP_MS * speed);
                 return;
@@ -472,22 +475,36 @@ export class PlayMode {
                 taken.push(other.seq);
             }
             this.session.playback.remove(taken);
-            const index = this.officerIndex(e.unit, e.from);
-            // Followed only as far as the crew sees it walk: the bracket and the camera stop at its last tile in sight.
-            const seenSteps = [e.from, ...steps].filter(p => this.visibilityAt(...centre(p)) === 'seen');
-            const shownAt = seenSteps.at(-1) ?? e.from;
+            // Shown only as far as the crew sees it walk (decision 44): it comes in at its first step in sight and walks to
+            // its last, hidden on the tiles between that aren't seen this turn; never drawn on a stale or hidden tile.
+            const all = [e.from, ...steps], seenAt = all.map(p => this.visibilityAt(...centre(p)) === 'seen');
+            const first = seenAt.indexOf(true), last = seenAt.lastIndexOf(true);
+            if (first < 0) return;
+            const index = this.officerIndex(e.unit, all[first]!);
+            if (index === undefined) return;
+            const shownAt = all[last]!;
+            this.officerAt.set(e.unit, shownAt);
+            // Walking in view it is no ghost: the live rule (seen tiles only) hides it elsewhere.
+            this.officerGhost.delete(index);
+            this.people.setAlpha(index, 1);
+            this.people.setAway(index, false);
             this.setActing(e.unit, shownAt);
-            if (speed === 0 || index === undefined) return;
+            const points = all.slice(first, last + 1).map(centre);
+            this.people.move(index, ...points[0]!);
+            if (speed === 0) {
+                this.people.move(index, ...points.at(-1)!);
+                return;
+            }
             this.camera.centreOn(...centre(shownAt), VISIT_PAN_MS * speed);
-            this.startWalk([{ index, points: [e.from, ...steps].map(centre) }], STEP_MS * speed);
+            this.startWalk([{ index, points }], STEP_MS * speed);
             return;
         }
         // A shot the crew is told of: its tracer for a moment.
         if (speed > 0 && (e.type === 'fighterFired' || e.type === 'attacked')) {
-            const shooter = e.type === 'fighterFired' ? e.shooter : e.crew, index = this.sprite.get(shooter);
-            if (index !== undefined) {
-                const at = this.people.at(index), ms = 700 * speed;
-                this.tracers.push({ from: { x: Math.floor(at.x / TILE), y: Math.floor(at.y / TILE) }, to: { ...e.at }, crew: e.type === 'attacked', until: performance.now() + ms });
+            const from = e.type === 'fighterFired' ? this.shownPos(e.shooter) : this.session.state.crew.find(c => c.id === e.crew)?.pos;
+            if (from) {
+                const ms = 700 * speed;
+                this.tracers.push({ from: { ...from }, to: { ...e.at }, crew: e.type === 'attacked', until: performance.now() + ms });
                 window.setTimeout(() => this.refresh(), ms + 20);
             }
         }
@@ -525,10 +542,19 @@ export class PlayMode {
     private actorOf(e: SimEvent): { id: string; pos: Pos } | undefined {
         const id = this.actorId(e);
         if (id === undefined) return undefined;
-        const index = this.sprite.get(id);
-        if (index === undefined) return undefined;
-        const at = this.people.at(index);
-        return { id, pos: { x: Math.floor(at.x / TILE), y: Math.floor(at.y / TILE) } };
+        const pos = this.shownPos(id);
+        return pos ? { id, pos } : undefined;
+    }
+
+    /**
+     * Where the crew last saw someone acting in playback: an officer's tile as last shown (in this playback, else its
+     * marker), never where it really is; a known NPC's marker. Undefined when the crew has no idea.
+     */
+    private shownPos(id: string): Pos | undefined {
+        if (this.officerSprite.has(id) || this.session.state.police.units.some(u => u.id === id)) {
+            return this.officerAt.get(id) ?? this.officersShown.find(m => m.id === id)?.pos;
+        }
+        return this.known().npcs.find(m => m.id === id)?.pos;
     }
 
     /** The order the units act in this world phase's playback (as far as the crew is told), for the queue strip. */
@@ -914,6 +940,7 @@ export class PlayMode {
     private syncPolice(): void {
         const { world, state } = this.session, markers = policeMarkers(world, state);
         this.officersShown = markers;
+        this.officerAt.clear();
         const on = new Set<string>();
         for (const m of markers) {
             let index = this.officerSprite.get(m.id);
@@ -1480,8 +1507,10 @@ export class PlayMode {
         this.fireBar.dataset.key = key;
         const label = document.createElement('span');
         label.textContent = 'Rounds';
+        // The most rounds on top, the fewest nearest the thumb; two columns for a long burst (the LMG's 10).
+        this.fireBar.classList.toggle('wide', sel.max > 4);
         this.fireBar.replaceChildren(label, ...Array.from({ length: sel.max }, (_, i) => {
-            const b = document.createElement('button'), n = i + 1;
+            const b = document.createElement('button'), n = sel.max - i;
             b.textContent = String(n);
             b.className = n === sel.bullets ? 'on' : '';
             b.setAttribute('aria-label', `Fire ${n} round${n === 1 ? '' : 's'}`);

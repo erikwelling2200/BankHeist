@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
     attackCone, clonePlain, commit, fixtureWorld, initialState, OFFICER_FLASHBANGS, OFFICER_STATS, officerMarkers, updateKnowledge, type FixtureOptions, type PersonDef, type PoliceKind,
-    type Pos, type ReadonlyWorld, type State
+    type Pos, type ReadonlyWorld, type SimEvent, type State
 } from '../../src/sim';
 import { aimView, breachMarkers, fireSelector, policeMarkers } from '../../src/game/loudUi';
 
@@ -51,21 +51,30 @@ describe('police markers (§13.6, UI.md "Police: announced versus visible")', ()
         // Gone once older than the ghosts' turns.
         state.crew[0]!.pos = P(11, 0);
         state.police.units = state.police.units.filter(u => u.id === 'seen');
-        state.turn += world.rules.ghostTurns;
+        state.turn += world.rules.ghostTurns + 1;
         look(world, state, true);
         expect(officerMarkers(world, state)).toEqual([]);
     });
 
-    it('drops a ghost once the crew sees its tile without the officer, and never follows the officer it lost', () => {
+    it('leaves a ghost on the last tile the crew saw a walking officer on, never on the tile it walked on to', () => {
         const { world, state } = loud(OPEN, { walls });
         officer(state, 'o', P(3, 1));
         look(world, state);
-        // The officer walks behind the wall: the crew sees its old tile empty; no marker, and none behind the wall.
-        state.police.units[0]!.pos = P(8, 1);
+        // In the world phase the officer walks east and round behind the wall, out of the crew's sight, its old tile still
+        // in view: a ghost where it was last seen (§8.15), not where it is.
+        state.police.units[0]!.pos = P(8, 0);
         state.turn++;
-        look(world, state, true);
+        const events = [
+            { type: 'policeMoved', unit: 'o', from: P(3, 1), path: [P(4, 1)] }, { type: 'policeMoved', unit: 'o', from: P(4, 1), path: [P(5, 1)] },
+            { type: 'policeMoved', unit: 'o', from: P(5, 1), path: [P(6, 1)] }, { type: 'policeMoved', unit: 'o', from: P(6, 1), path: [P(7, 0)] },
+            { type: 'policeMoved', unit: 'o', from: P(7, 0), path: [P(8, 0)] }
+        ] as SimEvent[];
+        updateKnowledge(world, state, () => {}, { worldPhase: true, events });
+        expect(officerMarkers(world, state)).toEqual([{ id: 'o', kind: 'patrol', pos: P(5, 1), live: false, seenAgo: 0 }]);
+        // Shot down where the crew sees its ghost: gone.
+        state.police.units = [];
+        updateKnowledge(world, state, () => {}, { events: [{ type: 'policeDown', unit: 'o', kind: 'patrol', killed: true }] as SimEvent[] });
         expect(officerMarkers(world, state)).toEqual([]);
-        expect(state.knowledge.officers).toEqual({});
     });
 
     it('makes a move final that first shows an officer, and only that one', () => {

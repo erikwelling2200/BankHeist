@@ -52,8 +52,22 @@ test('aim mode: the nested cone, its bodies and cover, the fire selector and the
     expect((await play(page)).pending.bullets).toBe(1);
 
     // A drag away from the shooter moves the aim point under the loupe, above the finger.
-    const from = await page.evaluate(([x, y]) => (window as any).game.scene.getScene('bank').tileOnPage(x, y), [info.officer.x, info.officer.y]);
-    const side = await page.evaluate(([x, y]) => (window as any).game.scene.getScene('bank').tileOnPage(x, y), [info.officer.x + 1, info.officer.y + 1]);
+    // From a tile between the shooter and the officer (clear of the HUD), not on the shooter.
+    const mara = await page.evaluate(() => (window as any).sim.state.crew[0].pos);
+    const mid = { x: Math.round((mara.x + info.officer.x) / 2), y: Math.round((mara.y + info.officer.y) / 2) };
+    if (mid.x === mara.x && mid.y === mara.y) mid.x += Math.sign(info.officer.x - mara.x) || 1;
+    const from = await page.evaluate(([x, y]) => (window as any).game.scene.getScene('bank').tileOnPage(x, y), [mid.x, mid.y]);
+    // To a tile beside it that no HUD element covers.
+    const sideTile = await page.evaluate(([mx, my, cx, cy]) => {
+        const scene = (window as any).game.scene.getScene('bank');
+        for (const [dx, dy] of [[0, 1], [0, -1], [1, 1], [-1, 1], [1, 0], [-1, 0]]) {
+            const t = { x: mx + dx, y: my + dy }, p = scene.tileOnPage(t.x, t.y);
+            if ((t.x !== cx || t.y !== cy) && document.elementFromPoint(p.x, p.y)?.tagName === 'CANVAS') return t;
+        }
+        return null;
+    }, [mid.x, mid.y, mara.x, mara.y]);
+    expect(sideTile).not.toBeNull();
+    const side = await page.evaluate(([x, y]) => (window as any).game.scene.getScene('bank').tileOnPage(x, y), [sideTile!.x, sideTile!.y]);
     await page.mouse.move(from.x, from.y);
     await page.mouse.down();
     await page.mouse.move((from.x + side.x) / 2, (from.y + side.y) / 2, { steps: 4 });
@@ -64,7 +78,7 @@ test('aim mode: the nested cone, its bodies and cover, the fire selector and the
     await page.screenshot({ path: 'screenshots/loud-loupe.png' });
     await page.mouse.up();
     await expect(page.locator('.aim-loupe')).toBeHidden();
-    expect((await play(page)).pending.at).toEqual({ x: info.officer.x + 1, y: info.officer.y + 1 });
+    expect((await play(page)).pending.at).toEqual(sideTile);
 });
 
 test('the world phase in a firefight plays one unit at a time, the one acting bracketed, with the queue strip (M3-09)', async ({ page }) => {

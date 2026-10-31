@@ -70,11 +70,13 @@ body.play .fullscreen-button { top: auto; bottom: var(--play-b); left: calc(var(
 .loud-chip.done { opacity: 0.25; }
 .loud-chip.now { opacity: 1; box-shadow: 0 0 0 2px #d44638; }
 .play-cb .loud-chip.now { box-shadow: 0 0 0 2px #c8508a; }
-/* Aim mode (M3-09): the fire selector (1 round up to the weapon's Bullets) and the loupe over an aim drag. */
-.fire-selector { position: fixed; top: calc(var(--play-t, 8px) + 52px); left: 50%; transform: translateX(-50%); z-index: 6; display: flex; align-items: center; gap: 4px; padding: 4px 6px; border: 1px solid rgba(242, 230, 200, 0.25); border-radius: 6px; background: rgba(11, 13, 23, 0.72); color: #f2e6c8; font: 600 12px ui-monospace, Menlo, Consolas, monospace; text-shadow: 0 2px 0 #000; }
+/* Aim mode (M3-09): the fire selector (1 round up to the weapon's Bullets), in the right thumb's zone beside the action
+   grid, its fewest rounds lowest (UI.md "Screen layout"); the loupe over an aim drag. */
+.fire-selector { position: fixed; right: calc(max(8px, env(safe-area-inset-right)) + 116px); bottom: calc(var(--play-b) + 66px); z-index: 6; display: grid; grid-template-columns: 44px; gap: 4px; padding: 4px; border: 1px solid rgba(242, 230, 200, 0.25); border-radius: 6px; background: rgba(11, 13, 23, 0.72); color: #f2e6c8; font: 600 11px ui-monospace, Menlo, Consolas, monospace; text-shadow: 0 2px 0 #000; }
 .fire-selector[hidden] { display: none; }
-.fire-selector span { padding: 0 4px; opacity: 0.8; }
-.fire-selector button { min-width: 36px; height: 36px; border: 1px solid rgba(242, 230, 200, 0.25); border-radius: 4px; background: rgba(11, 13, 23, 0.6); color: #f2e6c8; font: inherit; text-shadow: inherit; cursor: pointer; touch-action: manipulation; }
+.fire-selector.wide { grid-template-columns: 44px 44px; }
+.fire-selector span { grid-column: 1 / -1; opacity: 0.8; text-align: center; }
+.fire-selector button { min-width: 44px; height: 40px; border: 1px solid rgba(242, 230, 200, 0.25); border-radius: 4px; background: rgba(11, 13, 23, 0.6); color: #f2e6c8; font: inherit; text-shadow: inherit; cursor: pointer; touch-action: manipulation; }
 .fire-selector button.on { border-color: #d44638; box-shadow: inset 0 0 0 1px #d44638; }
 .play-cb .fire-selector button.on { border-color: #c8508a; box-shadow: inset 0 0 0 1px #c8508a; }
 .aim-loupe { position: fixed; z-index: 7; border-radius: 50%; border: 2px solid #f2e6c8; box-shadow: 0 2px 0 #000, 0 0 0 1px rgba(13, 12, 20, 0.85); pointer-events: none; image-rendering: pixelated; }
