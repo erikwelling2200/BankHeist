@@ -5,7 +5,7 @@ import { samePlain, sortedIds } from '../core/json';
 import { registerStateCheck } from '../core/save';
 import { crewMember, registerRuleDefaults, registerStateInit } from '../core/state';
 import type {
-    CameraDef, Command, CrewState, DeepReadonly, DoorDef, DoorState, DoorStatus, EventType, Facing, Intent, NpcState, NpcStatus, ObserverClass, Pos, ReadonlyWorld, SimEvent, State
+    CameraDef, Command, CommandType, CrewState, DeepReadonly, DoorDef, DoorState, DoorStatus, EventType, Facing, Intent, NpcState, NpcStatus, ObserverClass, Pos, ReadonlyWorld, SimEvent, State
 } from '../core/types';
 import { eventClass } from '../core/undo';
 import { crewHasKey, registerMoveHook, registerPlanView } from '../crew/movement';
@@ -1414,6 +1414,21 @@ export function doubtedCut(world: ReadonlyWorld, state: State, cmd: Command): { 
 }
 
 /**
+ * How a command whose outcome hangs on someone the crew can't know of is previewed (a drive that would meet an unseen
+ * person, rules/vehicles.ts): the state to preview it on, with them set aside, and how to put them back in the
+ * previewed state. Undefined when nobody unknown matters to it. The preview is then exactly that of the same command
+ * with them not there: the same events, state and undo.
+ */
+export type CertainView = (world: ReadonlyWorld, state: State, cmd: Command) => { state: State; restore(previewed: State): void } | undefined;
+const CERTAIN_VIEWS = new Map<string, CertainView>();
+
+/** Registers how a command type is previewed past someone unknown (`CertainView`). */
+export function registerCertainView(type: CommandType, view: CertainView): void {
+    if (CERTAIN_VIEWS.has(type)) throw new Error(`A certain view for '${type}' already exists`);
+    CERTAIN_VIEWS.set(type, view);
+}
+
+/**
  * A command previewed for the player (§8.8): on the truth with every door the crew can't vouch for shut
  * (`withDoubtedShut`), so all it sees and hears happens however those doors really stand, and nothing of how they stand
  * shows (decision 44). A move or dash through such a door that could refuse the mover (`doorMayRefuse`) is previewed
@@ -1422,7 +1437,17 @@ export function doubtedCut(world: ReadonlyWorld, state: State, cmd: Command): { 
  * neither the cut nor the door's status found shows. Project its events with `projectPreviewEvents`.
  */
 export function previewCertain(world: ReadonlyWorld, state: State, cmd: Command): PreviewResult {
-    const shut = withDoubtedShut(world, state), result = preview(world, shut, cmd);
+    const shut = withDoubtedShut(world, state);
+    const aside = CERTAIN_VIEWS.get(cmd.type)?.(world, shut, cmd);
+    if (aside) {
+        // Previewed as if those the crew can't know of weren't there, then put back (see `CertainView`).
+        const seen = preview(world, aside.state, cmd);
+        const undoable = !seen.pending && !seen.rolls.length && !seen.events.some(e => eventClass(e.type).undoBlocking)
+            && samePlain(seen.state.npcs, aside.state.npcs) && samePlain(seen.state.carriers, aside.state.carriers) && samePlain(seen.state.bank, aside.state.bank);
+        aside.restore(seen.state);
+        return { ...seen, undoable };
+    }
+    const result = preview(world, shut, cmd);
     const cut = doubtedCut(world, state, cmd);
     if (!cut) return result;
     const { door } = cut, member = state.crew.find(c => c.id === cut.crew)!;

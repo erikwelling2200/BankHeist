@@ -1176,7 +1176,10 @@ M2 is complete: every package below has landed.
       "none can still escape" as a Failure while someone is up; the crew's shares (§19.4), style (§19.8) and jail
       (§19.6) in the payout; the police's reaction to the van (M3-05); choosing the getaway spot in planning (M4); the
       van's baked sun shadow stays where it was parked; the overlay must project NPCs the crew can't see out of the
-      drive's reach before M3-09 draws it (`vehicleReach` is the truth).
+      drive's reach before M3-09 draws it (`vehicleReach` is the truth). Known limitation: a crew member downed aboard
+      can't be revived or given a medkit there (nobody reaches into the van, decision 174, and those aboard act only by
+      driving or getting out): they ride out with the van and count as escaped. Reviving aboard, and carrying a downed
+      ally out of the van, come with M4's vehicle actions.
     - **Tests:** `tests/sim/getaway.test.ts` (footprints and doors, turns as curves and in reverse, drifts, boarding and
       the hold, aboard, getting out, every reachable pose's swept path equal to the preview's and the commit's, walls
       and people in the way, the Wheelman, leaving the plot with Success and Partial, Failure, the generated van and its
@@ -2187,10 +2190,12 @@ Later milestones: within each milestone, the `∥` notes in §3 apply. UI packag
 192. **Driving on what the crew knows (M3-08 review, §8.15).** A Drive is planned on the crew's picture: the crew, the
     NPCs it sees now (`markerKind` live), the officers it sees and the police vehicles are in the way; anyone else is
     taken to be absent, so no reach or route length tells of someone unseen. The drive then goes a manoeuvre at a time
-    and stops before the first whose sweep meets someone (`driveCut`, final, and kept out of previews like a move cut):
-    the action is spent and the van stands where the path was. For everything the crew knows, preview and commit agree.
+    and stops before the first whose sweep meets someone (`driveCut`, final): the action is spent, the van stands where
+    the path was and `driven` counts the tiles actually driven. The player's preview (`previewCertain`, through
+    `registerCertainView`) drives it with everyone unknown on the plan's sweep set aside and put back after, so a drive
+    into someone unseen previews exactly as the same drive with nobody there: its events, the van's pose, its undo.
 193. **Police vehicles park clear of the van (M3-08 review, §13.4).** A police vehicle stops at its staging point, else
-    on the nearest tile to it (rings, row-major) nothing blocks and no crew vehicle stands on. A drive never counts
+    on the nearest drivable tile to it (rings, row-major) nothing blocks and no crew vehicle or person stands on. A drive never counts
     anything on the vehicle's own footprint as in its way, so nothing there can shut it in.
 
 ### Critical files for implementation

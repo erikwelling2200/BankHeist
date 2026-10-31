@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
-    arrestCrew, bagsSecured, clonePlain, inReach, tackleTarget, doorTiles, driveMap, drivePath, drivePlan, driveReach, footprint, hashOf, HEADINGS, initialState, MANOEUVRES, manoeuvre, poseKey, preview,
+    arrestCrew, bagsSecured, clonePlain, inReach, previewCertain, projectPreviewEvents, tackleTarget, doorTiles, driveMap, drivePath, drivePlan, driveReach, footprint, hashOf, HEADINGS, initialState, MANOEUVRES, manoeuvre, poseKey, preview,
     throwTargets, tileAt, vehicleAt, vehicleReach, whyNot, fixtureWorld, type Command, type PersonDef, type Pos, type Pose, type ReadonlyWorld, type SimEvent,
     type State, type VehicleDef, type WorldObject
 } from '../../src/sim';
@@ -338,6 +338,38 @@ describe('driving on what the crew knows (decision 192)', () => {
         expect((plan as { poses: Pose[] }).poses.some(p => poseKey(p) === poseKey(stopped))).toBe(true);
         expect(poseKey(stopped)).not.toBe(poseKey(to));
         expect(done.state.crew[0]!.actionsLeft).toBe(1);
+    });
+
+    it('previews a drive into someone unseen exactly as the same drive with nobody there, while the commit is cut', () => {
+        const to: Pose = { x: 2, y: 3, heading: 'w' };
+        /** The van boarded, the walker (if any) in its way west and out of the crew's knowledge. */
+        const world2 = (withWalker: boolean) => {
+            const people: PersonDef[] = withWalker ? [{ id: 'walker', name: 'walker', role: 'customer', observer: 'civilian', pos: P(6, 4), facing: 's', schedule: [] }] : [];
+            const { world, state } = street({ people });
+            const s = clonePlain(run(world, state, { type: 'board', crew: 'mara', vehicle: 'van' }, { type: 'endTurn' }).state);
+            if (withWalker) {
+                s.npcs[0]!.pos = P(6, 4);
+                delete s.knowledge.npcs.walker;
+            }
+            return { world, state: s };
+        };
+        const a = world2(true), b = world2(false), cmd = { type: 'drive' as const, crew: 'mara', vehicle: 'van', to };
+        const pa = previewCertain(a.world, a.state, cmd), pb = previewCertain(b.world, b.state, cmd);
+        expect(projectPreviewEvents(a.world, a.state, pa)).toEqual(projectPreviewEvents(b.world, b.state, pb));
+        expect(pa.events).toEqual(pb.events);
+        expect(pa.state.vehicles).toEqual(pb.state.vehicles);
+        expect(pa.state.crew).toEqual(pb.state.crew);
+        expect(pa.undoable).toBe(pb.undoable);
+        expect(pa.state.vehicles.van!.pose).toEqual(to);
+        // The walker is put back where it stood in the previewed state.
+        expect(pa.state.npcs).toEqual(a.state.npcs);
+        // The commit meets the walker: cut short, the tiles driven counted, and final.
+        const done = step(a.world, a.state, cmd);
+        expect(of(done.events, 'driveCut')).toHaveLength(1);
+        const driven = of(done.events, 'driven')[0]!;
+        expect(driven.cost).toBeLessThan(of(pb.events, 'driven')[0]!.cost);
+        expect(done.state.vehicles.van!.pose).not.toEqual(to);
+        expect(done.undoable).toBe(false);
     });
 });
 

@@ -1,6 +1,6 @@
 import { IllegalCommand, registerCommand, registerCommandHook, type Ctx } from '../core/engine';
 import { edgeBetween, edgeKey, inBounds, tileAt } from '../core/grid';
-import { sortedIds } from '../core/json';
+import { clonePlain, sortedIds } from '../core/json';
 import { actorRefusal, crewMember, edgeNow, registerActorCheck, registerCrewInit, registerRuleDefaults, registerStateInit, spendActions } from '../core/state';
 import type { CrewState, DeepReadonly, Pos, ReadonlyWorld, State } from '../core/types';
 import { registerEvents } from '../core/undo';
@@ -13,7 +13,7 @@ import { inHands, syncHands } from './hands';
 import { perceiveEnd } from './perceive';
 import { lacksActions, registerAction } from './actions/act';
 import { hasTrait } from './alarms';
-import { markerKind, officerSeen, registerPreviewSecret } from './knowledge';
+import { markerKind, officerSeen, registerCertainView, registerPreviewSecret } from './knowledge';
 import { dropTargets, isDown } from './wounds';
 
 /*
@@ -379,13 +379,42 @@ registerCommand('drive', (ctx, cmd) => {
     const off = cut.steps === plan.steps.length && plan.off;
     v.pose = poses.length ? { ...poses[poses.length - 1]! } : from;
     carryAlong(world, state, cmd.vehicle);
-    ctx.emit({ type: 'driven', crew: member.id, vehicle: cmd.vehicle, from, to: { ...v.pose }, path: poses, swept, cost: plan.cost, off });
+    // The tiles of path actually driven: the whole plan's, or those up to the cut.
+    const cost = plan.costs.slice(0, cut.steps).reduce((a, b) => a + b, 0);
+    ctx.emit({ type: 'driven', crew: member.id, vehicle: cmd.vehicle, from, to: { ...v.pose }, path: poses, swept, cost, off });
     if (cut.at) ctx.emit({ type: 'driveCut', vehicle: cmd.vehicle, by: cut.by, at: cut.at });
     if (off) for (const name of [...LEAVE_HOOKS.keys()].sort()) LEAVE_HOOKS.get(name)!(ctx, cmd.vehicle);
 });
 
-// Someone the crew didn't see in the way is found by driving into them: a preview can't tell (decision 192).
+// Someone the crew didn't see in the way is found by driving into them: a preview can't tell (decision 192). The
+// player's preview (`previewCertain`) drives it as if they weren't there: everyone unknown on the plan's sweep is set
+// aside (an NPC away, an officer off the map) for the preview and put back after, so it is the very preview of the same
+// drive with nobody there: its events, the van's pose, its undo.
 registerPreviewSecret('driveCut');
+registerCertainView('drive', (world, state, cmd) => {
+    if (cmd.type !== 'drive') return undefined;
+    const plan = drivePlan(world, state, cmd);
+    if (typeof plan === 'string') return undefined;
+    const truth = driveMap(world, state, cmd.vehicle, 'truth'), known = driveMap(world, state, cmd.vehicle);
+    const hidden = new Set(plan.steps.flat().filter(t => truth.tile(t) === 'blocked' && known.tile(t) !== 'blocked').map(t => `${t.x},${t.y}`));
+    if (!hidden.size) return undefined;
+    const on = (p: DeepReadonly<Pos> | null): boolean => !!p && hidden.has(`${p.x},${p.y}`);
+    const npcs = state.npcs.filter(n => !ABSENT_STATUSES.has(n.status) && on(n.pos)).map(n => n.id);
+    const units = (state.police?.units ?? []).filter(u => on(u.pos)).map(u => u.id);
+    const aside = clonePlain(state);
+    for (const n of aside.npcs) if (npcs.includes(n.id)) n.status = 'away';
+    for (const u of aside.police.units) if (units.includes(u.id)) u.pos = null;
+    return {
+        state: aside,
+        restore(previewed) {
+            for (const id of npcs) previewed.npcs[previewed.npcs.findIndex(n => n.id === id)] = clonePlain(state.npcs.find(n => n.id === id)!);
+            for (const id of units) {
+                const i = previewed.police.units.findIndex(u => u.id === id);
+                if (i >= 0) previewed.police.units[i] = clonePlain(state.police.units.find(u => u.id === id)!);
+            }
+        }
+    };
+});
 
 /** Every loot id in a vehicle's hold, sorted (for views). */
 export const holdOf = (state: DeepReadonly<State>, id: string): string[] => sortedIds(state.loot).filter(l => state.loot[l]!.holder === id);

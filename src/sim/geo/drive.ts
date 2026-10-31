@@ -355,17 +355,19 @@ export function driveReach(size: VehicleSize, from: DeepReadonly<Pose>, budget: 
  * A drive to one pose of a reach: the poses after each manoeuvre, each manoeuvre's own sweep, the tiles swept on the way
  * (row-major), its cost.
  */
-export interface DrivePath { poses: Pose[]; steps: Pos[][]; swept: Pos[]; cost: number; off: boolean }
+export interface DrivePath { poses: Pose[]; steps: Pos[][]; costs: number[]; swept: Pos[]; cost: number; off: boolean }
 
 export function drivePath(reach: DriveReach, to: DeepReadonly<Pose>): DrivePath | undefined {
     const end = reach.nodes.get(poseKey(to));
     if (!end || !end.parent) return undefined;
-    const poses: Pose[] = [], steps: Pos[][] = [];
+    const poses: Pose[] = [], steps: Pos[][] = [], costs: number[] = [];
     for (let n: DriveNode | undefined = end; n?.parent; n = reach.nodes.get(n.parent)) {
         poses.push({ ...n.pose });
         steps.push(n.swept.map(t => ({ x: t.x, y: t.y })));
+        costs.push(n.cost - reach.nodes.get(n.parent)!.cost);
     }
     poses.reverse();
     steps.reverse();
-    return { poses, steps, swept: rowMajor(steps.flat()), cost: end.cost, off: end.off };
+    costs.reverse();
+    return { poses, steps, costs, swept: rowMajor(steps.flat()), cost: end.cost, off: end.off };
 }

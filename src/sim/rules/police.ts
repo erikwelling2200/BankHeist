@@ -316,11 +316,20 @@ export const newTeam = (): SwatTeam => ({ focus: null, planned: -1, movers: [], 
 
 /**
  * Where a police vehicle stops at its staging point (decision 193): the point itself, else the nearest tile to it (by
- * rings, row-major within a ring) on the map that nothing blocks and no crew vehicle stands on, so it never parks
- * inside the crew's van.
+ * rings, row-major within a ring) on the map a vehicle can stand on: drivable, nothing blocking it, no crew vehicle and
+ * nobody (crew, NPC, officer) there, so it never parks inside the crew's van or on someone. The point itself when
+ * there is none.
  */
 function parkingSpot(world: ReadonlyWorld, state: State, at: DeepReadonly<Pos>): Pos {
-    const ok = (p: Pos): boolean => inBounds(world, p) && !tileAt(world, p)!.blocksMove && vehicleAt(world, state, p) === undefined;
+    const people = new Set<string>([
+        ...state.crew.map(c => `${c.pos.x},${c.pos.y}`),
+        ...state.npcs.filter(n => !ABSENT_STATUSES.has(n.status)).map(n => `${n.pos.x},${n.pos.y}`),
+        ...state.police.units.flatMap(u => (u.pos ? [`${u.pos.x},${u.pos.y}`] : []))
+    ]);
+    const ok = (p: Pos): boolean => {
+        const tile = tileAt(world, p);
+        return !!tile && !!tile.drivable && !tile.blocksMove && vehicleAt(world, state, p) === undefined && !people.has(`${p.x},${p.y}`);
+    };
     for (let r = 0; r < Math.max(world.width, world.height); r++) {
         for (let y = at.y - r; y <= at.y + r; y++) for (let x = at.x - r; x <= at.x + r; x++) {
             if (Math.max(Math.abs(x - at.x), Math.abs(y - at.y)) === r && ok({ x, y })) return { x, y };
