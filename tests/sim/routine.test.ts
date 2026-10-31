@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
     clonePlain, commit, crewShotPreview, dealHarm, previewShot, projectPreviewEvents, deserialiseState, fixtureWorld, initialState, legalActions, OFFICER_STATS, policeDown, preview, projectEvents, serialiseState,
-    type CrewStart, type FixtureOptions, type FixtureWall, type Material, type PersonDef, type PoliceKind, type PoliceMode, type Pos, type ReadonlyWorld, type SimEvent, type State
+    type CrewStart, type FixtureOptions, type FixtureWall, type Material, type PersonDef, type PoliceKind, type PoliceMode, type Pos, type ReadonlyWorld, type ShotStep, type SimEvent, type State
 } from '../../src/sim';
 import { actionMenu } from '../../src/game/actions';
 import { describeEvent, threatLedger } from '../../src/game/views';
@@ -297,10 +297,32 @@ describe('officers through what the crew knows (§8.15, two worlds)', () => {
         const shown = projectEvents(world, r.state, [hit, harm], watching);
         expect(shown).toHaveLength(1);
         expect(JSON.stringify(shown)).not.toContain('"cop"');
-        expect(of(shown, 'shotFired')[0]!.bullets[0]!.steps[0]).toMatchObject({ kind: 'body', id: '' });
+        expect(of(shown, 'shotFired')[0]!.bullets[0]!.steps).toEqual([]);
+        // Two worlds: a bullet through a hidden body (whatever its armour) and the same bullet meeting nobody are told
+        // alike: no hit, no damage, no step.
+        const wall: ShotStep = { kind: 'wall', edge: 'eastWest 9 2', material: 'soft', effect: 'slowed', damage: 1 };
+        const through = (steps: ShotStep[]) => ({ ...real, hits: [], bullets: [{ ...real.bullets[0]!, steps, stop: 'range' as const }] });
+        const withBody = through([{ kind: 'body', id: 'cop', effect: 'through', damage: 1 }, wall]);
+        const without = through([wall]);
+        expect(projectEvents(world, r.state, [{ ...withBody, hits: [{ id: 'cop', hits: 1, damage: 1, knockout: false }] }], watching))
+            .toEqual(projectEvents(world, r.state, [without], watching));
     });
 
-    it('says why an officer held fire only when the crew sees who was in the way', () => {
+    it('tells a hold the same whether or not someone hidden also stood in the way', () => {
+        // Bob, seen, stands in the line; Ann, in the dark beyond the crew's sight, may stand in it too.
+        const make = (ann: boolean) => {
+            const people = [person('bob', P(5, 2)), ...(ann ? [person('ann', P(8, 2))] : [])];
+            const { world, state } = setup(Array.from({ length: 5 }, () => '..............................'), { dark: [P(7, 2), P(8, 2), P(7, 1), P(8, 1), P(7, 3), P(8, 3)], people });
+            officer(state, 'cop', P(10, 2));
+            const r = commit(world, state, endTurn);
+            return of(projectEvents(world, r.state, r.events, state), 'heldFire');
+        };
+        const hidden = make(true), none = make(false);
+        expect(none).toEqual([{ type: 'heldFire', shooter: 'cop', target: 'jun' }]);
+        expect(hidden).toEqual(none);
+    });
+
+    it('tells a hold without why: the truth names who was in the way', () => {
         const people = [person('ann', P(8, 2))];
         const { world, state } = setup(Array.from({ length: 5 }, () => '..............................'), { dark: [P(7, 2), P(8, 2), P(7, 1), P(8, 1), P(7, 3), P(8, 3)], people });
         officer(state, 'cop', P(10, 2));

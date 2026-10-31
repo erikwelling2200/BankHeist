@@ -1058,8 +1058,10 @@ M2 is complete: every package below has landed.
       crew's own volley at a hidden foe is told without naming the target. Third review: a told shot names nobody hidden
       (its hits dropped, a bullet's step into them kept with an empty id); a Hostile guard unlocks and opens a locked door
       it may pass, as on its rounds; the grid offers Watch and Suppress on officers the crew sees; `heldFire` names its
-      `blockers` and is told `why` only when the crew knows them all; fighters look from their lean tiles too; a
-      fighter's shot is told (`fighterFired`, then the bullets, then its noise and Loud) only once it is fired.
+      `blockers`, and is told as a plain hold (its reason may rest on someone hidden); fighters look from their lean
+      tiles too; a
+      fighter's shot is told (`fighterFired`, then the bullets, then its noise and Loud) only once it is fired. A told shot
+      leaves out a hidden body's step and hits altogether (no hit, damage or armour to read).
     - **Known limitations:** the carriers' preview of the coming world phase (`pendingCarriers`, `carrierPreview`)
       stops at the first fighter's shot (`Dice.pictured`), so carriers that phase would start later (check-ins, vault
       sensors and the patrol car in `devices`) are missing from "this would start"; with a Hostile guard about, that is

@@ -1523,18 +1523,20 @@ export function projectEvents(world: ReadonlyWorld, state: State, events: readon
             continue;
         }
         if (e.type === 'noise') { out.push({ ...e, heard: e.heard.filter(known) }); continue; }
-        // Held for someone in the way: why only when the crew knows everyone who was.
-        if (e.type === 'heldFire' && e.blockers?.some(hiddenPerson)) {
-            const told: SimEvent = { type: 'heldFire', shooter: e.shooter, target: e.target };
-            out.push(told);
+        // A held fire is told without why: its reason, taken over every place the fighter could fire from, may rest on
+        // someone hidden (a 'body' outranks range or sight, and a hidden body can stand in front of a seen one), so a
+        // plain hold reads the same whether or not anyone hidden was there.
+        if (e.type === 'heldFire') {
+            out.push({ type: 'heldFire', shooter: e.shooter, target: e.target });
             continue;
         }
         // A shot told (its shooter known) names only the people the crew knows: a bullet's step into someone hidden
-        // keeps where it stopped but not who (`id` empty), and their hits aren't told.
+        // isn't told (the bullet still stops or flies on as it did, where the crew sees it), nor are their hits, so
+        // neither who it was nor what their armour took.
         if (e.type === 'shotFired' && [...e.hits.map(h => h.id), ...e.bullets.flatMap(b => b.steps.flatMap(st => (st.kind === 'body' ? [st.id] : [])))].some(hiddenPerson)) {
             out.push({
                 ...e, hits: e.hits.filter(h => !hiddenPerson(h.id)),
-                bullets: e.bullets.map(b => ({ ...b, steps: b.steps.map(st => (st.kind === 'body' && hiddenPerson(st.id) ? { ...st, id: '' } : st)) }))
+                bullets: e.bullets.map(b => ({ ...b, steps: b.steps.filter(st => !(st.kind === 'body' && hiddenPerson(st.id))) }))
             });
             continue;
         }
