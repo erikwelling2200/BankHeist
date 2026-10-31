@@ -10,6 +10,8 @@ import { TILE } from '../../level/constants';
 import type { Pos } from '../../sim';
 import { drawLoud, type LoudContent } from './loudDraw';
 import { insetLoops, sideRuns, withoutHoles, type Corner, type Side } from './contours';
+import type { LoudVM } from '../../game/loudBoards';
+import { drawBoards } from './loud';
 
 /**
  * The world UI layer (UI.md "Two layers", "Visual language", M1-14): a canvas over the game's at twice the art's
@@ -152,6 +154,8 @@ export interface OverlayContent {
     found?: readonly EvidenceWarning[];
     /** Once loud (M3-09, src/scenes/bank/loudDraw.ts): a shot's cone, breaches announced, the unit acting in playback. */
     loud?: LoudContent;
+    /** The loud boards (M3-09, src/scenes/bank/loud.ts): Watch wedges, grenades lying, the driving overlay. */
+    boards?: LoudVM;
 }
 
 /** The signal palette, and its colour-blind preset (UI.md). */
@@ -256,7 +260,7 @@ export class WorldOverlay {
     }
 
     /** The path shown, for tests. */
-    get state(): { safeFloor: FloorTileVM[]; floorDim: boolean; pathSafety: PathVM | null; explain: ExplainVM | null; found: { pos: Pos; level: string }[]; badges: number; hearers: number; cones: number; cameras: number; cameraCones: number; flashes: number; colourBlind: boolean; path: Pos[]; reach: number; dashReach: number; range: { walk: Pos[]; run: Pos[] }; dash: boolean; noise: number; witnesses: number; intents: number; loot: Pos[]; throwArc: { from: Pos; to: Pos; caught: boolean } | null; throwRange: Pos[]; rings: { command: number; panic: number; outcomes: { id: string; glyph: string; count?: number | string }[] } | null; holds: number; aim: { bullets: number; bodies: { id: string; kind: string; ifBroken: boolean; shield: string | null }[] } | null; breaches: string[] } {
+    get state(): { safeFloor: FloorTileVM[]; floorDim: boolean; pathSafety: PathVM | null; explain: ExplainVM | null; found: { pos: Pos; level: string }[]; badges: number; hearers: number; cones: number; cameras: number; cameraCones: number; flashes: number; colourBlind: boolean; path: Pos[]; reach: number; dashReach: number; range: { walk: Pos[]; run: Pos[] }; dash: boolean; noise: number; witnesses: number; intents: number; loot: Pos[]; throwArc: { from: Pos; to: Pos; caught: boolean } | null; throwRange: Pos[]; rings: { command: number; panic: number; outcomes: { id: string; glyph: string; count?: number | string }[] } | null; holds: number; aim: { bullets: number; bodies: { id: string; kind: string; ifBroken: boolean; shield: string | null }[] } | null; breaches: string[]; boards: LoudVM | null } {
         const c = this.content;
         return {
             aim: c?.loud?.aim ? { bullets: c.loud.aim.arcs.length, bodies: c.loud.aim.bodies.map(b => ({ id: b.id, kind: b.kind, ifBroken: b.ifBroken, shield: b.shield?.state ?? null })) } : null,
@@ -272,7 +276,7 @@ export class WorldOverlay {
             intents: c?.intents?.length ?? 0,
             loot: (c?.loot ?? []).map(l => l.at), throwArc: c?.throwArc ?? null, throwRange: c?.throwRange ?? [],
             rings: c?.rings ? { command: c.rings.command.length, panic: c.rings.panic.length, outcomes: c.rings.outcomes.map(o => ({ id: o.id, glyph: o.plate.glyph, ...(o.plate.count !== undefined ? { count: o.plate.count } : {}) })) } : null,
-            holds: c?.holds?.length ?? 0
+            holds: c?.holds?.length ?? 0, boards: c?.boards ?? null
         };
     }
 
@@ -572,6 +576,13 @@ export class WorldOverlay {
                 ctx.lineTo(bx, by - 8 + dy);
                 ctx.stroke();
             }
+        }
+
+        // The loud layer (M3-09, src/scenes/bank/loud.ts): wedges, grenades lying, the driving overlay.
+        if (c.boards) {
+            const outline = (tiles: Pos[], colour: string, width: number, dash: number[]) =>
+                this.strokeLoops(insetLoops(tiles, withoutHoles(tiles, has0(tiles)), NOISE_INSET / S), colour, width, dash, NOISE_RADIUS, ox, oy);
+            drawBoards({ ctx, S, left, top, pal, ink: INK, outline }, c.boards);
         }
 
         // The target: a bracket in the crew colour round the tile, or across the door's edge.

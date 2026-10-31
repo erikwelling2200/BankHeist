@@ -9,6 +9,7 @@ import {
 } from '../../game';
 import { shownWarnings, warningLines, type EvidenceWarning } from '../../game/evidenceWarning';
 import { aimView, breachMarkers, fireSelector, policeMarkers, type AimVM, type PoliceMarkerVM } from '../../game/loudUi';
+import { loudView, negotiatorView, posesCovering, type LoudVM } from '../../game/loudBoards';
 import type { GeneratedBank } from '../../gen/model';
 import { TILE } from '../../level/constants';
 import { headingOf } from '../../art/bank/people';
@@ -43,6 +44,8 @@ import type { Vehicles } from './vehicles';
 
 /** A crew member walks a tile in this long at 1× (a little brisk: a whole turn's moves stay short). */
 const STEP_MS = 150;
+/** How long a driven van shows at each pose along its path, at 1× (M3-09). */
+const DRIVE_POSE_MS = 140;
 /** How long the camera takes to reach an important event, and stays on it, at 1×. */
 const VISIT_PAN_MS = 300;
 const VISIT_HOLD_MS = 450;
@@ -138,8 +141,12 @@ export class PlayMode {
     private recap: boolean;
     /** The path being dragged, and whether it is legal so far. */
     private dragPath?: Pos[];
+    /** A Watch wedge is being dragged round (M3-09). */
+    private wedgeDrag = false;
     private walk?: Walk;
     private holdMs = 0;
+    /** The turn whose negotiator call the player put aside (Later). */
+    private negotiatorLater = -1;
     /** How long each camera visit of the world phase being played may take, so the quiet phase fits its budget. */
     private visitMs = VISIT_PAN_MS + VISIT_HOLD_MS;
     /** How long a step of the passive NPCs' walk takes in the world phase being played, at 1×. */
@@ -261,6 +268,12 @@ export class PlayMode {
                 this.recap = false;
                 this.refresh();
             },
+            // The negotiator's dialog (M3-09): an answer commits at once (the dialog shows its effect), by whoever answers.
+            negotiate: id => this.answerNegotiator(id),
+            closeNegotiator: () => {
+                this.negotiatorLater = this.session.state.turn;
+                this.refresh();
+            },
             // A new heist once this one is over (§15.5): the saved one is done with; the page starts afresh.
             newHeist: () => {
                 this.session.storage.remove(HEIST_KEY);
@@ -313,7 +326,7 @@ export class PlayMode {
             actions: this.session.hud({ target: this.target }).actions.map(a => ({ id: a.id, enabled: a.enabled, reason: a.reason, selected: !!a.selected })),
             intents: this.overlay.state.intents,
             /** Loot drawn on the floor, and a previewed throw's arc (§15.1). */
-            loot: this.overlay.state.loot, throwArc: this.overlay.state.throwArc, throwRange: this.overlay.state.throwRange,
+            loot: this.overlay.state.loot, boards: this.overlay.state.boards, driving: this.vehicles.driving, throwArc: this.overlay.state.throwArc, throwRange: this.overlay.state.throwRange,
             /** A previewed command's rings (tile counts, each outcome's plate) and the hold rings drawn (§10.1, §10.3). */
             rings: this.overlay.state.rings, holds: this.overlay.state.holds,
             /** The safe floor drawn (§8.8), whether its Dash band is in yet, and how long each band took to judge (ms). */
@@ -355,6 +368,7 @@ export class PlayMode {
             return;
         }
         if (this.holdMs > 0) {
+            this.vehicles.tick(deltaMs);
             this.holdMs -= deltaMs;
             return;
         }
@@ -405,6 +419,17 @@ export class PlayMode {
                 walkers.push({ index: body, points: [behind, ...tiles.slice(0, -1)].map(centre) });
             }
             this.startWalk(walkers, STEP_MS * speed);
+            return;
+        }
+        if (e.type === 'driven') {
+            // The drive animated (M3-09): the van at each pose along its path, the camera on it.
+            if (speed === 0) return;
+            const ms = this.vehicles.animate(e.vehicle, [e.from, ...e.path], DRIVE_POSE_MS * speed);
+            if (ms > 0) {
+                const def = this.session.world.vehicles?.find(v => v.id === e.vehicle);
+                if (def) this.camera.centreOn(...centre(e.to), Math.min(ms, VISIT_PAN_MS * speed));
+                this.holdMs = ms;
+            }
             return;
         }
         if (e.type === 'npcWalked') {
@@ -954,6 +979,7 @@ export class PlayMode {
     private skip(): void {
         for (const item of this.session.playback.drain()) this.applyInstantly(item);
         this.holdMs = 0;
+        this.vehicles.finish();
         this.scene.cameras.main.panEffect.reset();
         this.syncAll();
         this.playing = false;
@@ -1027,6 +1053,16 @@ export class PlayMode {
             this.preview({ ...pending, to: tile });
             return;
         }
+        // A drive previewed (M3-09's driving overlay): a tap on a tile some reachable footprint covers drives there (the
+        // cheapest pose over it); a tap on the chosen footprint again turns to the next pose over that tile.
+        if (pending?.type === 'drive') {
+            const poses = posesCovering(this.session.world, this.session.state, pending.vehicle, tile);
+            if (poses.length) {
+                const now = poses.findIndex(p => p.x === pending.to.x && p.y === pending.to.y && p.heading === pending.to.heading);
+                this.preview({ ...pending, to: poses[(now + 1) % poses.length]! });
+                return;
+            }
+        }
         // An attack, a wedge or a grenade previewed (M3-02): a tap on another NPC the crew knows of aims it there, and on
         // its target again commits it (the polished aim mode is M3-09's).
         if (pending && AIMED.has(pending.type) && 'crew' in pending) {
@@ -1038,6 +1074,12 @@ export class PlayMode {
                 this.preview(entry.command);
                 return;
             }
+        }
+        // A Watch wedge previewed: a tap on a floor tile in sight aims it there, and on its aim again sets it.
+        if (pending?.type === 'watch' && onFloor) {
+            if (same(pending.at, tile)) return this.confirm();
+            this.aimWedge(tile);
+            if (this.session.pendingCommand !== pending) return;
         }
         if (onTile) return this.select(drawn && drawn.pos.y > onTile.pos.y ? drawn.id : onTile.id);
         if (pending && 'path' in pending && same(pending.path.at(-1), tile)) return this.confirm();
@@ -1159,9 +1201,15 @@ export class PlayMode {
     private claim(x: number, y: number): boolean {
         const member = this.selectedMember();
         if (this.busy || this.recap || !member || member.actionsLeft === 0 || this.session.state.phase !== 'crew') return false;
+        // A Watch wedge previewed (M3-09): a drag from the crew member or from the wedge's aim drags the wedge round.
+        const pending = this.session.pendingCommand, tile = { x: Math.floor(x / TILE), y: Math.floor(this.groundY(x, y) / TILE) };
+        if (pending?.type === 'watch' && pending.crew === member.id
+            && (this.people.hit(this.sprite.get(member.id)!, x, y) || Math.max(Math.abs(tile.x - pending.at.x), Math.abs(tile.y - pending.at.y)) <= 1)) {
+            this.wedgeDrag = true;
+            return true;
+        }
         if (!this.people.hit(this.sprite.get(member.id)!, x, y)) {
             // Aim mode (UI.md "Touch grammar"): any other drag moves the aim point, under the loupe.
-            const pending = this.session.pendingCommand;
             if (pending?.type !== 'attack' && pending?.type !== 'suppress') return false;
             this.aimDrag = true;
             return true;
@@ -1188,8 +1236,20 @@ export class PlayMode {
         this.session.setPendingCommand(cmd);
     }
 
+    /**
+     * Aims a previewed Watch wedge at `tile` (M3-09 "dragging a Watch wedge"): only a tile the crew sees now, so a
+     * refusal never tells of anything out of sight; one the wedge can't be aimed at leaves it where it was.
+     */
+    private aimWedge(tile: Pos): void {
+        const pending = this.session.pendingCommand, view = this.known();
+        if (pending?.type !== 'watch' || same(pending.at, tile)) return;
+        if (tile.x < 0 || tile.y < 0 || tile.x >= view.width || tile.y >= view.height || view.inView[tile.y * view.width + tile.x] !== 1) return;
+        this.preview({ ...pending, at: { x: tile.x, y: tile.y } });
+    }
+
     /** Extends the dragged path to the tile under (x, y), a step at a time; going back over the last step takes it back. */
     private dragTo(x: number, y: number): void {
+        if (this.wedgeDrag) return this.aimWedge({ x: Math.floor(x / TILE), y: Math.floor(this.groundY(x, y) / TILE) });
         if (this.aimDrag) return this.aimAt(x, y);
         const member = this.selectedMember(), path = this.dragPath;
         if (!member || !path) return;
@@ -1206,6 +1266,10 @@ export class PlayMode {
 
     /** A drawn path becomes a Move when it fits Move's budget, else a Dash; one too long is cut to its longest legal start. */
     private release(cancelled: boolean): void {
+        if (this.wedgeDrag) {
+            this.wedgeDrag = false;
+            return this.refresh();
+        }
         if (this.aimDrag) {
             this.aimDrag = false;
             this.loupe.hide();
@@ -1241,6 +1305,18 @@ export class PlayMode {
      * The grid: movement (the default) drops a pending action, so a tap on a tile moves again; any other entry previews
      * its command (for the current target), or says why it can't be done.
      */
+    /** An answer to the negotiator from the dialog: the offer as the answerer's grid has it, committed. */
+    private answerNegotiator(id: string): void {
+        if (this.busy) this.skip();
+        const { world, state } = this.session, call = negotiatorView(world, state, this.session.selected);
+        if (!call) return;
+        const entry = actionMenu(world, state, call.crew, this.target).find(e => e.id === id);
+        if (!entry) return;
+        if (entry.reason) return this.toast(entry.reason);
+        this.session.setPendingCommand(entry.command);
+        this.confirm();
+    }
+
     private pickAction(id: ActionId): void {
         if (this.busy) this.skip();
         if (this.recap) return;
@@ -1377,7 +1453,10 @@ export class PlayMode {
 
     /** The HUD, the rings and the overlay, from the Session. */
     private refresh(): void {
-        const { session } = this, vm = session.hud({ mapOn: this.mapOn, overlays: this.overlays, target: this.target });
+        const { session } = this, hudVm = session.hud({ mapOn: this.mapOn, overlays: this.overlays, target: this.target });
+        // The negotiator's call (M3-09), unless put aside this turn or still playing back.
+        const negotiator = this.negotiatorLater === session.state.turn || this.busy ? null : negotiatorView(session.world, session.state, session.selected);
+        const vm = { ...hudVm, negotiator };
         // Where each carrier is, as the ledger may say (a holder the crew doesn't know has none): the camera's visits use it.
         for (const t of vm.ledger) if (t.pos && session.state.carriers.some(c => c.id === t.id)) this.carrierAt.set(t.id, { x: t.pos.x, y: t.pos.y });
         this.hud.update(this.recap ? { ...vm, recap: session.recap() } : vm);
@@ -1414,9 +1493,16 @@ export class PlayMode {
         }));
     }
 
+    /** The loud layer (M3-09): Watch wedges, grenades lying, the driving overlay for a previewed drive. */
+    private loudLayer(): { boards?: LoudVM } {
+        const { world, state } = this.session;
+        const loud = loudView(world, state, this.known(), this.busy ? null : this.session.pendingCommand);
+        return loud ? { boards: loud } : {};
+    }
+
     private overlayContent(): Parameters<WorldOverlay['set']>[0] {
         if (this.recap) return null;
-        const layer = { ...this.knowledgeLayer(), routes: routeViews(this.session), ...this.takeoverLayer() };
+        const layer = { ...this.knowledgeLayer(), routes: routeViews(this.session), ...this.takeoverLayer(), ...this.loudLayer() };
         if (this.busy || this.session.state.phase !== 'crew') return { colour: '', ...layer };
         const intents = this.intents(), member = this.selectedMember();
         if (!member) return { colour: '', intents, ...layer };

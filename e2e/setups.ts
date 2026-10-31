@@ -437,7 +437,115 @@ const lookAt = (page: Page, p: { x: number; y: number }): Promise<void> => page.
     (window as any).game.scene.getScene('bank').lookAt(q.x * 16 + 8, q.y * 16 + 8);
 }, p);
 
+/**
+ * The loud bank of M3-09 (`mode`: the police's mode): masks on, the Alarm and the police on site at Heat 3, Jun's
+ * pistol drawn; a SWAT officer on a tile the crew sees 4–6 from Jun with a red Watch wedge on him; a police flashbang
+ * lying beside Mara, going off as the next world phase starts. With `negotiate`, a negotiator out too, and Mara inside
+ * beside an NPC she holds face down (a hostage to release).
+ */
+export const LOUD = (mode: 'assault' | 'negotiate') => `(() => { ${PAGE_HELPERS}
+    const ABC = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
+    const bits = s => p => (ABC.indexOf(s[((p.y * w.width + p.x) / 6) | 0]) >> ((p.y * w.width + p.x) % 6)) & 1;
+    const cheb = (p, q) => Math.max(Math.abs(p.x - q.x), Math.abs(p.y - q.y));
+    const st = clone(sim.state), mara = st.crew[0], jun = st.crew[1];
+    for (const c of st.crew) c.loadout.masked = true;
+    st.bank.alarm = true;
+    st.bank.loud = true;
+    st.response = { raised: st.turn - 5, by: 'tellerButton', policeIn: 0, heat: 13 };
+    st.police.sent = 3;
+    st.police.mode = { kind: '${mode}', left: 3, since: { turn: st.turn - 1, phase: 'world' }, after: null };
+    jun.arms.drawn = jun.arms.drawn ?? Object.keys(jun.arms.guns)[0] ?? null;
+    let hostage = null;
+    if ('${mode}' === 'negotiate') {
+        // Mara inside beside a lone NPC, held face down.
+        for (const n of st.npcs.filter(n => n.status !== 'away')) {
+            const p = AROUND.map(d => ({ x: n.pos.x + d.x, y: n.pos.y + d.y })).find(p => free(st, p));
+            if (!p) continue;
+            mara.pos = p;
+            n.status = 'commanded';
+            know(st, n);
+            hostage = n.id;
+            break;
+        }
+    }
+    const seen = bits(sim.state.knowledge.fresh);
+    const tiles = [];
+    for (let y = 0; y < w.height; y++) for (let x = 0; x < w.width; x++) tiles.push({ x, y });
+    const open = tiles.filter(p => free(st, p) && seen(p));
+    const spot = open.filter(p => cheb(p, jun.pos) >= 4 && cheb(p, jun.pos) <= 6).sort((a, b) => cheb(a, jun.pos) - cheb(b, jun.pos) || a.y - b.y || a.x - b.x)[0];
+    if (!spot) return null;
+    const swat = sim.officer('swat', spot, st);
+    if ('${mode}' === 'assault') swat.watch = { at: { ...jun.pos }, arc: 45, turn: st.turn - 1, tripped: null };
+    st.police.units.push(swat);
+    const near = open.filter(p => cheb(p, mara.pos) === 2 && !same(p, spot) && seen(p))[0];
+    if (near && '${mode}' === 'assault') st.grenades.push({ id: 'grenade-e2e', kind: 'flashbang', by: swat.id, at: near, turn: st.turn });
+    if ('${mode}' === 'negotiate') {
+        const far = open.filter(p => !same(p, spot) && cheb(p, spot) >= 2)[0];
+        st.police.units.push(sim.officer('negotiator', far ?? spot, st));
+    }
+    return { state: st, info: { swat: swat.id, at: spot, grenade: near ?? null, hostage } };
+})()`;
+
+/** Mara at a door of the van (where the rules let her get in), Jun where he started: for the driving overlay. */
+export const AT_VAN = `(() => { ${PAGE_HELPERS}
+    const st = clone(sim.state), v = w.vehicles[0];
+    if (!v) return null;
+    for (let y = v.start.y - 2; y <= v.start.y + 5; y++) for (let x = v.start.x - 2; x <= v.start.x + 5; x++) {
+        const p = { x, y };
+        if (!free(st, p)) continue;
+        const t = clone(st);
+        t.crew[0].pos = p;
+        if (!sim.whyNot({ type: 'board', crew: 'mara', vehicle: v.id }, t)) return { state: t, info: { vehicle: v.id, at: p } };
+    }
+    return null;
+})()`;
+
+/** The van's driving overlay: Mara got in and has the wheel, Jun still on foot, the grid's Drive previewed. */
+const drivePreview = async (page: Page, info: { vehicle: string }): Promise<void> => {
+    await page.evaluate(v => (window as any).sim.commit({ type: 'board', crew: 'mara', vehicle: v }), info.vehicle);
+    await page.waitForFunction(() => !(window as any).game.scene.getScene('bank').debugState.play?.playing);
+    await selectMara(page);
+    await page.locator('.sh-actions button[data-action="drive"]').click();
+    await page.evaluate(() => {
+        const v = (window as any).sim.state.vehicles.van.pose;
+        (window as any).game.scene.getScene('bank').camera.centreOn((v.x + 2) * 16, (v.y + 1) * 16, 0);
+    });
+    await page.waitForTimeout(400);
+};
+
 export const SETUPS: Record<string, Setup> = {
+    'loud-standoff': {
+        about: 'the bank loud at Heat 3 in Assault: a SWAT officer with a red wedge on Jun, a police flashbang lying by Mara with its fuse, the heat strip',
+        script: LOUD('assault'),
+        then: async (page, info: { at: { x: number; y: number } }) => {
+            await lookAt(page, info.at);
+            await page.waitForTimeout(400);
+        }
+    },
+    'watch-wedge': {
+        about: 'loud-standoff with Jun selected and his Watch previewed on the officer: his steel-blue wedge against the red one',
+        script: LOUD('assault'),
+        then: async (page, info: { at: { x: number; y: number } }) => {
+            await selectJun(page);
+            await page.locator('.sh-actions button[data-action="watch"]').click();
+            await lookAt(page, info.at);
+            await page.waitForTimeout(400);
+        }
+    },
+    'negotiator': {
+        about: 'the negotiator on the line in Negotiate: Mara inside holding a hostage, the dialog with Release, Trade, Stall and Hang up',
+        script: LOUD('negotiate'),
+        then: async page => {
+            await selectMara(page);
+            await page.waitForTimeout(400);
+        }
+    },
+    'drive': {
+        about: 'Mara at the wheel with the grid\'s Drive previewed: every footprint the van reaches, the chosen one bracketed, its swept path, Jun flagged on foot',
+        script: AT_VAN,
+        then: drivePreview
+    },
+
     'mara-selected': {
         about: 'Mara selected at the van as the heist starts (nothing shows: Clean in Public)',
         script: `(() => { ${PAGE_HELPERS} return { state: clone(sim.state), info: {} }; })()`,

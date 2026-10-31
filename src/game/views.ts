@@ -5,7 +5,7 @@ import {
 } from '../sim';
 import {
     CREW_COLOURS, OVERLAY_IDS, type ActionVM, type BankStatus, type CommitKind, type ConfirmVM, type HudIcon, type BankStatusVM, type CrewVM, type HudViewModel, type LootVM, MAX_ACTIONS, type OverlayId,
-    type OutcomeCrewVM, type OutcomeVM, type RecapEventVM, type RecapVM, type RingsVM, type ThreatVM
+    type HeatVM, type OutcomeCrewVM, type OutcomeVM, type RecapEventVM, type RecapVM, type RingsVM, type ThreatVM
 } from '../ui/hud/viewModels';
 import { actionMenu, cameraName, VERBS } from './actions';
 import type { UiState } from './session';
@@ -161,19 +161,20 @@ function policePos(world: ReadonlyWorld): { x: number; y: number } {
 }
 
 /** What the next heat step brings (§13.1 "Heat 3 in 2 turns: SWAT van, rear lot"), for the heat strip. */
-function nextHeatView(world: ReadonlyWorld, state: State): { label: string; inTurns: number } | null {
+function nextHeatView(world: ReadonlyWorld, state: State): HeatVM['next'] {
     const next = nextWave(world, state);
     if (!next) return null;
     const first = next.vehicles.find(v => v.kind !== 'helicopter') ?? next.vehicles[0];
     const what = first ? `${first.label}${first.staging ? `, ${first.staging.name.charAt(0).toLowerCase()}${first.staging.name.slice(1)}` : ''}` : 'no losses to refill';
     const more = next.vehicles.length > 1 ? ` +${next.vehicles.length - 1}` : '';
     const head = next.reason === 'refill' ? 'Reinforcements' : next.reason === 'arrival' ? `Police at Heat ${next.level}` : `Heat ${next.level}`;
-    return { label: `${head}: ${what}${more}`, inTurns: next.inPhases };
+    const icon = !first ? 'police' : first.kind === 'van' ? (first.units.some(u => u.startsWith('swat') || u === 'heavy') ? 'swat' : 'truck') : first.kind === 'foot' ? 'dmr' : first.kind === 'helicopter' ? 'police' : 'car';
+    return { label: `${head}: ${what}${more}`, inTurns: next.inPhases, level: next.level, icon, ...(first ? { short: `${first.label}${more}` } : {}) };
 }
 
 /**
  * The state pill (§20.3): "QUIET", "QUIET: alarm in 2" with a carrier running, "ALARM: police in 6" once the Alarm is
- * up (§9.2), "LOUD". Heat shows from the Alarm on, with what its next step brings when `world` is given (§13.1): while
+ * up (§9.2), "LOUD"; plain "ALARM" once the police are on site, the heat strip beside it telling the rest (M3-09). Heat shows from the Alarm on, with what its next step brings when `world` is given (§13.1): while
  * "Police in N" runs, what the first arrival will bring.
  */
 export function bankView(state: State, goPreview = false, world?: ReadonlyWorld): BankStatusVM {
@@ -182,10 +183,14 @@ export function bankView(state: State, goPreview = false, world?: ReadonlyWorld)
     const status: BankStatus = state.bank.alarm ? 'alarm' : state.bank.loud ? 'loud' : 'quiet';
     const r = (state as Partial<State>).response ?? null;
     const label = status === 'alarm'
-        ? r ? (r.policeIn > 0 ? `ALARM: police in ${r.policeIn}` : 'ALARM: police on site') : 'ALARM'
+        ? r ? (r.policeIn > 0 ? `ALARM: police in ${r.policeIn}` : 'ALARM') : 'ALARM'
         : status === 'loud' ? 'LOUD' : nextAlarmIn !== null ? `QUIET: alarm in ${nextAlarmIn}` : 'QUIET';
     const level = r ? heatOf(r.heat) : null;
-    const heat = r && level ? { level: level.level, ticks: level.tick, next: world && state.police ? nextHeatView(world, state) : null } : null;
+    const mode = state.police ? policeModeView(state) : null;
+    const heat = r && level ? {
+        level: level.level, ticks: level.tick, next: world && state.police ? nextHeatView(world, state) : null,
+        ...(mode ? { mode: { now: mode.mode, left: mode.left, next: MODE_LABELS[mode.next] } } : {})
+    } : null;
     // GO (§9.3): the takeover turn, or GO previewed.
     const go = goPreview || state.takeover === state.turn;
     return { status, label, nextAlarmIn, ...(r ? { policeEta: r.policeIn, heat } : {}), ...(go ? { go: true } : {}) };

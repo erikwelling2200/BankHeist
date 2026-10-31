@@ -36,7 +36,47 @@ export interface HeatVM {
     level: number;
     /** Filled ticks of the bar, 0–5. */
     ticks: number;
-    next: { label: string; inTurns: number } | null;
+    /**
+     * The next heat step's arrival forecast (§13.1): what it is ("Heat 3: SWAT van, rear lot"), the world phases until
+     * it, and, for the strip's short form, the level it brings and an icon for its first vehicle.
+     */
+    next: { label: string; inTurns: number; level?: number; icon?: HudIcon; /** Its first vehicle alone ("SWAT van"). */ short?: string } | null;
+    /** The police's mode now (§13.4), for the phase strip: Contain, Negotiate, Assault, Regroup, and its phases left. */
+    mode?: PoliceModeVM | null;
+}
+
+export type PoliceModeId = 'contain' | 'negotiate' | 'assault' | 'regroup';
+
+export interface PoliceModeVM {
+    now: PoliceModeId;
+    /** World phases left in it. */
+    left: number;
+    /** What follows it ("Assault"). */
+    next: string;
+}
+
+/** One answer to the negotiator (§13.4, UI.md "Negotiator on the line"), with its effect as a heat or clock delta. */
+export interface NegotiatorOfferVM {
+    /** The action grid's id (`negotiate:release`, `negotiate:trade`, `negotiate:stall`, `negotiate:hangUp`). */
+    id: string;
+    offer: 'release' | 'trade' | 'stall' | 'hangUp';
+    label: string;
+    /** Its effect: "-3 heat", "+2 turns", "Jun back". */
+    effect: string;
+    /** Why it can't be given now. */
+    reason?: string;
+}
+
+/** The negotiator on the line: who answers, the offers, Negotiate's phases left and the hostages held. */
+export interface NegotiatorVM {
+    /** The crew member who answers (spends the action). */
+    crew: string;
+    crewName: string;
+    offers: NegotiatorOfferVM[];
+    /** Negotiate's world phases left. */
+    left: number;
+    /** Hostages the crew holds and knows of. */
+    hostages: number;
 }
 
 export interface BankStatusVM {
@@ -314,6 +354,8 @@ export interface HudViewModel {
     recap?: RecapVM | null;
     /** Shown over everything once the heist has ended (§15.5). */
     outcome?: OutcomeVM | null;
+    /** The negotiator's call (§13.4), while it rings and the player hasn't put it aside. */
+    negotiator?: NegotiatorVM | null;
 }
 
 /** What the HUD reports back. Every input arrives here; the HUD changes nothing in the game itself. */
@@ -332,6 +374,10 @@ export interface HudCallbacks {
     resume?(): void;
     /** The outcome screen's New heist. */
     newHeist?(): void;
+    /** An answer to the negotiator: the offer's action id (`NegotiatorOfferVM.id`). */
+    negotiate?(id: string): void;
+    /** The negotiator's dialog put aside for this turn (the grid still offers the answers). */
+    closeNegotiator?(): void;
 }
 
 /** The HUD's hotkeys (§20.7), by what they do; `KeyboardEvent.key` values, lower-case for letters. */

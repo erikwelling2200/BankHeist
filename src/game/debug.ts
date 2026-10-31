@@ -1,4 +1,5 @@
 import {
+    newUnit, type PoliceKind, type PoliceUnit,
     attackCone, type ShotPreview, effectOf, safeFloor, type ActionPreview, type AutoStop, type CommandRings, type Effect, type SimEvent, type WaitOption, type WaitTarget, type Explanation, type FloorBand, type PathSafety, type SafeFloor, crewBudget, planMoveOptions, crewPicture, isKnownNow, pathTo, whyNot, reachable, updateKnowledge, type Command, type CommitResult, type Pos, type PreviewResult, type ReadonlyWorld, type State
 } from '../sim';
 import { evidenceWarnings, type EvidenceWarning } from './evidenceWarning';
@@ -78,6 +79,8 @@ export interface SimHandle {
     restart(state: State): void;
     /** The getaway's next Drive toward the plot's edge, as the action grid offers it (M3-08), or null with no way off. */
     getaway(vehicle?: string): ReturnType<typeof getawayDrive>;
+    /** A police officer of `kind` out on scene at `pos`, new to `state` (for scripted setups: push it to `state.police.units`). */
+    officer(kind: PoliceKind, pos: Pos, state: State): PoliceUnit;
 }
 
 /** How far a scripted route may reach, in half-steps (60 tiles). */
@@ -117,6 +120,7 @@ export function installDebugHandle(session: Session, target: { sim?: SimHandle }
         },
         effect: (events, crew, before) => effectOf(events, crew, before),
         getaway: (vehicle = 'van') => getawayDrive(session.world, session.state, vehicle),
+        officer: (kind, pos, state) => ({ ...newUnit(state, kind, null, null), pos: { x: pos.x, y: pos.y }, arrived: state.turn - 2 }),
         restart: state => {
             updateKnowledge(session.world, state, () => {});
             session.retire();

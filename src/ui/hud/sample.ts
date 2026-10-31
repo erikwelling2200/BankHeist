@@ -188,9 +188,29 @@ export const SAMPLE_STATES: Record<string, () => SampleState> = {
     heat: () => {
         const vm = base();
         vm.turn = 24;
-        vm.bank = { status: 'alarm', label: 'ALARM', nextAlarmIn: null, policeEta: 0, heat: { level: 2, ticks: 3, next: { label: 'SWAT, rear lot', inTurns: 2 } } };
+        vm.bank = {
+            status: 'alarm', label: 'ALARM', nextAlarmIn: null, policeEta: 0,
+            heat: { level: 2, ticks: 3, next: { label: 'Heat 3: SWAT van, rear lot', inTurns: 2, level: 3, icon: 'swat', short: 'SWAT van' }, mode: { now: 'assault', left: 4, next: 'Regroup' } }
+        };
         vm.ledger = [threat('b', 'reinforcement', 'SWAT breach', 2, 'swat')];
-        return { title: 'Police on site: heat 2, SWAT next', vm };
+        return { title: 'Police on site: heat 2 in Assault, a SWAT van next', vm };
+    },
+    negotiator: () => {
+        const vm = base();
+        vm.turn = 26;
+        vm.bank = {
+            status: 'loud', label: 'LOUD', nextAlarmIn: null, policeEta: 0,
+            heat: { level: 3, ticks: 1, next: { label: 'Heat 4: Police van, main street', inTurns: 5, level: 4, icon: 'truck', short: 'Police van' }, mode: { now: 'negotiate', left: 3, next: 'Assault' } }
+        };
+        vm.negotiator = {
+            crew: 'mara', crewName: 'Mara', left: 3, hostages: 5, offers: [
+                { id: 'negotiate:release', offer: 'release', label: 'Release a hostage', effect: '−3 heat' },
+                { id: 'negotiate:trade', offer: 'trade', label: 'Trade for Jun', effect: 'Jun back' },
+                { id: 'negotiate:stall', offer: 'stall', label: 'Stall', effect: '+2 turns', reason: 'The negotiator won\'t be stalled again' },
+                { id: 'negotiate:hangUp', offer: 'hangUp', label: 'Hang up', effect: '' }
+            ]
+        };
+        return { title: 'Loud: the negotiator on the line (Release, Trade, Stall, Hang up)', vm };
     },
     drawer: () => {
         const vm = base();

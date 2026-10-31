@@ -3,7 +3,7 @@ import { h, img } from './dom';
 import { iconUrl, portraitUrl } from './icons';
 import {
     DEFAULT_KEYMAP, OVERLAY_IDS, type ActionVM, type CrewVM, type HudCallbacks, type HudHandle, type HudKeymap, type HudOptions, type HudViewModel,
-    type LootVM, type OverlayId, type PortraitName, type RingsVM, type ThreatVM
+    type HudIcon, type LootVM, type NegotiatorVM, type OverlayId, type PoliceModeId, type PortraitName, type RingsVM, type ThreatVM
 } from './viewModels';
 import './hud.css';
 
@@ -115,9 +115,11 @@ export function mountHud(root: HTMLElement, callbacks: HudCallbacks, options: Hu
     const recap = h('div.sh-recap-back', { hidden: true });
     // The outcome screen (§15.5): over everything once the heist has ended, until a new one starts.
     const outcome = h('div.sh-outcome-back', { hidden: true });
+    // The negotiator on the line (§13.4, UI.md "Negotiator on the line"): over the map while the call rings.
+    const negotiator = h('div.sh-negot-back', { hidden: true });
     const tag = h('div.sh-tag', { 'aria-hidden': 'true', hidden: true });
 
-    el.append(top, rings, endTurn, rail, ltools, drawer, actions, undo, confirm, confirmNote, ledger, prompt, recap, outcome, tag);
+    el.append(top, rings, endTurn, rail, ltools, drawer, actions, undo, confirm, confirmNote, ledger, prompt, recap, outcome, negotiator, tag);
     root.append(el);
     if (options.textScale) el.style.setProperty('--sh-text', String(options.textScale));
     el.classList.toggle('cb', !!options.colourBlind);
@@ -328,10 +330,17 @@ export function mountHud(root: HTMLElement, callbacks: HudCallbacks, options: Hu
         if (heat) {
             // With the police on site the strip shows the heat and what its next level brings (§20.3).
             timeline.className = 'sh-panel sh-timeline heat';
-            timeline.setAttribute('aria-label', `Heat ${heat.level}${heat.next ? `, ${heat.next.label} in ${heat.next.inTurns}` : ''}`);
+            const m = heat.mode ?? null, next = heat.next;
+            timeline.setAttribute('aria-label', `Heat ${heat.level}${next ? `, ${next.label} in ${next.inTurns}` : ''}${m ? `, police: ${MODE_NAMES[m.now]} for ${m.left}, then ${m.next}` : ''}`);
+            // The arrival forecast (§13.1): the level it brings, its vehicle and the world phases until it, then what it is.
+            const forecast = next ? h('span.sh-heatnext', { title: next.label },
+                h('span.sh-num', {}, `▸${next.level ?? ''}`), next.icon ? img(iconUrl(next.icon)) : null, h('span.sh-num', {}, String(next.inTurns)),
+                h('span.sh-label', {}, next.short ?? next.label)) : null;
+            // The police phase strip (§13.4): each mode, the current one lit with its phases left.
+            const modes = m ? h('span.sh-modes', {}, ...MODE_ORDER.map(([id, icon]) => h((id === m.now ? 'span.sh-mode.on' : 'span.sh-mode') as 'span', { title: MODE_NAMES[id] },
+                img(iconUrl(icon)), id === m.now ? h('b.sh-num', {}, String(m.left)) : null))) : null;
             put(timeline, img(iconUrl('heat')), h('span.sh-num', {}, String(heat.level)),
-                h('span.sh-heatbar', {}, ...Array.from({ length: 5 }, (_, i) => h(i < heat.ticks ? 'i.on' : 'i'))),
-                heat.next ? h('span.sh-label', {}, `▸ ${heat.next.label} in ${heat.next.inTurns}`) : null);
+                h('span.sh-heatbar', {}, ...Array.from({ length: 5 }, (_, i) => h(i < heat.ticks ? 'i.on' : 'i'))), modes, forecast);
             return;
         }
         if (v.bank.status === 'alarm') {
@@ -588,6 +597,36 @@ export function mountHud(root: HTMLElement, callbacks: HudCallbacks, options: Hu
         if (wasHidden) card.focus();
     }
 
+    /**
+     * The negotiator's dialog: each offer as an exchange, what is given for what (UI.md "every deal is an exchange
+     * rate"), its effect as a heat or clock delta; an offer that can't be given now is dimmed with its reason. Answering
+     * spends the answerer's action; Later puts the call aside for the turn (the grid still has the answers).
+     */
+    function renderNegotiator(v: HudViewModel): void {
+        const n: NegotiatorVM | null = v.outcome || v.recap ? null : v.negotiator ?? null;
+        negotiator.hidden = !n;
+        if (!n || !changed(negotiator, JSON.stringify(n))) return;
+        const ICON = { release: 'heat', trade: 'swap', stall: 'wait', hangUp: 'phone' } as const;
+        const offers = n.offers.map(o => {
+            const b = h(`button.sh-deal.${o.offer}${o.reason ? '.off' : ''}` as 'button', {
+                'data-offer': o.offer, 'aria-label': `${o.label}${o.effect ? `: ${o.effect}` : ''}${o.reason ? ` (${o.reason})` : ''}`, ...(o.reason ? { 'aria-disabled': 'true' } : {})
+            }, img(iconUrl(ICON[o.offer])), h('span.sh-dname', {}, o.label), o.effect ? h('span.sh-num.sh-deffect', {}, o.effect) : null, o.reason ? h('span.sh-dwhy', {}, o.reason) : null);
+            b.addEventListener('click', () => { if (!o.reason) callbacks.negotiate?.(o.id); });
+            return b;
+        });
+        const later = h('button.sh-dlater', { 'aria-label': 'Later' }, 'LATER');
+        later.addEventListener('click', () => callbacks.closeNegotiator?.());
+        const card = h('div.sh-sheet.sh-negot', { role: 'dialog', 'aria-labelledby': 'sh-negot-title', 'data-region': 'negotiator', tabindex: '-1' },
+            h('div.sh-nhead', {},
+                portrait('negotiator', 'Negotiator', 'sh-face'),
+                h('div.sh-ncol', {},
+                    h('div.sh-ntitle', { id: 'sh-negot-title' }, img(iconUrl('phone')), h('span', {}, 'NEGOTIATOR ON THE LINE')),
+                    h('div.sh-tiny', {}, `${n.crewName} answers · Negotiate ${n.left} · ${n.hostages} hostage${n.hostages === 1 ? '' : 's'}`)),
+                later),
+            h('div.sh-deals', {}, ...offers));
+        negotiator.replaceChildren(card);
+    }
+
     function renderOverlays(v: HudViewModel): void {
         for (const [id, b] of overlayBtns) {
             b.classList.toggle('on', !!v.overlays[id]);
@@ -608,6 +647,7 @@ export function mountHud(root: HTMLElement, callbacks: HudCallbacks, options: Hu
             renderOverlays(next);
             renderRecap(next);
             renderOutcome(next);
+            renderNegotiator(next);
             if (panel === 'prompt' && changed(prompt, JSON.stringify(crewWithActionsLeft(next.crew)))) renderPrompt();
         },
         setTextScale(scale: number): void {
@@ -628,6 +668,10 @@ export function mountHud(root: HTMLElement, callbacks: HudCallbacks, options: Hu
         }
     };
 }
+
+/** The police's modes in the phase strip (§13.4), with their icons (UI.md "Driving the van" mockup's strip). */
+const MODE_ORDER: readonly (readonly [PoliceModeId, HudIcon])[] = [['contain', 'shield'], ['negotiate', 'phone'], ['assault', 'charge'], ['regroup', 'car']];
+const MODE_NAMES: Readonly<Record<PoliceModeId, string>> = { contain: 'Contain', negotiate: 'Negotiate', assault: 'Assault', regroup: 'Regroup' };
 
 /** A desktop key cap printed on its button (§20.7, UI.md "Desktop"); shown only where there is a mouse. */
 function keycap(key: string): HTMLElement {

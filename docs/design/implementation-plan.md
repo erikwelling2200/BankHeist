@@ -1185,7 +1185,7 @@ M2 is complete: every package below has landed.
       and people in the way, the Wheelman, leaving the plot with Success and Partial, Failure, the generated van and its
       way off the plot); `tests/game/getaway.test.ts` (the grid's entries, a drive at a time off the plot, the outcome
       view); the e2e "the getaway" (`screenshots/play-drive.png`, `screenshots/play-outcome.png`).
-- [ ] **M3-09 Loud interface.** (partial: the first half below; the second half is a separate session)
+- [x] **M3-09 Loud interface.** (partial: see each half's Deferred)
   - **Covers:** UI.md "Loud".
   - **Work:** aim mode with the loupe; nested cone arcs; cover shields; dragging Watch wedges; police markers, ghosts and pings; one-at-a-time world phase playback; the negotiator dialog; the heat strip; the driving overlay.
   - **Depends on:** M3-01 to M3-08.
@@ -1227,8 +1227,42 @@ M2 is complete: every package below has landed.
       cone's lean options as tap targets (`crewLeanOptions`) and the fine aim (`turn`) by drag; officers' facing (the
       rules keep none: drawn facing the nearest crew member); an officer walking out of sight mid-walk is hidden on unseen
       tiles but the walk's timing still runs; the loupe and fire selector on the tactical map; blood drawn (M3-03's).
-    - **Second half (other session):** dragging Watch wedges and police wedges, the heat strip, the negotiator dialog, the
-      driving overlay.
+  - **Notes (second half: wedges, heat strip, negotiator, driving, grenades):**
+    - `src/game/loudBoards.ts` makes the loud boards from what the crew knows: `loudView` (the crew's Watch wedges, set and
+      previewed; police wedges from `seenWedges` only, their reach the officer's gun capped at `COMBAT_SIGHT`; grenades
+      the crew threw or sees lying, `inView`/`fresh`, with the world phases to their fuse), `driveView` (every footprint
+      of `vehicleReach` tinted, the chosen one, `drivePlan`'s swept tiles and pose middles, crew left on foot),
+      `posesCovering` (the reachable poses over a tapped tile, cheapest first) and `negotiatorView` (the four offers as
+      the answerer's grid has them, with their effect and reason). `src/scenes/bank/loud.ts` draws it on the overlay
+      (`OverlayContent.boards`, `debugState.play.boards`): wedges as outlined sectors with a faint fan (steel blue, dashed while previewed; red),
+      grenades as a dashed radius, a dot and a fuse plate (red for police, amber for the crew's), the drive as a sage
+      reach outline, a dashed steel-blue sweep and dotted middle line, the chosen footprint bracketed in cream with a
+      chevron for its heading, and an amber flag over crew on foot.
+    - **Watch wedges dragged:** with a Watch previewed, a drag from the crew member or from the wedge's aim re-aims it
+      to the tile under the finger, and a tap on a floor tile does; only tiles the crew sees now, so a refusal tells
+      nothing hidden; a tap on the aim sets it.
+    - **Heat strip:** `HeatVM.mode` (the police's mode and its phases left: Contain, Negotiate, Assault, Regroup, the
+      current lit) and the forecast's level, vehicle icon, phases and short name (`next.level`, `icon`, `short`); on
+      screens under 760px only the current mode and no words. The pill says plain "ALARM" once the police are on site.
+    - **Negotiator dialog** (HTML, `[data-region="negotiator"]`): over the map while the call rings; each offer an
+      exchange with its heat or clock delta, one that can't be given dimmed with why; an answer commits at once by
+      whoever can answer (the selected crew member first); Later puts it aside for the turn (the grid keeps the
+      answers). `/?scene=hud&state=negotiator`.
+    - **Driving overlay:** the grid's Drive previews the getaway drive; a tap on a tile any reachable footprint covers
+      drives there instead, a tap again on the chosen footprint the next pose over that tile (turning the van). The
+      drive plays from its `driven` event: `Vehicles.animate` shows the van at each pose along the path
+      (`DRIVE_POSE_MS`), the camera on its end (`debugState.play.driving`); a cut drive plays only what was driven.
+    - **Setups and tests:** `npm run shot` presets `loud-standoff`, `watch-wedge`, `negotiator`, `drive`
+      (`e2e/setups.ts`, `window.sim.officer(kind, pos, state)` for scripted officers); `tests/game/loudBoards.test.ts` (a
+      hidden officer's wedge not told, a seen one's; the crew's wedge previewed then set; a grenade where seen; the mode
+      in the strip; the dialog's offers; the reach, sweep and on-foot flags, a tapped pose committing to itself, an
+      unseen NPC not shrinking the reach); `e2e/loudBoards.spec.ts` (`screenshots/loud-standoff.png`, `loud-watch.png`,
+      `loud-negotiator.png`, `loud-drive.png`).
+    - **Deferred:** the rotate buttons beside the chosen footprint (tapping it again turns it); the drive animated
+      between poses (it steps pose to pose) and its sun shadow; wedges clipped to what their holder sees (drawn as the
+      full sector to their reach); a Watch arc narrower than the gun's widest (the fan's edge dragged); blast tiles
+      (the radius is drawn as a circle); officers drawn on the map, ghosts and pings, breach markers and the world
+      phase one unit at a time (the first half's); the sniper laser (with M3-06b's snipers).
 
 ### M4: Sandbox v1
 
