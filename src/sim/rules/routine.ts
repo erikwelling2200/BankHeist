@@ -384,15 +384,17 @@ function react(ctx: Ctx, phase: WorldPhase, f: Fighter): boolean {
 /** Fires a fighter's shot, if it is still clean as it stands: the lean, the facing, the noise, the bullets, the harm. */
 function fire(ctx: Ctx, phase: WorldPhase, f: Fighter, shot: Shot): boolean {
     const { world, state } = ctx;
-    // Firing is acting: a crew Watch on it fires first, and the shot is asked again of what is left standing.
-    if (!react(ctx, phase, f) || shotRefusal(world, state, shot) || !cleanShot(world, state, shot)) return false;
+    if (shotRefusal(world, state, shot)) return false;
     const origin = shot.lean ?? posOf(f);
+    // It leans out first: firing is acting, so a crew Watch on the tile it fires from fires first, and the shot is
+    // asked again of what is left standing.
     const lean = shot.lean ? leanOptions(world, state, f.id).find(l => samePos(l.at, shot.lean!)) ?? null : null;
     if (f.kind === 'npc') {
         f.npc.leaning = lean;
         f.npc.facing = facingToward(origin, shot.at) ?? f.npc.facing;
-        f.npc.ammo!.loaded -= shot.bullets!;
     } else f.unit.leaning = lean;
+    if (!react(ctx, phase, f) || shotRefusal(world, state, shot) || !cleanShot(world, state, shot)) return false;
+    if (f.kind === 'npc') f.npc.ammo!.loaded -= shot.bullets!;
     ctx.emit({ type: 'fighterFired', shooter: f.id, target: shot.target!, weapon: shot.weapon, bullets: shot.bullets!, at: { ...shot.at } });
     const source = NOISE_OF[shot.weapon]!;
     makeNoise(ctx, source, origin, `${shot.weapon} ${f.id}`, weaponDef(shot.weapon).noise);

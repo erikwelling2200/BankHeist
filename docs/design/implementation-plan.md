@@ -1052,7 +1052,10 @@ M2 is complete: every package below has landed.
     - **Review fixes:** a crew Watch fires at fighters that act without moving (decision 159); officers go through what
       the crew knows (decision 150); a report never brings back a place seen empty; a downed target isn't shot;
       `heldFire` names its reason; breaches are called off out of Assault; a miss ends Negotiate and gives the shooter
-      away; leans count toward the shot budget; old saves are refused; decision 160's departures.
+      away; leans count toward the shot budget; old saves are refused; decision 160's departures. Re-review: a hidden
+      officer shot at or suppressed answers (Negotiate's end, the muzzle flash) only past the preview's stop, so no
+      preview tells of it; a fighter leans out before the Watch check, so a wedge on its lean tile catches it; the
+      crew's own volley at a hidden foe is told without naming the target.
     - **Session:** the recap names the new events (an officer by kind); the threat ledger shows each announced breach
       at its door ("Breach next phase: …", 1); the grid's Fire offers officers in the shooter's sight. Drawing police,
       their moves and the breach marker on the map are M3-09's.

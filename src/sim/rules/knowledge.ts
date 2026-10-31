@@ -1489,6 +1489,14 @@ export function projectEvents(world: ReadonlyWorld, state: State, events: readon
             continue;
         }
         const fields = e as unknown as Record<string, unknown>;
+        // The crew's own shot is always told; whom it was aimed at only when the crew knows them.
+        if (e.type === 'attacked' && e.target !== undefined && crewIds.has(e.crew)
+            && ((npcIds.has(e.target) && !known(e.target)) || (unitIds.has(e.target) && !officerKnown(e.target)))) {
+            const told = { ...e };
+            delete told.target;
+            out.push(told);
+            continue;
+        }
         if (PERSON_FIELDS.some(f => typeof fields[f] === 'string' && npcIds.has(fields[f] as string) && !known(fields[f] as string))) continue;
         if (PERSON_FIELDS.some(f => typeof fields[f] === 'string' && unitIds.has(fields[f] as string) && !officerKnown(fields[f] as string))) continue;
         if (typeof fields.camera === 'string' && !cameras.has(fields.camera)) continue;

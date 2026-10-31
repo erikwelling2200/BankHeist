@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
-    clonePlain, commit, crewShotPreview, dealHarm, previewShot, deserialiseState, fixtureWorld, initialState, legalActions, OFFICER_STATS, policeDown, preview, projectEvents, serialiseState,
+    clonePlain, commit, crewShotPreview, dealHarm, previewShot, projectPreviewEvents, deserialiseState, fixtureWorld, initialState, legalActions, OFFICER_STATS, policeDown, preview, projectEvents, serialiseState,
     type CrewStart, type FixtureOptions, type FixtureWall, type Material, type PersonDef, type PoliceKind, type PoliceMode, type Pos, type ReadonlyWorld, type SimEvent, type State
 } from '../../src/sim';
 import { actionMenu } from '../../src/game/actions';
@@ -231,6 +231,35 @@ describe('officers through what the crew knows (§8.15, two worlds)', () => {
         expect(crewShotPreview(hidden.world, hidden.state, shot)).toEqual(crewShotPreview(absent.world, absent.state, shot));
         // The truth has it in the line.
         expect(previewShot(hidden.world, hidden.state, shot).bodies.map(b => b.id)).toContain('cop');
+    });
+
+    it('previews the same Suppress in Negotiate whether a hidden officer is in the wedge or not; the commit answers', () => {
+        const make = (withOfficer: boolean) => {
+            const { world, state } = setup(Array.from({ length: 5 }, () => '..............................'), {
+                dark: DARK, mode: 'negotiate', crew: [{ id: 'jun', pos: P(1, 2), items: ['lmg'] }]
+            });
+            state.crew[0]!.loadout.masked = false;
+            if (withOfficer) officer(state, 'cop', P(9, 2));
+            return { world, state };
+        };
+        const hidden = make(true), absent = make(false), cmd = { type: 'suppress', crew: 'jun', at: P(12, 2) } as const;
+        const a = preview(hidden.world, hidden.state, cmd), b = preview(absent.world, absent.state, cmd);
+        expect(projectPreviewEvents(hidden.world, hidden.state, a)).toEqual(projectPreviewEvents(absent.world, absent.state, b));
+        expect(a.state.police.mode!.kind).toBe('negotiate');
+        expect(commit(hidden.world, hidden.state, cmd).state.police.mode!.kind).toBe('assault');
+    });
+
+    it('tells the crew\'s own Watch volley at a hidden officer, without naming it', () => {
+        const { world, state } = setup(Array.from({ length: 5 }, () => '..............................'), { dark: DARK });
+        officer(state, 'cop', P(9, 2));
+        const watching = commit(world, state, { type: 'watch', crew: 'jun', at: P(9, 2), arc: 30 }).state;
+        const r = commit(world, watching, endTurn);
+        expect(of(r.events, 'attacked')[0]).toMatchObject({ mode: 'watch', target: 'cop' });
+        const told = projectEvents(world, r.state, r.events, watching);
+        const volley = of(told, 'attacked')[0]!;
+        expect(volley).toMatchObject({ crew: 'jun', mode: 'watch' });
+        expect(volley.target).toBeUndefined();
+        expect(types(told)).not.toContain('fighterFired');
     });
 
     it('tells the same events whether a hidden officer moved about or wasn\'t there', () => {

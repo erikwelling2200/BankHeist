@@ -18,6 +18,7 @@ import { commandNpc, crewThreat } from '../command';
 import { dealHarm } from '../damage';
 import { woundAim } from '../wounds';
 import { personOf } from '../npc/walk';
+import { officerSeen } from '../knowledge';
 import { policeShotAt } from '../police';
 import { bodyPos } from '../place';
 import { armourOf, leanOptions, resolveShot, shotRefusal, type Shot, type ShotTrace } from '../shot';
@@ -190,8 +191,9 @@ function aimShot(ctx: Ctx, member: CrewState, plan: AttackPlan, mode: FireMode):
     };
     if (shot.target !== undefined) event.target = shot.target;
     ctx.emit(event);
-    // Aimed at an officer, hit or miss: Negotiate is over and they see where it came from (rules/police.ts).
-    if (shot.target !== undefined) policeShotAt(ctx, shot.target, member.id, origin);
+    // Aimed at an officer the crew sees, hit or miss: Negotiate is over and they see where it came from (rules/police.ts).
+    // One it doesn't see answers only once the bullets fly (`loose`), so no preview tells of it.
+    if (shot.target !== undefined && officerSeen(ctx.world, state, shot.target)) policeShotAt(ctx, shot.target, member.id, origin);
     const source = NOISE_OF[plan.load]!;
     makeNoise(ctx, source, origin, `${plan.load} ${member.id}`, plan.weapon.noise, member.id);
     if (NOISES[source].kind === 'loud' && !state.bank.loud) {
@@ -211,6 +213,10 @@ function loose(ctx: Ctx, member: CrewState): ShotTrace {
     const { shot, mode } = aiming;
     ctx.dice.pictured('combat', `${mode} ${member.id}`);
     member.arms.aiming = null;
+    // Past the preview's stop: every officer shot at answers now, seen or not (`aimShot` told of the seen ones).
+    const from = shot.lean ?? member.pos;
+    if (shot.target !== undefined) policeShotAt(ctx, shot.target, member.id, from);
+    for (const u of [...state.police.units]) if (u.suppressed?.by === member.id && u.suppressed.turn === state.turn && mode === 'suppress') policeShotAt(ctx, u.id, member.id, from);
     const trace = resolveShot(ctx, shot);
     for (const hit of trace.hits) {
         if (!hit.knockout) {
@@ -419,7 +425,8 @@ registerAction('suppress', {
             const npc = state.npcs.find(n => n.id === id) ?? state.police.units.find(u => u.id === id)!;
             npc.suppressed = { turn: state.turn, by: member.id, from: { ...npc.pos! }, reacted: false };
             ctx.emit({ type: 'suppressedNpc', crew: member.id, npc: id });
-            policeShotAt(ctx, id, member.id, plan.shot.lean ?? member.pos);
+            // As at an aimed shot: a seen officer's answer shows in the preview, a hidden one's waits for the bullets.
+            if (officerSeen(world, state, id)) policeShotAt(ctx, id, member.id, plan.shot.lean ?? member.pos);
         }
         for (const id of held.commanded) commandNpc(ctx, state.npcs.find(n => n.id === id)!, member.id, SUPPRESS.pips);
         aimShot(ctx, member, plan, 'suppress');
