@@ -3,6 +3,7 @@ import { cornerEdges, edgeBetween, edgeKey, FACING_STEP, inBounds, tileAt } from
 import { actorRefusal, crewMember, edgeNow, spendActions } from '../../core/state';
 import type { Command, CommandOf, CommandType, CrewState, DeepReadonly, Pos, ReadonlyWorld, State, Tile } from '../../core/types';
 import type { IllegalAct } from '../../data/matrix';
+import { vehicleAt } from '../../geo/drive';
 import { sightMap } from '../../geo/los';
 import { applySightings, lookSightings, perceiveEnd, turnLookers, witness, witnessAct, type Sighting } from '../perceive';
 
@@ -158,10 +159,14 @@ const wallBetweenNow = (world: ReadonlyWorld, state: State, a: Pos, b: Pos): boo
  * Whether someone on `from` can reach something on `to` with their hands (a person, a body, an object on a furniture
  * tile): the same tile, or a neighbour they could step to but for what stands there: no wall in between (for a
  * diagonal, none on the corner's four edges, like a diagonal step, §6.3) and on the same level (not across a storey's
- * ledge, only up or down a climb, §14.7). Furniture on `to` doesn't matter; a closed door or a pane of glass does.
+ * ledge, only up or down a climb, §14.7). Furniture on `to` doesn't matter; a closed door or a pane of glass does, and
+ * so does a crew vehicle on either tile.
  */
 export function inReach(world: ReadonlyWorld, state: State, from: DeepReadonly<Pos>, to: DeepReadonly<Pos>): boolean {
     if (!inBounds(world, from) || !inBounds(world, to)) return false;
+    // Nobody reaches into a crew vehicle or out of it: its doors are shut (decision 174). Only the crew aboard and its
+    // hold stand on its footprint.
+    if (vehicleAt(world, state, from) !== undefined || vehicleAt(world, state, to) !== undefined) return false;
     const dx = to.x - from.x, dy = to.y - from.y;
     if (Math.abs(dx) > 1 || Math.abs(dy) > 1) return false;
     if (!dx && !dy) return true;

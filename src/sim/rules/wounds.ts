@@ -1,3 +1,4 @@
+import { sortedIds } from '../core/json';
 import { registerWorldHook, type Ctx, type WorldPhase } from '../core/engine';
 import { samePos } from '../core/grid';
 import { registerActorCheck, registerCrewInit, registerNpcInit, registerRuleDefaults, registerStateInit } from '../core/state';
@@ -224,6 +225,7 @@ export function arrestCrew(ctx: Ctx, crewId: string, by: string): void {
  */
 export function forgetCrew(state: State, crewId: string): void {
     const heir = state.crew[0]?.id ?? null;
+    dropTargets(state, crewId);
     for (const npc of state.npcs) {
         delete npc.suspicion[crewId];
         delete npc.lastSeen[crewId];
@@ -231,23 +233,33 @@ export function forgetCrew(state: State, crewId: string): void {
         npc.exposedTo = npc.exposedTo.filter(id => id !== crewId);
         npc.warned = npc.warned.filter(id => id !== crewId);
         npc.reported = npc.reported.filter(id => id !== crewId);
-        npc.challenges = npc.challenges.filter(c => c.crew !== crewId);
-        npc.wants = npc.wants.filter(w => w.crew !== crewId);
         if (npc.command?.by === crewId) npc.command = heir === null ? null : { ...npc.command, by: heir };
         if (npc.lapse && 'crew' in npc.lapse && npc.lapse.crew === crewId) npc.lapse = null;
         if (npc.suppressed?.by === crewId) npc.suppressed = null;
-        if (npc.panic) {
-            if (npc.panic.crew === crewId) npc.panic.crew = null;
-            if (npc.panic.reaction?.kind === 'tackle' && npc.panic.reaction.crew === crewId) npc.panic.reaction = { kind: 'cower' };
-        }
-        if (npc.goal.crew === crewId) npc.goal = { kind: 'still' };
-        const action = npc.intent.action as { crew?: string } | undefined;
-        if (action?.crew === crewId) npc.intent = { path: npc.intent.path, ...(npc.intent.facing ? { facing: npc.intent.facing } : {}) };
+        if (npc.panic?.crew === crewId) npc.panic.crew = null;
     }
+    // A crew vehicle's seat they held is free (rules/vehicles.ts hands it on after the command).
+    for (const id of sortedIds(state.vehicles ?? {})) if (state.vehicles[id]!.driver === crewId) state.vehicles[id]!.driver = null;
     state.cameraReports = state.cameraReports.filter(r => r.crew !== crewId);
     delete state.police.known[crewId];
     for (const unit of state.police.units) if (unit.suppressed?.by === crewId) unit.suppressed = null;
     for (const r of state.negotiation.reports) r.seen = r.seen.filter(s => s.crew !== crewId);
+}
+
+/**
+ * Drops what NPCs mean to do to a crew member who is out of their reach (arrested, or aboard a vehicle with its doors
+ * shut, decision 174): challenges, wants, a tackle (cowering instead), a goal and an intent action aimed at them (the walk
+ * stays). What they know of them (suspicion, exposure, last seen) stays: `forgetCrew` drops that too.
+ */
+export function dropTargets(state: State, crewId: string): void {
+    for (const npc of state.npcs) {
+        npc.challenges = npc.challenges.filter(c => c.crew !== crewId);
+        npc.wants = npc.wants.filter(w => w.crew !== crewId);
+        if (npc.panic?.reaction?.kind === 'tackle' && npc.panic.reaction.crew === crewId) npc.panic.reaction = { kind: 'cower' };
+        if (npc.goal.crew === crewId) npc.goal = { kind: 'still' };
+        const action = npc.intent.action as { crew?: string } | undefined;
+        if (action?.crew === crewId) npc.intent = { path: npc.intent.path, ...(npc.intent.facing ? { facing: npc.intent.facing } : {}) };
+    }
 }
 
 // ---------------------------------------------------------------------------------------------------------- NPCs

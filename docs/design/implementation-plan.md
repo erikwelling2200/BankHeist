@@ -1151,7 +1151,7 @@ M2 is complete: every package below has landed.
   - **Covers:** §14.4 (driving, boarding, doors; no ram), §15.4, §15.5.
   - **Work:** reachable vehicle footprints with turning curves; leaving the plot; the outcome screen and debrief data.
   - **Accept:** the swept-path preview equals the real path.
-  - **Notes (done):** decisions 170–179.
+  - **Notes (done):** decisions 170–179 and 190–193 (from the review; 180–186 are M3-06's).
     - `geo/drive.ts` (poses, footprints, door tiles, the manoeuvres and their sweeps, `driveReach`/`drivePath`, `vehicleAt`),
       `rules/vehicles.ts` (`board`, `getOut`, `stow`, `drive`; `driveMap`, `vehicleReach`, `drivePlan`, the actor check
       'aboard'), `rules/getaway.ts` (leaving the plot, Failure, `State.outcome`, the command gate), `data/vehicles.ts`.
@@ -2109,14 +2109,18 @@ Later milestones: within each milestone, the `∥` notes in §3 apply. UI packag
     Reach is Dijkstra over poses with fixed tie-breaks, so the overlay, the preview and the commit share one path.
 172. **People in the way (M3-08, §14.4).** Nobody is driven over: anyone standing or lying on a tile blocks it, and the
     path goes round them. Hitting people (6 damage) comes with ramming (M4-04), whose damage rules it shares.
-173. **Off the plot (M3-08, §15.4).** The street goes on past the map's west and east edges where its edge tile is
-    drivable (the generator's plot exits are all there); a pose with a tile off the map has left the plot and ends the
-    path.
+173. **Off the plot (M3-08, §14.4, §15.4).** §14.4 has the driver drive off "a plot edge"; the generator's plot is
+    bounded north and south by building fronts and pavements, and its roads run off its west and east edges. So a
+    vehicle leaves past the west or east edge on any row whose edge tile is drivable: the main street and the alley
+    (the generator's four plot exits), and the pavements, lots or open ground beside them where those reach the edge.
+    Not past the north or south edge. A pose with a tile off the map has left the plot and ends the path.
 174. **Aboard (M3-08, §14.4).** Getting in (1 action, from a tile a door opens onto: the sliding door on the right, the
     rear doors) is seen as ending an action at the door; getting out is seen where they step. Aboard, the doors are
     shut: nobody sees them, nobody shoots them, they block nobody, and they act only through the vehicle (getting out,
-    driving). The first aboard drives; the seat passes on in crew order. Driving is no illegal act and makes no noise
-    in M3 (a parked vehicle is ignored, §14.4; the police's eyes on it are M3-05's).
+    driving). Nobody reaches them either: `inReach` is false into or out of a vehicle's footprint, so no arrest, tackle,
+    revive, pass or hand-off goes through the doors, and getting in drops what NPCs meant to do to them (`dropTargets`:
+    challenges, wants, a tackle, goals and intent actions aimed at them; what they know of them stays). Driving is no
+    illegal act and makes no noise in M3 (a parked vehicle is ignored, §14.4; the police's eyes on it are M3-05's).
 175. **The contract's target (M3-08, §15.1).** By tier until the campaign's contracts (M6): $75k for a small branch,
     $150k for a city branch (§3), $200k for a headquarters.
 176. **Greed counts the getaway (M3-08, §13.3).** A bag is secured once it has been in a crew vehicle (in the hold, or
@@ -2129,8 +2133,9 @@ Later milestones: within each milestone, the `∥` notes in §3 apply. UI packag
 178. **The hold (M3-08, §14.4).** A bag or crate in the hands goes into the hold on getting in, or with Load the van (1
     action) from a door tile. Cash stays pocketed. Loot in the hold has the vehicle's id as its holder and stays there.
 179. **The getaway's Drive on the grid (M3-08).** Until M3-09's overlay picks a pose by hand, the grid's Drive goes
-    along the cheapest path off the plot (64 tiles ahead), as far as one Drive reaches: a pose on that path within the
-    Drive's tiles has the same cost in the Drive's own reach, so the sim drives it.
+    along the cheapest path off the plot (64 tiles ahead, on what the crew knows), as far as one Drive reaches: a pose
+    on that path within the Drive's tiles has the same cost in the Drive's own reach, so the sim drives it. With no way
+    off in sight it drives as near the west or east edge as one Drive gets.
 180. **SWAT teams (M3-06, §13.6).** A SWAT van's units (a shield and three, or the heavy pair and two; a refill van's
     too) are a team named after the van (`PoliceUnit.team`, `PoliceState.teams`); the others run the routine. A team makes
     one plan a world phase, as its first member acts, after every member has looked (what any of them sees goes on the
@@ -2172,6 +2177,21 @@ Later milestones: within each milestone, the `∥` notes in §3 apply. UI packag
 186. **Hard promises (M3-06, §13.6).** Every police shot, the wedges' volleys included, goes through `cleanShot`; every
     police grenade lies through a crew phase before it goes off; breaches are the only part of a plan shown ahead; every
     wedge, throw, shot and breach is an act a crew Watch answers first (decision 159).
+190. **Looking out of the van (M3-08 review, §14.4).** The crew aboard sit in the cab (its front tile on the left) and
+    face the way the van points; the van's other tiles block their sight, so they see out of the cab's windscreen and
+    side windows only, not all round from a moving hide. Chosen over making the van visible to NPCs as it moves: it is
+    the smaller rule, and §14.4 has a parked or moving vehicle ignored while nobody sees inside.
+191. **The wheel (M3-08 review, §14.4).** After every command the seat stays with its holder while they are aboard and
+    up; otherwise it goes to the first crew member aboard who is up, in crew order, or is free. A driver downed, dead,
+    arrested or out frees it, and someone getting in takes a free one. An arrest also clears it (`forgetCrew`).
+192. **Driving on what the crew knows (M3-08 review, §8.15).** A Drive is planned on the crew's picture: the crew, the
+    NPCs it sees now (`markerKind` live), the officers it sees and the police vehicles are in the way; anyone else is
+    taken to be absent, so no reach or route length tells of someone unseen. The drive then goes a manoeuvre at a time
+    and stops before the first whose sweep meets someone (`driveCut`, final, and kept out of previews like a move cut):
+    the action is spent and the van stands where the path was. For everything the crew knows, preview and commit agree.
+193. **Police vehicles park clear of the van (M3-08 review, §13.4).** A police vehicle stops at its staging point, else
+    on the nearest tile to it (rings, row-major) nothing blocks and no crew vehicle stands on. A drive never counts
+    anything on the vehicle's own footprint as in its way, so nothing there can shut it in.
 
 ### Critical files for implementation
 

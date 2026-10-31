@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
-    bagsSecured, clonePlain, doorTiles, driveMap, drivePath, drivePlan, driveReach, footprint, hashOf, HEADINGS, initialState, MANOEUVRES, manoeuvre, poseKey, preview,
+    arrestCrew, bagsSecured, clonePlain, inReach, tackleTarget, doorTiles, driveMap, drivePath, drivePlan, driveReach, footprint, hashOf, HEADINGS, initialState, MANOEUVRES, manoeuvre, poseKey, preview,
     throwTargets, tileAt, vehicleAt, vehicleReach, whyNot, fixtureWorld, type Command, type PersonDef, type Pos, type Pose, type ReadonlyWorld, type SimEvent,
     type State, type VehicleDef, type WorldObject
 } from '../../src/sim';
@@ -78,18 +78,33 @@ describe('a vehicle on the grid', () => {
         expect(swept.has('9,8')).toBe(false);
     });
 
-    it('turns in reverse along the forward turn back, sweeping the same tiles', () => {
-        for (const heading of HEADINGS) {
-            const pose: Pose = { x: 10, y: 10, heading };
-            for (const [rev, fwd] of [['reverseLeft', 'turnLeft'], ['reverseRight', 'turnRight']] as const) {
-                const back = manoeuvre(VAN, pose, rev);
-                const again = manoeuvre(VAN, back.end, fwd);
-                expect(again.end).toEqual(pose);
-                expect(back.tiles).toEqual(again.tiles);
+    it('turns in reverse as worked out by hand: a north-facing van backing its tail right ends down and to the right, facing west', () => {
+        // Its middle (11, 12) moves 2 back (south) and 2 right (east) to (13, 14); its nose ends pointing west.
+        const back = manoeuvre(VAN, { x: 10, y: 10, heading: 'n' }, 'reverseRight');
+        expect(back.end).toEqual({ x: 11, y: 13, heading: 'w' });
+        const swept = new Set(back.tiles.map(t => `${t.x},${t.y}`));
+        for (const t of [...footprint(VAN, { x: 10, y: 10, heading: 'n' }), ...footprint(VAN, back.end)]) expect(swept.has(`${t.x},${t.y}`)).toBe(true);
+        // Nothing ahead of the nose, nor beyond the curve (the nose swings out left as the tail goes right).
+        for (const t of ['10,9', '11,9', '15,10', '8,12']) expect(swept.has(t)).toBe(false);
+        expect(manoeuvre(VAN, { x: 10, y: 10, heading: 'n' }, 'reverseLeft').end).toEqual({ x: 7, y: 13, heading: 'e' });
+    });
+
+    it('sweeps the tiles a body turning on the curve covers, by an independent floating-point sampling', () => {
+        // The van's body at every 0.25° of a quarter turn right from north at (0, 0), 64 points a tile, in floats.
+        const W = 2, L = 4, R = 2, px = W / 2 + R, py = L / 2, hit = new Set<string>();
+        for (let k = 0; k <= 360; k++) {
+            const a = (k / 360) * (Math.PI / 2), c = Math.cos(a), sn = Math.sin(a), mx = px - R * c, my = py - R * sn;
+            for (let ty = -6; ty <= 8; ty++) for (let tx = -6; tx <= 8; tx++) {
+                if (hit.has(`${tx},${ty}`)) continue;
+                for (let i = 0; i < 8; i++) for (let j = 0; j < 8; j++) {
+                    const dx = tx + (i + 0.5) / 8 - mx, dy = ty + (j + 0.5) / 8 - my;
+                    if (Math.abs(dx * sn - dy * c) < L / 2 && Math.abs(dx * c + dy * sn) < W / 2) hit.add(`${tx},${ty}`);
+                }
             }
-            // Mirror images: a left turn's sweep is the right turn's reflected across the vehicle's length.
-            expect(manoeuvre(VAN, pose, 'turnLeft').tiles.length).toBe(manoeuvre(VAN, pose, 'turnRight').tiles.length);
         }
+        const swept = new Set(manoeuvre(VAN, { x: 0, y: 0, heading: 'n' }, 'turnRight').tiles.map(t => `${t.x},${t.y}`));
+        expect([...hit].filter(t => !swept.has(t))).toEqual([]);
+        expect([...swept].filter(t => !hit.has(t))).toEqual([]);
     });
 
     it('drifts 1 tile across for 2 along, for 2 tiles of path', () => {
@@ -162,6 +177,22 @@ describe('driving', () => {
             const shown = of(seen.events, 'driven')[0]!, driven = of(done.events, 'driven')[0]!;
             expect(shown.swept).toEqual(plan.swept);
             expect(driven.swept).toEqual(shown.swept);
+            // Independently of the reach: the path is a chain of manoeuvres, its sweep their union, every tile of it
+            // drivable and empty, and no wall between two of them.
+            let at: Pose = { ...s.vehicles.van!.pose };
+            const union = new Set<string>();
+            for (const next of driven.path) {
+                const m = MANOEUVRES.find(k => poseKey(manoeuvre(VAN, at, k).end) === poseKey(next));
+                expect(m, `a manoeuvre from ${poseKey(at)} to ${poseKey(next)}`).toBeDefined();
+                for (const t of manoeuvre(VAN, at, m!).tiles) union.add(`${t.x},${t.y}`);
+                at = next;
+            }
+            expect(driven.swept.map(t => `${t.x},${t.y}`).sort()).toEqual([...union].sort());
+            for (const t of driven.swept) {
+                if (t.x < 0 || t.x >= world.width) continue;
+                expect(tileAt(world, t)!.drivable).toBe(true);
+                expect(s.npcs.some(n => n.pos.x === t.x && n.pos.y === t.y) || s.crew.some(c => !c.aboard && c.pos.x === t.x && c.pos.y === t.y)).toBe(false);
+            }
             expect(driven.path).toEqual(plan.poses);
             expect(done.state.vehicles.van!.pose).toEqual(node.pose);
             expect(hashOf(seen.state)).toBe(hashOf(done.state));
@@ -205,6 +236,111 @@ describe('driving', () => {
     });
 });
 
+describe('the seat and the doors (decisions 174, 191)', () => {
+    /** Both aboard, Mara at the wheel. */
+    function bothAboard(): { world: ReadonlyWorld; state: State } {
+        const { world, state } = street({ crew: [{ id: 'mara', pos: P(11, 2) }, { id: 'jun', pos: P(12, 2) }] });
+        return { world, state: run(world, state, { type: 'board', crew: 'mara', vehicle: 'van' }, { type: 'board', crew: 'jun', vehicle: 'van' }, { type: 'endTurn' }).state };
+    }
+
+    it('passes the wheel on when its driver goes down, dies or is taken, and lets anyone getting in take a free one', () => {
+        const { world, state } = bothAboard();
+        expect(state.vehicles.van!.driver).toBe('mara');
+        const down = clonePlain(state);
+        down.crew[0]!.wounds = { ...down.crew[0]!.wounds, hp: 0, downed: { left: 3, turn: 1, phase: 'crew' } };
+        const after = run(world, down, { type: 'endTurn' });
+        expect(after.state.vehicles.van!.driver).toBe('jun');
+        expect(of(after.events, 'driverChanged')).toEqual([{ type: 'driverChanged', vehicle: 'van', driver: 'jun' }]);
+        expect(vehicleReach(world, after.state, 'van')).not.toBeNull();
+        // Taken from the seat (an arrest forgets them): the seat is free, nothing crashes.
+        const taken = clonePlain(state);
+        arrestCrew({ world, state: taken, dice: undefined as never, emit: () => {} }, 'mara', 'police-1');
+        expect(taken.vehicles.van!.driver).toBeNull();
+        expect(vehicleReach(world, taken, 'van')).toBeNull();
+        expect(run(world, taken, { type: 'endTurn' }).state.vehicles.van!.driver).toBe('jun');
+        // Alone with a downed driver, someone getting in takes the wheel.
+        const solo = street({ crew: [{ id: 'mara', pos: P(11, 2) }, { id: 'jun', pos: P(12, 2) }] });
+        let s = run(solo.world, solo.state, { type: 'board', crew: 'mara', vehicle: 'van' }).state;
+        s.crew[0]!.wounds = { ...s.crew[0]!.wounds, hp: 0, downed: { left: 3, turn: 1, phase: 'crew' } };
+        s = run(solo.world, s, { type: 'endTurn' }).state;
+        expect(s.vehicles.van!.driver).toBeNull();
+        const boarded = run(solo.world, s, { type: 'board', crew: 'jun', vehicle: 'van' });
+        expect(of(boarded.events, 'boarded')[0]).toMatchObject({ crew: 'jun', driver: true });
+        expect(boarded.state.vehicles.van!.driver).toBe('jun');
+    });
+
+    it('keeps the crew aboard out of reach: no arrest, no tackle, no hand through the doors', () => {
+        const { world, state } = bothAboard();
+        const s = clonePlain(state);
+        const mara = s.crew[0]!;
+        mara.wounds = { ...mara.wounds, hp: 0, downed: { left: 3, turn: 1, phase: 'crew' } };
+        // An officer on foot right beside the cab.
+        const beside = P(mara.pos.x - 1, mara.pos.y);
+        s.police.units.push({ id: 'police-1', kind: 'patrol', vehicle: null, staging: null, arrived: -3, pos: beside, hp: 6, leaning: null, suppressed: null, moved: null, team: null, watch: null, flashbangs: 0, surprised: null });
+        expect(inReach(world, s, beside, mara.pos)).toBe(false);
+        const after = run(world, s, { type: 'endTurn' }).state;
+        expect(after.custody).toEqual([]);
+        expect(after.crew.find(c => c.id === 'mara')!.aboard).toBe('van');
+        // A hero beside the van tackles nobody inside it.
+        const hero = { ...s.npcs[0] ?? { id: 'h', pos: beside, facing: 's', status: 'calm', suspicion: {}, exposedTo: [], intent: { path: [] } }, pos: beside } as never;
+        expect(tackleTarget(world, s, hero)).toBeUndefined();
+    });
+
+    it('sits the crew in the cab, looking the way the van points', () => {
+        const { world, state } = bothAboard();
+        for (const c of state.crew) expect(c).toMatchObject({ pos: P(10, 4), facing: 'w' });
+        expect(vehicleAt(world, state, P(10, 4))).toBe('van');
+    });
+});
+
+describe('police vehicles and the van (decision 193)', () => {
+    it('park beside the van, never inside it, and the van can still drive', () => {
+        const world = fixtureWorld(Array.from({ length: 9 }, () => '.'.repeat(24)), {
+            drivable: true, vehicles: [van({ x: 10, y: 3, heading: 'w' })], rules: { policeEta: 1 },
+            // A staging point right under the van.
+            staging: [{ id: 'kerb', name: 'The kerb', pos: P(11, 4) }]
+        });
+        let s = scouted(world, initialState(world, { seed: 3, crew: [{ id: 'mara', pos: P(11, 2) }] }));
+        s = run(world, s, { type: 'board', crew: 'mara', vehicle: 'van' }).state;
+        s = clonePlain(s);
+        s.bank.alarm = true;
+        s.response = { raised: s.turn - 1, by: 'tellerButton', policeIn: 1, heat: 0 };
+        const after = run(world, s, { type: 'endTurn' }, { type: 'endTurn' }).state;
+        expect(after.police.vehicles.length).toBeGreaterThan(0);
+        for (const v of after.police.vehicles) expect(vehicleAt(world, after, v.pos)).toBeUndefined();
+        for (const u of after.police.units) if (u.pos) expect(vehicleAt(world, after, u.pos)).toBeUndefined();
+        expect([...vehicleReach(world, after, 'van')!.nodes.values()].length).toBeGreaterThan(1);
+        // Whatever stands on its own footprint (it can't), the van's way out isn't shut by it.
+        const odd = clonePlain(after);
+        odd.police.vehicles.push({ ...odd.police.vehicles[0]!, id: 'car-99', pos: P(12, 3) });
+        expect([...vehicleReach(world, odd, 'van')!.nodes.values()].length).toBeGreaterThan(1);
+    });
+});
+
+describe('driving on what the crew knows (decision 192)', () => {
+    it('plans round the people it sees, through those it doesn\'t, and stops short of one it meets', () => {
+        const walker: PersonDef = { id: 'walker', name: 'walker', role: 'customer', observer: 'civilian', pos: P(6, 4), facing: 's', schedule: [] };
+        const { world, state } = street({ people: [walker] });
+        let s = run(world, state, { type: 'board', crew: 'mara', vehicle: 'van' }, { type: 'endTurn' }).state;
+        s = clonePlain(s);
+        // The crew has lost sight of the walker, who stands in the van's way west.
+        s.npcs[0]!.pos = P(6, 4);
+        delete s.knowledge.npcs.walker;
+        const to: Pose = { x: 2, y: 3, heading: 'w' };
+        const plan = drivePlan(world, s, { crew: 'mara', vehicle: 'van', to });
+        expect(typeof plan).toBe('object');
+        const done = step(world, s, { type: 'drive', crew: 'mara', vehicle: 'van', to });
+        expect(of(done.events, 'driveCut')).toEqual([{ type: 'driveCut', vehicle: 'van', by: 'walker', at: P(6, 4) }]);
+        expect(done.undoable).toBe(false);
+        const stopped = done.state.vehicles.van!.pose;
+        expect(footprint(VAN, stopped).some(t => t.x === 6 && t.y === 4)).toBe(false);
+        // Where the planned path was before the manoeuvre that met the walker, short of where it was going.
+        expect((plan as { poses: Pose[] }).poses.some(p => poseKey(p) === poseKey(stopped))).toBe(true);
+        expect(poseKey(stopped)).not.toBe(poseKey(to));
+        expect(done.state.crew[0]!.actionsLeft).toBe(1);
+    });
+});
+
 describe('leaving the plot and the outcome', () => {
     /** Mara at the wheel with the bag in the hold, the van driven to the west edge. */
     function toTheEdge(target: number): { world: ReadonlyWorld; state: State } {
@@ -227,7 +363,17 @@ describe('leaving the plot and the outcome', () => {
         expect(() => preview(world, done.state, { type: 'endTurn' })).toThrow(/over/);
     });
 
-    it('is a Partial below the target', () => {
+    it('counts a crew member who died aboard as dead, not as away, but takes what they carried', () => {
+        const { world, state } = toTheEdge(50000);
+        const s = clonePlain(state);
+        s.custody = [];
+        s.crew.find(c => c.id === 'jun')!.aboard = 'van';
+        s.crew.find(c => c.id === 'jun')!.wounds = { ...s.crew.find(c => c.id === 'jun')!.wounds, hp: 0, dead: true };
+        const off = [...vehicleReach(world, s, 'van')!.nodes.values()].find(n => n.off)!;
+        expect(run(world, s, { type: 'drive', crew: 'mara', vehicle: 'van', to: off.pose }).state.outcome).toMatchObject({ escaped: ['mara'], dead: ['jun'], arrested: [] });
+    });
+
+        it('is a Partial below the target', () => {
         const { world, state } = toTheEdge(100000);
         const off = [...vehicleReach(world, state, 'van')!.nodes.values()].find(n => n.off)!;
         expect(run(world, state, { type: 'drive', crew: 'mara', vehicle: 'van', to: off.pose }).state.outcome).toMatchObject({ result: 'partial', value: 60000 });

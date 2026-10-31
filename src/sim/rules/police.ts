@@ -314,6 +314,21 @@ export function newUnit(state: State, kind: PoliceKind, vehicle: string | null, 
 /** A new SWAT team's state: no plan yet. */
 export const newTeam = (): SwatTeam => ({ focus: null, planned: -1, movers: [], pulling: false, lost: null, stack: [] });
 
+/**
+ * Where a police vehicle stops at its staging point (decision 193): the point itself, else the nearest tile to it (by
+ * rings, row-major within a ring) on the map that nothing blocks and no crew vehicle stands on, so it never parks
+ * inside the crew's van.
+ */
+function parkingSpot(world: ReadonlyWorld, state: State, at: DeepReadonly<Pos>): Pos {
+    const ok = (p: Pos): boolean => inBounds(world, p) && !tileAt(world, p)!.blocksMove && vehicleAt(world, state, p) === undefined;
+    for (let r = 0; r < Math.max(world.width, world.height); r++) {
+        for (let y = at.y - r; y <= at.y + r; y++) for (let x = at.x - r; x <= at.x + r; x++) {
+            if (Math.max(Math.abs(x - at.x), Math.abs(y - at.y)) === r && ok({ x, y })) return { x, y };
+        }
+    }
+    return { x: at.x, y: at.y };
+}
+
 /** Sends a wave (see `planWave`): its vehicles arrive now with their units aboard. */
 function sendWave(ctx: Ctx, level: number, reason: WaveReason): void {
     const { world, state } = ctx;
@@ -326,7 +341,7 @@ function sendWave(ctx: Ctx, level: number, reason: WaveReason): void {
         }
         const vehicle: PoliceVehicle = {
             id: newId(state, plan.kind), kind: plan.kind, label: plan.label, staging: plan.staging?.id ?? null,
-            pos: plan.staging ? { ...plan.staging.pos } : overPlot(world), arrived: state.turn, status: 'arriving'
+            pos: plan.staging ? parkingSpot(world, state, plan.staging.pos) : overPlot(world), arrived: state.turn, status: 'arriving'
         };
         state.police.vehicles.push(vehicle);
         // A SWAT van brings a team (§13.6), named after it.

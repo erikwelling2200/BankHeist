@@ -5,7 +5,7 @@ import type { DeepReadonly, ReadonlyWorld, State } from '../core/types';
 import { registerEvents } from '../core/undo';
 import { lootObject } from './hands';
 import { heatOf } from './heat';
-import { onLeavingPlot } from './vehicles';
+import { registerLeaveHook } from './vehicles';
 
 /*
  * Leaving the plot and how the heist ends (§15.4, §15.5).
@@ -73,8 +73,10 @@ const valueOf = (world: ReadonlyWorld, id: string): number => lootObject(world, 
 
 /** The heist's outcome were it to end now with the crew aboard `vehicle` away (null: nobody gets away). */
 export function outcomeNow(world: ReadonlyWorld, state: DeepReadonly<State>, vehicle: string | null): HeistOutcome {
-    const escaped = vehicle === null ? [] : state.crew.filter(c => c.aboard === vehicle).map(c => c.id);
-    const away = new Set<string>([...escaped, ...(vehicle === null ? [] : [vehicle])]);
+    // Everyone aboard leaves with the vehicle, and what they carry with them; the dead among them count only as dead.
+    const aboard = vehicle === null ? [] : state.crew.filter(c => c.aboard === vehicle);
+    const escaped = aboard.filter(c => !c.wounds.dead).map(c => c.id);
+    const away = new Set<string>([...aboard.map(c => c.id), ...(vehicle === null ? [] : [vehicle])]);
     const dead = state.crew.filter(c => c.wounds.dead).map(c => c.id);
     const arrested = [...state.crew.filter(c => !away.has(c.id) && !c.wounds.dead).map(c => c.id), ...state.custody.map(c => c.crew.id)];
     const loot: string[] = [];
@@ -100,7 +102,7 @@ function end(ctx: Ctx, vehicle: string | null): void {
 }
 
 // A drive off the plot (rules/vehicles.ts): the vehicle and everyone aboard are away, and the heist is over.
-onLeavingPlot((ctx, vehicle) => {
+registerLeaveHook('getaway', (ctx, vehicle) => {
     ctx.state.vehicles[vehicle]!.gone = true;
     end(ctx, vehicle);
 });

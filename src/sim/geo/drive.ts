@@ -131,6 +131,9 @@ function place(size: VehicleSize, pose: DeepReadonly<Pose>, t: Pos, mirror = fal
     return { x: (m[0] + rx - 1) / 2, y: (m[1] + ry - 1) / 2 };
 }
 
+/** The driver's seat (§14.4): the front tile on the vehicle's left, where the crew aboard sit and look out of the cab. */
+export const cabTile = (size: VehicleSize, pose: DeepReadonly<Pose>): Pos => place(size, pose, { x: 0, y: 0 });
+
 /**
  * The tiles a vehicle's doors open onto (§14.4): the sliding door on its right side (the tiles beside the second and
  * third tiles back from the nose) and the rear doors (the tiles behind it). Getting in and out is from these, in that
@@ -348,16 +351,21 @@ export function driveReach(size: VehicleSize, from: DeepReadonly<Pose>, budget: 
     return { from: start.pose, budget, nodes };
 }
 
-/** A drive to one pose of a reach: the poses after each manoeuvre, the tiles swept on the way (row-major), its cost. */
-export interface DrivePath { poses: Pose[]; swept: Pos[]; cost: number; off: boolean }
+/**
+ * A drive to one pose of a reach: the poses after each manoeuvre, each manoeuvre's own sweep, the tiles swept on the way
+ * (row-major), its cost.
+ */
+export interface DrivePath { poses: Pose[]; steps: Pos[][]; swept: Pos[]; cost: number; off: boolean }
 
 export function drivePath(reach: DriveReach, to: DeepReadonly<Pose>): DrivePath | undefined {
     const end = reach.nodes.get(poseKey(to));
     if (!end || !end.parent) return undefined;
-    const poses: Pose[] = [], swept: Pos[] = [];
+    const poses: Pose[] = [], steps: Pos[][] = [];
     for (let n: DriveNode | undefined = end; n?.parent; n = reach.nodes.get(n.parent)) {
         poses.push({ ...n.pose });
-        swept.push(...n.swept);
+        steps.push(n.swept.map(t => ({ x: t.x, y: t.y })));
     }
-    return { poses: poses.reverse(), swept: rowMajor(swept), cost: end.cost, off: end.off };
+    poses.reverse();
+    steps.reverse();
+    return { poses, steps, swept: rowMajor(steps.flat()), cost: end.cost, off: end.off };
 }

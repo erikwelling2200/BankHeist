@@ -194,7 +194,7 @@ export {
     type Commanded, type CommandPlan, type CommandTarget, type Lapse, type LapseOutcome
 } from './rules/command';
 export { PANIC, panicWeights, type PanicWeights } from './data/archetypes';
-export { reactionOdds } from './rules/panic';
+export { reactionOdds, tackleTarget } from './rules/panic';
 export { type Panic, type PanicReaction } from './rules/panicState';
 export { cardOpens, codeParts, entered, lockOn, partOf, timeLockOpen, vaultLock, vaultShut } from './rules/keys';
 export { DRILL, steadyHand, THERMITE, type Device } from './rules/vault';
@@ -214,7 +214,7 @@ export {
     firing, isGun, movedThisTurn, npcGun, scavengeBlocked, SEARCHABLE, type Arms, type Gun, type Scavenge, type Watch
 } from './rules/arms';
 export { dealHarm, harmHandlers, registerHarmHandler, type Harm, type HarmHandler } from './rules/damage';
-export { arrestCrew, isDown, isHurt, killNpc, woundAim, type CrewWounds, type Custody } from './rules/wounds';
+export { arrestCrew, dropTargets, isDown, isHurt, killNpc, woundAim, type CrewWounds, type Custody } from './rules/wounds';
 export { isWounded, npcMaxHp } from './rules/woundsState';
 export {
     attackPlan, COMBAT_COMMANDS, inWedge, officersInRange, PICTURED_COMMANDS, strikeBlocked, suppressPlan, suppressReact, suppressTargets, targetsInRange, watchBlocked, watchReact, type AttackPlan
@@ -234,11 +234,11 @@ export {
     negotiatorCalling, offerEffect, releasable, releaseExit, tradeable, type NegotiationOffer, type NegotiationState, type OfferEffect, type PoliceReport
 } from './rules/negotiation';
 export {
-    doorTiles, drivePath, driveReach, footprint, forwardOf, HEADINGS, manoeuvre, MANOEUVRES, poseKey, rightOf, vehicleAt, type DriveMap, type DriveNode,
+    cabTile, doorTiles, drivePath, driveReach, footprint, forwardOf, HEADINGS, manoeuvre, MANOEUVRES, poseKey, rightOf, vehicleAt, type DriveMap, type DriveNode,
     type DrivePath, type DriveReach, type DriveTile, type Heading, type Manoeuvre, type Pose, type Swept, type VehicleDef, type VehicleSize, type VehicleState
 } from './geo/drive';
 export {
-    aboard, driveBudget, driveMap, drivePlan, exitTiles, holdOf, holdValue, inGetaway, vehicleBeside, vehicleDef, vehicleDoors, vehicleReach
+    aboard, driveBudget, driveCut, driveMap, drivePlan, exitTiles, registerLeaveHook, holdOf, holdValue, inGetaway, vehicleBeside, vehicleDef, vehicleDoors, vehicleReach
 } from './rules/vehicles';
 export { crewOut, outcomeNow, type HeistOutcome, type OutcomeResult } from './rules/getaway';
 export * from './data/vehicles';

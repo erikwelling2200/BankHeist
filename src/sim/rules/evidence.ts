@@ -232,7 +232,7 @@ registerEvidenceSource('cameras', (world, state) => world.cameras.flatMap((c): E
 
 /** Whether a crew member stands by `pos` (Chebyshev 1): a loot bag there is attended, not evidence. */
 export const attended = (state: DeepReadonly<State>, pos: DeepReadonly<Pos>): boolean =>
-    state.crew.some(c => Math.max(Math.abs(c.pos.x - pos.x), Math.abs(c.pos.y - pos.y)) <= 1);
+    state.crew.some(c => !c.aboard && Math.max(Math.abs(c.pos.x - pos.x), Math.abs(c.pos.y - pos.y)) <= 1);
 
 registerEvidenceSource('floor', (_world, state) => state.evidence.flatMap((e): Evidence[] => {
     // A loot bag someone of the crew stands by is attended.

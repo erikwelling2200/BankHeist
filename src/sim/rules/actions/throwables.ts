@@ -177,7 +177,8 @@ function flash(ctx: Ctx, grenade: Grenade, tiles: readonly Pos[]): void {
         ctx.emit({ type: 'officerFlashed', unit: unit.id, by: grenade.by });
     }
     for (const member of crewThrew ? [] : state.crew) {
-        if (isDown(member) || !inside.has(tileKey(member.pos))) continue;
+        // Aboard a vehicle the doors are shut on it (decision 174).
+        if (isDown(member) || member.aboard || !inside.has(tileKey(member.pos))) continue;
         if (member.arms.watch) ctx.emit({ type: 'watchEnded', crew: member.id, fired: false });
         member.arms.watch = null;
         member.arms.braced = false;

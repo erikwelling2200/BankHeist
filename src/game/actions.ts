@@ -1,7 +1,7 @@
 import {
     besideDoor, COMBAT_COMMANDS, crewPicture, negotiatorCalling, offerEffect, releasable, tradeable, withDoubtedShut, doorStatus, DRAGGABLE, draggedBy, goBlocked, HACKING_KIT, inHands, inReach, interactionVerbs, isKnownNow, JAMMER, officerSeen, legalActions, LOCKPICK, lockActions, LOOP_FROM, lootWeight,
     pocketed, preview, IllegalCommand, reachesObject, STASH_KINDS, throwTargets, tieIneligible, tileVisibility, whyNot, driveBudget, driveMap, driveReach, exitTiles, poseKey, vehicleBeside,
-    vehicleDef, type Command, type Pose, type Pos, type ReadonlyWorld, type State
+    vehicleDef, type Command, type DriveNode, type Pose, type Pos, type ReadonlyWorld, type State
 } from '../sim';
 import type { HudIcon as HudIconName } from '../ui/hud/viewModels';
 
@@ -153,20 +153,27 @@ const LOOT_NAME = { light: 'cash', heavy: 'bag', 'very heavy': 'crate' } as cons
 const ROUTE_TILES = 64;
 
 /**
- * The getaway's next Drive (M3-08, until M3-09's driving overlay picks poses by hand): along the cheapest path off the
- * plot, as far as one Drive goes. The pose it ends on and whether that is off the plot, or null with no way off. A pose
- * on the cheapest path within one Drive's tiles is reached by that Drive at the same cost, so the sim drives it.
+ * The getaway's next Drive (M3-08, until M3-09's driving overlay picks poses by hand), planned on what the crew knows
+ * (`driveMap`'s default): along the cheapest path off the plot, as far as one Drive goes (a pose on the cheapest path
+ * within one Drive's tiles is reached by that Drive at the same cost, so the sim drives it), with the tiles still to go;
+ * with no way off in sight, the pose one Drive reaches nearest the map's west or east edge (`tilesLeft` null). Null
+ * when it can't move at all.
  */
-export function getawayDrive(world: ReadonlyWorld, state: State, vehicle: string): { to: Pose; off: boolean; tilesLeft: number } | null {
+export function getawayDrive(world: ReadonlyWorld, state: State, vehicle: string): { to: Pose; off: boolean; tilesLeft: number | null } | null {
     const def = vehicleDef(world, vehicle), v = state.vehicles[vehicle];
     const driver = v?.driver ? state.crew.find(c => c.id === v.driver) : undefined;
     if (!def || !v || v.gone || !driver) return null;
-    const route = driveReach(def, v.pose, ROUTE_TILES, driveMap(world, state, vehicle));
+    const route = driveReach(def, v.pose, ROUTE_TILES, driveMap(world, state, vehicle)), budget = driveBudget(world, driver);
     let end = [...route.nodes.values()].find(n => n.off);
-    if (!end) return null;
-    const total = end.cost, budget = driveBudget(world, driver);
-    while (end.cost > budget && end.parent) end = route.nodes.get(end.parent)!;
-    return poseKey(end.pose) === poseKey(v.pose) ? null : { to: end.pose, off: end.off, tilesLeft: total - end.cost };
+    if (end) {
+        const total = end.cost;
+        while (end.cost > budget && end.parent) end = route.nodes.get(end.parent)!;
+        return poseKey(end.pose) === poseKey(v.pose) ? null : { to: end.pose, off: end.off, tilesLeft: total - end.cost };
+    }
+    // No way off in sight: as near an edge as one Drive gets (the first such pose settled, so the cheapest).
+    const edge = (p: Pose) => Math.min(p.x, world.width - 1 - p.x);
+    const near = [...route.nodes.values()].filter(n => n.cost <= budget && n.parent).reduce<DriveNode | undefined>((a, n) => (!a || edge(n.pose) < edge(a.pose) ? n : a), undefined);
+    return near && edge(near.pose) < edge(v.pose) ? { to: near.pose, off: false, tilesLeft: null } : null;
 }
 
 /** A crew member aboard a vehicle: drive it toward the plot's edge (the driver), and get out. */
@@ -178,7 +185,7 @@ function vehicleMenu(world: ReadonlyWorld, state: State, crewId: string, vehicle
     };
     const drive = getawayDrive(world, state, vehicle), v = state.vehicles[vehicle]!;
     if (v.driver === crewId) {
-        if (drive) add('drive', drive.off ? 'Drive off' : `Drive (${drive.tilesLeft} to go)`, { type: 'drive', crew: crewId, vehicle, to: drive.to });
+        if (drive) add('drive', drive.off ? 'Drive off' : drive.tilesLeft === null ? 'Drive' : `Drive (${drive.tilesLeft} to go)`, { type: 'drive', crew: crewId, vehicle, to: drive.to });
         else add('drive', 'Drive off', { type: 'drive', crew: crewId, vehicle, to: { ...v.pose } }, 'No way off the plot from here');
     }
     const exit = exitTiles(world, state, crewId)[0];
