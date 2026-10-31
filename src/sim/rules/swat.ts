@@ -7,7 +7,7 @@ import { registerEvents } from '../core/undo';
 import { registerMoveHook } from '../crew/movement';
 import { HALF_STEPS_PER_TILE } from '../data/movement';
 import { NOISES } from '../data/noise';
-import { BREACH_FROM, OFFICER_STATS, WEAPON_WEIGHT } from '../data/police';
+import { BREACH_FROM, COMBAT_SIGHT, OFFICER_STATS, WEAPON_WEIGHT } from '../data/police';
 import { SUPPRESSED_AIM, THROWABLES, WATCH_AIM, WATCH_ARC, WATCH_NARROW, weaponDef } from '../data/weapons';
 import { lineOfSight, sightMap, type SightMap } from '../geo/los';
 import { pathTo, reachable } from '../geo/move';
@@ -22,7 +22,7 @@ import { heatNow } from './heat';
 import type { PoliceUnit, PoliceWatch, SwatTeam } from './police';
 import {
     advance, announceBreach, dueBreach, fallBack, fight, freeHostages, goalOf, hitbox, hurt, inSight, look, moveOptions, react, registerTeamPlay, seesTile, standing,
-    threats, walk, cleanShot, type Fighter, type HoldReason
+    threats, underGrenades, walk, cleanShot, type Fighter, type HoldReason
 } from './routine';
 import { resolveShot, shotRefusal, type Shot } from './shot';
 import { isDown, isHurt } from './wounds';
@@ -52,18 +52,22 @@ import { isDown, isHurt } from './wounds';
  *     outside the target's cover (**flanking**), then its own cover; with none in sight it advances as in the routine.
  *   - **A coverer** fires at the focus (or the nearest) from where it stands; with no clean shot, or nobody in sight, it
  *     sets a **Watch wedge** on the focus's last known tile, else the nearest known (`PoliceUnit.watch`, its gun's
- *     Watch arc). The wedge is held through the crew phase after it: the first crew member it would take for the crew
- *     to step through it or act inside it (`tripWedges`, from every move step and every other command) draws its
- *     volley as the next world phase starts, before anyone acts: half its gun's bullets rounded up, Aim ×1.5 (×1 at 15°
- *     or narrower), aimed where they crossed (decision 182), through `cleanShot` like every police shot.
+ *     Watch arc), out to what it sees (`COMBAT_SIGHT`). The wedge is held through the crew phase after it: the first
+ *     crew member it would take for the crew, not aboard a vehicle, to move in it (from a tile in it or onto one) or
+ *     act inside it (`tripWedges`, from every move and every other command) draws its volley as the next world phase's
+ *     combat step starts, before any fighter acts (the grenades and the passive NPCs come first): half its gun's
+ *     bullets rounded up, Aim ×1.5 (×1 at 15° or narrower), aimed where they were (decision 182), through
+ *     `cleanShot` like every police shot.
  *   - Then it frees the hostages beside it, as in the routine.
  * - **Timed breaches:** from Heat 3 in Assault a mover whose way runs through a locked door stops beside it and stacks
  *   (`SwatTeam.stack`). After everyone has acted the team announces its stacked doors together, once two doors are
  *   stacked, a member has waited there a whole phase, or every member is stacked; each is blown in the next world
  *   phase by its own officer, in the same phase, while the rest of the team holds (no movers in a phase the team
  *   breaches).
- * - **Casualties:** a member down (`policeDown` sets `lost`) makes the team's next plan a pull back: each member steps
- *   one tile away, out of sight of the crew positions the police know if it can, and covers with a wedge.
+ * - **Casualties:** a member down (`policeDown` sets `lost`) makes the team pull back once: the next plan, or at once
+ *   for the members still to act if it went down in the world phase after the plan; each member steps one tile away,
+ *   out of sight of the crew positions the police know if it can, and covers with a wedge. Then the team re-plans.
+ * - Officers don't walk to a tile a police grenade lying on the floor will reach (routine.ts `underGrenades`).
  * - Every shot, wedge, throw and breach is an act: a crew Watch on the member fires first (`react`, decision 159).
  */
 
@@ -153,6 +157,9 @@ export function seenWedges(world: ReadonlyWorld, state: State): { unit: string; 
     return liveWedges(state).filter(w => officerSeen(world, state, w.unit.id)).map(w => ({ unit: w.unit.id, at: { ...w.watch.at }, arc: w.watch.arc }));
 }
 
+/** How far a wedge reaches: its gun's range, no further than the officer sees in combat (decision 151). */
+const wedgeReach = (unit: PoliceUnit): number => Math.min(weaponDef(OFFICER_STATS[unit.kind].weapon!).range, COMBAT_SIGHT);
+
 /** The police wedges whose crew phase this is: set in the last world phase, by an officer still out. */
 const liveWedges = (state: State): { unit: PoliceUnit; watch: PoliceWatch }[] =>
     state.police.units.flatMap(u => (u.watch && u.pos && u.watch.turn === state.turn - 1 ? [{ unit: u, watch: u.watch }] : []));
@@ -163,18 +170,22 @@ const liveWedges = (state: State): { unit: PoliceUnit; watch: PoliceWatch }[] =>
  * told: the volley comes as the world phase starts.
  */
 export function tripWedges(world: ReadonlyWorld, state: State, member: DeepReadonly<CrewState>, tile: DeepReadonly<Pos>): void {
-    if (state.phase !== 'crew' || isDown(member)) return;
+    // Aboard a vehicle with its doors shut, nobody sees or shoots them (as `inSight`).
+    if (state.phase !== 'crew' || isDown(member) || member.aboard) return;
     if (!member.loadout.masked && !Object.hasOwn(state.police.known, member.id)) return;
     let sight: SightMap | undefined;
     for (const { unit, watch } of liveWedges(state)) {
         if (watch.tripped) continue;
         sight ??= sightMap(world, state);
-        const range = weaponDef(OFFICER_STATS[unit.kind].weapon!).range;
-        if (inWedge(sight, unit.pos!, watch.at, watch.arc, range, { x: tile.x, y: tile.y })) watch.tripped = { crew: member.id, at: { x: tile.x, y: tile.y } };
+        if (inWedge(sight, unit.pos!, watch.at, watch.arc, wedgeReach(unit), { x: tile.x, y: tile.y })) watch.tripped = { crew: member.id, at: { x: tile.x, y: tile.y } };
     }
 }
 
-registerMoveHook('swat.wedges', { step: (ctx, member, path, i) => tripWedges(ctx.world, ctx.state, member, path[i]!) });
+// Moving in a wedge draws it (§11.8): from a tile in it (stepping out too) or onto one.
+registerMoveHook('swat.wedges', {
+    start: (ctx, member) => tripWedges(ctx.world, ctx.state, member, member.pos),
+    step: (ctx, member, path, i) => tripWedges(ctx.world, ctx.state, member, path[i]!)
+});
 
 // Any other command a crew member gives is acting where they stand (or lean).
 registerCommandHook('swat.wedges', (ctx, cmd) => {
@@ -201,14 +212,15 @@ function crossing<T>(member: CrewState, at: Pos, ask: () => T): T {
 function volley(ctx: Ctx, phase: WorldPhase, unit: PoliceUnit, watch: PoliceWatch): void {
     const { world, state } = ctx, trip = watch.tripped!, weapon = OFFICER_STATS[unit.kind].weapon;
     const member = state.crew.find(c => c.id === trip.crew);
-    if (!member || isDown(member) || !weapon) return;
+    if (!member || isDown(member) || member.aboard || !weapon) return;
     // Firing is acting: a crew Watch on the officer fires first.
     if (!react(ctx, phase, police(unit))) return;
     const w = weaponDef(weapon), aim = watch.arc <= WATCH_NARROW ? 1 : WATCH_AIM;
     const shot: Shot = { shooter: unit.id, weapon, at: { ...trip.at }, target: member.id, bullets: Math.ceil(w.bullets / 2), moved: false, aimFactor: aim };
     if (unit.suppressed?.turn === phase.turn) shot.aimFactor = aim * SUPPRESSED_AIM;
     const why = crossing(member, trip.at, (): HoldReason | null => {
-        if (d2(unit.pos!, trip.at) > w.range * w.range) return 'range';
+        const reach = wedgeReach(unit);
+        if (d2(unit.pos!, trip.at) > reach * reach) return 'range';
         if (!lineOfSight(sightMap(world, state), unit.pos!, trip.at)) return 'sight';
         if (shotRefusal(world, state, shot)) return 'refused';
         return cleanShot(world, state, shot) ? null : 'body';
@@ -217,20 +229,20 @@ function volley(ctx: Ctx, phase: WorldPhase, unit: PoliceUnit, watch: PoliceWatc
         ctx.emit({ type: 'heldFire', shooter: unit.id, target: member.id, why });
         return;
     }
+    // As `fire` (routine.ts): told as the bullets leave, the dice rolled (a preview of the world phase stops here,
+    // §13.6), and the report after the bullets, so nothing it sets off comes before the stop.
     ctx.emit({ type: 'fighterFired', shooter: unit.id, target: member.id, weapon, bullets: shot.bullets!, at: { ...trip.at } });
+    ctx.dice.pictured('combat', `${unit.id} fires from Watch`);
+    const trace = crossing(member, trip.at, () => resolveShot(ctx, shot));
+    for (const hit of trace.hits) dealHarm(ctx, { target: hit.id, by: unit.id, cause: 'shot', weapon, hits: hit.hits, damage: hit.damage, lethal: true });
     makeNoise(ctx, NOISE_OF[weapon]!, unit.pos!, `${weapon} ${unit.id}`, w.noise);
     if (NOISES[NOISE_OF[weapon]!].kind === 'loud' && !state.bank.loud) {
         state.bank.loud = true;
         ctx.emit({ type: 'wentLoud', cause: `${weapon} ${unit.id}` });
     }
-    // The bullets are rolled; a preview of the world phase stops here (§13.6).
-    ctx.dice.pictured('combat', `${unit.id} fires from Watch`);
-    const trace = crossing(member, trip.at, () => (cleanShot(world, state, shot) ? resolveShot(ctx, shot) : null));
-    if (!trace) return;
-    for (const hit of trace.hits) dealHarm(ctx, { target: hit.id, by: unit.id, cause: 'shot', weapon, hits: hit.hits, damage: hit.damage, lethal: true });
 }
 
-// As the combat step starts, before anyone acts, each police wedge held through the crew phase fires at whoever tripped
+// As the combat step starts, before any fighter acts (after the grenades and the passive NPCs), each police wedge held through the crew phase fires at whoever tripped
 // it, and comes down: an officer sets a new one as it acts. In Negotiate the police hold fire.
 registerWorldHook('combatNpcs', 'swat.wedges', (ctx, phase) => {
     const { state } = ctx;
@@ -326,7 +338,8 @@ function pullBack(ctx: Ctx, phase: WorldPhase, unit: PoliceUnit): void {
     const from = unit.pos!, seen = (p: Pos): boolean => known.some(t => seesTile(world, state, t, p));
     const nearest = (p: Pos): number => Math.min(...known.map(t => d2(t, p)));
     const reach = reachable(world, state, from, 2 * HALF_STEPS_PER_TILE, moveOptions(world, f));
-    const steps = reach.tiles.filter(t => t.canEnd && t.cost > 0 && Math.max(Math.abs(t.pos.x - from.x), Math.abs(t.pos.y - from.y)) === 1);
+    const avoid = underGrenades(world, state, f);
+    const steps = reach.tiles.filter(t => t.canEnd && t.cost > 0 && !avoid.has(tileKey(t.pos)) && Math.max(Math.abs(t.pos.x - from.x), Math.abs(t.pos.y - from.y)) === 1);
     steps.sort((a, b) => Number(seen(a.pos)) - Number(seen(b.pos)) || nearest(b.pos) - nearest(a.pos) || a.pos.y - b.pos.y || a.pos.x - b.pos.x);
     const to = steps[0], path = to && nearest(to.pos) >= nearest(from) ? pathTo(reach, to.pos) : undefined;
     if (path && !walk(ctx, phase, f, path)) return;
@@ -376,7 +389,13 @@ function teamActs(ctx: Ctx, phase: WorldPhase, unit: PoliceUnit): void {
     const mode = state.police.mode?.kind ?? 'contain', assault = mode === 'assault';
     if (hurt(world, f)) return fallBack(ctx, phase, f, threats(state, f));
     if (mode === 'negotiate') return;
-    if (team.pulling || team.lost !== null) return pullBack(ctx, phase, unit);
+    // A member went down since the plan: those still to act pull back now, and that answers it (once, decision 185).
+    if (team.lost !== null) {
+        team.lost = null;
+        team.pulling = true;
+        team.movers = [];
+    }
+    if (team.pulling) return pullBack(ctx, phase, unit);
     const moving = assault && team.movers.includes(unit.id);
     let fired = false, alive = true;
     if (assault && unit.flashbangs > 0 && clusterFlash(ctx, phase, unit)) fired = true;

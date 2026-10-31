@@ -7,15 +7,16 @@ import { registerEvents } from '../core/undo';
 import { HALF_STEPS_PER_TILE } from '../data/movement';
 import { NOISES } from '../data/noise';
 import { BREACH_FROM, COMBAT_SIGHT, OFFICER_STATS, ROUTINE_KINDS } from '../data/police';
-import { SUPPRESSED_AIM, weaponDef } from '../data/weapons';
+import { SUPPRESSED_AIM, THROWABLES, weaponDef } from '../data/weapons';
 import { lineOfSight, sightMap } from '../geo/los';
 import { doorBetween, doorStatus, occupancy, pathTo, reachable, stepCost, type MoveOptions } from '../geo/move';
-import { coverAgainst, shotFabric, shotMap } from '../geo/shot';
+import { coverAgainst, shotFabric, shotMap, tileKey } from '../geo/shot';
 import { makeNoise } from '../geo/sound';
 import { previewShot } from '../preview/shot';
 import { NOISE_OF, suppressReact, watchReact } from './actions/attack';
 import { inReach } from './actions/act';
 import { besideDoor } from './actions/door';
+import { blastTiles } from './actions/throwables';
 import { dealHarm, registerHarmHandler } from './damage';
 import { heatNow } from './heat';
 import { releaseExit } from './negotiation';
@@ -243,8 +244,22 @@ export function walk(ctx: Ctx, phase: WorldPhase, f: Fighter, path: readonly Pos
 }
 
 /** The steps of `path` a fighter takes within `budget`, cut back to the last tile it may stop on. */
+/**
+ * The tiles an officer won't walk to: those a police grenade lying on the floor will reach as it goes off (M3-06,
+ * decision 183: its own side's flashbang). Anyone else, nothing.
+ */
+export function underGrenades(world: ReadonlyWorld, state: State, f: Fighter): Set<string> {
+    const out = new Set<string>();
+    if (f.kind !== 'police') return out;
+    const lying = state.grenades.filter(g => g.turn > state.turn && state.police.units.some(u => u.id === g.by));
+    if (!lying.length) return out;
+    const sight = sightMap(world, state);
+    for (const g of lying) for (const p of blastTiles(world, sight, g.at, THROWABLES[g.kind].radius)) out.add(tileKey(p));
+    return out;
+}
+
 function within(world: ReadonlyWorld, state: State, f: Fighter, path: readonly Pos[], budget: number): Pos[] {
-    const people = occupancy(world, state, { mover: f.id });
+    const people = occupancy(world, state, { mover: f.id }), avoid = underGrenades(world, state, f);
     let at = posOf(f), cost = 0, end = 0;
     const out: Pos[] = [];
     for (const p of path) {
@@ -252,7 +267,7 @@ function within(world: ReadonlyWorld, state: State, f: Fighter, path: readonly P
         if (c === undefined || cost + c > budget || people.get(p.y * world.width + p.x) === 'blocking') break;
         cost += c;
         out.push(p);
-        if ((people.get(p.y * world.width + p.x) ?? 'none') === 'none') end = out.length;
+        if ((people.get(p.y * world.width + p.x) ?? 'none') === 'none' && !avoid.has(tileKey(p))) end = out.length;
         at = p;
     }
     return out.slice(0, end);
@@ -298,8 +313,8 @@ export function fallBack(ctx: Ctx, phase: WorldPhase, f: Fighter, threats: reado
     const { world, state } = ctx;
     const seen = (p: Pos): boolean => threats.some(t => seesTile(world, state, t, p));
     if (!seen(posOf(f))) return;
-    const reach = reachable(world, state, posOf(f), budgetOf(world, f), moveOptions(world, f));
-    const to = reach.tiles.find(t => t.canEnd && t.cost > 0 && !seen(t.pos));
+    const reach = reachable(world, state, posOf(f), budgetOf(world, f), moveOptions(world, f)), avoid = underGrenades(world, state, f);
+    const to = reach.tiles.find(t => t.canEnd && t.cost > 0 && !seen(t.pos) && !avoid.has(tileKey(t.pos)));
     const path = to && pathTo(reach, to.pos);
     if (path) walk(ctx, phase, f, path);
 }
@@ -380,7 +395,8 @@ function firingTile(world: ReadonlyWorld, state: State, f: Fighter, phase: World
     const body = (id: string, pos: Pos) => ({ id, pos, standing: true, shield: false, armour: 0, precise: false });
     const covered = (p: Pos): boolean => !!coverAgainst(map, fabric, body(f.id, p), at);
     const open = (p: Pos): boolean => flank && !coverAgainst(map, fabric, body(target.id, at), p);
-    const tiles = reach.tiles.filter(t => t.canEnd).map(t => ({ t, cover: covered(t.pos), open: open(t.pos) }));
+    const avoid = underGrenades(world, state, f);
+    const tiles = reach.tiles.filter(t => t.canEnd && (t.cost === 0 || !avoid.has(tileKey(t.pos)))).map(t => ({ t, cover: covered(t.pos), open: open(t.pos) }));
     tiles.sort((a, b) => Number(b.open) - Number(a.open) || Number(b.cover) - Number(a.cover) || a.t.cost - b.t.cost || a.t.pos.y - b.t.pos.y || a.t.pos.x - b.t.pos.x);
     const tries: Tries = { left: SHOT_TRIES, blockers: [] };
     let why: HoldReason = 'range';

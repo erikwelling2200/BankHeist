@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
-    clonePlain, commit, fixtureWorld, initialState, newTeam, OFFICER_FLASHBANGS, OFFICER_STATS, policeDown, preview, projectPreviewEvents, seenWedges,
+    clonePlain, commit, fixtureWorld, initialState, newTeam, OFFICER_FLASHBANGS, OFFICER_STATS, policeDown, preview, projectPreviewEvents, seenWedges, tripWedges,
     type Command, type CrewStart, type FixtureOptions, type FixtureWall, type Material, type PoliceKind, type PoliceMode, type Pos, type ReadonlyWorld, type SimEvent, type State
 } from '../../src/sim';
 import { coverAgainst, shotFabric, shotMap } from '../../src/sim/geo/shot';
@@ -147,6 +147,29 @@ describe('police Watch wedges (§13.6 "locking down angles", §11.8)', () => {
         expect(seenWedges(world, seen)).toEqual([{ unit: 'a', at: P(1, 1), arc: 45 }]);
     });
 
+    it('draw the volley on moving from a tile in the wedge, stepping out of it too (§11.8)', () => {
+        const { world, state } = covered();
+        const inside = clonePlain(state);
+        inside.crew[0]!.pos = P(2, 2);
+        const out = commit(world, inside, { type: 'move', crew: 'jun', path: [P(1, 1)] }).state;
+        expect(unit(out, 'a').watch!.tripped).toEqual({ crew: 'jun', at: P(2, 2) });
+    });
+
+    it('trip nothing for crew aboard a vehicle, and reach no further than the officer sees', () => {
+        const { world, state } = covered();
+        const aboard = clonePlain(state);
+        aboard.crew[0]!.aboard = 'van';
+        tripWedges(world, aboard, aboard.crew[0]!, P(2, 2));
+        expect(unit(aboard, 'a').watch!.tripped).toBeNull();
+        // The officer 12 tiles off down the gap: its AR reaches 20, but it sees 10.
+        const far = clonePlain(state);
+        unit(far, 'a').pos = P(14, 2);
+        tripWedges(world, far, far.crew[0]!, P(2, 2));
+        expect(unit(far, 'a').watch!.tripped).toBeNull();
+        tripWedges(world, far, far.crew[0]!, P(5, 2));
+        expect(unit(far, 'a').watch!.tripped).toEqual({ crew: 'jun', at: P(5, 2) });
+    });
+
     it('come down in Negotiate, where the police hold fire', () => {
         const { world, state } = covered();
         const talks = clonePlain(state);
@@ -258,6 +281,32 @@ describe('casualties (§13.6)', () => {
         const again = commit(world, r.state, endTurn).state.police.teams.t!;
         expect(again.pulling).toBe(false);
         expect(again.movers.length).toBe(1);
+    });
+
+    it('a member down in the world phase: the members still to act pull back then, and the next plan doesn\'t again', () => {
+        const { world, state } = setup(OPEN, { crew: [{ id: 'jun', pos: P(0, 2), items: ['pistol'] }] });
+        team(state, 't', [['a', P(12, 1)], ['b', P(13, 2)], ['c', P(12, 3)]]);
+        state.police.known.jun = { tile: P(0, 2), turn: 0, down: false };
+        // Made as a went down after the plan: b and c, still to act, answer it.
+        const s = clonePlain(state);
+        s.police.teams.t!.planned = s.turn;
+        s.police.teams.t!.movers = ['a', 'c'];
+        s.police.teams.t!.lost = s.turn;
+        const r = commit(world, s, endTurn), plan = r.state.police.teams.t!;
+        expect(plan).toMatchObject({ pulling: true, lost: null, movers: [] });
+        const next = commit(world, r.state, endTurn).state.police.teams.t!;
+        expect(next.pulling).toBe(false);
+    });
+
+    it('officers don\'t walk to a tile a police flashbang lying there will reach', () => {
+        const { world, state } = setup(OPEN, { crew: [{ id: 'jun', pos: P(0, 2), items: ['pistol'] }] });
+        // Out of its sight, it advances along the row; its 4 tiles would end in the blast, so it stops short of it.
+        team(state, 't', [['a', P(11, 2)]]);
+        state.police.known.jun = { tile: P(0, 2), turn: 0, down: false };
+        state.grenades.push({ id: 'fb', kind: 'flashbang', by: 'a', at: P(7, 2), turn: state.turn + 1 });
+        const r = commit(world, state, endTurn), at = unit(r.state, 'a').pos!;
+        expect(of(r.events, 'policeMoved').length).toBeGreaterThan(0);
+        expect((at.x - 7) * (at.x - 7) + (at.y - 2) * (at.y - 2)).toBeGreaterThan(4);
     });
 
     it('a team with nobody left is gone', () => {

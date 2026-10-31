@@ -153,7 +153,7 @@ const PLAYED = new Set(['watch', 'suppress', 'attack', 'move', 'reload', 'throwG
 
 describe('the police and guard routine and SWAT team play (property, M3-05, M3-06)', { timeout: 180000 }, () => {
     it('never fires through a standing non-crew body, and announces every breach a phase ahead', () => {
-        let shots = 0, held = 0, breaches = 0, announced = 0, volleys = 0, wedges = 0, grenades = 0, teamPhases = 0;
+        let shots = 0, held = 0, breaches = 0, announced = 0, volleys = 0, wedges = 0, wedgeVolleys = 0, grenades = 0, teamPhases = 0;
         for (let g = 0; g < GAMES; g++) {
             const rng = new Rng(9100 + g);
             const { world, state } = randomGame(rng);
@@ -162,6 +162,11 @@ describe('the police and guard routine and SWAT team play (property, M3-05, M3-0
             const open = new Map<string, number>();
             // Police grenades by the world phase they landed in.
             const landed = new Map<string, number>();
+            // The team's members lost, and its pull backs: each loss answered by one pull back at most.
+            let losses = 0, pulls = 0;
+            const lost = (events: readonly SimEvent[]): void => {
+                losses += events.filter(e => e.type === 'policeDown' && e.unit.startsWith('swat')).length;
+            };
             const settle = (events: readonly SimEvent[], k: number): void => {
                 for (const e of events) {
                     if (e.type === 'breachAnnounced') {
@@ -177,11 +182,22 @@ describe('the police and guard routine and SWAT team play (property, M3-05, M3-0
             for (let k = 0; k < PHASES && s.crew.length && !s.outcome; k++) {
                 s = crewTurn(world, s, rng, events => {
                     settle(events, k);
+                    lost(events);
                     volleys += events.filter(e => e.type === 'attacked').length;
                 });
                 const before = s, crewIds = new Set(before.crew.map(c => c.id)), others = fighters(before);
                 const r = commit(world, before, { type: 'endTurn' });
                 settle(r.events, k);
+                lost(r.events);
+                // Each police wedge tripped in the crew phase answers at once as the combat step starts: fires or holds.
+                for (const u of before.police.units) {
+                    const trip = u.watch?.turn === before.turn - 1 ? u.watch.tripped : null;
+                    if (!trip || u.surprised === before.turn || before.police.mode?.kind === 'negotiate') continue;
+                    const crewUp = before.crew.some(c => c.id === trip.crew && !c.wounds.dead && c.wounds.downed === null);
+                    const answered = r.events.some(e => (e.type === 'fighterFired' && e.shooter === u.id && e.at.x === trip.at.x && e.at.y === trip.at.y)
+                        || (e.type === 'heldFire' && e.shooter === u.id && e.target === trip.crew));
+                    if (crewUp && answered) wedgeVolleys++;
+                }
                 for (const e of r.events) {
                     if (e.type === 'shotFired' && others.has(e.shooter)) {
                         shots++;
@@ -206,14 +222,19 @@ describe('the police and guard routine and SWAT team play (property, M3-05, M3-0
                     }
                 }
                 // A SWAT team never all moves at once (fire and movement): only its movers walk, and the members hurt falling
-                // back, but when it pulls back from a casualty (this phase's too, once a member went down mid-phase).
+                // back, but in a pull back from a casualty; and a casualty is answered by one pull back, not two.
                 const team = r.state.police.teams.van, out = before.police.units.filter(u => u.team === 'van' && u.pos);
+                if (team && team.planned === before.turn && team.pulling) {
+                    pulls++;
+                    expect(pulls, `game ${g} phase ${k}: a pull back with no casualty to answer`).toBeLessThanOrEqual(losses);
+                }
                 if (team && out.length >= 2 && team.planned === before.turn && !team.pulling) {
                     teamPhases++;
                     const hurt = (id: string): boolean => [before, r.state].some(x => x.police.units.some(u => u.id === id && u.hp * 2 <= OFFICER_STATS[u.kind].hp));
                     const walked = new Set(r.events.flatMap(e => (e.type === 'policeMoved' && e.unit.startsWith('swat') ? [e.unit] : [])));
-                    for (const id of walked) expect(team.movers.includes(id) || hurt(id) || team.lost !== null, `game ${g} phase ${k}: ${id} moved out of turn`).toBe(true);
-                    expect(team.movers.length, `game ${g} phase ${k}: the whole team moves`).toBeLessThan(out.length);
+                    for (const id of walked) expect(team.movers.includes(id) || hurt(id), `game ${g} phase ${k}: ${id} moved out of turn`).toBe(true);
+                    const sound = [...walked].filter(id => !hurt(id));
+                    expect(sound.length, `game ${g} phase ${k}: the whole team moved`).toBeLessThan(out.length);
                 }
                 // Breaches are only ever announced in the world phase, for the next one; the state holds what is open.
                 for (const b of r.state.police.breaches) expect(b.turn).toBe(before.turn);
@@ -228,6 +249,7 @@ describe('the police and guard routine and SWAT team play (property, M3-05, M3-0
         expect(breaches).toBeGreaterThan(4);
         expect(volleys).toBeGreaterThan(40);
         expect(wedges).toBeGreaterThan(10);
+        expect(wedgeVolleys).toBeGreaterThan(3);
         expect(grenades).toBeGreaterThan(2);
         expect(teamPhases).toBeGreaterThan(40);
     });

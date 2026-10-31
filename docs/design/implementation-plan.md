@@ -2152,11 +2152,14 @@ Later milestones: within each milestone, the `∥` notes in §3 apply. UI packag
     A mover looks for its firing tile first where the target has no cover against it (flanking), then its own cover,
     then nearest; a coverer fires from where it stands.
 182. **Police Watch wedges (M3-06, §13.6, §11.8).** A coverer with no clean shot, or nobody in sight, sets a wedge on
-    its target's tile, else the focus's last known tile, else the nearest known (its gun's widest Watch arc), held
-    through the next crew phase. The first crew member it would take for the crew (masked or known, decision 151) to
-    step through it or to give any other command standing (or leaning) in it trips it, silently; its volley comes as the
-    next world phase's combat step starts, before anyone acts: half its gun's bullets rounded up, Aim ×1.5 (×1 at 15°
-    or narrower), aimed at the tile where they tripped it with them put back there for the shot, through `cleanShot`.
+    its target's tile, else the focus's last known tile, else the nearest known (its gun's widest Watch arc, out to its
+    range but no further than `COMBAT_SIGHT`, what the officer sees), held through the next crew phase. The first crew
+    member it would take for the crew (masked or known, decision 151; not aboard a vehicle) to move in it (from a tile
+    in it, stepping out included, or onto one) or to give any other command standing (or leaning) in it trips it,
+    silently; its volley comes as the next world phase's combat step starts, before any fighter acts (after the
+    grenades' fuses and the passive NPCs): half its gun's bullets rounded up, Aim ×1.5 (×1 at 15° or narrower), aimed
+    at the tile where they tripped it with them put back there for the shot, through `cleanShot`, its report after
+    the bullets as every fighter's.
     §11.8's volley interrupts the move; here it comes after it, so a crew move's preview (and whether it can be
     undone) is the same whether a hidden officer watches or not. Only wedges whose officer the crew sees are given
     out (`seenWedges`). They come down in Negotiate, and with their volley or the next world phase.
@@ -2173,12 +2176,14 @@ Later milestones: within each milestone, the `∥` notes in §3 apply. UI packag
     by its own officer, all in that phase, while the team holds (no movers); each breacher then throws a flashbang
     through (the nearest crew position it knows beyond the door, else two tiles in, else the tile beyond), so they go
     in after it has gone off.
-185. **Casualties (M3-06, §13.6).** A member down (killed or otherwise off the force) makes the team's next plan a pull
-    back: each member steps one tile, out of sight of the crew positions the police know if it can and never closer to
+185. **Casualties (M3-06, §13.6).** A member down (killed or otherwise off the force) makes the team pull back once:
+    in its next plan, or at once for the members still to act when it went down in the world phase after the plan
+    (which then answers it). Each member steps one tile, out of sight of the crew positions the police know if it can and never closer to
     them, then covers the nearest with a wedge; then the team re-plans. A downed officer leaves the map (decision 150),
     so nobody is dragged out.
 186. **Hard promises (M3-06, §13.6).** Every police shot, the wedges' volleys included, goes through `cleanShot`; every
-    police grenade lies through a crew phase before it goes off; breaches are the only part of a plan shown ahead; every
+    police grenade lies through a crew phase before it goes off, and officers don't walk to a tile one will reach
+    (routine.ts `underGrenades`); breaches are the only part of a plan shown ahead; every
     wedge, throw, shot and breach is an act a crew Watch answers first (decision 159).
 190. **Looking out of the van (M3-08 review, §14.4).** The crew aboard sit in the cab (its front tile on the left) and
     face the way the van points; the van's other tiles block their sight, so they see out of the cab's windscreen and
