@@ -21,7 +21,7 @@ export class Vehicles {
     private shownAt = new Map<string, string>();
     private drawn = new Map<string, Phaser.GameObjects.Image[]>();
     /** A drive being played: the van at each pose of its path, one shown at a time. */
-    private anim: { id: string; frames: Phaser.GameObjects.Image[]; msPerPose: number; t: number } | null = null;
+    private anim: { id: string; frames: Phaser.GameObjects.Image[]; end: string; msPerPose: number; t: number } | null = null;
 
     /** `built`: each vehicle's images as the bank was drawn, by id. */
     constructor(private readonly baker: Baker, private readonly bank: BankData, built: ReadonlyMap<string, ShownProp>) {
@@ -48,7 +48,8 @@ export class Vehicles {
         if (path.length < 2 || msPerPose <= 0) return 0;
         for (const image of this.drawn.get(id) ?? []) image.setVisible(false);
         const frames = path.map((p, i) => this.draw(id, p).setVisible(i === 0));
-        this.anim = { id, frames, msPerPose, t: 0 };
+        const last = path[path.length - 1]!;
+        this.anim = { id, frames, end: `${last.x},${last.y},${last.heading}`, msPerPose, t: 0 };
         return msPerPose * path.length;
     }
 
@@ -71,13 +72,19 @@ export class Vehicles {
         return true;
     }
 
-    /** Ends a drive being played at once. */
+    /**
+     * Ends a drive being played at once: the van stays where the drive took it (its last frame becomes the vehicle's
+     * image there), never flashing back to where it set off.
+     */
     finish(): void {
         const a = this.anim;
         if (!a) return;
         this.anim = null;
+        const last = a.frames.pop()!;
         for (const f of a.frames) f.destroy();
-        for (const image of this.drawn.get(a.id) ?? []) image.setVisible(true);
+        for (const image of this.drawn.get(a.id) ?? []) image.destroy();
+        this.drawn.set(a.id, [last.setVisible(true)]);
+        this.shownAt.set(a.id, a.end);
     }
 
     private draw(id: string, pose: DeepReadonly<VehicleState['pose']>): Phaser.GameObjects.Image {

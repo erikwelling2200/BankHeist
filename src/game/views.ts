@@ -164,12 +164,17 @@ function policePos(world: ReadonlyWorld): { x: number; y: number } {
 function nextHeatView(world: ReadonlyWorld, state: State): HeatVM['next'] {
     const next = nextWave(world, state);
     if (!next) return null;
-    const first = next.vehicles.find(v => v.kind !== 'helicopter') ?? next.vehicles[0];
-    const what = first ? `${first.label}${first.staging ? `, ${first.staging.name.charAt(0).toLowerCase()}${first.staging.name.slice(1)}` : ''}` : 'no losses to refill';
+    // The headline is the step's most significant force (§20.3 "Heat 3 in 2 turns: SWAT van, rear lot"): a SWAT van,
+    // then the helicopter, the snipers, a police van, and only then a car (`planWave` lists cars first).
+    const swat = (v: (typeof next.vehicles)[number]) => v.kind === 'van' && v.units.some(u => u.startsWith('swat') || u === 'heavy');
+    const rank = (v: (typeof next.vehicles)[number]) => (swat(v) ? 0 : v.kind === 'helicopter' ? 1 : v.kind === 'foot' ? 2 : v.kind === 'van' ? 3 : 4);
+    const first = [...next.vehicles].sort((a, b) => rank(a) - rank(b))[0];
+    const name = first ? (swat(first) ? 'SWAT van' : first.label) : '';
+    const what = first ? `${name}${first.staging ? `, ${first.staging.name.charAt(0).toLowerCase()}${first.staging.name.slice(1)}` : ''}` : 'no losses to refill';
     const more = next.vehicles.length > 1 ? ` +${next.vehicles.length - 1}` : '';
     const head = next.reason === 'refill' ? 'Reinforcements' : next.reason === 'arrival' ? `Police at Heat ${next.level}` : `Heat ${next.level}`;
-    const icon = !first ? 'police' : first.kind === 'van' ? (first.units.some(u => u.startsWith('swat') || u === 'heavy') ? 'swat' : 'truck') : first.kind === 'foot' ? 'dmr' : first.kind === 'helicopter' ? 'police' : 'car';
-    return { label: `${head}: ${what}${more}`, inTurns: next.inPhases, level: next.level, icon, ...(first ? { short: `${first.label}${more}` } : {}) };
+    const icon = !first ? 'police' : swat(first) ? 'swat' : first.kind === 'van' ? 'truck' : first.kind === 'foot' ? 'dmr' : first.kind === 'helicopter' ? 'police' : 'car';
+    return { label: `${head}: ${what}${more}`, inTurns: next.inPhases, level: next.level, icon, ...(first ? { short: `${name}${more}` } : {}) };
 }
 
 /**

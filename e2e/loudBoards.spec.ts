@@ -53,8 +53,28 @@ test('loud: Jun\'s Watch wedge previewed, dragged round to a tile in sight and s
     await page.locator('.sh-actions button[data-action="watch"]').click();
     const preview = () => play(page).then(p => p.boards.wedges.find((w: any) => w.side === 'crew'));
     expect(await preview()).toMatchObject({ by: 'jun', at: info.at, preview: true });
-    // Drag from the aim to another tile Jun sees: the wedge follows.
+    // A drag that starts on Jun himself still draws a path (UI.md "Touch grammar"), whatever is previewed.
     const jun = await page.evaluate(() => (window as any).sim.state.crew[1].pos as Pos);
+    await lookAt(page, jun);
+    await page.waitForTimeout(400);
+    let drew = false;
+    for (const [dx, dy] of [[0, 2], [2, 0], [-2, 0], [0, -2]] as const) {
+        const from = await onPage(page, jun), to = await onPage(page, { x: jun.x + dx, y: jun.y + dy });
+        const before = await scene(page);
+        await page.mouse.move(from.x, from.y);
+        await page.mouse.down();
+        await page.mouse.move(to.x, to.y, { steps: 8 });
+        await page.mouse.up();
+        const after = await scene(page);
+        // Not a pan, and not the wedge: the wedge stays where it was unless a path replaced it.
+        expect(after.midX).toBe(before.midX);
+        if (after.play.pending?.path?.length) { drew = true; break; }
+        expect(await preview()).toMatchObject({ at: info.at });
+    }
+    expect(drew, 'a drag from Jun drew a path').toBe(true);
+    await page.locator('.sh-actions button[data-action="watch"]').click();
+    expect(await preview()).toMatchObject({ at: info.at, preview: true });
+    // Drag from the aim (the handle) to another tile Jun sees: the wedge follows.
     const target = await page.evaluate(([from, aim]) => {
         const w = (window as any).sim.world, k = (window as any).sim.state.knowledge;
         const ABC = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';

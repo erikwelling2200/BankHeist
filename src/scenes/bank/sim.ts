@@ -141,8 +141,8 @@ export class PlayMode {
     private recap: boolean;
     /** The path being dragged, and whether it is legal so far. */
     private dragPath?: Pos[];
-    /** A Watch wedge is being dragged round (M3-09). */
-    private wedgeDrag = false;
+    /** A Watch wedge is being dragged round (M3-09): the wedge as it was when the drag began. */
+    private wedgeDrag: Command | null = null;
     private walk?: Walk;
     private holdMs = 0;
     /** The turn whose negotiator call the player put aside (Later). */
@@ -1228,11 +1228,11 @@ export class PlayMode {
     private claim(x: number, y: number): boolean {
         const member = this.selectedMember();
         if (this.busy || this.recap || !member || member.actionsLeft === 0 || this.session.state.phase !== 'crew') return false;
-        // A Watch wedge previewed (M3-09): a drag from the crew member or from the wedge's aim drags the wedge round.
+        // A Watch wedge previewed (M3-09): a drag that starts on its aim (the handle) drags the wedge round; one on the
+        // crew member still draws a path, and any other pans (UI.md "Touch grammar").
         const pending = this.session.pendingCommand, tile = { x: Math.floor(x / TILE), y: Math.floor(this.groundY(x, y) / TILE) };
-        if (pending?.type === 'watch' && pending.crew === member.id
-            && (this.people.hit(this.sprite.get(member.id)!, x, y) || Math.max(Math.abs(tile.x - pending.at.x), Math.abs(tile.y - pending.at.y)) <= 1)) {
-            this.wedgeDrag = true;
+        if (pending?.type === 'watch' && pending.crew === member.id && same(tile, pending.at) && !this.people.hit(this.sprite.get(member.id)!, x, y)) {
+            this.wedgeDrag = pending;
             return true;
         }
         if (!this.people.hit(this.sprite.get(member.id)!, x, y)) {
@@ -1294,7 +1294,10 @@ export class PlayMode {
     /** A drawn path becomes a Move when it fits Move's budget, else a Dash; one too long is cut to its longest legal start. */
     private release(cancelled: boolean): void {
         if (this.wedgeDrag) {
-            this.wedgeDrag = false;
+            // A drag cancelled (a second finger: a pinch) puts the wedge back where it was.
+            const before = this.wedgeDrag;
+            this.wedgeDrag = null;
+            if (cancelled) this.preview(before);
             return this.refresh();
         }
         if (this.aimDrag) {

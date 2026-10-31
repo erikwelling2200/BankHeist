@@ -1,5 +1,6 @@
 import type { LoudVM, WedgeVM } from '../../game/loudBoards';
 import type { Pos } from '../../sim';
+import { drawNumber, numberWidth } from '../../art/ui/glyphs';
 
 /*
  * The loud layer drawn on the world overlay (UI.md "Loud", M3-09; src/game/loudBoards.ts makes it): Watch wedges (the
@@ -20,6 +21,9 @@ export interface LoudDraw {
     /** An inset rounded outline round a set of tiles (the overlay's contour, as the noise ring's). */
     outline: (tiles: Pos[], colour: string, width: number, dash: number[]) => void;
 }
+
+/** GO and money's gold (unchanged in the colour-blind preset): a drive off the plot is the getaway. */
+const GOLD = '#f2c94c';
 
 const rgba = (hex: string, a: number): string => {
     const n = parseInt(hex.slice(1), 16);
@@ -91,18 +95,14 @@ function drawGrenade(d: LoudDraw, g: LoudVM['grenades'][number]): void {
     ctx.arc(x, y, S * 0.14, 0, Math.PI * 2);
     ctx.fill();
     ctx.stroke();
-    // The fuse on a dark plate above the grenade, in its colour.
-    const text = String(g.fuse), px = x - 9, py = y - S * 0.5 - 16;
+    // The fuse on a dark plate above the grenade, in its colour, in the overlay's digit font.
+    const text = String(g.fuse), w = numberWidth(text) + 8, px = Math.round(x - w / 2), py = Math.round(y - S * 0.5 - 16);
     ctx.fillStyle = 'rgba(11, 13, 23, 0.85)';
-    ctx.fillRect(px, py, 18, 14);
+    ctx.fillRect(px, py, w, 12);
     ctx.strokeStyle = colour;
     ctx.lineWidth = 1;
-    ctx.strokeRect(px + 0.5, py + 0.5, 17, 13);
-    ctx.fillStyle = colour;
-    ctx.font = 'bold 11px ui-monospace, Menlo, Consolas, monospace';
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    ctx.fillText(text, x, py + 7.5);
+    ctx.strokeRect(px + 0.5, py + 0.5, w - 1, 11);
+    drawNumber(ctx, text, px + 4, py + 3, colour);
 }
 
 /** Corner brackets round a box of tiles. */
@@ -128,26 +128,42 @@ function drawDrive(d: LoudDraw, v: NonNullable<LoudVM['drive']>): void {
     for (const t of v.reach) ctx.fillRect(d.left(t), d.top(t), S, S);
     d.outline(v.reach, rgba(d.pal.safe, 0.9), 1.5, []);
     // The swept path: the tiles it passes over outlined in steel blue, and its middle line, dotted.
-    if (v.swept.length) d.outline(v.swept, rgba(d.pal.command, 0.95), 2, [4, 3]);
+    // The path in cream (neutral), apart from the reach's safe colour in either palette (blue and pale blue in the
+    // colour-blind one would read as one).
+    if (v.swept.length) d.outline(v.swept, rgba(d.pal.cream, 0.9), 2, [4, 3]);
     if (v.path.length > 1) {
-        shadowed(d, d.pal.command, 2, () => v.path.forEach((p, i) => {
+        shadowed(d, d.pal.cream, 2, () => v.path.forEach((p, i) => {
             const [x, y] = at(d, p.x, p.y);
             if (i) ctx.lineTo(x, y);
             else ctx.moveTo(x, y);
         }), [2, 4]);
     }
-    brackets(d, v.chosen, v.refusal ? d.pal.red : d.pal.cream);
+    // The chosen footprint: steel blue (your control), red when it can't be reached, gold when the drive leaves the plot.
+    const mark = v.refusal ? d.pal.red : v.off ? GOLD : d.pal.command;
+    brackets(d, v.chosen, mark);
     // The way it will face: a chevron at the front of the chosen footprint.
     if (v.chosen.length) {
         const xs = v.chosen.map(t => t.x), ys = v.chosen.map(t => t.y);
         const x0 = Math.min(...xs), x1 = Math.max(...xs) + 1, y0 = Math.min(...ys), y1 = Math.max(...ys) + 1, mx = (x0 + x1) / 2, my = (y0 + y1) / 2;
         const [fx, fy] = { n: [0, -1], e: [1, 0], s: [0, 1], w: [-1, 0] }[v.heading] as [number, number];
         const tip = at(d, mx + fx * ((x1 - x0) / 2 - 0.3), my + fy * ((y1 - y0) / 2 - 0.3)), k = S * 0.35;
-        shadowed(d, v.refusal ? d.pal.red : d.pal.cream, 3, () => {
+        shadowed(d, mark, 3, () => {
             ctx.moveTo(tip[0] - fx * k - fy * k, tip[1] - fy * k - fx * k);
             ctx.lineTo(tip[0], tip[1]);
             ctx.lineTo(tip[0] - fx * k + fy * k, tip[1] - fy * k + fx * k);
         });
+    }
+    // Off the plot (the getaway): two gold chevrons where the van leaves it, pointing the way it goes.
+    if (v.exit) {
+        const [fx, fy] = { n: [0, -1], e: [1, 0], s: [0, 1], w: [-1, 0] }[v.heading] as [number, number], k = S * 0.4;
+        for (const back of [0, 0.45]) {
+            const [tx, ty] = at(d, v.exit.x - fx * back, v.exit.y - fy * back);
+            shadowed(d, GOLD, 3, () => {
+                ctx.moveTo(tx - fx * k - fy * k, ty - fy * k - fx * k);
+                ctx.lineTo(tx, ty);
+                ctx.lineTo(tx - fx * k + fy * k, ty - fy * k + fx * k);
+            });
+        }
     }
     // Crew left on foot: a flag over each.
     for (const p of v.onFoot) {

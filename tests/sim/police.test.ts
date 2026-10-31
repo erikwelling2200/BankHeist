@@ -332,7 +332,7 @@ describe('the police', () => {
         const { world, state } = setup();
         const s = alarmed(state, 2, 13);
         // Heat shows from the Alarm, and so does what the police will bring: Heat 4 by the time they come.
-        expect(bankView(s, false, world).heat).toMatchObject({ level: 3, ticks: 3, next: { label: 'Police at Heat 4: Police car, main street, west end +9', inTurns: 2 } });
+        expect(bankView(s, false, world).heat).toMatchObject({ level: 3, ticks: 3, next: { label: 'Police at Heat 4: SWAT van, main street, west end +9', inTurns: 2 } });
         const forecast = nextWave(world, s)!;
         expect(forecast).toMatchObject({ level: 4, reason: 'arrival', inPhases: 2 });
         const { state: arrived, events } = run(world, s, endTurn, endTurn);

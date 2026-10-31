@@ -1256,6 +1256,11 @@ M2 is complete: every package below has landed.
       drives there instead, a tap again on the chosen footprint the next pose over that tile (turning the van). The
       drive plays from its `driven` event: `Vehicles.animate` shows the van at each pose along the path
       (`DRIVE_POSE_MS`), the camera on its end (`debugState.play.driving`); a cut drive plays only what was driven.
+      The van stays at its last frame when the drive ends. The chosen footprint is steel blue, gold with two chevrons at
+      the plot's edge for a drive off the plot (`DriveVM.exit`), red when it can't be reached; the path is cream, apart
+      from the reach's colour in either palette. The forecast headlines the step's most significant force (SWAT van,
+      helicopter, snipers, police van, then cars). With a Watch previewed only a drag from the aim tile moves the wedge
+      (a cancelled one puts it back); a drag from the crew member still draws a path, and any other pans.
     - **Setups and tests:** `npm run shot` presets `loud-standoff`, `watch-wedge`, `negotiator`, `drive`
       (`e2e/setups.ts`, `window.sim.officer(kind, pos, state)` for scripted officers); `tests/game/loudBoards.test.ts` (a
       hidden officer's wedge not told, a seen one's; the crew's wedge previewed then set; a grenade where seen; the mode

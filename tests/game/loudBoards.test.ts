@@ -4,7 +4,7 @@ import { newHeist } from '../../src/game/heist';
 import { driveView, loudView, negotiatorView, posesCovering } from '../../src/game/loudBoards';
 import { bankView } from '../../src/game/views';
 import {
-    clonePlain, commit, doorTiles, fixtureWorld, footprint, initialState, knownView, newTeam, OFFICER_FLASHBANGS, OFFICER_STATS,
+    clonePlain, commit, doorTiles, fixtureWorld, footprint, initialState, knownView, newTeam, nextWave, OFFICER_FLASHBANGS, OFFICER_STATS,
     vehicleReach, type CrewStart, type PoliceKind, type Pos, type ReadonlyWorld, type State
 } from '../../src/sim';
 import { cachedBank } from '../bankCache';
@@ -64,27 +64,46 @@ describe('wedges and grenades', () => {
         expect(loudView(world, set, knownView(world, set), null)!.wedges[0]!.preview).toBeUndefined();
     });
 
-    it('shows a police grenade where the crew sees it land, with its fuse, and not one out of sight', () => {
-        const { world, state } = loud(PILLARS, [{ id: 'jun', pos: P(1, 2), items: ['pistol'] }]);
+    it('shows a police grenade where the crew sees it land, with its fuse, and not one behind a full-height block', () => {
+        const WALLED = ['......T.........', '......T.........', '......T.........', '......T.........', '......T.........'];
+        const { world, state } = loud(WALLED, [{ id: 'jun', pos: P(1, 2), items: ['pistol'] }]);
         officer(state, 'a', P(10, 2));
-        state.grenades.push({ id: 'g1', kind: 'flashbang', by: 'a', at: P(5, 2), turn: state.turn });
+        state.grenades.push({ id: 'g1', kind: 'flashbang', by: 'a', at: P(4, 2), turn: state.turn });
+        state.grenades.push({ id: 'g2', kind: 'flashbang', by: 'a', at: P(9, 2), turn: state.turn });
         const s = commit(world, state, { type: 'move', crew: 'jun', path: [P(2, 2)] }).state;
-        const vm = loudView(world, s, knownView(world, s), null)!;
-        expect(vm.grenades).toEqual([{ at: P(5, 2), kind: 'flashbang', radius: expect.any(Number), police: true, fuse: 1 }]);
-        // Behind the pillar from where Jun stands, and not seen this turn: not told.
-        const hid = clonePlain(s);
-        hid.grenades[0]!.at = P(4, 0);
-        const view = knownView(world, hid);
-        const told = view.inView[4] === 1 || view.fresh[4] === 1;
-        expect((loudView(world, hid, view, null)?.grenades ?? []).length).toBe(told ? 1 : 0);
+        const view = knownView(world, s);
+        // The second lies past the block, on a tile the crew has never seen.
+        expect(view.inView[2 * world.width + 9]).toBe(0);
+        expect(view.fresh[2 * world.width + 9]).toBe(0);
+        const vm = loudView(world, s, view, null)!;
+        expect(vm.grenades).toEqual([{ at: P(4, 2), kind: 'flashbang', radius: expect.any(Number), police: true, fuse: 1 }]);
     });
 });
 
 describe('the heat strip', () => {
-    it('gives the police mode with its phases left, and the next arrival\'s level, icon and phases', () => {
+    it('gives the police mode with its phases left', () => {
         const { world, state } = loud(['................'], [{ id: 'jun', pos: P(1, 0), items: ['pistol'] }], 'assault');
-        const heat = bankView(state, false, world).heat!;
-        expect(heat.mode).toEqual({ now: 'assault', left: 9, next: expect.any(String) });
+        expect(bankView(state, false, world).heat!.mode).toEqual({ now: 'assault', left: 9, next: expect.any(String) });
+    });
+
+    it('forecasts the next step by its most significant force: its level, icon, short name and phases', () => {
+        const bank = cachedBank({ layout: 31, population: 2, tier: 'small', archetype: 'twoWing' });
+        const { world, state } = newHeist(bank);
+        const s = clonePlain(state);
+        s.bank.alarm = true;
+        s.bank.loud = true;
+        s.response = { raised: s.turn - 5, by: 'tellerButton', policeIn: 0, heat: 4 };
+        s.police.sent = 1;
+        s.police.mode = { kind: 'contain', left: 3, since: { turn: s.turn - 1, phase: 'world' }, after: null };
+        const wave = nextWave(world, s)!;
+        const next = bankView(s, false, world).heat!.next!;
+        expect(next).toMatchObject({ level: wave.level, inTurns: wave.inPhases });
+        const swat = wave.vehicles.some(v => v.kind === 'van' && v.units.some(u => u.startsWith('swat') || u === 'heavy'));
+        // A SWAT van leads over the cars planWave lists first.
+        if (swat) expect(next).toMatchObject({ icon: 'swat', short: expect.stringMatching(/^SWAT van/) });
+        else expect(next.icon).toBeTruthy();
+        expect(next.short).toBeTruthy();
+        expect(next.label).toContain(next.short!.replace(/ \+\d+$/, ''));
     });
 });
 

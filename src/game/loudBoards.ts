@@ -46,8 +46,9 @@ export interface DriveVM {
     /** The tiles its path sweeps, and the middle of each pose along it (the van's start first). */
     swept: Pos[];
     path: { x: number; y: number }[];
-    /** The drive leaves the plot. */
+    /** The drive leaves the plot, and where (the path's end brought inside the plot's edge), in tiles. */
     off: boolean;
+    exit?: { x: number; y: number };
     /** Crew on foot: flagged, the van would leave them. */
     onFoot: Pos[];
     /** Why the chosen pose can't be driven to, if it can't. */
@@ -118,7 +119,9 @@ export function driveView(world: ReadonlyWorld, state: State, cmd: Extract<Comma
     const chosen = footprint(def, cmd.to).filter(inPlot);
     if (typeof plan === 'string') return { reach: [...tiles.values()], chosen, heading: cmd.to.heading, swept: [], path: [], off: false, onFoot, refusal: plan };
     const path = [reach.from, ...plan.poses].map(p => poseMiddle(world, cmd.vehicle, p));
-    return { reach: [...tiles.values()], chosen, heading: cmd.to.heading, swept: plan.swept.filter(inPlot), path, off: plan.off, onFoot };
+    const end = path[path.length - 1]!;
+    const exit = plan.off ? { x: Math.min(world.width - 0.6, Math.max(0.6, end.x)), y: Math.min(world.height - 0.6, Math.max(0.6, end.y)) } : undefined;
+    return { reach: [...tiles.values()], chosen, heading: cmd.to.heading, swept: plan.swept.filter(inPlot), path, off: plan.off, ...(exit ? { exit } : {}), onFoot };
 }
 
 /**
