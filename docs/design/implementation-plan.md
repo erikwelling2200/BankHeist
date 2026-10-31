@@ -1055,7 +1055,11 @@ M2 is complete: every package below has landed.
       away; leans count toward the shot budget; old saves are refused; decision 160's departures. Re-review: a hidden
       officer shot at or suppressed answers (Negotiate's end, the muzzle flash) only past the preview's stop, so no
       preview tells of it; a fighter leans out before the Watch check, so a wedge on its lean tile catches it; the
-      crew's own volley at a hidden foe is told without naming the target.
+      crew's own volley at a hidden foe is told without naming the target. Third review: a told shot names nobody hidden
+      (its hits dropped, a bullet's step into them kept with an empty id); a Hostile guard unlocks and opens a locked door
+      it may pass, as on its rounds; the grid offers Watch and Suppress on officers the crew sees; `heldFire` names its
+      `blockers` and is told `why` only when the crew knows them all; fighters look from their lean tiles too; a
+      fighter's shot is told (`fighterFired`, then the bullets, then its noise and Loud) only once it is fired.
     - **Session:** the recap names the new events (an officer by kind); the threat ledger shows each announced breach
       at its door ("Breach next phase: …", 1); the grid's Fire offers officers in the shooter's sight. Drawing police,
       their moves and the breach marker on the map are M3-09's.

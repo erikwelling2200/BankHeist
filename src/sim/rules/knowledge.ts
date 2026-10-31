@@ -1457,6 +1457,8 @@ export function projectEvents(world: ReadonlyWorld, state: State, events: readon
     // Officers (M3-05) are told of only while the crew sees them (`officerSeen`), before or after.
     const unitIds = new Set([...state.police.units, ...(before?.police.units ?? [])].map(u => u.id));
     const officerKnown = (id: string): boolean => (preview ? officerSeen(world, base, id) : officerSeen(world, state, id) || (!!before && officerSeen(world, before, id)));
+    /** An NPC or an officer the crew doesn't know: no event names them. */
+    const hiddenPerson = (id: string): boolean => (npcIds.has(id) && !known(id)) || (unitIds.has(id) && !officerKnown(id));
     const seenDuring = (id: string): boolean => !!before && Object.hasOwn(state.knowledge.npcs, id) && state.knowledge.npcs[id]!.tick > before.knowledge.tick;
     // A previewed world phase can't tell where a known NPC gets to when a door the crew can't vouch for could stop its
     // walk: it shows walking only the steps before that door, and when what it sees could change with the door, the rest
@@ -1505,8 +1507,7 @@ export function projectEvents(world: ReadonlyWorld, state: State, events: readon
         }
         const fields = e as unknown as Record<string, unknown>;
         // The crew's own shot is always told; whom it was aimed at only when the crew knows them.
-        if (e.type === 'attacked' && e.target !== undefined && crewIds.has(e.crew)
-            && ((npcIds.has(e.target) && !known(e.target)) || (unitIds.has(e.target) && !officerKnown(e.target)))) {
+        if (e.type === 'attacked' && e.target !== undefined && crewIds.has(e.crew) && hiddenPerson(e.target)) {
             const told = { ...e };
             delete told.target;
             out.push(told);
@@ -1522,6 +1523,21 @@ export function projectEvents(world: ReadonlyWorld, state: State, events: readon
             continue;
         }
         if (e.type === 'noise') { out.push({ ...e, heard: e.heard.filter(known) }); continue; }
+        // Held for someone in the way: why only when the crew knows everyone who was.
+        if (e.type === 'heldFire' && e.blockers?.some(hiddenPerson)) {
+            const told: SimEvent = { type: 'heldFire', shooter: e.shooter, target: e.target };
+            out.push(told);
+            continue;
+        }
+        // A shot told (its shooter known) names only the people the crew knows: a bullet's step into someone hidden
+        // keeps where it stopped but not who (`id` empty), and their hits aren't told.
+        if (e.type === 'shotFired' && [...e.hits.map(h => h.id), ...e.bullets.flatMap(b => b.steps.flatMap(st => (st.kind === 'body' ? [st.id] : [])))].some(hiddenPerson)) {
+            out.push({
+                ...e, hits: e.hits.filter(h => !hiddenPerson(h.id)),
+                bullets: e.bullets.map(b => ({ ...b, steps: b.steps.map(st => (st.kind === 'body' && hiddenPerson(st.id) ? { ...st, id: '' } : st)) }))
+            });
+            continue;
+        }
         if (e.type === 'moved') {
             const cut = hiddenCuts.find(c => c.crew === e.crew);
             if (cut) { out.push({ ...e, to: { ...cut.planned.at(-1)! }, path: cut.planned.map(p => ({ ...p })) }); continue; }

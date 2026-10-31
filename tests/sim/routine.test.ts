@@ -69,6 +69,10 @@ describe('officers fighting (§13.6)', () => {
         const fired = of(r.events, 'fighterFired');
         expect(fired).toEqual([{ type: 'fighterFired', shooter: 'cop', target: 'jun', weapon: 'pistol', bullets: 2, at: P(1, 2) }]);
         expect(of(r.events, 'shotFired')[0]).toMatchObject({ shooter: 'cop', weapon: 'pistol' });
+        // Told once fired: the bullets, then the report.
+        const order = types(r.events);
+        expect(order.indexOf('fighterFired')).toBeLessThan(order.indexOf('shotFired'));
+        expect(order.indexOf('shotFired')).toBeLessThan(order.indexOf('noise'));
         expect(unit(r.state, 'cop')!.pos).toEqual(P(8, 2));
         expect(r.state.police.known.jun).toEqual({ tile: P(1, 2), turn: 1, down: false });
         // Every hit is dealt through the harm interface.
@@ -92,7 +96,7 @@ describe('officers fighting (§13.6)', () => {
         const held = setup(OPEN, { people });
         officer(held.state, 'cop', P(8, 2));
         const r = commit(held.world, held.state, endTurn);
-        expect(of(r.events, 'heldFire')).toEqual([{ type: 'heldFire', shooter: 'cop', target: 'jun', why: 'body' }]);
+        expect(of(r.events, 'heldFire')).toEqual([{ type: 'heldFire', shooter: 'cop', target: 'jun', why: 'body', blockers: ['ann'] }]);
         expect(types(r.events)).not.toContain('shotFired');
 
         const moving = setup(OPEN, { people, mode: 'assault' });
@@ -177,6 +181,16 @@ describe('officers taking harm', () => {
     });
 });
 
+describe('the grid on officers', () => {
+    it('offers Watch and Suppress on an officer the crew sees, as Fire', () => {
+        const { world, state } = setup(OPEN, { crew: [{ id: 'jun', pos: P(1, 2), items: ['lmg'] }], mode: 'negotiate' });
+        officer(state, 'cop', P(8, 2));
+        const menu = actionMenu(world, state, 'jun', 'cop');
+        for (const id of ['attack', 'watch', 'suppress']) expect(menu.find(e => e.id === id), id).toMatchObject({ target: 'cop' });
+        expect(menu.find(e => e.id === 'watch')!.command).toMatchObject({ type: 'watch', at: P(8, 2) });
+    });
+});
+
 describe('crew Watch on fighters that act (§11.8)', () => {
     it('fires at an officer that shoots from where it stands, before its shot', () => {
         const { world, state } = setup(OPEN, { crew: [{ id: 'jun', pos: P(1, 2), items: ['pistol'] }] });
@@ -198,6 +212,19 @@ describe('crew Watch on fighters that act (§11.8)', () => {
         expect(of(r.events, 'attacked')[0]).toMatchObject({ crew: 'jun', target: 'guard', mode: 'watch' });
         const volley = r.events.findIndex(e => e.type === 'attacked'), shot = r.events.findIndex(e => e.type === 'fighterFired');
         if (shot >= 0) expect(shot).toBeGreaterThan(volley);
+    });
+
+    it('fires at an officer leaning out past a corner into the wedge to shoot', () => {
+        // A column hides Jun from the officer's own tile; leaning out to (8, 1) it sees him and fires from there, into
+        // Jun's narrow wedge on that tile.
+        const map = ['................', '................', '.......T........', '................', '................'];
+        const seen = setup(map);
+        officer(seen.state, 'cop', P(8, 2));
+        const r1 = commit(seen.world, seen.state, endTurn);
+        expect(r1.state.shots.at(-1)!.shot).toMatchObject({ shooter: 'cop', lean: P(8, 1) });
+        const watching = commit(seen.world, seen.state, { type: 'watch', crew: 'jun', at: P(8, 1), arc: 6 }).state;
+        const r = commit(seen.world, watching, endTurn);
+        expect(of(r.events, 'attacked')[0]).toMatchObject({ crew: 'jun', target: 'cop', mode: 'watch' });
     });
 
     it('does not fire at a fighter that neither moves nor acts', () => {
@@ -250,9 +277,9 @@ describe('officers through what the crew knows (§8.15, two worlds)', () => {
     });
 
     it('tells the crew\'s own Watch volley at a hidden officer, without naming it', () => {
-        const { world, state } = setup(Array.from({ length: 5 }, () => '..............................'), { dark: DARK });
-        officer(state, 'cop', P(9, 2));
-        const watching = commit(world, state, { type: 'watch', crew: 'jun', at: P(9, 2), arc: 30 }).state;
+        const { world, state } = setup(Array.from({ length: 5 }, () => '..............................'), { dark: DARK, crew: [{ id: 'jun', pos: P(1, 2), items: ['lmg'] }] });
+        officer(state, 'cop', P(8, 2));
+        const watching = commit(world, state, { type: 'watch', crew: 'jun', at: P(8, 2), arc: 30 }).state;
         const r = commit(world, watching, endTurn);
         expect(of(r.events, 'attacked')[0]).toMatchObject({ mode: 'watch', target: 'cop' });
         const told = projectEvents(world, r.state, r.events, watching);
@@ -260,6 +287,28 @@ describe('officers through what the crew knows (§8.15, two worlds)', () => {
         expect(volley).toMatchObject({ crew: 'jun', mode: 'watch' });
         expect(volley.target).toBeUndefined();
         expect(types(told)).not.toContain('fighterFired');
+        // Its bullets are told, but not whom they met, nor what they did to them (the volley as if it had hit).
+        const real = of(r.events, 'shotFired').find(e => e.shooter === 'jun')!;
+        const hit = {
+            ...real, hits: [{ id: 'cop', hits: 1, damage: 2, knockout: false }],
+            bullets: real.bullets.map(b => ({ ...b, steps: [{ kind: 'body' as const, id: 'cop', effect: 'hit' as const, damage: 2 }], stop: 'body' as const }))
+        };
+        const harm = { type: 'harmed' as const, target: 'cop', by: 'jun', cause: 'shot' as const, weapon: 'lmg', hits: 1, damage: 2, lethal: true };
+        const shown = projectEvents(world, r.state, [hit, harm], watching);
+        expect(shown).toHaveLength(1);
+        expect(JSON.stringify(shown)).not.toContain('"cop"');
+        expect(of(shown, 'shotFired')[0]!.bullets[0]!.steps[0]).toMatchObject({ kind: 'body', id: '' });
+    });
+
+    it('says why an officer held fire only when the crew sees who was in the way', () => {
+        const people = [person('ann', P(8, 2))];
+        const { world, state } = setup(Array.from({ length: 5 }, () => '..............................'), { dark: [P(7, 2), P(8, 2), P(7, 1), P(8, 1), P(7, 3), P(8, 3)], people });
+        officer(state, 'cop', P(10, 2));
+        const r = commit(world, state, endTurn);
+        expect(of(r.events, 'heldFire')[0]).toMatchObject({ shooter: 'cop', why: 'body', blockers: ['ann'] });
+        const told = of(projectEvents(world, r.state, r.events, state), 'heldFire');
+        expect(told).toEqual([{ type: 'heldFire', shooter: 'cop', target: 'jun' }]);
+        expect(describeEvent(world, r.state, told[0]!)).toMatch(/held fire$/);
     });
 
     it('tells the same events whether a hidden officer moved about or wasn\'t there', () => {
@@ -427,6 +476,15 @@ describe('arrests (§11.12, §13.4)', () => {
 
 describe('guards fighting (§13.6)', () => {
     const guard = (pos: Pos) => person('guard', pos, 'lobbyGuard', 'enforcer', 'w');
+
+    it('unlock and open a locked door they hold a key to, as on their rounds', () => {
+        const { world, state } = setup(OPEN, { walls: DIVIDED, people: [guard(P(8, 2))] });
+        npc(state, 'guard').status = 'hostile';
+        npc(state, 'guard').lastSeen = { jun: { tile: P(1, 2), turn: 0 } };
+        const r = commit(world, state, endTurn);
+        expect(of(r.events, 'doorOpened')).toEqual([{ type: 'doorOpened', door: 'd', by: 'guard' }]);
+        expect(npc(r.state, 'guard').pos.x).toBeLessThan(6);
+    });
 
     it('fire their own pistol at the crew, reload when empty, aim worse suppressed', () => {
         const { world, state } = setup(OPEN, { people: [guard(P(8, 2))] });

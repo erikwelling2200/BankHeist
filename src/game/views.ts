@@ -508,7 +508,7 @@ export function describeEvent(world: ReadonlyWorld, state: State, event: SimEven
         case 'policeHit': return 'A police officer is hit';
         case 'officerWounded': return event.hp ? `A police officer is hit (${event.hp} HP left)` : 'A police officer is down';
         case 'fighterFired': return `${who(event.shooter)} fired at ${name(event.target)}`;
-        case 'heldFire': return `${who(event.shooter)} held fire: ${HOLD_WHY[event.why]}`;
+        case 'heldFire': return event.why ? `${who(event.shooter)} held fire: ${HOLD_WHY[event.why]}` : `${who(event.shooter)} held fire`;
         case 'npcReloaded': return `${name(event.npc)} reloaded`;
         case 'hostageFreed': return `Police freed ${name(event.npc)}`;
         case 'breachAnnounced': return `Breach next phase: ${doorName(world, event.door)}`;

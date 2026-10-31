@@ -352,7 +352,8 @@ registerAction('watch', {
         const fire = firing(member);
         if (typeof fire === 'string') return [];
         const arc = WATCH_ARC[fire.gun.load] ?? 60;
-        return targetsInRange(world, state, member).map(n => ({ type: 'watch', crew: member.id, at: { ...n.pos }, arc }));
+        return [...targetsInRange(world, state, member).map(n => n.pos), ...officersInRange(world, state, member).map(u => u.pos!)]
+            .map(p => ({ type: 'watch' as const, crew: member.id, at: { ...p }, arc }));
     },
     // All remaining actions, at least 1 (§11.8).
     cost: (_world, state, cmd) => Math.max(1, crewMember(state, cmd.crew).actionsLeft),
@@ -410,7 +411,8 @@ registerAction('suppress', {
         return typeof plan === 'string' ? plan : undefined;
     },
     candidates: (world, state, member) => (member.arms.drawn !== null && SUPPRESS.weapons.includes(member.arms.drawn)
-        ? targetsInRange(world, state, member).map(n => ({ type: 'suppress', crew: member.id, at: { ...n.pos } }))
+        ? [...targetsInRange(world, state, member).map(n => n.pos), ...officersInRange(world, state, member).map(u => u.pos!)]
+            .map(p => ({ type: 'suppress' as const, crew: member.id, at: { ...p } }))
         : []),
     cost: () => SUPPRESS.cost,
     illegal: () => ({ act: 'attack' }),

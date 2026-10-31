@@ -82,9 +82,10 @@ declare module '../core/types' {
         fighterFired: { shooter: string; target: string; weapon: string; bullets: number; at: Pos };
         /**
          * A fighter had a crew member in sight but didn't fire: out of its gun's range, no line of fire, no shot the
-         * rules allow from anywhere it could stand, or someone not of the crew standing in the way (§13.5).
+         * rules allow from anywhere it could stand, or someone not of the crew standing in the way (§13.5): `why`, with
+         * `blockers` those in the way; the player is told `why` only when they know every blocker (rules/knowledge.ts).
          */
-        heldFire: { shooter: string; target: string; why: HoldReason };
+        heldFire: { shooter: string; target: string; why?: HoldReason; blockers?: string[] };
         /** A Hostile NPC put a fresh magazine in. */
         npcReloaded: { npc: string };
         /** An officer lost hit points; `hurt` at half or less. */
@@ -156,11 +157,11 @@ function seesTile(world: ReadonlyWorld, state: State, from: Pos, to: Pos): boole
     return dx * dx + dy * dy <= COMBAT_SIGHT * COMBAT_SIGHT && lineOfSight(sightMap(world, state), from, to);
 }
 
-/** The crew members a fighter sees now and takes for the crew, not dead. */
+/** The crew members a fighter sees now, from its tile or leaning out past a corner, and takes for the crew; not dead. */
 function inSight(world: ReadonlyWorld, state: State, f: Fighter): CrewState[] {
-    const from = posOf(f);
+    const eyes = [posOf(f), ...leanOptions(world, state, f.id).map(l => l.at)];
     // Aboard a vehicle with its doors shut nobody sees or shoots them (§14.4, M3-08).
-    return state.crew.filter(c => !c.wounds.dead && !c.aboard && marked(state, f, c) && seesTile(world, state, from, hitbox(c)));
+    return state.crew.filter(c => !c.wounds.dead && !c.aboard && marked(state, f, c) && eyes.some(e => seesTile(world, state, e, hitbox(c))));
 }
 
 /** Writes what a fighter sees into what its side knows: the police's shared picture, or a guard's own. */
@@ -217,7 +218,9 @@ function walk(ctx: Ctx, phase: WorldPhase, f: Fighter, path: readonly Pos[]): bo
     for (const p of path) {
         const from = posOf(f);
         const door = Math.abs(p.x - from.x) + Math.abs(p.y - from.y) === 1 ? doorBetween(world, from, p) : undefined;
-        if (door && doorStatus(world, state, door.id) === 'closed') {
+        // As the passive NPCs' walk (npc/act.ts): a closed door is opened, a locked one it may pass (a guard's key) too.
+        const status = door ? doorStatus(world, state, door.id) : undefined;
+        if (door && (status === 'closed' || status === 'locked')) {
             state.doors[door.id] = { ...state.doors[door.id], status: 'open' };
             ctx.emit({ type: 'doorOpened', door: door.id, by: f.id });
         }
@@ -303,11 +306,17 @@ function fallBack(ctx: Ctx, phase: WorldPhase, f: Fighter, threats: readonly Pos
  * standing (and a hostage held up as a shield) count.
  */
 export function cleanShot(world: ReadonlyWorld, state: DeepReadonly<State>, shot: Shot): boolean {
-    return previewShot(world, state, shot).bodies.every(b => b.crew);
+    return blockersOf(world, state, shot).length === 0;
 }
 
-/** A budget of shot previews (`SHOT_TRIES`) one act may spend. */
-interface Tries { left: number }
+/** Who stands in a shot's way: the non-crew bodies its preview meets. */
+const blockersOf = (world: ReadonlyWorld, state: DeepReadonly<State>, shot: Shot): string[] => previewShot(world, state, shot).bodies.filter(b => !b.crew).map(b => b.id);
+
+/**
+ * A budget of shot previews (`SHOT_TRIES`) one act may spend, and who stood in the way of those it previewed (what
+ * `heldFire` names, so the player is told why only when they see the one in the way).
+ */
+interface Tries { left: number; blockers: string[] }
 
 /**
  * The shot a fighter would fire from where it stands now at `target`, leaning if it must; or why it can't. Each shot
@@ -333,7 +342,9 @@ function shotFrom(world: ReadonlyWorld, state: State, f: Fighter, phase: WorldPh
         if (shotRefusal(world, state, shot)) { worse('refused'); continue; }
         if (tries.left <= 0) return why;
         tries.left--;
-        if (cleanShot(world, state, shot)) return shot;
+        const blockers = blockersOf(world, state, shot);
+        if (!blockers.length) return shot;
+        for (const id of blockers) if (!tries.blockers.includes(id)) tries.blockers.push(id);
         worse('body');
     }
     return why;
@@ -356,13 +367,13 @@ function from<T>(f: Fighter, p: Pos, ask: () => T): T {
  * Where a fighter fires from (§13.6 step 1): the path to the nearest tile in its move, cover against the target first,
  * from which it has a clean shot at it; or why it has none. Without moving only where it stands.
  */
-function firingTile(world: ReadonlyWorld, state: State, f: Fighter, phase: WorldPhase, target: CrewState, move: boolean): Pos[] | HoldReason {
+function firingTile(world: ReadonlyWorld, state: State, f: Fighter, phase: WorldPhase, target: CrewState, move: boolean): Pos[] | Held {
     const reach = reachable(world, state, posOf(f), move ? budgetOf(world, f) : 0, moveOptions(world, f));
     const map = shotMap(world, state), fabric = shotFabric(world, state, map, state.cover), at = hitbox(target);
     const covered = (p: Pos): boolean => !!coverAgainst(map, fabric, { id: f.id, pos: p, standing: true, shield: false, armour: 0, precise: false }, at);
     const tiles = reach.tiles.filter(t => t.canEnd).map(t => ({ t, cover: covered(t.pos) }));
     tiles.sort((a, b) => Number(b.cover) - Number(a.cover) || a.t.cost - b.t.cost || a.t.pos.y - b.t.pos.y || a.t.pos.x - b.t.pos.x);
-    const tries: Tries = { left: SHOT_TRIES };
+    const tries: Tries = { left: SHOT_TRIES, blockers: [] };
     let why: HoldReason = 'range';
     for (const { t } of tiles) {
         if (tries.left <= 0) break;
@@ -373,7 +384,17 @@ function firingTile(world: ReadonlyWorld, state: State, f: Fighter, phase: World
         }
         return t.cost > 0 ? pathTo(reach, t.pos)! : [];
     }
-    return why;
+    return held(why, tries);
+}
+
+/** Why a fighter held its fire, and who stood in the way. */
+interface Held { why: HoldReason; blockers: string[] }
+
+const held = (why: HoldReason, tries: Tries): Held => ({ why, blockers: why === 'body' ? [...tries.blockers].sort() : [] });
+
+/** Tells that a fighter held its fire. */
+function holdFire(ctx: Ctx, f: Fighter, target: CrewState, h: Held): void {
+    ctx.emit({ type: 'heldFire', shooter: f.id, target: target.id, why: h.why, ...(h.blockers.length ? { blockers: h.blockers } : {}) });
 }
 
 /** A fighter acts in sight of the crew's Watch wedges (§11.8: moving or acting in one draws its volley). Whether it still stands. */
@@ -396,23 +417,19 @@ function fire(ctx: Ctx, phase: WorldPhase, f: Fighter, shot: Shot): boolean {
     } else f.unit.leaning = lean;
     if (!react(ctx, phase, f) || shotRefusal(world, state, shot) || !cleanShot(world, state, shot)) return false;
     if (f.kind === 'npc') f.npc.ammo!.loaded -= shot.bullets!;
+    // Clean as the bullets leave: only now is the shot told. The bullets are rolled; a preview of the world phase (the
+    // hatched overlay's carriers) stops here, as at a crew Watch volley: a firefight isn't previewed (§13.6).
     ctx.emit({ type: 'fighterFired', shooter: f.id, target: shot.target!, weapon: shot.weapon, bullets: shot.bullets!, at: { ...shot.at } });
+    ctx.dice.pictured('combat', `${f.id} fires`);
+    const trace = resolveShot(ctx, shot);
+    for (const hit of trace.hits) dealHarm(ctx, { target: hit.id, by: f.id, cause: 'shot', weapon: shot.weapon, hits: hit.hits, damage: hit.damage, lethal: true });
+    // The report follows the bullets, so nobody it startles can step into the line of a shot already fired.
     const source = NOISE_OF[shot.weapon]!;
     makeNoise(ctx, source, origin, `${shot.weapon} ${f.id}`, weaponDef(shot.weapon).noise);
     if (NOISES[source].kind === 'loud' && !state.bank.loud) {
         state.bank.loud = true;
         ctx.emit({ type: 'wentLoud', cause: `${shot.weapon} ${f.id}` });
     }
-    // Asked once more as the bullets leave: nothing the noise set off may have stepped into the line.
-    if (!cleanShot(world, state, shot)) {
-        ctx.emit({ type: 'heldFire', shooter: f.id, target: shot.target!, why: 'body' });
-        return false;
-    }
-    // The bullets are rolled; a preview of the world phase (the hatched overlay's carriers) stops here, as at a crew
-    // Watch volley: a firefight isn't previewed (§13.6).
-    ctx.dice.pictured('combat', `${f.id} fires`);
-    const trace = resolveShot(ctx, shot);
-    for (const hit of trace.hits) dealHarm(ctx, { target: hit.id, by: f.id, cause: 'shot', weapon: shot.weapon, hits: hit.hits, damage: hit.damage, lethal: true });
     return true;
 }
 
@@ -425,17 +442,18 @@ function fight(ctx: Ctx, phase: WorldPhase, f: Fighter, targets: readonly CrewSt
     const d2 = (c: CrewState): number => (c.pos.x - here.x) * (c.pos.x - here.x) + (c.pos.y - here.y) * (c.pos.y - here.y);
     const target = [...targets].sort((a, b) => d2(a) - d2(b) || (a.id < b.id ? -1 : 1))[0]!;
     const path = firingTile(world, state, f, phase, target, move);
-    if (typeof path === 'string') {
-        ctx.emit({ type: 'heldFire', shooter: f.id, target: target.id, why: path });
+    if (!Array.isArray(path)) {
+        holdFire(ctx, f, target, path);
         return false;
     }
     if (!walk(ctx, phase, f, path)) return false;
     // Decided before the walk; the walk's reactions may have changed the scene, so it is asked again as it stands, of a
     // target still on the map and up.
     if (!state.crew.includes(target) || isDown(target) || target.wounds.dead) return false;
-    const shot = shotFrom(world, state, f, phase, target, path.length > 0, { left: SHOT_TRIES });
+    const tries: Tries = { left: SHOT_TRIES, blockers: [] };
+    const shot = shotFrom(world, state, f, phase, target, path.length > 0, tries);
     if (typeof shot === 'string') {
-        ctx.emit({ type: 'heldFire', shooter: f.id, target: target.id, why: shot });
+        holdFire(ctx, f, target, held(shot, tries));
         return false;
     }
     return fire(ctx, phase, f, shot);

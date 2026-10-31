@@ -383,7 +383,9 @@ function combatEntries(
         });
         return known.find(c => !!target && npcOf(c) === target) ?? known[0];
     };
-    const npcAt = (p: Pos): string | undefined => state.npcs.find(n => n.pos.x === p.x && n.pos.y === p.y)?.id;
+    // Whoever a wedge or a throw is aimed at: an NPC, or an officer out on scene (offered only when the crew sees it).
+    const npcAt = (p: Pos): string | undefined => state.npcs.find(n => n.pos.x === p.x && n.pos.y === p.y)?.id
+        ?? state.police.units.find(u => u.pos?.x === p.x && u.pos?.y === p.y)?.id;
     const drawn = member.arms.drawn;
     if (drawn) {
         const gun = member.arms.guns[drawn]!;
