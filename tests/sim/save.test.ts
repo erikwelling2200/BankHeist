@@ -78,13 +78,13 @@ describe('saving', () => {
  * NpcStatusMap, CarrierKindMap or adds a field must also fill it in below, or a change of shape goes unnoticed.
  */
 const SHAPE_HASHES: Record<number, string> = {
-    1: 'fda9ebb5783a8b3a'
+    1: 'bbe89785cf6778cb'
 };
 
 /** Paths whose objects are records by id, not structs. */
 const RECORDS = new Set([
     'world.edges', 'world.doors', 'state.doors', 'state.edges', 'state.objects', 'state.cameras', 'state.rng',
-    'state.cover', 'state.crew[].arms.guns', 'state.crew[].arms.throwables', 'state.npcs[].suspicion', 'state.npcs[].lastSeen', 'state.npcs[].frisked', 'state.police.known', 'state.police.teams', 'state.knowledge.npcs', 'state.knowledge.doors', 'state.radio.calls',
+    'state.cover', 'state.crew[].arms.guns', 'state.crew[].arms.throwables', 'state.npcs[].suspicion', 'state.npcs[].lastSeen', 'state.npcs[].frisked', 'state.police.known', 'state.police.teams', 'state.knowledge.npcs', 'state.knowledge.doors', 'state.knowledge.officers', 'state.radio.calls',
     'state.vehicles'
 ]);
 
@@ -193,6 +193,7 @@ describe('the save format', () => {
         full.knowledge.npcs = { guard: { at: { x: 1, y: 1 }, facing: 'e', turn: 2, live: false, routine: true, rota: true, watched: 3, watchedTurn: 2, tick: 4 } };
         full.knowledge.doors = { staffDoor: 'open' };
         full.knowledge.pings = [{ at: { x: 2, y: 2 }, turn: 3, kind: 'loud', cause: 'pistol' }];
+        full.knowledge.officers = { 'police-1': { at: { x: 3, y: 2 }, turn: 2, kind: 'swat' } };
         full.carriers.push({ id: 'carrier-9', kind: 'tellerButton', source: 'teller', pos: { x: 0, y: 0 }, countdown: 2, started: { turn: 1, phase: 'world' }, halted: null, about: 'jun', subject: 'guard', line: 'landline' });
         full.crew[0]!.traits = ['steadyHands'];
         full.jammers = [{ id: 'jammer-3', pos: { x: 1, y: 1 }, crew: 'jun', turn: 2 }];

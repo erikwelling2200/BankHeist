@@ -8,6 +8,7 @@ import {
     type PlaybackItem, type PlaybackSpeed, type Session, type SessionChange
 } from '../../game';
 import { shownWarnings, warningLines, type EvidenceWarning } from '../../game/evidenceWarning';
+import { aimView, breachMarkers, fireSelector, policeMarkers, type AimVM, type PoliceMarkerVM } from '../../game/loudUi';
 import type { GeneratedBank } from '../../gen/model';
 import { TILE } from '../../level/constants';
 import { headingOf } from '../../art/bank/people';
@@ -22,6 +23,7 @@ import { mountHud } from '../../ui/hud/mountHud';
 import { CREW_COLOURS, type HudHandle, type OverlayId } from '../../ui/hud/viewModels';
 import type { BankCamera } from './camera';
 import { MapInput } from './input';
+import { Loupe } from './loupe';
 import { WorldOverlay, type OverlayContent } from './overlay';
 import type { Knowledge } from './knowledge';
 import type { People } from './people';
@@ -155,6 +157,22 @@ export class PlayMode {
     private shownFor?: KnownView;
     /** The NPC whose cones a long-press shows, until the next tap. */
     private coneOf: string | null = null;
+    /** Each police officer's sprite index, by unit id (added as the crew first sees them, M3-09), and the ghosts' indexes. */
+    private readonly officerSprite = new Map<string, number>();
+    private readonly officerGhost = new Set<number>();
+    /** The officers the crew knows of as last synced (`policeMarkers`). */
+    private officersShown: PoliceMarkerVM[] = [];
+    /** A previewed attack's cone, once per state and command. */
+    private aimFor?: { state: State; key: string; aim: AimVM | undefined };
+    /** The unit acting now in a world phase's playback (red brackets), and where. */
+    private acting: { id: string; pos: Pos } | null = null;
+    /** The units acting in the world phase being played, in order, and those done. */
+    private actors?: { order: string[]; done: Set<string> };
+    private readonly queueStrip: HTMLElement = document.createElement('div');
+    /** Aim mode (M3-09): the loupe over a drag that moves the aim point, and the fire selector's buttons. */
+    private readonly loupe: Loupe;
+    private aimDrag = false;
+    private readonly fireBar: HTMLElement = document.createElement('div');
     /** The colour-blind preset: `&cb` in the address, or the B key (remembered). */
     private colourBlind = readColourBlind();
     /** The door, NPC or object the player tapped: the grid's actions on a thing are for it. */
@@ -211,6 +229,7 @@ export class PlayMode {
 
         const plot = { width: bank.level.tiles[0]!.length * TILE, height: bank.level.tiles.length * TILE };
         this.overlay = new WorldOverlay(scene, (tx, ty) => walls.liftAt((tx + 0.5) * TILE, (ty + 0.5) * TILE), plot, () => walls.raisedSteps);
+        this.loupe = new Loupe(scene, this.overlay);
         this.input = new MapInput(scene, {
             tap: (x, y) => this.tap(x, y),
             claim: (x, y) => this.claim(x, y),
@@ -309,6 +328,15 @@ export class PlayMode {
                 return m ? { id: m.id, kind: m.kind, pos: m.pos, tile: VISIBILITY[view.visibility[m.pos.y * view.width + m.pos.x]!] } : null;
             }),
             doorsOpen: [...this.shownDoors].filter(([, open]) => open).map(([id]) => id),
+            /**
+             * Once loud (M3-09): the officers drawn (live or ghost, where), the unit acting in a world phase's playback and
+             * the queue strip's order, the previewed shot's cone (its bullets, bodies and shields) and the breaches drawn.
+             */
+            loud: {
+                officers: this.officersShown.map(m => ({ id: m.id, live: m.live, pos: m.pos, shown: this.people.shown(this.officerSprite.get(m.id) ?? -1) })),
+                acting: this.acting, queue: this.acting ? this.actors?.order ?? [] : [],
+                aim: this.overlay.state.aim, breaches: this.overlay.state.breaches
+            },
             /** Auto-advance (§6.5): running, the last stop, the routes and how they split into turns. */
             auto: {
                 running: !!this.auto, stop: this.lastStop, routes: this.session.routes,
@@ -341,6 +369,8 @@ export class PlayMode {
         }
         if (this.playing) {
             this.playing = false;
+            this.acting = null;
+            this.showQueue();
             this.syncAll();
             this.refresh();
         }
@@ -381,6 +411,7 @@ export class PlayMode {
             if (this.inCombat(e.npc)) {
                 const index = this.sprite.get(e.npc);
                 if (index === undefined) return;
+                this.setActing(e.npc, e.path.at(-1)!);
                 this.camera.centreOn(...centre(e.path.at(-1)!), VISIT_PAN_MS * speed);
                 this.startWalk([{ index, points: [e.from, ...e.path].map(centre) }], STEP_MS * speed);
                 return;
@@ -403,7 +434,38 @@ export class PlayMode {
             this.startWalk(walkers, this.npcStepMs * speed);
             return;
         }
+        // The police and anyone in a firefight act one at a time (§20.5, UI.md "World phase in a firefight"): each unit's
+        // walk in one go, the camera on it, bracketed in red, the queue strip saying who is done, acting and next.
+        if (e.type === 'policeMoved') {
+            const steps = [...e.path], taken: number[] = [];
+            for (const other of this.session.playback.pending()) {
+                const o = other.event;
+                if (other.turn !== item.turn || o.type !== 'policeMoved' || o.unit !== e.unit) break;
+                steps.push(...o.path);
+                taken.push(other.seq);
+            }
+            this.session.playback.remove(taken);
+            const index = this.officerIndex(e.unit, e.from);
+            // Followed only as far as the crew sees it walk: the bracket and the camera stop at its last tile in sight.
+            const seenSteps = [e.from, ...steps].filter(p => this.visibilityAt(...centre(p)) === 'seen');
+            const shownAt = seenSteps.at(-1) ?? e.from;
+            this.setActing(e.unit, shownAt);
+            if (speed === 0 || index === undefined) return;
+            this.camera.centreOn(...centre(shownAt), VISIT_PAN_MS * speed);
+            this.startWalk([{ index, points: [e.from, ...steps].map(centre) }], STEP_MS * speed);
+            return;
+        }
+        const actor = this.actorOf(e);
+        if (actor) {
+            this.setActing(actor.id, actor.pos);
+            if (speed > 0) {
+                this.camera.centreOn(...centre(actor.pos), VISIT_PAN_MS * speed);
+                this.holdMs = (VISIT_PAN_MS + VISIT_HOLD_MS) * speed;
+            }
+            return;
+        }
         if (e.type === 'phaseStarted' && e.phase === 'world') {
+            this.queueActors(item.turn);
             // The quiet world phase fits its budget (§20.5): the NPCs' walk, then the visits share what is left.
             const items = this.session.playback.pending().filter(i => i.turn === item.turn);
             const visits = items.filter(i => i.important).length;
@@ -418,6 +480,74 @@ export class PlayMode {
             this.camera.centreOn(...centre(at), pan);
             this.holdMs = ms;
         }
+    }
+
+    /**
+     * Who acts in a firefight's event, and where (the police and anyone fighting act one at a time): a shot fired, a
+     * wedge set, a breach announced or blown. Undefined for any other event.
+     */
+    private actorOf(e: SimEvent): { id: string; pos: Pos } | undefined {
+        const id = this.actorId(e);
+        if (id === undefined) return undefined;
+        const index = this.sprite.get(id);
+        if (index === undefined) return undefined;
+        const at = this.people.at(index);
+        return { id, pos: { x: Math.floor(at.x / TILE), y: Math.floor(at.y / TILE) } };
+    }
+
+    /** The order the units act in this world phase's playback (as far as the crew is told), for the queue strip. */
+    private queueActors(turn: number): void {
+        const order: string[] = [];
+        for (const i of this.session.playback.pending()) {
+            if (i.turn !== turn) break;
+            const e = i.event;
+            const id = e.type === 'policeMoved' ? e.unit : e.type === 'npcWalked' && this.inCombat(e.npc) ? e.npc : this.actorId(e);
+            if (id !== undefined && !order.includes(id)) order.push(id);
+        }
+        this.actors = { order, done: new Set() };
+        this.showQueue();
+    }
+
+    private actorId(e: SimEvent): string | undefined {
+        return e.type === 'fighterFired' ? e.shooter : e.type === 'policeWatching' || e.type === 'doorBreached' || e.type === 'breachAnnounced' ? e.unit : undefined;
+    }
+
+    /** The unit acting now: bracketed in red, the one before it done. */
+    private setActing(id: string, pos: Pos): void {
+        if (this.acting && this.acting.id !== id) this.actors?.done.add(this.acting.id);
+        this.acting = { id, pos: { x: pos.x, y: pos.y } };
+        this.showQueue();
+        this.refresh();
+    }
+
+    /** The queue strip (UI.md "World phase in a firefight"): who is done, acting and next; hidden outside such playback. */
+    private showQueue(): void {
+        const strip = this.queueStrip;
+        const order = this.acting ? this.actors?.order ?? [] : [];
+        strip.hidden = order.length < 1;
+        if (strip.hidden) return;
+        strip.replaceChildren(...order.map(id => {
+            const chip = document.createElement('span');
+            const unit = this.session.state.police.units.find(u => u.id === id), kind = unit?.kind ?? this.session.state.knowledge.officers?.[id]?.kind;
+            const person = this.session.world.people.find(p => p.id === id);
+            const portrait = kind ? (kind === 'patrol' || kind === 'negotiator' ? 'police' : 'swat') : person ? rolePortrait(person.role) ?? 'customer' : 'police';
+            chip.className = `loud-chip${this.actors!.done.has(id) ? ' done' : ''}${this.acting?.id === id ? ' now' : ''}`;
+            const url = portraitUrl(portrait);
+            if (url) chip.style.backgroundImage = `url(${url})`;
+            return chip;
+        }));
+    }
+
+    /** An officer's sprite, made where it starts out the first time the crew is shown it (M3-09). */
+    private officerIndex(id: string, at: Pos): number | undefined {
+        let index = this.officerSprite.get(id);
+        if (index !== undefined) return index;
+        const unit = this.session.state.police.units.find(u => u.id === id);
+        if (!unit) return undefined;
+        index = this.people.add({ look: unit.kind === 'patrol' || unit.kind === 'negotiator' ? 'police' : 'swat', tx: at.x, ty: at.y, facing: 'front' });
+        this.officerSprite.set(id, index);
+        this.sprite.set(id, index);
+        return index;
     }
 
     private inCombat(npc: string): boolean {
@@ -595,6 +725,9 @@ export class PlayMode {
      * leaves the tiles seen. Not an NPC's sprite: never.
      */
     private hidesNpc(index: number, x: number, y: number): boolean {
+        // An officer walks into view and out of it: drawn live only on a tile seen this turn, a ghost where it was seen.
+        if (this.officerGhost.has(index)) return this.visibilityAt(x, y) === 'hidden';
+        if ([...this.officerSprite.values()].includes(index)) return this.visibilityAt(x, y) !== 'seen';
         const id = this.npcOf.get(index);
         if (id === undefined) return false;
         return !npcDrawnOn(this.drawnAs.get(id) ?? 'live', this.visibilityAt(x, y));
@@ -726,12 +859,43 @@ export class PlayMode {
             // The crew has hold of a dragged body: it is never a guess.
             this.people.setAlpha(index, dragger ? 1 : MARKER_ALPHA[m.kind]);
         }
+        this.syncPolice();
         // Doors as the crew last saw them (decision 44): one not seen this turn may have moved since.
         for (const id of Object.keys(world.doors)) {
             const status = knownDoorStatus(world, state, id);
             this.showDoor(id, status === 'open' || status === 'breached');
         }
         this.showKnown(true);
+    }
+
+    /**
+     * The police officers as the crew knows them (M3-09, `policeMarkers`): those it sees where they stand, facing the
+     * nearest crew member, and those it saw lately as faded ghosts where it saw them; the rest off the map. A sprite is
+     * made the first time the crew sees an officer.
+     */
+    private syncPolice(): void {
+        const { world, state } = this.session, markers = policeMarkers(world, state);
+        this.officersShown = markers;
+        const on = new Set<string>();
+        for (const m of markers) {
+            let index = this.officerSprite.get(m.id);
+            const look = m.kind === 'patrol' || m.kind === 'negotiator' ? 'police' : 'swat';
+            if (index === undefined) {
+                index = this.people.add({ look, tx: m.pos.x, ty: m.pos.y, facing: 'front' });
+                this.officerSprite.set(m.id, index);
+                this.sprite.set(m.id, index);
+            }
+            on.add(m.id);
+            if (m.live) this.officerGhost.delete(index);
+            else this.officerGhost.add(index);
+            const near = [...state.crew].filter(c => c.aboard === null).sort((a, b) => Math.hypot(a.pos.x - m.pos.x, a.pos.y - m.pos.y) - Math.hypot(b.pos.x - m.pos.x, b.pos.y - m.pos.y))[0];
+            const now = this.people.at(index), [x, y] = centre(m.pos);
+            const facing = near ? headingOf(near.pos.x - m.pos.x, near.pos.y - m.pos.y, now.facing) : now.facing;
+            if (now.x !== x || now.y !== y || now.facing !== facing) this.people.move(index, x, y, facing);
+            this.people.setAway(index, false);
+            this.people.setAlpha(index, m.live ? 1 : MARKER_ALPHA.ghost);
+        }
+        for (const [id, index] of this.officerSprite) if (!on.has(id)) this.people.setAway(index, true);
     }
 
     /**
@@ -979,13 +1143,38 @@ export class PlayMode {
     private claim(x: number, y: number): boolean {
         const member = this.selectedMember();
         if (this.busy || this.recap || !member || member.actionsLeft === 0 || this.session.state.phase !== 'crew') return false;
-        if (!this.people.hit(this.sprite.get(member.id)!, x, y)) return false;
+        if (!this.people.hit(this.sprite.get(member.id)!, x, y)) {
+            // Aim mode (UI.md "Touch grammar"): any other drag moves the aim point, under the loupe.
+            const pending = this.session.pendingCommand;
+            if (pending?.type !== 'attack' && pending?.type !== 'suppress') return false;
+            this.aimDrag = true;
+            return true;
+        }
         this.dragPath = [];
         return true;
     }
 
+    /**
+     * Aim mode's drag (M3-09): the aim point follows the finger a tile at a time, on the person the crew knows of standing
+     * there (an NPC it sees or predicts, an officer it sees) or on the bare tile, and the loupe shows it above the finger.
+     */
+    private aimAt(x: number, y: number): void {
+        const pending = this.session.pendingCommand;
+        if (pending?.type !== 'attack' && pending?.type !== 'suppress') return;
+        const tile = { x: Math.floor(x / TILE), y: Math.floor(this.groundY(x, y) / TILE) };
+        const [fx, fy] = this.overlay.toPage(x, y);
+        this.loupe.show(...centre(tile), fx, fy);
+        if (same(pending.at, tile)) return;
+        const known = this.known().npcs.find(m => m.kind !== 'ghost' && same(m.pos, tile))?.id ?? this.officersShown.find(m => m.live && same(m.pos, tile))?.id;
+        const { target: _target, turn: _turn, ...rest } = pending as typeof pending & { target?: string; turn?: number };
+        const cmd = { ...rest, at: tile, ...(known !== undefined && pending.type === 'attack' ? { target: known } : {}) } as Command;
+        this.target = known ?? null;
+        this.session.setPendingCommand(cmd);
+    }
+
     /** Extends the dragged path to the tile under (x, y), a step at a time; going back over the last step takes it back. */
     private dragTo(x: number, y: number): void {
+        if (this.aimDrag) return this.aimAt(x, y);
         const member = this.selectedMember(), path = this.dragPath;
         if (!member || !path) return;
         const to = { x: Math.floor(x / TILE), y: Math.floor(this.groundY(x, y) / TILE) };
@@ -1001,6 +1190,11 @@ export class PlayMode {
 
     /** A drawn path becomes a Move when it fits Move's budget, else a Dash; one too long is cut to its longest legal start. */
     private release(cancelled: boolean): void {
+        if (this.aimDrag) {
+            this.aimDrag = false;
+            this.loupe.hide();
+            return this.refresh();
+        }
         const member = this.selectedMember(), path = this.dragPath;
         this.dragPath = undefined;
         if (cancelled || !member || !path?.length) return this.refresh();
@@ -1178,6 +1372,30 @@ export class PlayMode {
         document.body.classList.toggle('play-cb', this.colourBlind);
         this.showKnown();
         this.overlay.set(this.overlayContent());
+        this.showFireSelector();
+    }
+
+    /** The fire selector (§11.1) while an attack is previewed: a button per round count, the one chosen lit. */
+    private showFireSelector(): void {
+        const pending = this.session.pendingCommand, sel = pending && !this.busy ? fireSelector(this.session.state, pending) : undefined;
+        this.fireBar.hidden = !sel;
+        if (!sel || pending?.type !== 'attack') return;
+        const key = `${sel.max}:${sel.bullets}`;
+        if (this.fireBar.dataset.key === key) return;
+        this.fireBar.dataset.key = key;
+        const label = document.createElement('span');
+        label.textContent = 'Rounds';
+        this.fireBar.replaceChildren(label, ...Array.from({ length: sel.max }, (_, i) => {
+            const b = document.createElement('button'), n = i + 1;
+            b.textContent = String(n);
+            b.className = n === sel.bullets ? 'on' : '';
+            b.setAttribute('aria-label', `Fire ${n} round${n === 1 ? '' : 's'}`);
+            b.addEventListener('click', () => {
+                const now = this.session.pendingCommand;
+                if (now?.type === 'attack') this.session.setPendingCommand({ ...now, bullets: n });
+            });
+            return b;
+        }));
     }
 
     private overlayContent(): Parameters<WorldOverlay['set']>[0] {
@@ -1253,6 +1471,9 @@ export class PlayMode {
             const tiles = unhiddenTiles(this.known(), this.session.commandRings(pending.crew).commandTiles);
             return { ...rest, ...marks, reactors: [], holds: [...(layer.holds ?? []), { crew: pending.crew, tiles, preview: true }] };
         }
+        // An attack or a suppression (§11.7, M3-09): its cone as the crew knows it, nested arcs, bodies and cover.
+        const aim = pending ? this.aim(pending) : undefined;
+        if (aim) return { ...rest, targetTile: aim.at, loud: { ...layer.loud, aim }, ...(shown ? this.previewMarks(shown) : {}) };
         if (pending) return { ...rest, ...marks, ...arc, ...(shown ? this.previewMarks(shown) : {}) };
         return { ...base, ...marks };
     }
@@ -1324,6 +1545,14 @@ export class PlayMode {
         return { ...(noise ? { noise } : {}), hearers: previewHearers(known, shown), witnesses: previewWitnesses(this.session.world, known, shown) };
     }
 
+    /** A previewed attack's or suppression's cone (`aimView`: the crew's picture only), once per state and command. */
+    private aim(cmd: Command): AimVM | undefined {
+        if (cmd.type !== 'attack' && cmd.type !== 'suppress') return undefined;
+        const state = this.session.state, key = JSON.stringify(cmd);
+        if (this.aimFor?.state !== state || this.aimFor.key !== key) this.aimFor = { state, key, aim: aimView(this.session.world, state, cmd) };
+        return this.aimFor.aim;
+    }
+
     /** Where a target NPC (as the crew knows it) or object stands. */
     private targetTile(id: string): Pos | undefined {
         const { state } = this.session;
@@ -1368,7 +1597,7 @@ export class PlayMode {
     }
 
     /** The overlay's knowledge layer: the veil on tiles not seen this turn, ghosts' "seen N turns ago", the sound pings. */
-    private knowledgeLayer(): Pick<OverlayContent, 'visibility' | 'ghosts' | 'pings' | 'loot' | 'badges' | 'crewColours' | 'cones' | 'predicted' | 'colourBlind' | 'cameras' | 'flashes' | 'found'> {
+    private knowledgeLayer(): Pick<OverlayContent, 'visibility' | 'ghosts' | 'pings' | 'loot' | 'badges' | 'crewColours' | 'cones' | 'predicted' | 'colourBlind' | 'cameras' | 'flashes' | 'found' | 'loud'> {
         const view = this.known(), { world, state } = this.session, busy = this.busy;
         const shown = (id: string) => this.people.shown(this.sprite.get(id) ?? -1);
         // Cones: the one long-pressed, or every NPC's the crew knows of from the overlay drawer (§20.4); when neither,
@@ -1377,7 +1606,10 @@ export class PlayMode {
         const coneIds = this.overlays.cones || filter ? view.npcs.filter(m => m.kind !== 'ghost' && shown(m.id)).map(m => m.id) : this.coneOf ? [this.coneOf] : [];
         return {
             visibility: { width: view.width, codes: view.visibility },
-            ghosts: view.npcs.filter(m => m.kind === 'ghost' && shown(m.id)).map(m => ({ pos: m.pos, seenAgo: m.seenAgo })),
+            ghosts: [
+                ...view.npcs.filter(m => m.kind === 'ghost' && shown(m.id)).map(m => ({ pos: m.pos, seenAgo: m.seenAgo })),
+                ...(busy ? [] : this.officersShown.filter(m => !m.live).map(m => ({ pos: m.pos, seenAgo: m.seenAgo })))
+            ],
             pings: view.pings.map(p => ({ at: p.at })),
             // The crew's own loot left on the floor (§15.1): it knows where it put it. Ruined cash put down is litter.
             loot: Object.keys(state.loot).sort().filter(id => state.loot[id]!.taken && state.loot[id]!.holder === null && !state.loot[id]!.ruined)
@@ -1387,6 +1619,8 @@ export class PlayMode {
             cameras: this.cameras(),
             flashes: this.liveFlashes(),
             crewColours: Object.fromEntries(state.crew.map((c, i) => [c.id, CREW_COLOURS[i % CREW_COLOURS.length]!])),
+            // Breaches announced for the next world phase (M3-09), and the unit acting in a firefight's playback.
+            loud: { breaches: breachMarkers(world, state), ...(this.acting ? { acting: this.acting.pos } : {}) },
             // People walking during playback: their plates come back when it is over.
             ...(busy ? {} : {
                 badges: npcBadges(world, state, view).filter(b => !state.npcs.some(n => n.id === b.id) || shown(b.id)),
@@ -1568,6 +1802,15 @@ export class PlayMode {
         speed.addEventListener('click', () => this.cycleSpeed());
         document.body.append(speed);
         this.chrome.push(speed);
+        this.fireBar.className = 'fire-selector';
+        this.fireBar.hidden = true;
+        this.fireBar.addEventListener('pointerdown', e => e.stopPropagation());
+        document.body.append(this.fireBar);
+        this.chrome.push(this.fireBar);
+        this.queueStrip.className = 'loud-queue';
+        this.queueStrip.hidden = true;
+        document.body.append(this.queueStrip);
+        this.chrome.push(this.queueStrip);
     }
 
     private destroy(): void {

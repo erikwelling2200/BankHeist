@@ -8,6 +8,7 @@ import type { EvidenceWarning } from '../../game/evidenceWarning';
 import type { TintKind } from '../../sim';
 import { TILE } from '../../level/constants';
 import type { Pos } from '../../sim';
+import { drawLoud, type LoudContent } from './loudDraw';
 import { insetLoops, sideRuns, withoutHoles, type Corner, type Side } from './contours';
 
 /**
@@ -149,6 +150,8 @@ export interface OverlayContent {
     reactors?: string[];
     /** Evidence the coming world phase notices (src/game/evidenceWarning.ts): a next-phase plate on each, hatched when uncertain. */
     found?: readonly EvidenceWarning[];
+    /** Once loud (M3-09, src/scenes/bank/loudDraw.ts): a shot's cone, breaches announced, the unit acting in playback. */
+    loud?: LoudContent;
 }
 
 /** The signal palette, and its colour-blind preset (UI.md). */
@@ -209,6 +212,8 @@ export class WorldOverlay {
     private area = { x: 0, y: 0, w: 0, h: 0 };
     /** Where the camera looked at the last frame. */
     private lastView = { x: 0, y: 0 };
+    /** Where map pixel (0, 0) was on the page at the last frame, and CSS pixels per art pixel: for `toPage`. */
+    private pageMap = { left: 0, top: 0, kx: 1, ky: 1 };
     private readonly onRender = () => this.draw();
 
     /**
@@ -234,15 +239,28 @@ export class WorldOverlay {
         scene.events.once(Phaser.Scenes.Events.SHUTDOWN, () => this.destroy());
     }
 
+    /** Where map point (x, y) (art pixels) is on the page at the last frame, in CSS pixels. */
+    toPage(x: number, y: number): [number, number] {
+        const m = this.pageMap;
+        return [m.left + x * m.kx, m.top + y * m.ky];
+    }
+
+    /** CSS pixels per art pixel at the last frame. */
+    get pageScale(): number {
+        return this.pageMap.kx;
+    }
+
     set(content: OverlayContent | null): void {
         this.content = content;
         this.drawn = '';
     }
 
     /** The path shown, for tests. */
-    get state(): { safeFloor: FloorTileVM[]; floorDim: boolean; pathSafety: PathVM | null; explain: ExplainVM | null; found: { pos: Pos; level: string }[]; badges: number; hearers: number; cones: number; cameras: number; cameraCones: number; flashes: number; colourBlind: boolean; path: Pos[]; reach: number; dashReach: number; range: { walk: Pos[]; run: Pos[] }; dash: boolean; noise: number; witnesses: number; intents: number; loot: Pos[]; throwArc: { from: Pos; to: Pos; caught: boolean } | null; throwRange: Pos[]; rings: { command: number; panic: number; outcomes: { id: string; glyph: string; count?: number | string }[] } | null; holds: number } {
+    get state(): { safeFloor: FloorTileVM[]; floorDim: boolean; pathSafety: PathVM | null; explain: ExplainVM | null; found: { pos: Pos; level: string }[]; badges: number; hearers: number; cones: number; cameras: number; cameraCones: number; flashes: number; colourBlind: boolean; path: Pos[]; reach: number; dashReach: number; range: { walk: Pos[]; run: Pos[] }; dash: boolean; noise: number; witnesses: number; intents: number; loot: Pos[]; throwArc: { from: Pos; to: Pos; caught: boolean } | null; throwRange: Pos[]; rings: { command: number; panic: number; outcomes: { id: string; glyph: string; count?: number | string }[] } | null; holds: number; aim: { bullets: number; bodies: { id: string; kind: string; ifBroken: boolean; shield: string | null }[] } | null; breaches: string[] } {
         const c = this.content;
         return {
+            aim: c?.loud?.aim ? { bullets: c.loud.aim.arcs.length, bodies: c.loud.aim.bodies.map(b => ({ id: b.id, kind: b.kind, ifBroken: b.ifBroken, shield: b.shield?.state ?? null })) } : null,
+            breaches: c?.loud?.breaches?.map(b => b.door) ?? [],
             safeFloor: c?.safeFloor ?? [], floorDim: !!c?.floorDim, pathSafety: c?.pathSafety ?? null, explain: c?.explain ?? null,
             found: (c?.found ?? []).map(w => ({ pos: w.pos, level: w.level })),
             badges: c?.badges?.length ?? 0, hearers: c?.hearers?.length ?? 0, colourBlind: !!c?.colourBlind,
@@ -305,6 +323,7 @@ export class WorldOverlay {
         const vw = cam.width, vh = cam.height, vx = Math.round(cam.worldView.x), vy = Math.round(cam.worldView.y);
         const step = { x: vx - this.lastView.x, y: vy - this.lastView.y };
         this.lastView = { x: vx, y: vy };
+        this.pageMap = { left: box.left - vx * kx, top: box.top - vy * ky, kx, ky };
         // A raised floor rises and drops as it is cut: everything drawn on it follows (the cut steps are part of the key).
         const key = `${vw}x${vh}:${box.left},${box.top},${box.width},${box.height}:${this.steps()}`;
         const { canvas, ctx, frame } = this;
@@ -609,6 +628,8 @@ export class WorldOverlay {
             ctx.strokeRect(left(p) + 3.5, top(p) + 3.5, S - 7, S - 7);
             ctx.setLineDash([]);
         }
+
+        if (c.loud) drawLoud(ctx, c.loud, { left, top, mid, S, pal });
 
         ctx.font = '600 10px ui-monospace, Menlo, Consolas, monospace';
         ctx.textAlign = 'center';

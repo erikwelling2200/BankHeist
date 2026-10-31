@@ -137,6 +137,75 @@ export const HATCHED_SETUP = `(() => { ${PAGE_HELPERS}
     return { state: st, info: { at } };
 })()`;
 
+/**
+ * A loud fight (M3-09): the bank gone loud, Mara with a rifle drawn and a patrol officer the crew sees 3–7 tiles off, a
+ * breach announced on the door nearest her, and the ghost of a SWAT officer seen last turn on a tile not seen now.
+ */
+export const LOUD_SETUP = `(() => { ${PAGE_HELPERS}
+    const st = clone(sim.state), d = (p, q) => Math.hypot(p.x - q.x, p.y - q.y);
+    const present = st.npcs.filter(n => n.status !== 'away');
+    // Mara in the thick of the bank's people: the free tile with the most of them 3 to 6 tiles off.
+    let best = null;
+    for (const n of present) for (let dy = -4; dy <= 4; dy++) for (let dx = -4; dx <= 4; dx++) {
+        const p = { x: n.pos.x + dx, y: n.pos.y + dy };
+        if (!free(st, p)) continue;
+        const score = present.filter(o => d(o.pos, p) >= 3 && d(o.pos, p) <= 6).length;
+        if (!best || score > best.score) best = { p, score };
+    }
+    if (!best) return null;
+    st.crew[0].pos = best.p;
+    const m = st.crew[0];
+    m.loadout.items.push('assaultRifle');
+    m.arms.drawn = 'assaultRifle';
+    m.arms.guns.assaultRifle = { load: 'assaultRifle', loaded: 30, spare: 3 };
+    st.bank.loud = true;
+    // Masked: the police take them for the crew (decision 151).
+    for (const c of st.crew) c.loadout.masked = true;
+    return { state: st, info: { at: best.p } };
+})()`;
+
+/**
+ * The loud fight's second step, once the crew sees from Mara's tile: a patrol officer the crew sees 3–7 tiles off, near
+ * people (bystanders in the cone), a breach announced on the door nearest her, and the ghost of a SWAT officer seen
+ * last turn on a tile not seen now. `{ state, info }` to restart from, or null.
+ */
+export const LOUD_STAGE2 = `(() => { ${PAGE_HELPERS}
+    const ABC = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/', n = w.width * w.height;
+    const bits = s => { const out = new Uint8Array(n); for (let i = 0; i < n; i++) out[i] = (ABC.indexOf(s[Math.floor(i / 6)]) >> (i % 6)) & 1; return out; };
+    const st = clone(sim.state), m = st.crew[0], fresh = bits(st.knowledge.fresh), seen = bits(st.knowledge.seen);
+    st.police.mode = { kind: 'assault', left: 3, since: { turn: st.turn, phase: 'crew' }, after: null };
+    const unit = (id, kind, pos) => ({ id, kind, vehicle: null, staging: null, arrived: st.turn - 1, pos, hp: 6, leaning: null, suppressed: null, moved: null, team: null, watch: null, flashbangs: 0, surprised: null });
+    const d = (p, q) => Math.hypot(p.x - q.x, p.y - q.y);
+    const tiles = [];
+    for (let y = 0; y < w.height; y++) for (let x = 0; x < w.width; x++) tiles.push({ x, y });
+    // People near the line from Mara to him put bystanders in the cone.
+    const nearLine = p => st.npcs.filter(o => o.status !== 'away' && fresh[o.pos.y * w.width + o.pos.x] && d(o.pos, p) <= 2.5 && d(o.pos, m.pos) < d(p, m.pos)).length;
+    const spots = tiles.filter(p => fresh[p.y * w.width + p.x] && d(p, m.pos) >= 4 && d(p, m.pos) <= 7 && free(st, p)).sort((a, b) => nearLine(b) - nearLine(a) || d(a, m.pos) - d(b, m.pos));
+    for (const p of spots) {
+        const s2 = clone(st);
+        s2.police.units.push(unit('police-e2e-1', 'patrol', p));
+        const cmd = { type: 'attack', crew: 'mara', at: p, target: 'police-e2e-1' };
+        if (sim.whyNot(cmd, s2)) continue;
+        const stale = tiles.filter(q => seen[q.y * w.width + q.x] && !fresh[q.y * w.width + q.x] && d(q, m.pos) <= 9 && free(s2, q)).sort((a, b) => d(a, m.pos) - d(b, m.pos))[0];
+        if (stale) s2.knowledge.officers = { 'police-e2e-2': { at: stale, turn: s2.turn - 1, kind: 'swat' } };
+        const door = Object.keys(w.doors).map(id => ({ id, e: w.edges[w.doors[id].edge] })).filter(x => x.e).sort((a, b) => d({ x: a.e.tx, y: a.e.ty }, m.pos) - d({ x: b.e.tx, y: b.e.ty }, m.pos))[0];
+        if (door) s2.police.breaches.push({ door: door.id, unit: 'police-e2e-1', turn: s2.turn });
+        return { state: s2, info: { cmd, officer: p, ghost: stale ?? null, door: door?.id ?? null } };
+    }
+    return null;
+})()`;
+
+/** Plays the loud fight's second step (`LOUD_STAGE2`) and reloads into it; its info. */
+export async function loudStage2(page: Page): Promise<any> {
+    const found = await page.evaluate(LOUD_STAGE2) as { state: unknown; info: any } | null;
+    if (!found) throw new Error('loud-aim: no officer can be placed in sight');
+    await page.evaluate(state => (window as any).sim.restart(state), found.state);
+    await page.reload();
+    await page.waitForFunction(() => (window as any).game?.scene.getScene('bank')?.debugState?.play && (window as any).sim, undefined, { timeout: 60000 });
+    await page.evaluate(() => { (window as any).sim.session.playback.speed = 'instant'; });
+    return found.info;
+}
+
 /** Waits until the camera holds still (it eases to what was just selected), so a tile's place on the page is fixed. */
 const settle = async (page: Page): Promise<void> => {
     const at = () => page.evaluate(() => { const d = (window as any).game.scene.getScene('bank').debugState; return `${d.midX},${d.midY},${d.zoom}`; });
@@ -424,6 +493,15 @@ export const SETUPS: Record<string, Setup> = {
             return null;
         })()`,
         then: selectMara
+    },
+    'loud-aim': {
+        about: 'a loud fight: Mara aims her rifle at a patrol officer (the nested cone, markers, cover), a breach announced, a ghost',
+        script: LOUD_SETUP,
+        then: async page => {
+            const info = await loudStage2(page);
+            await selectMara(page);
+            await page.evaluate(cmd => (window as any).sim.session.setPendingCommand(cmd), info.cmd);
+        }
     },
     'dragging-body': {
         about: 'Mara has knocked out the loneliest NPC and drags the body (knockout and drag through window.sim)',

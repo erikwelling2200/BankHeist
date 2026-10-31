@@ -1185,10 +1185,46 @@ M2 is complete: every package below has landed.
       and people in the way, the Wheelman, leaving the plot with Success and Partial, Failure, the generated van and its
       way off the plot); `tests/game/getaway.test.ts` (the grid's entries, a drive at a time off the plot, the outcome
       view); the e2e "the getaway" (`screenshots/play-drive.png`, `screenshots/play-outcome.png`).
-- [ ] **M3-09 Loud interface.**
+- [ ] **M3-09 Loud interface.** (partial: the first half below; the second half is a separate session)
   - **Covers:** UI.md "Loud".
   - **Work:** aim mode with the loupe; nested cone arcs; cover shields; dragging Watch wedges; police markers, ghosts and pings; one-at-a-time world phase playback; the negotiator dialog; the heat strip; the driving overlay.
   - **Depends on:** M3-01 to M3-08.
+  - **Notes (first half done):** aim mode, cones, cover, police markers and ghosts, breach markers, one-at-a-time playback.
+    - **Rules:** `Knowledge.officers` (rules/knowledge.ts): where each officer was last seen, kept by `updateKnowledge`
+      (`learnOfficers`) while it is on a tile seen this turn, dropped once older than `ghostTurns` or once the crew sees
+      that tile without it; `officerMarkers` gives the officers seen now and the ghosts (never predicted). Optional (older
+      saves: none); the state check validates it. `FanSegment.outline` (and `broken.outline`): `[angle, distance]` where
+      each traced piece's bullet stops, for drawing the cone. Save shape hash `bbe89785cf6778cb`.
+    - **Game:** `src/game/loudUi.ts`: `aimView` (an attack's or Suppress's cone from `crewShotPreview` on the crew's
+      picture, planned with `attackPlan`/`suppressPlan` on `crewPicture`; never `attackCone`), each body placed where the
+      crew pictures it with its kind (hostile, civilian, crew) and its shield on the side facing the shooter
+      (covered, flanked, `mayBreak`, `mayBeGone`); `policeMarkers`, `breachMarkers` (every announced breach, as the
+      ledger has them) and `fireSelector`.
+    - **Scene:** `scenes/bank/loudDraw.ts` (the overlay's loud layer: nested arcs per bullet, bullet 1 brightest, the
+      reach past what the attack can break dashed, the aim crosshair, the body markers dashed when `ifBroken`, shields
+      with end ticks and glow, a notch when it may break, `?` when it may be gone, flanked dashed grey; breach plates
+      bracketed on their doors; red brackets on the acting unit), `scenes/bank/loupe.ts` (the loupe above the finger,
+      painted from the game's and the overlay's canvases at POST_RENDER). `People.add` makes an officer's sprite the
+      first time the crew is shown it (police or SWAT look), drawn live only on tiles seen this turn and faded as a
+      ghost with "seen N turns ago". Aim mode: with an attack or Suppress previewed, a drag that doesn't start on the
+      shooter moves the aim point a tile at a time (on the known person there, or the bare tile) under the loupe; the
+      fire selector (HTML, `.fire-selector`) sets `bullets`. Playback: each officer's `policeMoved` steps are one walk,
+      the camera and the red bracket following it only over tiles seen this turn; a shot, a wedge or a breach holds the
+      camera on its unit; the queue strip (`.loud-queue`) shows done, acting and next. `debugState.play.loud`.
+    - **Setups:** `loud-aim` in e2e/setups.ts (two steps: Mara masked with a rifle in the thick of the lobby, then a patrol
+      officer in sight, a breach and a SWAT ghost); `npm run shot -- '/?new' --setup loud-aim`.
+    - **Tests:** `tests/game/loudUi.test.ts` (officer markers and ghosts, never a lost officer's new tile; the aim view
+      never names someone behind a wall the truth's cone reaches; nested arcs; shields; teller glass's `ifBroken` and
+      the dashed reach past it; breach markers); e2e/loud.spec.ts (`screenshots/loud-aim.png`, `loud-loupe.png`,
+      `loud-world.png`: aim mode, the fire selector, the loupe, police and ghost and breach shown, the world phase one
+      unit at a time with the strip).
+    - **Deferred (this half):** tracers and hit flashes for shots in playback; the sniper laser and police grenades with
+      their radius (UI.md "Police: announced versus visible"; the grenade is the second half's with the wedges); the
+      cone's lean options as tap targets (`crewLeanOptions`) and the fine aim (`turn`) by drag; officers' facing (the
+      rules keep none: drawn facing the nearest crew member); an officer walking out of sight mid-walk is hidden on unseen
+      tiles but the walk's timing still runs; the loupe and fire selector on the tactical map; blood drawn (M3-03's).
+    - **Second half (other session):** dragging Watch wedges and police wedges, the heat strip, the negotiator dialog, the
+      driving overlay.
 
 ### M4: Sandbox v1
 

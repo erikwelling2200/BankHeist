@@ -41,10 +41,16 @@ export interface FanSegment {
     steps: ShotStep[];
     stop: BulletStop;
     /**
+     * For drawing: how far (tiles, from the middle of the shooter's tile) a bullet flies before it stops, as
+     * `[angle, distance]` at the middle of each piece the segment was traced in (more than one where pieces that meet
+     * the same things were joined).
+     */
+    outline: [number, number][];
+    /**
      * What it meets once everything this attack could break is broken (`brokenFabric`: panes, teller glass at its 4th
      * hit, cover worn through), when that differs. A later bullet meets these steps or a part of the way to them.
      */
-    broken?: { steps: ShotStep[]; stop: BulletStop };
+    broken?: { steps: ShotStep[]; stop: BulletStop; outline: [number, number][] };
 }
 
 export interface CoverView {
@@ -139,11 +145,15 @@ export function previewShot(world: ReadonlyWorld, state: DeepReadonly<State>, sh
         const middle = (from + to) / 2;
         const trace = traceBullet(scene, copyFabric(scene.fabric), middle, () => 1);
         const after = traceBullet(scene, copyFabric(broken), middle, () => 1);
-        const segment: FanSegment = { from, to, steps: trace.steps, stop: trace.stop };
-        if (!sameSteps(trace, after)) segment.broken = { steps: after.steps, stop: after.stop };
+        const distance = (t: { end: { x: number; y: number } }) => Math.round(Math.sqrt((t.end.x - px) * (t.end.x - px) + (t.end.y - py) * (t.end.y - py)) * 1000) / 1000;
+        const segment: FanSegment = { from, to, steps: trace.steps, stop: trace.stop, outline: [[middle, distance(trace)]] };
+        if (!sameSteps(trace, after)) segment.broken = { steps: after.steps, stop: after.stop, outline: [[middle, distance(after)]] };
         const last = fan[fan.length - 1];
-        if (last && sameSteps(last, segment) && sameSteps(last.broken, segment.broken)) last.to = to;
-        else fan.push(segment);
+        if (last && sameSteps(last, segment) && sameSteps(last.broken, segment.broken)) {
+            last.to = to;
+            last.outline.push(...segment.outline);
+            if (last.broken && segment.broken) last.broken.outline.push(...segment.broken.outline);
+        } else fan.push(segment);
         from = to;
     }
 

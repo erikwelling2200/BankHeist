@@ -69,7 +69,7 @@ export class People {
      * (a CSS colour), and follows the bank's people in the order of `move`'s indexes.
      */
     build(people: readonly LevelPerson[], crew: readonly (LevelPerson & { ring: string })[] = []): void {
-        const { add, textures } = this.scene;
+        const { textures } = this.scene;
         if (!textures.exists(KEY.shadow)) {
             const shadow = personShadow();
             this.baker.addPixels(KEY.shadow, shadow.colors, shadow.width, shadow.height);
@@ -78,25 +78,33 @@ export class People {
             const shadow = lyingShadow();
             this.baker.addPixels(KEY.lyingShadow, shadow.colors, shadow.width, shadow.height);
         }
-        [...people, ...crew].forEach((p, i) => {
-            const look = LOOKS[p.look];
-            if (!look) throw new Error(`No look named '${p.look}'`);
-            // A mask or a pose set on the person is drawn over their look.
-            const spec = { ...look, mask: p.mask ?? look.mask, pose: p.pose ?? look.pose };
-            const views = viewsOf(spec);
-            const key = `person-${i}`, { width, height } = views.s.bitmap;
-            const texture = textures.exists(key) ? (textures.get(key) as Phaser.Textures.CanvasTexture) : textures.createCanvas(key, width, height);
-            if (!texture) throw new Error(`Failed to create texture '${key}'`);
-            const x = (p.tx + 0.5) * TILE, y = (p.ty + 0.5) * TILE;
-            this.sprites.push({
-                person: p, views, texture, x, y, facing: p.facing === 'back' ? 'n' : 's', light: 0, left: 0, top: 0, index: i,
-                image: add.image(0, 0, key).setOrigin(0, 0),
-                shadow: add.image(0, 0, p.pose ? KEY.lyingShadow : KEY.shadow).setDepth(DEPTH.shadows).setAlpha(0.55),
-                patrol: patrolOf(p, x, y),
-                ring: 'ring' in p ? add.image(0, 0, this.ringTexture(i, p.ring as string)).setDepth(DEPTH.shadows + 0.5) : undefined
-            });
-            this.move(i, x, y);
+        for (const p of [...people, ...crew]) this.add(p);
+    }
+
+    /**
+     * One more person (play mode: a police officer coming into view, M3-09), after everyone `build` made: their index.
+     * With `ring` (a CSS colour) they are crew, with a ground ring.
+     */
+    add(p: LevelPerson & { ring?: string }): number {
+        const { add, textures } = this.scene, i = this.sprites.length;
+        const look = LOOKS[p.look];
+        if (!look) throw new Error(`No look named '${p.look}'`);
+        // A mask or a pose set on the person is drawn over their look.
+        const spec = { ...look, mask: p.mask ?? look.mask, pose: p.pose ?? look.pose };
+        const views = viewsOf(spec);
+        const key = `person-${i}`, { width, height } = views.s.bitmap;
+        const texture = textures.exists(key) ? (textures.get(key) as Phaser.Textures.CanvasTexture) : textures.createCanvas(key, width, height);
+        if (!texture) throw new Error(`Failed to create texture '${key}'`);
+        const x = (p.tx + 0.5) * TILE, y = (p.ty + 0.5) * TILE;
+        this.sprites.push({
+            person: p, views, texture, x, y, facing: p.facing === 'back' ? 'n' : 's', light: 0, left: 0, top: 0, index: i,
+            image: add.image(0, 0, key).setOrigin(0, 0),
+            shadow: add.image(0, 0, p.pose ? KEY.lyingShadow : KEY.shadow).setDepth(DEPTH.shadows).setAlpha(0.55),
+            patrol: patrolOf(p, x, y),
+            ring: p.ring !== undefined ? add.image(0, 0, this.ringTexture(i, p.ring)).setDepth(DEPTH.shadows + 0.5) : undefined
         });
+        this.move(i, x, y);
+        return i;
     }
 
     /**

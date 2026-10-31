@@ -160,7 +160,18 @@ export interface Knowledge {
     npcs: Record<string, NpcKnowledge>;
     /** Loud noises heard this turn and the last. */
     pings: Ping[];
+    /**
+     * Where each police officer was last seen (M3-09), by unit id: its ghost once out of sight, for `ghostTurns` turns,
+     * until the crew sees the tile without it. Absent in older saves: none.
+     */
+    officers?: Record<string, OfficerKnowledge>;
 }
+
+/** A police officer as last seen (`Knowledge.officers`). */
+export interface OfficerKnowledge { at: Pos; turn: number; kind: string }
+
+/** An officer as the crew knows it now (`officerMarkers`): in sight, or the ghost of where it was last seen. */
+export interface OfficerMarker { id: string; kind: string; pos: Pos; live: boolean; seenAgo: number }
 
 declare module '../core/types' {
     interface State {
@@ -683,6 +694,50 @@ export function updateKnowledge(world: ReadonlyWorld, state: State, emit: (event
     learnNpcs(world, state, fields, passed, emit, options.worldPhase ?? false, takeTurned(state), options.command);
     const oldest = state.turn - world.rules.pingTurns;
     if (k.pings.some(p => p.turn < oldest)) k.pings = k.pings.filter(p => p.turn >= oldest);
+    learnOfficers(world, state);
+}
+
+/**
+ * Officers (M3-09): each one on a tile the crew sees this turn (`officerSeen`) is remembered where it stands; a memory
+ * goes once it is older than `ghostTurns`, or once the crew sees its tile and nobody it remembers is there (judged on
+ * the crew's own sight, never on where the officer went).
+ */
+function learnOfficers(world: ReadonlyWorld, state: State): void {
+    const k = state.knowledge, units = state.police?.units ?? [];
+    if (!units.length && !k.officers) return;
+    const fresh = tileSets(world, state).fresh, at = (p: Pos) => p.y * world.width + p.x;
+    const seen = new Set<string>();
+    for (const u of units) {
+        if (!u.pos || fresh[at(u.pos)] !== 1) continue;
+        seen.add(u.id);
+        const rec = k.officers?.[u.id];
+        if (rec && rec.turn === state.turn && rec.at.x === u.pos.x && rec.at.y === u.pos.y) continue;
+        (k.officers ??= {})[u.id] = { at: { x: u.pos.x, y: u.pos.y }, turn: state.turn, kind: u.kind };
+    }
+    if (!k.officers) return;
+    for (const id of sortedIds(k.officers)) {
+        const rec = k.officers[id]!;
+        if (seen.has(id)) continue;
+        if (state.turn - rec.turn > world.rules.ghostTurns || fresh[at(rec.at)] === 1) delete k.officers[id];
+    }
+}
+
+/**
+ * The police officers the crew knows of now (M3-09): those it sees (`officerSeen`) where they stand, and the ghosts of
+ * those it saw lately where it last saw them (`Knowledge.officers`). Nothing of an officer it never saw.
+ */
+export function officerMarkers(world: ReadonlyWorld, state: State): OfficerMarker[] {
+    const out: OfficerMarker[] = [], k = state.knowledge.officers ?? {};
+    for (const u of state.police?.units ?? []) {
+        if (u.pos && officerSeen(world, state, u.id)) out.push({ id: u.id, kind: u.kind, pos: { x: u.pos.x, y: u.pos.y }, live: true, seenAgo: 0 });
+    }
+    if (!world.rules.ghosts) return out;
+    for (const id of sortedIds(k)) {
+        if (out.some(m => m.id === id)) continue;
+        const rec = k[id]!;
+        if (state.turn - rec.turn <= world.rules.ghostTurns) out.push({ id, kind: rec.kind, pos: { x: rec.at.x, y: rec.at.y }, live: false, seenAgo: state.turn - rec.turn });
+    }
+    return out;
 }
 
 function learnRoomsAndCameras(world: ReadonlyWorld, k: Knowledge, bits: Uint8Array, before: Uint8Array, emit: (event: SimEvent) => void): void {
@@ -884,6 +939,13 @@ registerStateCheck('knowledge', (state, world) => {
         const r = k.npcs[id] as Partial<NpcKnowledge> | undefined;
         if (!r || !r.at || typeof r.turn !== 'number' || typeof r.routine !== 'boolean' || typeof r.live !== 'boolean'
             || typeof r.rota !== 'boolean' || typeof r.watched !== 'number' || typeof r.tick !== 'number') return `knowledge of NPC '${id}' is incomplete`;
+    }
+    if (k.officers !== undefined) {
+        if (!k.officers || typeof k.officers !== 'object') return 'knowledge.officers is not a record';
+        for (const id of sortedIds(k.officers)) {
+            const r = k.officers[id] as Partial<OfficerKnowledge> | undefined;
+            if (!r || !r.at || typeof r.turn !== 'number' || typeof r.kind !== 'string') return `knowledge of officer '${id}' is incomplete`;
+        }
     }
     return undefined;
 });
@@ -1264,8 +1326,8 @@ export function markerKind(world: ReadonlyWorld, state: State, id: string): Mark
 }
 
 /**
- * Whether the crew sees a police officer now (M3-05): out on scene, on a tile the crew sees this turn. Officers have no
- * remembered or predicted markers yet (M3-09): out of sight, they are unknown.
+ * Whether the crew sees a police officer now (M3-05): out on scene, on a tile the crew sees this turn. Out of sight, an
+ * officer is at most a ghost of where it was last seen (`officerMarkers`, M3-09); never predicted.
  */
 export function officerSeen(world: ReadonlyWorld, state: State, id: string): boolean {
     const unit = state.police?.units.find(u => u.id === id);
