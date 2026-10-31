@@ -547,6 +547,8 @@ export class PlayMode {
         index = this.people.add({ look: unit.kind === 'patrol' || unit.kind === 'negotiator' ? 'police' : 'swat', tx: at.x, ty: at.y, facing: 'front' });
         this.officerSprite.set(id, index);
         this.sprite.set(id, index);
+        // Shown only where the crew sees it (`hidesNpc`), from its first frame.
+        this.people.reveal();
         return index;
     }
 
@@ -884,6 +886,9 @@ export class PlayMode {
                 index = this.people.add({ look, tx: m.pos.x, ty: m.pos.y, facing: 'front' });
                 this.officerSprite.set(m.id, index);
                 this.sprite.set(m.id, index);
+                if (!m.live) this.officerGhost.add(index);
+                // Shown or hidden by the officers' rule now that it is one (`hidesNpc`).
+                this.people.reveal();
             }
             on.add(m.id);
             if (m.live) this.officerGhost.delete(index);
