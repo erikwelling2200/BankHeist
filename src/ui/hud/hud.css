@@ -347,8 +347,9 @@ body:has(.sh.over) .sh-autoroot, body:has(.sh.over) .camera-controls { visibilit
 
 /* The negotiator on the line (§13.4, UI.md "Negotiator on the line", M3-09): a sheet over the map, each offer an exchange. */
 .sh-negot-back { position: absolute; inset: 0; z-index: 4; pointer-events: none; display: flex; align-items: center; justify-content: center;
-  padding: calc(var(--pt) + 40px) calc(var(--pr) + 118px) calc(var(--pb) + 8px) calc(var(--pl) + 66px); box-sizing: border-box; }
-/* Clear of the rail on the left and the action grid on the right (2 × 52px buttons), so its sheet never covers a tap. */
+  padding: calc(var(--pt) + 40px) calc(var(--pr) + 118px) calc(var(--pb) + 8px) calc(var(--pl) + 92px); box-sizing: border-box; }
+/* Clear of the rail on the left (its cards, as the top bar keeps clear of them) and the action grid on the right (2 × 52px
+   buttons), so its sheet never covers a tap. */
 .sh-negot { position: relative; pointer-events: auto; width: min(460px, 100%); max-height: 100%; overflow-y: auto; display: flex; flex-direction: column; gap: 8px; padding: 10px; }
 .sh-nhead { display: flex; align-items: center; gap: 10px; }
 .sh-nhead .sh-face { width: 44px; height: 44px; image-rendering: pixelated; border-radius: 2px; flex: none; }

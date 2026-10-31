@@ -151,6 +151,9 @@ function spendThrowable(member: CrewState, item: ThrowableId): void {
     member.loadout.items = member.loadout.items.filter(id => id !== item);
 }
 
+/** The cause of the noise a grenade makes as it goes off (its `NoiseSource` is its kind), as the preview foretells it. */
+export const grenadeCause = (kind: ThrowableId, by: string): string => `${kind} ${by}`;
+
 /** The tiles a grenade going off at `at` reaches: within its radius (Euclidean), in sight of the landing tile. */
 export function blastTiles(world: ReadonlyWorld, sight: SightMap, at: DeepReadonly<Pos>, radius: number): Pos[] {
     const out: Pos[] = [];
@@ -194,7 +197,7 @@ function flash(ctx: Ctx, grenade: Grenade, tiles: readonly Pos[]): void {
         ctx.emit({ type: 'surprised', npc: npc.id });
         if (personOf(world, npc.id).observer === 'civilian' && crewThrew) commandNpc(ctx, npc, grenade.by, world.rules.commandPips);
     }
-    makeNoise(ctx, 'flashbang', grenade.at, `flashbang ${grenade.by}`, undefined, grenade.by);
+    makeNoise(ctx, 'flashbang', grenade.at, grenadeCause('flashbang', grenade.by), undefined, grenade.by);
     if (!state.bank.loud) {
         state.bank.loud = true;
         ctx.emit({ type: 'wentLoud', cause: `flashbang ${grenade.by}` });
@@ -212,7 +215,7 @@ registerWorldHook('fuses', 'throwables.fuses', (ctx, phase) => {
         if (grenade.kind === 'flashbang') flash(ctx, grenade, tiles);
         else {
             state.smoke.push({ id: grenade.id, at: { ...grenade.at }, tiles, until: phase.turn + SMOKE_PHASES - 1 });
-            makeNoise(ctx, 'smoke', grenade.at, `smoke ${grenade.by}`, undefined, grenade.by);
+            makeNoise(ctx, 'smoke', grenade.at, grenadeCause('smoke', grenade.by), undefined, grenade.by);
         }
     }
 });

@@ -25,7 +25,7 @@ import { DOOR_KINDS, WALL_MATERIALS } from './materials';
  *   rules), and what the furniture does from `src/level/tileProps.ts`, the grids the generator's `Nav` reads. Tiles
  *   off the map are walls of nothing: no room, blocked and tall. A half-cover tile takes its prop's hit points
  *   (`COVER_HP`, §11.4), the sturdiest where props share a tile; none where one can't be destroyed. A table or light
- *   desk's tiles can be flipped into cover (`Tile.flipHp`, M3-02).
+ *   desk's tiles that aren't half cover already can be flipped into cover (`Tile.flipHp`, M3-02).
  * - edges: every wall segment, with its material from `materials.ts` and the door that stands in it.
  * - doors: every door with a leaf (open doorways and counter gates are gaps, not doors): closed, or locked if it has a
  *   lock (§6.9).
@@ -170,7 +170,8 @@ export function worldFromBank(bank: GeneratedBank): ReadonlyWorld {
         if (tile.halfCover && Number.isFinite(coverHp[i]!)) tile.coverHp = coverHp[i]! || DEFAULT_COVER_HP;
         // Outdoors on the ground, a vehicle can drive (§14.4 Drivable). On every tile, so the save packs it as bits.
         tile.drivable = room.zone === 'outdoors' && floor === 0;
-        if (flipHp[i]! > 0 && !tile.tall) tile.flipHp = flipHp[i]!;
+        // Not on a tile that is half cover already: it isn't flipped into one-sided cover (decision 102).
+        if (flipHp[i]! > 0 && !tile.tall && !tile.halfCover) tile.flipHp = flipHp[i]!;
         tiles.push(tile);
     }
 

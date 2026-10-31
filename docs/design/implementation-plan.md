@@ -973,8 +973,11 @@ M2 is complete: every package below has landed.
     - **Deferred:** what harm does (M3-03); NPCs firing, their Watch and what Suppressed does to them (M3-05, M3-06;
       `watchReact` is the hook for NPCs acting one at a time); police grenades and what they do to the crew (M3-06);
       the ammo bag, the SMG's suppressor and the noisemaker (M4); smoke in stealth (decision 101); stopping a
-      shouted-down runner mid-run (decision 100); `watchReact` / `suppressReact` for NPCs acting one at a time (M3-05);
-      `movedOrActed` counting an intent action due later in the passive step; the throw preview's noise ring.
+      shouted-down runner mid-run (decision 100); `watchReact` / `suppressReact` for NPCs acting one at a time (M3-05).
+    - **Later fixes:** `movedOrActed` counts only what has happened by the passive step's reactions (a walk, a draw),
+      not an intent's action still to come; the throw preview shows the noise each grenade makes as it goes off
+      (`NoisePreview.fuse`: its ring as the sound carries now, no ears, since who hears it is decided in the world
+      phase); `Tile.flipHp` only on tiles that aren't half cover already.
 - [x] **M3-03 Wounds, downed and arrested.** (partial: see Deferred)
   - **Covers:** §11.12.
   - **Work:** Hurt crew limp, aim worse, bleed and leave blood trails as evidence; bleeding out over 3 phases; revive and medkits; NPC death, crawling and screaming; arrest.
@@ -1192,7 +1195,8 @@ M2 is complete: every package below has landed.
   - **Notes (first half done):** aim mode, cones, cover, police markers and ghosts, breach markers, one-at-a-time playback.
     - **Rules:** `Knowledge.officers` (rules/knowledge.ts): where each officer was last seen, kept by `updateKnowledge`
       (`learnOfficers`) while it is on a tile seen this turn, and one the crew saw walk out of view during a command or
-      world phase on the last tile it was seen on (`officersPassed`, as `passedInEvents` does for NPCs, §8.15); dropped
+      world phase on the last tile it was seen on (`officersPassed`, as `passedInEvents` does for NPCs, §8.15), its
+      walk told (`projectEvents`: its memory of it changed during the command, as an NPC's `seenDuring`); dropped
       once older than `ghostTurns`, or when the crew sees it go down (told of the fall, `projectEvents`' rule: seen before
       it, and standing on a tile seen then); an unseen fall leaves the ghost to run out its turns, as a standing
       officer's would; `officerMarkers` gives the officers seen now and the ghosts (never predicted). Optional (older

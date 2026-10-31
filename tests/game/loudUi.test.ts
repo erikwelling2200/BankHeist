@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
-    attackCone, clonePlain, commit, fixtureWorld, initialState, OFFICER_FLASHBANGS, OFFICER_STATS, officerMarkers, updateKnowledge, type FixtureOptions, type PersonDef, type PoliceKind,
+    attackCone, clonePlain, commit, fixtureWorld, initialState, OFFICER_FLASHBANGS, OFFICER_STATS, officerMarkers, officerSeen, projectEvents, updateKnowledge, type FixtureOptions, type PersonDef, type PoliceKind,
     type Pos, type ReadonlyWorld, type SimEvent, type State
 } from '../../src/sim';
 import { aimView, breachMarkers, fireSelector, policeMarkers } from '../../src/game/loudUi';
@@ -71,6 +71,35 @@ describe('police markers (§13.6, UI.md "Police: announced versus visible")', ()
         ] as SimEvent[];
         updateKnowledge(world, state, () => {}, { worldPhase: true, events });
         expect(officerMarkers(world, state)).toEqual([{ id: 'o', kind: 'patrol', pos: P(5, 1), live: false, seenAgo: 0 }]);
+    });
+
+    it('tells the walk of an officer unseen before and after that crosses a tile the crew sees', () => {
+        // The wall stands on rows 1–2 only: row 0 is a way round it, in Jun's sight from (4, 0).
+        const { world, state } = loud(OPEN, { walls: walls.slice(1), jun: P(4, 0) });
+        officer(state, 'o', P(8, 2));
+        look(world, state);
+        expect(officerSeen(world, state, 'o')).toBe(false);
+        // In the world phase it comes round the wall's end into view and goes back behind it.
+        const after = clonePlain(state);
+        after.police.units[0]!.pos = P(7, 2);
+        after.turn++;
+        const events = [
+            { type: 'policeMoved', unit: 'o', from: P(8, 2), path: [P(7, 1)] }, { type: 'policeMoved', unit: 'o', from: P(7, 1), path: [P(6, 0)] },
+            { type: 'policeMoved', unit: 'o', from: P(6, 0), path: [P(5, 0)] }, { type: 'policeMoved', unit: 'o', from: P(5, 0), path: [P(6, 1)] },
+            { type: 'policeMoved', unit: 'o', from: P(6, 1), path: [P(7, 2)] }
+        ] as SimEvent[];
+        updateKnowledge(world, after, () => {}, { worldPhase: true, events, before: state });
+        expect(officerSeen(world, after, 'o')).toBe(false);
+        expect(officerMarkers(world, after)).toEqual([{ id: 'o', kind: 'patrol', pos: P(5, 0), live: false, seenAgo: 0 }]);
+        // Its walk is told, as an NPC's seen during a command is; playback draws it only on the tiles in sight.
+        expect(projectEvents(world, after, events, state)).toEqual(events);
+        // An officer the crew never saw at all tells nothing.
+        const unseen = clonePlain(state);
+        unseen.turn++;
+        const behind = [{ type: 'policeMoved', unit: 'o', from: P(8, 2), path: [P(9, 2)] }] as SimEvent[];
+        unseen.police.units[0]!.pos = P(9, 2);
+        updateKnowledge(world, unseen, () => {}, { worldPhase: true, events: behind, before: state });
+        expect(projectEvents(world, unseen, behind, state)).toEqual([]);
     });
 
     it('keeps the ghost of an officer downed out of sight exactly as of one still standing there', () => {

@@ -89,21 +89,27 @@ describe('the heat strip', () => {
     it('forecasts the next step by its most significant force: its level, icon, short name and phases', () => {
         const bank = cachedBank({ layout: 31, population: 2, tier: 'small', archetype: 'twoWing' });
         const { world, state } = newHeist(bank);
-        const s = clonePlain(state);
-        s.bank.alarm = true;
-        s.bank.loud = true;
-        s.response = { raised: s.turn - 5, by: 'tellerButton', policeIn: 0, heat: 4 };
-        s.police.sent = 1;
-        s.police.mode = { kind: 'contain', left: 3, since: { turn: s.turn - 1, phase: 'world' }, after: null };
-        const wave = nextWave(world, s)!;
-        const next = bankView(s, false, world).heat!.next!;
-        expect(next).toMatchObject({ level: wave.level, inTurns: wave.inPhases });
-        const swat = wave.vehicles.some(v => v.kind === 'van' && v.units.some(u => u.startsWith('swat') || u === 'heavy'));
-        // A SWAT van leads over the cars planWave lists first.
-        if (swat) expect(next).toMatchObject({ icon: 'swat', short: expect.stringMatching(/^SWAT van/) });
-        else expect(next.icon).toBeTruthy();
-        expect(next.short).toBeTruthy();
-        expect(next.label).toContain(next.short!.replace(/ \+\d+$/, ''));
+        // One step sent, the next is patrol cars and a van with no SWAT in it; two sent, the next brings a SWAT van.
+        for (const [sent, hasSwat] of [[1, false], [2, true]] as const) {
+            const s = clonePlain(state);
+            s.bank.alarm = true;
+            s.bank.loud = true;
+            s.response = { raised: s.turn - 5, by: 'tellerButton', policeIn: 0, heat: 4 };
+            s.police.sent = sent;
+            s.police.mode = { kind: 'contain', left: 3, since: { turn: s.turn - 1, phase: 'world' }, after: null };
+            const wave = nextWave(world, s)!;
+            const next = bankView(s, false, world).heat!.next!;
+            expect(next).toMatchObject({ level: wave.level, inTurns: wave.inPhases });
+            const swat = wave.vehicles.some(v => v.kind === 'van' && v.units.some(u => u.startsWith('swat') || u === 'heavy'));
+            expect(swat).toBe(hasSwat);
+            // A SWAT van leads over the cars planWave lists first.
+            if (swat) {
+                expect(wave.vehicles[0]!.kind).toBe('car');
+                expect(next).toMatchObject({ icon: 'swat', short: expect.stringMatching(/^SWAT van/) });
+            } else expect(next.icon).toBeTruthy();
+            expect(next.short).toBeTruthy();
+            expect(next.label).toContain(next.short!.replace(/ \+\d+$/, ''));
+        }
     });
 });
 

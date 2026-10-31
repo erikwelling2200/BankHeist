@@ -467,10 +467,14 @@ function walkedTiles(npc: DeepReadonly<NpcState>, phase: WorldPhase): Pos[] {
     return i < 0 ? [] : path.slice(0, i + 1).map(p => ({ x: p.x, y: p.y }));
 }
 
-/** Whether an NPC moved or acted this world phase: walked, carried out an action, or turned Hostile (drew). */
+/**
+ * Whether an NPC has moved or acted so far this world phase, as the passive step's reactions run: walked, or turned
+ * Hostile (drew). Only what has happened counts, not an intent's action still to come: a passive NPC's action that has
+ * happened by then and makes it a foe turns it Hostile, and one Hostile as the phase began acts later, in the combat
+ * step, where `watchReact` is called as it does.
+ */
 function movedOrActed(npc: DeepReadonly<NpcState>, phase: WorldPhase): boolean {
-    const intent = phase.intents[npc.id];
-    return walkedTiles(npc, phase).length > 0 || !!intent?.action || phase.status[npc.id] !== npc.status;
+    return walkedTiles(npc, phase).length > 0 || phase.status[npc.id] !== npc.status;
 }
 
 /** Someone the crew's reactions fire at: a Hostile NPC or a police officer out on scene, where they are hit. */

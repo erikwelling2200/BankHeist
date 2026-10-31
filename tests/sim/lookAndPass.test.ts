@@ -227,7 +227,8 @@ describe('the marker of an NPC a noise turns out of sight (decision 45)', () => 
             expect(JSON.stringify(actionPreview(o.world, o.state, cmd))).toBe(JSON.stringify(actionPreview(c.world, c.state, cmd)));
         }
         expect(decided).toBeGreaterThan(0);
-    });
+        // Every layout of door and clerk: well over vitest's 5 s default on a busy machine.
+    }, 60000);
 });
 
 describe('investigating a noise (decision 45)', () => {

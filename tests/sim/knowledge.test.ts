@@ -1251,7 +1251,8 @@ describe('on a generated bank', () => {
         const t2 = performance.now();
         for (const t of reachable(world, state, state.crew[0]!.pos, 10, { mover: 'c0' }).tiles) isUnknownRisk(world, state, t.pos);
         console.log(`unknown risk over a move's reach: ${(performance.now() - t2).toFixed(2)} ms`);
-    }, 60000);
+        // Generous: a cold bank cache generates the bank, and a busy machine runs slow; the timings assert themselves.
+    }, 120000);
 
     it('is deterministic and survives a save', () => {
         const { world, state } = generatedHeist(spec, 4);
@@ -1270,7 +1271,7 @@ describe('on a generated bank', () => {
         // Compact: the seen set is one short string.
         expect(typeof a.knowledge.seen).toBe('string');
         expect(a.knowledge.seen.length).toBe(Math.ceil(world.width * world.height / 6));
-    });
+    }, 120000);
 });
 
 describe('nothing shown comes from what stands on a hidden tile (decision 44)', () => {

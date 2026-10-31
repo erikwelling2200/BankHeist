@@ -2,11 +2,13 @@ import { IllegalCommand, type PreviewResult } from '../core/engine';
 import type { PendingOdds } from '../core/rng';
 import type { CarrierKind, Command, Pos, ReadonlyWorld, SimEvent, State } from '../core/types';
 import { eventClass } from '../core/undo';
-import type { NoiseKind } from '../data/noise';
-import { DEAF_STATUSES, inRing, soundRing, type Ring } from '../geo/sound';
+import { NOISES, type NoiseKind } from '../data/noise';
+import { isThrowable } from '../data/weapons';
+import { DEAF_STATUSES, inRing, noiseRadius, soundRing, type Ring } from '../geo/sound';
 import { carrierPreview, projectCarriers, type CarrierPreview } from '../rules/carriers';
 import { hearing } from '../rules/evidence';
 import { carriedOut } from '../rules/actions/loot';
+import { grenadeCause } from '../rules/actions/throwables';
 import { doorDoubt, doubtStates, doubtedCut, narrowDoubt, previewCertain, projectPreviewEvents } from '../rules/knowledge';
 import { pathSafety, type PathSafety } from './floor';
 import { previewPicture } from './picture';
@@ -25,6 +27,7 @@ import { previewPicture } from './picture';
  *   NPC the crew knows inside it, labelled with what it will do (`hearing`, the function the noise hook applies, judged among
  *   the NPCs the crew knows; `still` for one face down). When a door the crew can't vouch for could change who of them
  *   hears it, how loud, or the last tile each heard, who is sent isn't certain: no ear is marked sent (`sentUnsure`).
+ *   A thrown grenade's noise, made as it goes off in the next world phase, shows its ring with no ears (`fuse`).
  * - **Witnesses**: who would notice (Exposed, pips, a challenge, a camera report, or seeing it at all).
  * - **Carriers** (§9.1): those the command starts or stops at once, and those the coming world phase would start
  *   because of it (`carrierPreview`).
@@ -51,6 +54,12 @@ export interface NoisePreview {
     ears: Ear[];
     /** Who is sent could change with a door the crew can't vouch for: none of `ears` is marked sent. */
     sentUnsure?: boolean;
+    /**
+     * A grenade's (§11.10): it goes off at the start of the next world phase, not as the command runs, so the ring is
+     * drawn as the sound would carry now and nobody's ear is marked: who hears it, and how they take it, is decided as it
+     * goes off (a flashbang surprises those in reach first; the crew may still open doors or act before then).
+     */
+    fuse?: true;
 }
 
 export interface Witness {
@@ -139,6 +148,20 @@ function noisesOf(world: ReadonlyWorld, before: State, result: PreviewResult, sh
     return out;
 }
 
+/** The noise each grenade the command throws will make as it goes off (`NoisePreview.fuse`): its ring, no ears. */
+function fuseNoises(world: ReadonlyWorld, result: PreviewResult, shown: readonly SimEvent[]): NoisePreview[] {
+    const out: NoisePreview[] = [];
+    for (const e of shown) {
+        if (e.type !== 'grenadeLanded' || !isThrowable(e.kind)) continue;
+        const radius = noiseRadius(e.kind), ring = soundRing(world, result.state, [e.at], radius);
+        out.push({
+            kind: NOISES[e.kind].kind, cause: grenadeCause(e.kind, e.crew), radius, sources: [{ x: e.at.x, y: e.at.y }],
+            tiles: ring.tiles.map(t => ({ x: t.pos.x, y: t.pos.y })), ears: [], fuse: true
+        });
+    }
+    return out;
+}
+
 /** What the player sees before confirming `cmd` (see the header). */
 export function actionPreview(world: ReadonlyWorld, state: State, cmd: Command): ActionPreview {
     let result: PreviewResult;
@@ -155,7 +178,7 @@ export function actionPreview(world: ReadonlyWorld, state: State, cmd: Command):
     const out: ActionPreview = {
         ok: true,
         events,
-        noises: noisesOf(world, state, result, events),
+        noises: [...noisesOf(world, state, result, events), ...fuseNoises(world, result, events)],
         witnesses: witnessesOf(events),
         carriers: { starts: projectCarriers(world, state, changes.starts), stops: changes.stops, worldPhase: projectCarriers(world, state, changes.worldPhase) },
         undoable: !result.pending && !events.some(e => eventClass(e.type).undoBlocking),

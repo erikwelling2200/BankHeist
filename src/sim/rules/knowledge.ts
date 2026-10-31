@@ -1587,9 +1587,17 @@ export function projectEvents(world: ReadonlyWorld, state: State, events: readon
     const preview = options.mode === 'preview';
     const base = preview ? before ?? state : state;
     const npcIds = new Set(state.npcs.map(n => n.id)), crewIds = new Set(state.crew.map(c => c.id));
-    // Officers (M3-05) are told of only while the crew sees them (`officerSeen`), before or after.
+    // Officers (M3-05) are told of only while the crew sees them (`officerSeen`), before or after, or when it saw one
+    // during the command (its memory of it changed: `officersPassed` left a ghost where it walked out of view), as an
+    // NPC seen during it (`seenDuring`); playback shows a walk only on the tiles the crew sees.
     const unitIds = new Set([...state.police.units, ...(before?.police.units ?? [])].map(u => u.id));
-    const officerKnown = (id: string): boolean => (preview ? officerSeen(world, base, id) : officerSeen(world, state, id) || (!!before && officerSeen(world, before, id)));
+    const officerSeenDuring = (id: string): boolean => {
+        const now = state.knowledge.officers?.[id];
+        return !!before && !!now && !samePlain(now, before.knowledge.officers?.[id]);
+    };
+    const officerKnown = (id: string): boolean => (preview
+        ? officerSeen(world, base, id)
+        : officerSeen(world, state, id) || (!!before && officerSeen(world, before, id)) || officerSeenDuring(id));
     /** An NPC or an officer the crew doesn't know: no event names them. */
     const hiddenPerson = (id: string): boolean => (npcIds.has(id) && !known(id)) || (unitIds.has(id) && !officerKnown(id));
     const seenDuring = (id: string): boolean => !!before && Object.hasOwn(state.knowledge.npcs, id) && state.knowledge.npcs[id]!.tick > before.knowledge.tick;

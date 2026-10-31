@@ -188,7 +188,9 @@ describe('NPC wounds', () => {
         expect(r.events.find(e => e.type === 'npcWounded')).toEqual({ type: 'npcWounded', npc: 'guard', hp: 2, wounded: true });
         const w = commit(world, r.state, { type: 'endTurn' });
         expect(w.events.find(e => e.type === 'screamed')).toEqual({ type: 'screamed', npc: 'guard' });
-        expect(w.events.find(e => e.type === 'noise' && e.cause === 'scream guard')).toMatchObject({ kind: 'loud', radius: 6 });
+        // Its noise names where it came from, not who: the crew is told every noise, not every screamer.
+        expect(w.events.find(e => e.type === 'noise' && /^scream \d+,\d+$/.test(e.cause))).toMatchObject({ kind: 'loud', radius: 6 });
+        expect(w.events.some(e => e.type === 'noise' && e.cause.includes('guard'))).toBe(false);
         const g = npc(w.state, 'guard');
         expect(g.goal.kind).toBe('crawl');
         expect(g.intent.path).toHaveLength(1);

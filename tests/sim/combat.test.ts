@@ -231,6 +231,19 @@ describe('Watch', () => {
         expect(preview(world, set.state, { type: 'endTurn' }).pending).toMatchObject({ stream: 'combat', p: null });
     });
 
+    it('fires at no Hostile for an intent action it has not carried out', () => {
+        // A guard Hostile as the phase begins, still holding a radio call it never makes in the passive step: it neither
+        // walks nor acts there, so the passive step's reactions leave it be.
+        const { world, state } = setup(OPEN, { people: [person('guard', P(6, 1), 'lobbyGuard', 'enforcer')], status: { guard: 'hostile' } });
+        state.bank.loud = true;
+        state.bank.alarm = true;
+        npc(state, 'guard').intent = { path: [], action: { kind: 'raiseAlarm', carrier: 'guardRadio', crew: 'jun' } };
+        const set = commit(world, state, { type: 'watch', crew: 'jun', at: P(6, 1), arc: 30 }).state;
+        const r = commit(world, set, { type: 'endTurn' });
+        expect(types(r.events)).not.toContain('attacked');
+        expect(r.events.find(e => e.type === 'watchEnded')).toEqual({ type: 'watchEnded', crew: 'jun', fired: false });
+    });
+
     it("ends unfired as the next crew phase begins, and the DMR's narrow wedge fires at Aim ×1", () => {
         const { world, state } = setup(OPEN, { items: ['dmr'], people: [person('guard', P(6, 1), 'lobbyGuard', 'enforcer')] });
         expect(whyNot(world, state, { type: 'watch', crew: 'jun', at: P(6, 1), arc: 16 })).toMatch(/1° to 15°/);
@@ -339,6 +352,25 @@ describe('grenades', () => {
         const cleared = commit(world, s, { type: 'endTurn' });
         expect(types(cleared.events)).toContain('smokeCleared');
         expect(hasLineOfSight(world, cleared.state, P(0, 1), P(9, 1))).toBe(true);
+    });
+
+    it('preview the noise each will make as it goes off, its ring and no ears', () => {
+        for (const item of ['flashbang', 'smoke'] as const) {
+            const { world, state } = setup(OPEN, { items: [item], people: [person('guard', P(6, 1), 'lobbyGuard', 'enforcer')] });
+            state.bank.loud = true;
+            const cmd = { type: 'throwGrenade', crew: 'jun', item, to: P(5, 1) } as const;
+            const shown = actionPreview(world, state, cmd);
+            if (!shown.ok) throw new Error(shown.reason);
+            expect(shown.noises).toHaveLength(1);
+            const [noise] = shown.noises;
+            // The noise it makes in the world phase, with the same cause, sources and radius, drawn on the same tiles.
+            const off = commit(world, commit(world, state, cmd).state, { type: 'endTurn' });
+            const made = off.events.find(e => e.type === 'noise') as Extract<SimEvent, { type: 'noise' }>;
+            expect(noise).toMatchObject({ kind: made.kind, cause: made.cause, radius: made.radius, sources: made.sources, ears: [], fuse: true });
+            expect(made.kind).toBe(item === 'flashbang' ? 'loud' : 'quiet');
+            expect(noise!.tiles.length).toBeGreaterThan(0);
+            expect(noise!.tiles).toContainEqual(P(5, 1));
+        }
     });
 });
 

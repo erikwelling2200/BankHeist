@@ -344,7 +344,9 @@ registerWorldHook('devices', 'wounds', (ctx, phase) => {
     for (const npc of state.npcs) {
         if (!isPresent(npc) || npc.status === 'unconscious' || !isWounded(world, npc)) continue;
         ctx.emit({ type: 'screamed', npc: npc.id });
-        makeNoise(ctx, 'scream', npc.pos, `scream ${npc.id}`);
+        // Its cause names where, not who: a noise is told whoever made it (its tile is its source anyway), and two
+        // screams in one phase are two noises.
+        makeNoise(ctx, 'scream', npc.pos, `scream ${npc.pos.x},${npc.pos.y}`);
     }
 }, { order: 5 });
 
