@@ -18,6 +18,7 @@ import { commandNpc, crewThreat } from '../command';
 import { dealHarm } from '../damage';
 import { woundAim } from '../wounds';
 import { personOf } from '../npc/walk';
+import { policeShotAt } from '../police';
 import { bodyPos } from '../place';
 import { armourOf, leanOptions, resolveShot, shotRefusal, type Shot, type ShotTrace } from '../shot';
 import { isEyesDown } from '../suspicion';
@@ -189,6 +190,8 @@ function aimShot(ctx: Ctx, member: CrewState, plan: AttackPlan, mode: FireMode):
     };
     if (shot.target !== undefined) event.target = shot.target;
     ctx.emit(event);
+    // Aimed at an officer, hit or miss: Negotiate is over and they see where it came from (rules/police.ts).
+    if (shot.target !== undefined) policeShotAt(ctx, shot.target, member.id, origin);
     const source = NOISE_OF[plan.load]!;
     makeNoise(ctx, source, origin, `${plan.load} ${member.id}`, plan.weapon.noise, member.id);
     if (NOISES[source].kind === 'loud' && !state.bank.loud) {
@@ -416,6 +419,7 @@ registerAction('suppress', {
             const npc = state.npcs.find(n => n.id === id) ?? state.police.units.find(u => u.id === id)!;
             npc.suppressed = { turn: state.turn, by: member.id, from: { ...npc.pos! }, reacted: false };
             ctx.emit({ type: 'suppressedNpc', crew: member.id, npc: id });
+            policeShotAt(ctx, id, member.id, plan.shot.lean ?? member.pos);
         }
         for (const id of held.commanded) commandNpc(ctx, state.npcs.find(n => n.id === id)!, member.id, SUPPRESS.pips);
         aimShot(ctx, member, plan, 'suppress');

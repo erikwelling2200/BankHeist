@@ -1248,6 +1248,15 @@ export function markerKind(world: ReadonlyWorld, state: State, id: string): Mark
     return r.ghosts && state.turn - rec.turn <= r.ghostTurns ? 'ghost' : null;
 }
 
+/**
+ * Whether the crew sees a police officer now (M3-05): out on scene, on a tile the crew sees this turn. Officers have no
+ * remembered or predicted markers yet (M3-09): out of sight, they are unknown.
+ */
+export function officerSeen(world: ReadonlyWorld, state: State, id: string): boolean {
+    const unit = state.police?.units.find(u => u.id === id);
+    return !!unit?.pos && tileSets(world, state).fresh[unit.pos.y * world.width + unit.pos.x] === 1;
+}
+
 /** Whether the crew sees or predicts an NPC now: what it plans around, and whose events it is told. */
 export const isKnownNow = (world: ReadonlyWorld, state: State, id: string): boolean => {
     const kind = markerKind(world, state, id);
@@ -1297,7 +1306,7 @@ export function knownView(world: ReadonlyWorld, state: State): KnownView {
 }
 
 /** Fields of an event that may name an NPC (a door opened `by` one, a guard told, a walk stopped `by` one). */
-const PERSON_FIELDS = ['npc', 'by', 'guard', 'source', 'observer', 'target'] as const;
+const PERSON_FIELDS = ['npc', 'by', 'guard', 'source', 'observer', 'target', 'shooter', 'unit'] as const;
 
 /** Event types a preview never shows: what the player can't know before it happens (a hidden dye pack, §15.1). */
 const PREVIEW_SECRETS = new Set<string>();
@@ -1430,6 +1439,9 @@ export function projectEvents(world: ReadonlyWorld, state: State, events: readon
     const preview = options.mode === 'preview';
     const base = preview ? before ?? state : state;
     const npcIds = new Set(state.npcs.map(n => n.id)), crewIds = new Set(state.crew.map(c => c.id));
+    // Officers (M3-05) are told of only while the crew sees them (`officerSeen`), before or after.
+    const unitIds = new Set([...state.police.units, ...(before?.police.units ?? [])].map(u => u.id));
+    const officerKnown = (id: string): boolean => (preview ? officerSeen(world, base, id) : officerSeen(world, state, id) || (!!before && officerSeen(world, before, id)));
     const seenDuring = (id: string): boolean => !!before && Object.hasOwn(state.knowledge.npcs, id) && state.knowledge.npcs[id]!.tick > before.knowledge.tick;
     // A previewed world phase can't tell where a known NPC gets to when a door the crew can't vouch for could stop its
     // walk: it shows walking only the steps before that door, and when what it sees could change with the door, the rest
@@ -1478,6 +1490,7 @@ export function projectEvents(world: ReadonlyWorld, state: State, events: readon
         }
         const fields = e as unknown as Record<string, unknown>;
         if (PERSON_FIELDS.some(f => typeof fields[f] === 'string' && npcIds.has(fields[f] as string) && !known(fields[f] as string))) continue;
+        if (PERSON_FIELDS.some(f => typeof fields[f] === 'string' && unitIds.has(fields[f] as string) && !officerKnown(fields[f] as string))) continue;
         if (typeof fields.camera === 'string' && !cameras.has(fields.camera)) continue;
         if (typeof fields.door === 'string' && !(typeof fields.by === 'string' && crewIds.has(fields.by)) && !seesDoor(fields.door)) continue;
         if (e.type === 'heard') {
@@ -1522,9 +1535,9 @@ export function knownBlockers(world: ReadonlyWorld, state: State): Pos[] {
 }
 
 /**
- * The state as the crew pictures it: only the NPCs it sees or predicts are on the map, and each door not seen this
- * turn is as last seen (`knownDoorStatus`; a shallow copy, don't change it). Moves are planned and checked on it
- * (crew/movement.ts), and so should reach, tap snapping and drag validation be, with `planMoveOptions` (hidden tiles
+ * The state as the crew pictures it: only the NPCs it sees or predicts (and the officers it sees) are on the map, and
+ * each door not seen this turn is as last seen (`knownDoorStatus`; a shallow copy, don't change it). Moves are
+ * planned and checked on it (crew/movement.ts), and so should reach, tap snapping and drag validation be, with `planMoveOptions` (hidden tiles
  * off limits); a tile an unseen NPC stands on reads as open, and the move bumps into whoever is there; a door pictured
  * open or closed but locked stops the move before it.
  */
@@ -1532,7 +1545,10 @@ export function crewPicture(world: ReadonlyWorld, state: State): State {
     // Dragged bodies are with their draggers, not on the floor.
     const floor = onFloor(state);
     const npcs = floor.npcs.filter(n => isKnownNow(world, state, n.id)), doors = picturedDoors(world, state);
-    const base = npcs.length === state.npcs.length ? state : { ...state, npcs };
+    // Officers out on scene only where the crew sees them (`officerSeen`); those still aboard aren't on the map anyway.
+    const units = state.police.units.filter(u => !u.pos || officerSeen(world, state, u.id));
+    let base = npcs.length === state.npcs.length ? state : { ...state, npcs };
+    if (units.length !== state.police.units.length) base = { ...base, police: { ...state.police, units } };
     return doors ? { ...base, doors } : base;
 }
 

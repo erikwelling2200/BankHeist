@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { Rng } from '../../src/gen/rng';
 import {
-    commit, fixtureWorld, hashOf, initialState, OFFICER_STATS,
-    type FixtureWall, type Material, type NpcStatus, type PersonDef, type PoliceKind, type PoliceMode, type Pos, type ReadonlyWorld, type SimEvent, type State
+    commit, fixtureWorld, hashOf, IllegalCommand, initialState, leanOptions, legalActions, OFFICER_STATS,
+    type Command, type FixtureWall, type Material, type NpcStatus, type PersonDef, type PoliceKind, type PoliceMode, type Pos, type ReadonlyWorld, type SimEvent, type State
 } from '../../src/sim';
 
 /*
@@ -15,7 +15,9 @@ import {
  *   as the bullets leave); that a preview holds every outcome is M3-01's property test, and here the outcome is checked:
  *   every body every such bullet met is a crew member.
  * - **Every breach announced a phase ahead:** each door blown in a world phase had its marker, by the same officer,
- *   standing through the crew phase before it.
+ *   standing through the crew phase before it; every marker is carried out or called off, once, and the state's markers
+ *   are exactly those still open.
+ * - The crew plays too, at random: Watch, Suppress, attacks (leaning now and then), moves and reloads.
  * - The same game played twice ends the same.
  */
 
@@ -63,7 +65,7 @@ function randomGame(rng: Rng): { world: ReadonlyWorld; state: State } {
     if (rng.chance(0.5)) people.push(person('guard', free(4, w - 1), 'lobbyGuard', 'enforcer', 'w'));
     const world = fixtureWorld(rows, { walls, people });
     const s = initialState(world, {
-        seed: rng.int(1, 1e6), crew: [{ id: 'jun', pos: crewAt[0]!, items: ['pistol'] }, { id: 'mara', pos: crewAt[1]!, items: ['smg'] }]
+        seed: rng.int(1, 1e6), crew: [{ id: 'jun', pos: crewAt[0]!, items: ['pistol'] }, { id: 'mara', pos: crewAt[1]!, items: ['lmg', 'smg'] }]
     });
     for (const c of s.crew) c.loadout.masked = rng.chance(0.85);
     s.bank.alarm = true;
@@ -99,16 +101,62 @@ const fighters = (state: State): Set<string> => new Set([...state.police.units.m
 
 const GAMES = 60, PHASES = 6;
 
-describe('the police and guard routine (property, M3-05)', { timeout: 120000 }, () => {
+/** The crew's turn, at random: Watch, Suppress, attacks (leaning now and then), moves, or nothing. */
+function crewTurn(world: ReadonlyWorld, state: State, rng: Rng, seen: (events: readonly SimEvent[]) => void): State {
+    let s = state;
+    for (const member of state.crew.map(c => c.id)) {
+        for (let n = 0; n < 2; n++) {
+            const me = s.crew.find(c => c.id === member);
+            if (!me || me.actionsLeft < 1) break;
+            const legal = legalActions(world, s, member).filter(c => PLAYED.has(c.type));
+            const leans = leanOptions(world, s, member);
+            const attacks = legal.filter((c): c is Extract<Command, { type: 'attack' }> => c.type === 'attack');
+            const leaning = leans.length && attacks.length && rng.chance(0.3) ? [{ ...rng.pick(attacks), lean: { ...rng.pick(leans).at } }] : [];
+            const options = [...legal, ...leaning];
+            if (!options.length || rng.chance(0.25)) break;
+            try {
+                const r = commit(world, s, rng.pick(options));
+                seen(r.events);
+                s = r.state;
+            } catch (e) {
+                if (!(e instanceof IllegalCommand)) throw e;
+            }
+        }
+    }
+    return s;
+}
+
+const PLAYED = new Set(['watch', 'suppress', 'attack', 'move', 'reload']);
+
+describe('the police and guard routine (property, M3-05)', { timeout: 180000 }, () => {
     it('never fires through a standing non-crew body, and announces every breach a phase ahead', () => {
-        let shots = 0, held = 0, breaches = 0, announced = 0;
+        let shots = 0, held = 0, breaches = 0, announced = 0, volleys = 0;
         for (let g = 0; g < GAMES; g++) {
             const rng = new Rng(9100 + g);
             const { world, state } = randomGame(rng);
             let s = state;
+            // Every marker announced is carried out or called off, each once.
+            const open = new Map<string, number>();
+            const settle = (events: readonly SimEvent[], k: number): void => {
+                for (const e of events) {
+                    if (e.type === 'breachAnnounced') {
+                        expect(open.has(e.door), `game ${g} phase ${k}: ${e.door} announced twice`).toBe(false);
+                        open.set(e.door, k);
+                    }
+                    if (e.type === 'doorBreached' || e.type === 'breachCalledOff') {
+                        expect(open.has(e.door), `game ${g} phase ${k}: ${e.type} ${e.door} with no marker`).toBe(true);
+                        open.delete(e.door);
+                    }
+                }
+            };
             for (let k = 0; k < PHASES && s.crew.length; k++) {
+                s = crewTurn(world, s, rng, events => {
+                    settle(events, k);
+                    volleys += events.filter(e => e.type === 'attacked').length;
+                });
                 const before = s, crewIds = new Set(before.crew.map(c => c.id)), others = fighters(before);
                 const r = commit(world, before, { type: 'endTurn' });
+                settle(r.events, k);
                 for (const e of r.events) {
                     if (e.type === 'shotFired' && others.has(e.shooter)) {
                         shots++;
@@ -124,16 +172,18 @@ describe('the police and guard routine (property, M3-05)', { timeout: 120000 }, 
                         expect(marker && marker.turn < before.turn, `game ${g} phase ${k}: ${e.door} breached unannounced`).toBe(true);
                     }
                 }
-                // Breaches are only ever announced in the world phase, for the next one.
+                // Breaches are only ever announced in the world phase, for the next one; the state holds what is open.
                 for (const b of r.state.police.breaches) expect(b.turn).toBe(before.turn);
+                expect([...open.keys()].sort()).toEqual(r.state.police.breaches.map(b => b.door).sort());
                 s = r.state;
             }
         }
-        // The rule is exercised: shots fired, shots held for a body in the way, doors breached.
-        expect(shots).toBeGreaterThan(50);
-        expect(held).toBeGreaterThan(5);
+        // The rule is exercised: shots fired, shots held, doors breached, the crew firing back.
+        expect(shots).toBeGreaterThan(40);
+        expect(held).toBeGreaterThan(2);
         expect(announced).toBeGreaterThan(4);
         expect(breaches).toBeGreaterThan(4);
+        expect(volleys).toBeGreaterThan(40);
     });
 
     it('plays the same twice', () => {

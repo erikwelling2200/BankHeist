@@ -3,6 +3,7 @@ import { FACING_STEP, inBounds, tileAt } from '../core/grid';
 import { sortedIds } from '../core/json';
 import { newId, registerStateInit } from '../core/state';
 import type { DeepReadonly, Phase, Pos, ReadonlyWorld, State } from '../core/types';
+import { registerStateCheck } from '../core/save';
 import { registerEvents } from '../core/undo';
 import {
     ASSAULT_PHASES, CAR_SEATS, CARS_PER_STAGING, MAX_HEAT, TICKS_PER_LEVEL, CONTAIN_AGAIN_PHASES, CONTAIN_PHASES, FORCE, GREED_CAP, GREED_PER_BAG, HELICOPTER_FROM, MODE_LABELS,
@@ -99,8 +100,11 @@ export interface PoliceUnit {
     moved: number | null;
 }
 
-/** What the police know of a crew member (§13.6): where and when last seen or told, and whether down then. */
-export interface PoliceSighting { tile: Pos; turn: number; down: boolean }
+/**
+ * What the police know of a crew member (§13.6): where and when last seen or told, and whether down then; `tile` null
+ * once an officer saw that place empty (at `turn`), so a report older than that doesn't bring it back.
+ */
+export interface PoliceSighting { tile: Pos | null; turn: number; down: boolean }
 
 /** A breach announced a phase ahead (§13.4, §13.6): `unit` breaches `door` in the world phase after `turn`'s. */
 export interface Breach { door: string; unit: string; turn: number }
@@ -411,6 +415,29 @@ function startMode(ctx: Ctx, mode: PoliceMode, after: PoliceMode | null): void {
     const phases = modePhases(state, mode, after);
     state.police.mode = { kind: mode, left: phases, since: { turn: state.turn, phase: state.phase }, after };
     ctx.emit({ type: 'policeMode', mode, phases, level: state.response ? heatOf(state.response.heat).level : 1 });
+    // Breaches are an Assault's (rules/routine.ts): out of it, every marker comes down.
+    if (mode !== 'assault') callOffBreaches(ctx, () => true);
+}
+
+/** Takes down the announced breaches `which` picks, each told (`breachCalledOff`). */
+function callOffBreaches(ctx: Ctx, which: (b: Breach) => boolean): void {
+    const p = ctx.state.police;
+    for (const b of p.breaches.filter(which)) {
+        p.breaches.splice(p.breaches.indexOf(b), 1);
+        ctx.emit({ type: 'breachCalledOff', door: b.door, unit: b.unit });
+    }
+}
+
+/**
+ * A crew member fired at an officer (aimed at it, or held it in a Suppress wedge; M3-05): shooting police ends
+ * Negotiate in an immediate Assault whether it hits or not (§13.4), and the muzzle flash tells the police where the
+ * shooter is (`known`). A hit is also `policeHit`.
+ */
+export function policeShotAt(ctx: Ctx, unitId: string, crewId: string, from: DeepReadonly<Pos>): void {
+    const { state } = ctx;
+    if (!state.police.units.some(u => u.id === unitId && u.pos !== null)) return;
+    state.police.known[crewId] = { tile: { x: from.x, y: from.y }, turn: state.turn, down: false };
+    if (state.police.mode?.kind === 'negotiate') startMode(ctx, 'assault', 'negotiate');
 }
 
 /** The director's mode for the HUD: "Assault in 2", "Negotiate (3)". */
@@ -436,10 +463,7 @@ export function policeDown(ctx: Ctx, unitId: string, killed: boolean): void {
     state.police.units.splice(state.police.units.indexOf(unit), 1);
     ctx.emit({ type: 'policeDown', unit: unit.id, kind: unit.kind, killed });
     // A breach it announced won't happen (rules/routine.ts): the marker comes down at once.
-    for (const b of state.police.breaches.filter(x => x.unit === unit.id)) {
-        state.police.breaches.splice(state.police.breaches.indexOf(b), 1);
-        ctx.emit({ type: 'breachCalledOff', door: b.door, unit: b.unit });
-    }
+    callOffBreaches(ctx, b => b.unit === unit.id);
     if (!killed) return;
     state.heat.policeKilled++;
     addHeat(ctx, state.heat.policeKilled === 1 ? 'firstPoliceKilled' : 'policeKilled');
@@ -485,6 +509,18 @@ registerWorldHook('devices', 'police.director', (ctx, phase) => {
         sendWave(ctx, 5, 'refill');
     }
 }, { order: 3 });
+
+// A save from before M3-05 has no officers' hit points, nor what the police know or the breaches they announced.
+registerStateCheck('police', raw => {
+    const p = (raw as unknown as Partial<State>).police as Partial<PoliceState> | undefined;
+    if (!p || typeof p !== 'object') return 'no police';
+    for (const key of ['units', 'vehicles', 'secured', 'breaches'] as const) if (!Array.isArray(p[key])) return `no police ${key} (saved by an older build)`;
+    if (!p.known || typeof p.known !== 'object' || Array.isArray(p.known)) return 'no police knowledge (saved by an older build)';
+    for (const u of p.units!) {
+        for (const key of ['hp', 'leaning', 'suppressed', 'moved'] as const) if (!Object.hasOwn(u, key)) return `police unit ${u.id} has no ${key} (saved by an older build)`;
+    }
+    return undefined;
+});
 
 registerEvents({
     policeArriving: { undoBlocking: true },

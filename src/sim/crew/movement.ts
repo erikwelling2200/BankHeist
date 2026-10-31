@@ -168,7 +168,9 @@ const bump: MoveLimit = (ctx, member, path) => {
     for (let i = 0; i < path.length; i++) {
         const p = path[i]!, who = people.get(p.y * world.width + p.x);
         if (!who || who === 'none') continue;
-        const npc = state.npcs.find(n => n.pos.x === p.x && n.pos.y === p.y && !ABSENT_STATUSES.has(n.status));
+        // An officer out on scene (rules/police.ts) is bumped into as an NPC is.
+        const npc = state.npcs.find(n => n.pos.x === p.x && n.pos.y === p.y && !ABSENT_STATUSES.has(n.status))
+            ?? state.police?.units.find(u => u.pos?.x === p.x && u.pos?.y === p.y);
         if (npc && (who === 'blocking' || i === path.length - 1)) return { keep: i, npc: npc.id, reason: 'bump' };
     }
     return undefined;

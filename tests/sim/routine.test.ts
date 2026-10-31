@@ -1,8 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import {
-    clonePlain, commit, dealHarm, fixtureWorld, initialState, legalActions, OFFICER_STATS, policeDown,
+    clonePlain, commit, crewShotPreview, dealHarm, previewShot, deserialiseState, fixtureWorld, initialState, legalActions, OFFICER_STATS, policeDown, preview, projectEvents, serialiseState,
     type CrewStart, type FixtureOptions, type FixtureWall, type Material, type PersonDef, type PoliceKind, type PoliceMode, type Pos, type ReadonlyWorld, type SimEvent, type State
 } from '../../src/sim';
+import { actionMenu } from '../../src/game/actions';
 import { describeEvent, threatLedger } from '../../src/game/views';
 import { registerTestCommand, testCommand } from './helpers';
 
@@ -91,7 +92,7 @@ describe('officers fighting (§13.6)', () => {
         const held = setup(OPEN, { people });
         officer(held.state, 'cop', P(8, 2));
         const r = commit(held.world, held.state, endTurn);
-        expect(of(r.events, 'heldFire')).toEqual([{ type: 'heldFire', shooter: 'cop', target: 'jun' }]);
+        expect(of(r.events, 'heldFire')).toEqual([{ type: 'heldFire', shooter: 'cop', target: 'jun', why: 'body' }]);
         expect(types(r.events)).not.toContain('shotFired');
 
         const moving = setup(OPEN, { people, mode: 'assault' });
@@ -176,6 +177,106 @@ describe('officers taking harm', () => {
     });
 });
 
+describe('crew Watch on fighters that act (§11.8)', () => {
+    it('fires at an officer that shoots from where it stands, before its shot', () => {
+        const { world, state } = setup(OPEN, { crew: [{ id: 'jun', pos: P(1, 2), items: ['pistol'] }] });
+        officer(state, 'cop', P(8, 2));
+        const watching = commit(world, state, { type: 'watch', crew: 'jun', at: P(8, 2), arc: 30 }).state;
+        const r = commit(world, watching, endTurn), order = types(r.events);
+        const volley = r.events.findIndex(e => e.type === 'attacked' && e.mode === 'watch');
+        expect(volley).toBeGreaterThanOrEqual(0);
+        expect(of(r.events, 'attacked')[0]).toMatchObject({ crew: 'jun', target: 'cop', mode: 'watch' });
+        // The volley comes first; the officer, still up, fires after it.
+        if (unit(r.state, 'cop')) expect(order.indexOf('fighterFired')).toBeGreaterThan(volley);
+    });
+
+    it('fires at a Hostile NPC that shoots from where it stands', () => {
+        const { world, state } = setup(OPEN, { people: [person('guard', P(8, 2), 'lobbyGuard', 'enforcer', 'w')] });
+        npc(state, 'guard').status = 'hostile';
+        const watching = commit(world, state, { type: 'watch', crew: 'jun', at: P(8, 2), arc: 30 }).state;
+        const r = commit(world, watching, endTurn);
+        expect(of(r.events, 'attacked')[0]).toMatchObject({ crew: 'jun', target: 'guard', mode: 'watch' });
+        const volley = r.events.findIndex(e => e.type === 'attacked'), shot = r.events.findIndex(e => e.type === 'fighterFired');
+        if (shot >= 0) expect(shot).toBeGreaterThan(volley);
+    });
+
+    it('does not fire at a fighter that neither moves nor acts', () => {
+        const { world, state } = setup(OPEN, { mode: 'negotiate' });
+        officer(state, 'cop', P(8, 2));
+        const watching = commit(world, state, { type: 'watch', crew: 'jun', at: P(8, 2), arc: 30 }).state;
+        expect(types(commit(world, watching, endTurn).events)).not.toContain('attacked');
+    });
+});
+
+describe('officers through what the crew knows (§8.15, two worlds)', () => {
+    // An officer on a dark tile 8 off: in the pistol's range and line of fire, but the crew sees only 6 into the dark.
+    const DARK = [7, 8, 9, 10, 11].flatMap(x => [0, 1, 2, 3, 4].map(y => P(x, y)));
+
+    function worlds(mode: PoliceMode, at: Pos, extra: (s: State) => void = () => {}) {
+        const make = (withOfficer: boolean) => {
+            const { world, state } = setup(Array.from({ length: 5 }, () => '..............................'), { dark: DARK, mode });
+            state.crew[0]!.loadout.masked = false;
+            extra(state);
+            if (withOfficer) officer(state, 'cop', at);
+            return { world, state };
+        };
+        return { hidden: make(true), absent: make(false) };
+    }
+
+    it('gives the same grid and the same shot preview whether a hidden officer is there or not', () => {
+        const { hidden, absent } = worlds('contain', P(9, 2));
+        expect(legalActions(hidden.world, hidden.state, 'jun').some(c => c.type === 'attack' && c.target === 'cop')).toBe(true);
+        expect(actionMenu(hidden.world, hidden.state, 'jun', 'cop')).toEqual(actionMenu(absent.world, absent.state, 'jun', 'cop'));
+        const shot = { shooter: 'jun', weapon: 'pistol', at: P(12, 2) };
+        expect(crewShotPreview(hidden.world, hidden.state, shot)).toEqual(crewShotPreview(absent.world, absent.state, shot));
+        // The truth has it in the line.
+        expect(previewShot(hidden.world, hidden.state, shot).bodies.map(b => b.id)).toContain('cop');
+    });
+
+    it('tells the same events whether a hidden officer moved about or wasn\'t there', () => {
+        // Off past what the crew sees, walking on a stale report of Mara.
+        const { hidden, absent } = worlds('assault', P(18, 2), s => {
+            s.crew.push(clonePlain({ ...s.crew[0]!, id: 'mara', name: 'Mara', pos: P(1, 4) }));
+            s.police.known.mara = { tile: P(29, 2), turn: 0, down: false };
+        });
+        const a = commit(hidden.world, hidden.state, endTurn), b = commit(absent.world, absent.state, endTurn);
+        expect(types(a.events)).toContain('policeMoved');
+        expect(projectEvents(hidden.world, a.state, a.events, hidden.state)).toEqual(projectEvents(absent.world, b.state, b.events, absent.state));
+    });
+});
+
+describe('what the police know', () => {
+    it('a report older than an empty sighting brings nothing back', () => {
+        const { world, state } = setup(OPEN, { crew: [{ id: 'jun', pos: P(15, 4), items: ['pistol'] }] });
+        state.crew[0]!.loadout.masked = false;
+        state.police.known.jun = { tile: P(3, 0), turn: 0, down: false };
+        state.negotiation.reports.push({ npc: 'ann', turn: 0, seen: [{ crew: 'jun', tile: P(3, 0), turn: 0 }] });
+        // Jun is out of the officer's sight; the reported tile isn't, and it is empty.
+        officer(state, 'cop', P(3, 2));
+        let s = commit(world, state, endTurn).state;
+        expect(s.police.known.jun).toEqual({ tile: null, turn: 1, down: false });
+        s = commit(world, s, endTurn).state;
+        expect(s.police.known.jun).toEqual({ tile: null, turn: 1, down: false });
+    });
+
+    it('a shot at an officer, hit or miss, ends Negotiate and gives the shooter away', () => {
+        const { world, state } = setup(OPEN, { mode: 'negotiate' });
+        state.crew[0]!.loadout.masked = false;
+        officer(state, 'cop', P(8, 2));
+        const seen = preview(world, state, { type: 'attack', crew: 'jun', at: P(8, 2), target: 'cop' });
+        expect(seen.state.police.mode!.kind).toBe('assault');
+        expect(seen.state.police.known.jun).toEqual({ tile: P(1, 2), turn: 1, down: false });
+    });
+
+    it('a save from before M3-05 is refused, not loaded to crash later', () => {
+        const { state } = setup(OPEN);
+        const old = clonePlain(state) as unknown as { police: Record<string, unknown> };
+        delete old.police.known;
+        delete old.police.breaches;
+        expect(() => deserialiseState(serialiseState({ state: old as unknown as State }))).toThrow(/older build/);
+    });
+});
+
 describe('freeing hostages (§10.10)', () => {
     it('frees a Commanded hostage beside an officer for free; it walks out, escapes and tells', () => {
         const { world, state } = setup(OPEN, { people: [person('bob', P(9, 4))], mode: 'contain', crew: [{ id: 'jun', pos: P(15, 0), items: [] }] });
@@ -255,6 +356,16 @@ describe('breaches (§13.4, §13.6)', () => {
         const r = commit(world, state, endTurn);
         expect(types(r.events)).not.toContain('breachAnnounced');
         expect(unit(r.state, 'cop')!.pos).toEqual(P(9, 2));
+    });
+
+    it('are called off when Assault ends', () => {
+        const { world, state } = divided(10);
+        // The world phase that announces it is Assault's last.
+        state.police.mode!.left = 1;
+        const r = commit(world, state, endTurn);
+        expect(types(r.events)).toContain('breachAnnounced');
+        expect(of(r.events, 'breachCalledOff')).toEqual([{ type: 'breachCalledOff', door: 'd', unit: 'cop' }]);
+        expect(r.state.police.breaches).toEqual([]);
     });
 
     it('are called off when the breacher goes down', () => {

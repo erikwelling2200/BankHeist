@@ -469,6 +469,9 @@ const lootName = (world: ReadonlyWorld, id: string): string => {
     return o?.name ? `the ${o.name.charAt(0).toLowerCase()}${o.name.slice(1)}` : 'the loot';
 };
 
+/** Why a fighter held its fire, as the recap says it. */
+const HOLD_WHY: Readonly<Record<string, string>> = { range: 'out of range', sight: 'no line of fire', refused: 'no way to fire from there', body: 'someone in the way' };
+
 export function describeEvent(world: ReadonlyWorld, state: State, event: SimEvent): string {
     const name = (id: string): string => state.crew.find(c => c.id === id)?.name ?? state.custody.find(c => c.crew.id === id)?.crew.name
         ?? world.people.find(p => p.id === id)?.name ?? id;
@@ -500,7 +503,7 @@ export function describeEvent(world: ReadonlyWorld, state: State, event: SimEven
         case 'policeHit': return 'A police officer is hit';
         case 'officerWounded': return event.hp ? `A police officer is hit (${event.hp} HP left)` : 'A police officer is down';
         case 'fighterFired': return `${who(event.shooter)} fired at ${name(event.target)}`;
-        case 'heldFire': return `${who(event.shooter)} held fire: someone in the way`;
+        case 'heldFire': return `${who(event.shooter)} held fire: ${HOLD_WHY[event.why]}`;
         case 'npcReloaded': return `${name(event.npc)} reloaded`;
         case 'hostageFreed': return `Police freed ${name(event.npc)}`;
         case 'breachAnnounced': return `Breach next phase: ${doorName(world, event.door)}`;

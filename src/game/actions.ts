@@ -1,5 +1,5 @@
 import {
-    besideDoor, COMBAT_COMMANDS, crewPicture, negotiatorCalling, offerEffect, releasable, tradeable, withDoubtedShut, doorStatus, DRAGGABLE, draggedBy, goBlocked, HACKING_KIT, inHands, inReach, interactionVerbs, isKnownNow, JAMMER, legalActions, LOCKPICK, lockActions, LOOP_FROM, lootWeight,
+    besideDoor, COMBAT_COMMANDS, crewPicture, negotiatorCalling, offerEffect, releasable, tradeable, withDoubtedShut, doorStatus, DRAGGABLE, draggedBy, goBlocked, HACKING_KIT, inHands, inReach, interactionVerbs, isKnownNow, JAMMER, officerSeen, legalActions, LOCKPICK, lockActions, LOOP_FROM, lootWeight,
     pocketed, reachesObject, STASH_KINDS, throwTargets, tieIneligible, tileVisibility, whyNot, type Command, type Pos, type ReadonlyWorld, type State
 } from '../sim';
 import type { HudIcon as HudIconName } from '../ui/hud/viewModels';
@@ -323,8 +323,7 @@ function combatEntries(
         const mine = combat.filter((c): c is T => c.type === type && keep(c as T));
         const known = mine.filter(c => {
             const id = npcOf(c);
-            // An officer is offered only in the shooter's sight (`officersInRange`), so the crew sees it.
-            return id === undefined || isKnownNow(world, state, id) || state.police.units.some(u => u.id === id);
+            return id === undefined || isKnownNow(world, state, id) || officerSeen(world, state, id);
         });
         return known.find(c => !!target && npcOf(c) === target) ?? known[0];
     };

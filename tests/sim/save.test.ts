@@ -78,7 +78,7 @@ describe('saving', () => {
  * NpcStatusMap, CarrierKindMap or adds a field must also fill it in below, or a change of shape goes unnoticed.
  */
 const SHAPE_HASHES: Record<number, string> = {
-    1: '5e926a44f3e501a4'
+    1: '400a89e4928a5e1e'
 };
 
 /** Paths whose objects are records by id, not structs. */
@@ -208,7 +208,7 @@ describe('the save format', () => {
                 { id: 'helicopter-7', kind: 'helicopter', label: 'Helicopter', staging: null, pos: { x: 4, y: 1 }, arrived: 5, status: 'parked' }
             ],
             mode: { kind: 'negotiate', left: 2, since: { turn: 4, phase: 'world' }, after: 'contain' }, sent: 2, refills: 0, secured: ['cash'],
-            known: { jun: { tile: { x: 1, y: 1 }, turn: 4, down: false } }, breaches: [{ door: 'staffDoor', unit: 'police-6', turn: 4 }]
+            known: { jun: { tile: { x: 1, y: 1 }, turn: 4, down: false }, mara: { tile: null, turn: 5, down: false } }, breaches: [{ door: 'staffDoor', unit: 'police-6', turn: 4 }]
         };
         full.negotiation = {
             answered: 4, stalled: true, returns: [{ crew: 'jun', npc: 'teller', at: { x: 0, y: 2 } }],
