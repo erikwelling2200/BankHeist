@@ -45,8 +45,14 @@ export class Baker {
      * stands. Baked with `EVERYWHERE`, they light all of it.
      */
     lampsReaching(points: [number, number][]): Lamp[] {
-        return this.lamps.filter(lamp => points.some(([x, y]) => this.reach.reaches(lamp, x, y)));
+        return this.lamps.filter(lamp => !this.off?.has(lamp) && points.some(([x, y]) => this.reach.reaches(lamp, x, y)));
     }
+
+    /**
+     * Lamps that are out (a power cut, scenes/bank/power.ts): `lampsReaching` leaves them out from now on, so whatever is
+     * lit again (a person moving) is lit without them. What is baked already stays as it is.
+     */
+    off?: ReadonlySet<Lamp>;
 
     /**
      * Makes texture `key`: `bitmap` drawn at (left, top), lit the way Light2D would light it by those of `lamps` that

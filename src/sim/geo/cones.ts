@@ -1,5 +1,6 @@
 import { FACING_STEP } from '../core/grid';
 import { registerRuleDefaults } from '../core/state';
+import { powerOn } from '../core/power';
 import type { CameraDef, CrewState, DeepReadonly, Facing, NpcState, NpcStatus, Pos, ReadonlyWorld, Rules, State } from '../core/types';
 import { lineOfSight, sightMap, type SightMap } from './los';
 
@@ -157,7 +158,8 @@ export function npcObserver(world: ReadonlyWorld, npc: DeepReadonly<NpcState>): 
 export function cameraObserver(world: ReadonlyWorld, state: State, id: string, next = false): Observer | null {
     const def: DeepReadonly<CameraDef> | undefined = world.cameras.find(c => c.id === id);
     const now = state.cameras[id];
-    if (!def || !now || !now.live || now.loopedUntil !== null) return null;
+    // A camera needs power (§14.6): a cut turns every one off.
+    if (!def || !now || !now.live || now.loopedUntil !== null || !powerOn(state)) return null;
     const facing = def.facings[(now.facing + (next ? 1 : 0)) % def.facings.length]!;
     const p = profilesOf(world);
     return { pos: def.pos, facing, profile: def.seesInDark ? p.darkCamera : p.camera };

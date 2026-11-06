@@ -9,6 +9,7 @@ import { HACKING_KIT, workActions } from '../alarms';
 import { lockOn } from '../keys';
 import { makeNoise } from '../../geo/sound';
 import { registerRuleDefaults } from '../../core/state';
+import { lockReleased, powerOn } from '../../core/power';
 
 /*
  * Interacting with doors (§6.3 Interact, 1 action), from a tile beside the door:
@@ -104,7 +105,7 @@ function lockWorkBlocked(
     if (!member.loadout.items.includes(HACKING_KIT)) return `${member.name} has no hacking kit`;
     const lock = lockOn(world, door.id);
     if (lock?.technical.kind !== 'loopedReader') return undefined;
-    const watching = world.cameras.filter(c => c.room === lock.room && state.cameras[c.id]?.live !== false && state.cameras[c.id]?.loopedUntil === null);
+    const watching = powerOn(state) ? world.cameras.filter(c => c.room === lock.room && state.cameras[c.id]?.live !== false && state.cameras[c.id]?.loopedUntil === null) : [];
     return watching.length ? 'Loop the camera watching the reader first' : undefined;
 }
 
@@ -131,6 +132,8 @@ export function doorActionBlocked(
             if (door.lock === 'none') return 'The door has no lock';
             if (status === 'open') return 'Close the door first';
             if (status === 'locked') return 'The door is already locked';
+            // A maglock a power cut released doesn't hold (§14.6).
+            if (lockReleased(world, state, door.id)) return 'The maglock has no power';
             if (crewHasKey(world, member, door)) return undefined;
             if (door.lock !== 'mechanical') return `${member.name} has no key to this door`;
             return innerSide(world, door, at) ? undefined : 'It locks with a key from this side';

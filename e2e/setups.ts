@@ -535,6 +535,25 @@ export const BESIDE_DOOR = `(() => { ${PAGE_HELPERS}
 })()`;
 
 /**
+ * Mara in reach of the breaker panel (M4-03), on a free tile beside it, out of reach of the alarm panel next to it (the
+ * grid offers the first object in reach); `info` names the panel and where she stands.
+ */
+export const AT_BREAKER = `(() => { ${PAGE_HELPERS}
+    const breaker = w.objects.find(o => o.kind === 'breakerPanel');
+    if (!breaker) return null;
+    const near = (a, b) => Math.max(Math.abs(a.x - b.x), Math.abs(a.y - b.y)) <= 1;
+    const others = w.objects.filter(o => o.id !== breaker.id && o.kind === 'alarmPanel');
+    const spots = [{ x: 0, y: 0 }, ...AROUND, { x: -1, y: 1 }, { x: 1, y: 1 }];
+    for (const d of [...spots].sort((a, b) => others.filter(o => near(o.pos, { x: breaker.pos.x + a.x, y: breaker.pos.y + a.y })).length - others.filter(o => near(o.pos, { x: breaker.pos.x + b.x, y: breaker.pos.y + b.y })).length)) {
+        const p = { x: breaker.pos.x + d.x, y: breaker.pos.y + d.y }, st = clone(sim.state);
+        if (!free(st, p)) continue;
+        st.crew[0].pos = p;
+        return { state: st, info: { object: breaker.id, at: p } };
+    }
+    return null;
+})()`;
+
+/**
  * Mara beside a wall a charge opens (M4-01): a plaster wall for a breach charge, else a concrete or brick one for a
  * shaped charge, with free floor both sides, inside the building, the far side known for a breach charge (preferred for
  * a shaped one), preferring one with loot lying within a tile of it
@@ -663,6 +682,18 @@ export const SETUPS: Record<string, Setup> = {
         then: async (page, info) => {
             await page.evaluate(i => (window as any).sim.commit({ type: 'fortify', crew: (window as any).sim.state.crew[0].id, edge: i.edge, action: 'barricade' }), info);
             await page.evaluate(p => (window as any).game.scene.getScene('bank').lookAt(p.x * 16 + 8, p.y * 16 + 8), info.at);
+        }
+    },
+    'power-out': {
+        about: 'Mara has cut the power at the breaker (M4-03): the building dark under emergency light, the street lit by day, screens out, the exit signs on',
+        script: AT_BREAKER,
+        then: async (page, info) => {
+            await page.evaluate(i => (window as any).sim.commit({ type: 'interact', crew: (window as any).sim.state.crew[0].id, object: i.object, verb: 'cut' }), info);
+            // Jun, still at the van, looks in from the street: the dark lobby beside the lit pavement.
+            await page.evaluate(() => {
+                const p = (window as any).sim.state.crew[1].pos;
+                (window as any).game.scene.getScene('bank').lookAt(p.x * 16 + 8, p.y * 16 - 120);
+            });
         }
     },
     'drive': {

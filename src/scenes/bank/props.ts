@@ -31,17 +31,32 @@ export function placeProps(bank: BankData): PlacedProp[] {
     });
 }
 
-/** Every light in the bank: the rooms' ceiling lamps, daylight inside the street glass, and the props' own lights. */
-export function bankLamps(bank: BankData, props: PlacedProp[]): Lamp[] {
-    const far = farFront(bank.level);
-    return [
-        ...roomLamps(bank.rooms), ...windowPatches(bank.level, streetFront(bank.level).line), ...(far ? windowPatches(bank.level, far.line, 'south') : []),
-        ...props.flatMap(propLamps), ...props.filter(({ p }) => p.kind === 'skylight').map(({ box }) => skylightLamp(box))
+/** Props on the emergency circuit's battery (§14.6): they stay lit in a power cut. */
+export const BATTERY_PROPS: ReadonlySet<LevelProp['kind']> = new Set<LevelProp['kind']>(['exitSign']);
+
+/**
+ * Every light in the bank: the rooms' ceiling lamps, daylight inside the street glass, and the props' own lights; and
+ * those of them that a power cut puts out (`electric`: the ceiling lamps and the props' lights but the exit signs').
+ */
+export function bankLamps(bank: BankData, props: PlacedProp[]): { lamps: Lamp[]; electric: ReadonlySet<Lamp> } {
+    const far = farFront(bank.level), ceiling = roomLamps(bank.rooms), own = props.map(propLamps);
+    const lamps = [
+        ...ceiling, ...windowPatches(bank.level, streetFront(bank.level).line), ...(far ? windowPatches(bank.level, far.line, 'south') : []),
+        ...own.flat(), ...props.filter(({ p }) => p.kind === 'skylight').map(({ box }) => skylightLamp(box))
     ];
+    return { lamps, electric: new Set([...ceiling, ...own.flatMap((l, i) => (BATTERY_PROPS.has(props[i]!.p.kind) ? [] : l))]) };
 }
 
 /** A prop on screen: the tile under the middle of its box, and its images. */
-export interface ShownProp { tx: number; ty: number; images: Phaser.GameObjects.Image[] }
+export interface ShownProp {
+    tx: number;
+    ty: number;
+    images: Phaser.GameObjects.Image[];
+    /** Its box, and those of its images that glow (screens, lamp shades), which a power cut puts out unless on the battery. */
+    box: Box;
+    glows: Phaser.GameObjects.Image[];
+    battery: boolean;
+}
 
 /**
  * Places every standing prop, drawn in order of its box's front edge (one on another prop's top just after that prop),
@@ -52,6 +67,7 @@ export function addProps(
     scene: Phaser.Scene, baker: Baker, walls: Walls, props: PlacedProp[], heights?: Heights
 ): { occluders: Occluder[]; casters: Caster[]; shown: ShownProp[] } {
     const occluders: Occluder[] = [], casters: Caster[] = [], shown: ShownProp[] = [];
+    const glows: Phaser.GameObjects.Image[] = [];
     // What stands on a raised floor is drawn lifted with it, and goes up and down with it as it is cut.
     const lifted: { images: Phaser.GameObjects.Image[]; top: number; tx: number; ty: number; region: number }[] = [];
     const lift = (l: (typeof lifted)[number]) => { for (const image of l.images) image.setY(l.top - heights!.lift(l.tx, l.ty)); };
@@ -67,13 +83,14 @@ export function addProps(
             images.push(scene.add.image(left, top, `${key}-glow`).setOrigin(0, 0).setDepth(depth + GLOW_DEPTH));
             // A second, additive pass makes screens and lamps glow into the bloom.
             images.push(scene.add.image(left, top, `${key}-glow`).setOrigin(0, 0).setDepth(DEPTH.emissive).setBlendMode(Phaser.BlendModes.ADD).setAlpha(0.45));
+            glows.push(...images.slice(1));
         }
         const tx = Math.floor((box.x + box.w / 2) / TILE), ty = Math.floor((box.y + box.d / 2) / TILE), region = heights?.region(tx, ty) ?? -1;
         if (region >= 0) {
             lifted.push({ images, top, tx, ty, region });
             lift(lifted.at(-1)!);
         }
-        shown.push({ tx, ty, images });
+        shown.push({ tx, ty, images, box, glows: glows.splice(0), battery: BATTERY_PROPS.has(p.kind) });
         if (box.z === 0) occluders.push(floorOccluder(box));
         if (box.z > 0 && !isOnTop(p.kind) && !ALWAYS_SHOWN.includes(p.kind)) walls.hang(box, images);
     });

@@ -78,6 +78,8 @@ export class Walls {
     private readonly sprites: WallSprite[] = [];
     /** Debris heaps by tile ("x,y"). */
     private readonly debris = new Map<string, Phaser.GameObjects.Image>();
+    /** The tint the walls are drawn with (`shade`), if any. */
+    private shading?: (lamps: readonly Lamp[], points: [number, number][]) => number | null;
     private clock = 0;
     private baker?: Baker;
 
@@ -237,7 +239,11 @@ export class Walls {
         const w = this.sprites.find(s => s.wall.run === run && s.wall.tx === tx && s.wall.ty === ty);
         if (!w) throw new Error(`No wall segment at ${run} ${tx},${ty} to open`);
         if (!opens(w.look) || (!open && !w.door) || w.gap) return;
-        const door = (w.door ??= this.drawDoor(w, this.sprites.indexOf(w)));
+        if (!w.door) {
+            w.door = this.drawDoor(w, this.sprites.indexOf(w));
+            this.applyShade(w);
+        }
+        const door = w.door;
         door.open = open;
         w.image.setVisible(!open);
         door.gap.setVisible(open);
@@ -272,7 +278,26 @@ export class Walls {
             w.door.leaf?.setVisible(false);
         }
         for (const d of w.dressing) for (const image of d.images) image.setVisible(false);
+        this.applyShade(w);
         this.setStep(w, w.step);
+    }
+
+    /**
+     * Tints every segment (its doorway and leaf, a gap) by `shade`, given the lamps that light it and the floor points
+     * beside it they were judged at; null takes the tint off. A power cut darkens the walls so (scenes/bank/power.ts).
+     */
+    shade(shade: ((lamps: readonly Lamp[], points: [number, number][]) => number | null) | null): void {
+        this.shading = shade ?? undefined;
+        for (const w of this.sprites) this.applyShade(w);
+    }
+
+    private applyShade(w: WallSprite): void {
+        const tint = this.shading?.(w.lamps, wallSides(w.wall, wallFootprint(w.wall))) ?? null;
+        for (const image of [w.image, w.support?.image, w.door?.gap, w.door?.leaf, w.gap?.image]) {
+            if (!image) continue;
+            if (tint === null) image.clearTint();
+            else image.setTint(tint);
+        }
     }
 
     /**

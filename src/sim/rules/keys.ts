@@ -2,6 +2,7 @@ import { InvariantError, type Ctx } from '../core/engine';
 import type { DeepReadonly, DoorDef, ReadonlyWorld, State } from '../core/types';
 import { registerEvents } from '../core/undo';
 import { doorStatus } from '../geo/move';
+import { powerOn } from '../core/power';
 import type { CodePart, KeyLock } from '../../gen/model';
 
 /*
@@ -86,6 +87,8 @@ export function timeLockOpen(world: ReadonlyWorld, turn: number): boolean {
 export function vaultShut(world: ReadonlyWorld, state: State): string | undefined {
     const vault = vaultLock(world);
     if (vault && doorStatus(world, state, vault.target) !== 'locked') return 'The vault isn\'t locked';
+    // The console needs power (§14.6, §15.2): no code, nor card, during an outage.
+    if (!powerOn(state)) return 'The console is dark: the power is out';
     if (vault?.timeLock && !timeLockOpen(world, state.turn)) {
         return state.turn < vault.timeLock.from ? `The time lock holds the vault shut until turn ${vault.timeLock.from}` : 'The time lock holds the vault shut for the day';
     }

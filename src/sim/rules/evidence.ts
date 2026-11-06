@@ -2,6 +2,7 @@ import { preview, registerWorldHook, type Ctx } from '../core/engine';
 import { facingToward, samePos, tileAt } from '../core/grid';
 import { sortedIds } from '../core/json';
 import { newId, registerNpcInit, registerRuleDefaults, registerStateInit } from '../core/state';
+import { darkensAt } from '../core/power';
 import type { CarrierKind, Command, DeepReadonly, Intent, NpcState, ObserverClass, Phase, Pos, ReadonlyWorld, State } from '../core/types';
 import { registerEvents } from '../core/undo';
 import { NOISES, type NoiseKind, type NoiseSource } from '../data/noise';
@@ -26,7 +27,8 @@ import { panicNpc, panicsAt } from './panicState';
  *   item with a stable id, its kind and the tiles it is seen on:
  *   - minor: a Secure door left open (nobody in the doorway), an empty teller window or a missing colleague (a staff
  *     member or guard who is down, stashed or dragged off while their schedule has them standing somewhere: their spot,
- *     `emptyWindow` for a teller window), a camera not transmitting, lights out (no source until power, M4);
+ *     `emptyWindow` for a teller window), a camera not transmitting, lights out (rules/power.ts: noticed by everyone
+ *     in the building, seen or not, at the breaker);
  *   - major: a body (knocked out or dead, not stashed or dragged), a tied person, a hole (a breached door, a wall
  *     opened), and things on the floor (`State.evidence`, `placeEvidence`): a weapon, blood, an unattended loot bag
  *     (no crew member within a tile), a drill. A woken knockout victim reports its own assault (`assault`).
@@ -82,6 +84,11 @@ export interface Evidence {
     tiles: Pos[];
     /** The NPC it is about (a body, a missing colleague): that NPC doesn't notice it. */
     about?: string;
+    /**
+     * Noticed by every NPC in the building, seen or not (lights out, §8.13: "minor evidence bank-wide"), on its first
+     * tile.
+     */
+    everywhere?: boolean;
 }
 
 /** Things left on the floor (§8.10), placed by the actions that leave them (a dropped weapon, a wound, a loot bag). */
@@ -160,7 +167,7 @@ export type EvidenceSource = (world: ReadonlyWorld, state: State) => Evidence[];
 
 const SOURCES = new Map<string, EvidenceSource>();
 
-/** Adds a source of evidence (lights out with power, M4). Sources run by name. */
+/** Adds a source of evidence (lights out, rules/power.ts). Sources run by name. */
 export function registerEvidenceSource(name: string, source: EvidenceSource): void {
     if (SOURCES.has(name)) throw new Error(`Evidence source '${name}' already exists`);
     SOURCES.set(name, source);
@@ -240,8 +247,6 @@ registerEvidenceSource('floor', (_world, state) => state.evidence.flatMap((e): E
     return [{ id: e.id, kind: e.kind, tiles: [{ ...e.pos }] }];
 }));
 
-// TODO(M4 power): 'lightsOut' — a room whose lights were cut, once power is in the rules.
-
 // ---------------------------------------------------------------------------------------------------------- Noticing
 
 /** Whether an observer class notices a kind of evidence: civilians only major (§8.10, §8.2). */
@@ -294,6 +299,11 @@ export function evidenceWorldPhase(world: ReadonlyWorld, state: State, sight: Si
         const observer = person.observer;
         for (const item of items) {
             if (item.about === npc.id || npc.noticed.includes(item.id) || !notices(observer, item.kind)) continue;
+            if (item.everywhere) {
+                // Plain to everyone in the building (lights out), seen or not.
+                if (walk.length && darkensAt(world, npc.pos)) out.push({ observer: npc.id, by: 'npc', evidence: item.id, kind: item.kind, major: isMajor(item.kind), tile: { ...item.tiles[0]! } });
+                continue;
+            }
             let seen: Pos | undefined;
             for (const { field } of walk) {
                 seen = item.tiles.find(p => bandAt(field, p) !== null);

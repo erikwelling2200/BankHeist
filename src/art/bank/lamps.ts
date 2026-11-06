@@ -333,3 +333,74 @@ export function tileLight(level: Level, lamps: readonly Lamp[], reach: LampReach
 }
 
 export const LIT = 0.25;
+
+/** A light's RGB on a flat floor point (sx, sy) from `lamps` it reaches, as `bakeLighting` lights an upward normal, plus ambient. */
+function floorLight(sx: number, sy: number, lamps: readonly Lamp[], base: readonly [number, number, number], reaches: (lamp: Lamp) => boolean, out: Float64Array, at: number): void {
+    let r = base[0], g = base[1], b = base[2];
+    for (const lamp of lamps) {
+        const dx = lamp.x - sx, dy = lamp.y - sy, d2 = dx * dx + dy * dy + lamp.z * lamp.z;
+        const attenuation = 1 - d2 / (lamp.radius * lamp.radius);
+        if (attenuation <= 0 || !reaches(lamp)) continue;
+        const w = lamp.intensity * attenuation * (lamp.z / Math.sqrt(d2)), c = lamp.color;
+        r += (((c >> 16) & 0xff) / 255) * w;
+        g += (((c >> 8) & 0xff) / 255) * w;
+        b += ((c & 0xff) / 255) * w;
+    }
+    out[at] = r;
+    out[at + 1] = g;
+    out[at + 2] = b;
+}
+
+/**
+ * What is left of the light when the lamps `off` go out (a power cut, §14.6), as a factor per colour channel to multiply
+ * the lit colour by: the floor's light without them over its light with them, each lamp lighting a floor that faces up.
+ * The baked colour clamps before exposure, so under a bright lamp this is a little darker than a rebake; the dark looks
+ * the same. `tint` multiplies it (the emergency lighting's cast).
+ */
+export function lightLeft(
+    points: readonly (readonly [number, number])[], lamps: readonly Lamp[], off: ReadonlySet<Lamp>, ambient: number, tint: readonly [number, number, number], reaches: Reach = () => true
+): [number, number, number] {
+    const base = channels(ambient), on = new Float64Array(3), left = new Float64Array(3), sum = [0, 0, 0], kept = lamps.filter(l => !off.has(l));
+    for (const [x, y] of points) {
+        const test = (lamp: Lamp) => (reaches instanceof LampReach ? reaches.reaches(lamp, x, y) : reaches(lamp, x, y));
+        floorLight(x, y, lamps, base, test, on, 0);
+        floorLight(x, y, kept, base, test, left, 0);
+        for (let c = 0; c < 3; c++) sum[c]! += Math.min(1, left[c]! / on[c]!) / points.length;
+    }
+    return [sum[0]! * tint[0], sum[1]! * tint[1], sum[2]! * tint[2]];
+}
+
+/**
+ * `lightLeft` for every floor pixel of a `width` × `height` map where `where(tx, ty)` holds, as RGBA to multiply the floor
+ * by (opaque white elsewhere). Lamps are sorted into cells as `bakeLighting` does, and reach is the lamps' traced reach.
+ */
+export function lightLeftMap(
+    width: number, height: number, lamps: readonly Lamp[], off: ReadonlySet<Lamp>, ambient: number, tint: readonly [number, number, number], reach: LampReach,
+    where: (tx: number, ty: number) => boolean
+): Uint8ClampedArray {
+    const out = new Uint8ClampedArray(width * height * 4).fill(255), base = channels(ambient);
+    const cols = Math.ceil(width / CELL), rows = Math.ceil(height / CELL);
+    const cells: Lamp[][] = [], keptCells: Lamp[][] = [];
+    for (let cy = 0; cy < rows; cy++) for (let cx = 0; cx < cols; cx++) {
+        const x0 = cx * CELL, y0 = cy * CELL;
+        const cell = lamps.filter(l => l.x + l.radius > x0 && l.x - l.radius < x0 + CELL && l.y + l.radius > y0 && l.y - l.radius < y0 + CELL);
+        cells.push(cell);
+        keptCells.push(cell.filter(l => !off.has(l)));
+    }
+    const on = new Float64Array(3), left = new Float64Array(3);
+    let sx = 0, sy = 0;
+    const test = (lamp: Lamp) => reach.reaches(lamp, sx, sy);
+    for (let ty = 0; ty < Math.ceil(height / TILE); ty++) for (let tx = 0; tx < Math.ceil(width / TILE); tx++) {
+        if (!where(tx, ty)) continue;
+        for (let y = ty * TILE; y < Math.min(height, (ty + 1) * TILE); y++) for (let x = tx * TILE; x < Math.min(width, (tx + 1) * TILE); x++) {
+            const k = Math.floor(y / CELL) * cols + Math.floor(x / CELL);
+            sx = x + 0.5;
+            sy = y + 0.5;
+            floorLight(sx, sy, cells[k]!, base, test, on, 0);
+            floorLight(sx, sy, keptCells[k]!, base, test, left, 0);
+            const i = (y * width + x) * 4;
+            for (let c = 0; c < 3; c++) out[i + c] = Math.round(255 * Math.min(1, left[c]! / on[c]!) * tint[c]!);
+        }
+    }
+    return out;
+}

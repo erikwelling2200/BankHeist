@@ -64,6 +64,8 @@ export interface FixtureOptions {
     drivable?: true | readonly string[];
     /** The crew's vehicles (rules/vehicles.ts). */
     vehicles?: readonly VehicleDef[];
+    /** The rooms of the bank's building (a power cut darkens them, §14.6). Absent: the whole map. */
+    building?: readonly string[];
 }
 
 const ZONES: Readonly<Record<string, Zone>> = { '.': 'public', s: 'staff', x: 'secure' };
@@ -148,6 +150,7 @@ export function fixtureWorld(map: readonly string[], options: FixtureOptions = {
         ...(options.patrol ? { patrol: { lane: clonePlain([...options.patrol.lane]), turns: [...options.patrol.turns] } } : {}),
         ...(options.locks ? { locks: clonePlain([...options.locks]) } : {}),
         ...(options.staging ? { staging: clonePlain([...options.staging]) } : {}),
-        ...(options.vehicles ? { vehicles: clonePlain([...options.vehicles]) } : {})
+        ...(options.vehicles ? { vehicles: clonePlain([...options.vehicles]) } : {}),
+        ...(options.building ? { building: [...options.building] } : {})
     });
 }

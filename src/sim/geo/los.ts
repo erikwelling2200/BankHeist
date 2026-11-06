@@ -1,5 +1,6 @@
 import { inBounds } from '../core/grid';
 import { sortedIds, stableJson } from '../core/json';
+import { darkensAt, powerOn } from '../core/power';
 import { edgeNow } from '../core/state';
 import type { Pos, ReadonlyWorld, State } from '../core/types';
 import { footprint } from './drive';
@@ -91,8 +92,8 @@ const DOOR_ORDER = new WeakMap<ReadonlyWorld, readonly string[]>();
 
 /**
  * Everything in the State that sight depends on, as a string: equal strings give equal sight maps. Today: each door's
- * status, in id order, the edge overrides (holes, shot-out panes) when there are any, the smoke clouds and where the
- * crew's vehicles stand.
+ * status, in id order, the edge overrides (holes, shot-out panes) when there are any, the smoke clouds, a power cut
+ * (§14.6) and where the crew's vehicles stand.
  *
  * A package whose state changes sight must join it here and in `buildSightMap`: the crew's vehicles, smoke, darkness
  * overrides (power cuts, §8.3), barricades, destroyed full-height objects. tests/sim/sight.test.ts checks that changing
@@ -104,6 +105,7 @@ export function sightInputs(world: ReadonlyWorld, state: State): string {
     let key = '';
     for (const id of order) key += `${state.doors[id]?.status ?? '-'},`;
     if (state.smoke.length) key += `|smoke ${state.smoke.map(c => c.id).join(',')}`;
+    if (!powerOn(state)) key += '|dark';
     for (const v of world.vehicles ?? []) {
         const now = state.vehicles?.[v.id];
         if (now) key += `|${v.id} ${now.gone ? 'gone' : `${now.pose.x},${now.pose.y},${now.pose.heading}`}`;
@@ -120,6 +122,8 @@ export function buildSightMap(world: ReadonlyWorld, state: State): SightMap {
         raised[i] = t.raised ? 1 : 0;
         lit[i] = t.lit ? 1 : 0;
     });
+    // A power cut darkens the building (§14.6).
+    if (!powerOn(state)) for (let i = 0; i < width * height; i++) if (lit[i] && darkensAt(world, { x: i % width, y: Math.floor(i / width) })) lit[i] = 0;
     // The crew's vehicles stand where they are now and block sight (§14.4), as the parked van did as furniture.
     for (const v of world.vehicles ?? []) {
         const now = state.vehicles?.[v.id];

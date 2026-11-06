@@ -3,6 +3,7 @@ import { PreviewRollError } from '../core/rng';
 import { facingToward, inBounds } from '../core/grid';
 import { samePlain, sortedIds } from '../core/json';
 import { registerStateCheck } from '../core/save';
+import { litNow, powerOn } from '../core/power';
 import { crewMember, registerRuleDefaults, registerStateInit } from '../core/state';
 import type {
     CameraDef, Command, CommandType, CrewState, DeepReadonly, DoorDef, DoorState, DoorStatus, EventType, Facing, Intent, NpcState, NpcStatus, ObserverClass, Pos, ReadonlyWorld, SimEvent, State
@@ -1001,10 +1002,11 @@ registerStateCheck('knowledge', (state, world) => {
 /**
  * How far someone the crew doesn't know about could see a tile from, by kind: an NPC, taken Alerted, its longest arc
  * (8); a camera, its profile's (7; the dark camera's when any camera here sees in the dark). On a dark tile half that,
- * and none for a camera that is blind in the dark (-1).
+ * and none for a camera that is blind in the dark (-1), nor for any camera with the power out (`powered` false, §14.6).
  */
-export function unknownReach(world: ReadonlyWorld, by: 'npc' | 'camera', lit = true): number {
+export function unknownReach(world: ReadonlyWorld, by: 'npc' | 'camera', lit = true, powered = true): number {
     const profile = by === 'npc' ? profilesOf(world).alerted : unknownCamera(world);
+    if (by === 'camera' && !powered) return -1;
     if (!lit && profile.blindInDark) return -1;
     return rangeOn(Math.max(...profile.arcs.map(arc => arc.range)), lit);
 }
@@ -1031,6 +1033,8 @@ interface RiskCache {
     visibility: Uint8Array;
     /** Per tile, 1 where nobody can stand: known furniture (`blocksMove`) or a crew vehicle where it is now. */
     blocked: Uint8Array;
+    /** The building has power: unknown cameras could be watching (§14.6). Part of the key through `sightInputs`. */
+    powered: boolean;
 }
 
 const RISK = new WeakMap<ReadonlyWorld, RiskCache[]>();
@@ -1049,7 +1053,8 @@ function riskCache(world: ReadonlyWorld, state: State): RiskCache {
         const n = tilesOf(world), sets = tileSets(world, state);
         cache = {
             key, far: new Int32Array(n).fill(-2), close: new Int32Array(n).fill(-2), camera: new Int32Array(n).fill(-2), fresh: sets.fresh,
-            sight: knownSight(world, sets, sightMap(world, seenAs)), visibility: sets.visibility, blocked: standBlocked(world, state)
+            sight: knownSight(world, sets, sightMap(world, seenAs)), visibility: sets.visibility, blocked: standBlocked(world, state),
+            powered: powerOn(state)
         };
         list.unshift(cache);
         if (list.length > RISK_KEEP) list.length = RISK_KEEP;
@@ -1123,7 +1128,7 @@ function nearestUnknown(world: ReadonlyWorld, c: RiskCache, p: Pos, kind: 'far' 
     const w = world.width, i = p.y * w + p.x, memo = c[kind];
     if (memo[i] !== -2) return memo[i]!;
     let found = -1;
-    const r = c.visibility[i] !== HIDDEN ? unknownReach(world, kind === 'camera' ? 'camera' : 'npc', world.tiles[i]!.lit) : -1;
+    const r = c.visibility[i] !== HIDDEN ? unknownReach(world, kind === 'camera' ? 'camera' : 'npc', c.sight.lit[i] === 1, c.powered) : -1;
     if (r >= 0) {
         const offsets = offsetsWithin(r), frisk = kind === 'close' ? world.rules.friskRange : Infinity;
         for (let k = 0; k < offsets.length; k += 2) {
@@ -1244,7 +1249,7 @@ export function unknownWatchers(world: ReadonlyWorld, state: State, crewId: stri
     if (!inBounds(world, p)) return [];
     const c = riskCache(world, state), w = world.width;
     if (c.visibility[p.y * w + p.x] === HIDDEN) return [];
-    const lit = world.tiles[p.y * w + p.x]!.lit, npcs = unknownReach(world, 'npc', lit), cameras = unknownReach(world, 'camera', lit);
+    const lit = c.sight.lit[p.y * w + p.x] === 1, npcs = unknownReach(world, 'npc', lit), cameras = unknownReach(world, 'camera', lit, c.powered);
     const offsets = offsetsWithin(Math.max(npcs, cameras)), worst = worstFrom(world, state, crewId, p, options);
     const out: UnknownWatcher[] = [];
     for (let k = 0; k < offsets.length; k += 2) {
@@ -1267,14 +1272,14 @@ export function unknownWatchers(world: ReadonlyWorld, state: State, crewId: stri
  */
 function worstFrom(world: ReadonlyWorld, state: State, crewId: string, p: Pos, options: UnknownOptions): (from: Pos, npc: boolean, cam: boolean) => UnknownWatcher | null {
     const member = crewMember(state, crewId), look = options.look ?? crewLook(member), rules = world.rules;
-    const tile = world.tiles[p.y * world.width + p.x]!, profiles = profilesOf(world), camera = unknownCamera(world);
+    const tile = world.tiles[p.y * world.width + p.x]!, lit = litNow(world, state, p), profiles = profilesOf(world), camera = unknownCamera(world);
     const warnedByAny = isWarned(state, crewId);
     return (from, npc, cam) => {
         let best: UnknownWatcher | null = null;
         const facing = facingToward(from, p) ?? 'n', chebyshev = Math.max(Math.abs(p.x - from.x), Math.abs(p.y - from.y));
         const dx = p.x - from.x, dy = p.y - from.y;
         const consider = (by: 'npc' | 'camera', observer: ObserverClass, role: string | null): void => {
-            const band = bandOf(by === 'npc' ? profiles.alerted : camera, facing, dx, dy, tile.lit);
+            const band = bandOf(by === 'npc' ? profiles.alerted : camera, facing, dx, dy, lit);
             if (!band) return;
             const r = reaction(rules, {
                 look, notoriety: member.notoriety, observer, role, camera: by === 'camera', alerted: by === 'npc', band, zone: tile.zone, chebyshev,
@@ -1406,7 +1411,8 @@ export function knownView(world: ReadonlyWorld, state: State): KnownView {
         const def = world.cameras.find(c => c.id === id);
         if (!def) continue;
         const now = state.cameras[id];
-        const status = !k.cctv ? 'unknown' : now?.live && now.loopedUntil === null ? 'live' : 'off';
+        // A power cut is plain to see (§14.6): every camera is off.
+        const status = !powerOn(state) ? 'off' : !k.cctv ? 'unknown' : now?.live && now.loopedUntil === null ? 'live' : 'off';
         const cam: KnownCamera = { id, pos: { x: def.pos.x, y: def.pos.y }, facings: def.facings, status };
         if (k.cctv) {
             cam.monitored = feeds.includes(id);

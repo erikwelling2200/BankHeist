@@ -26,7 +26,8 @@ import { entered, enterPart, partOf, timeLockOpen, unlockVault, vaultLock, vault
  *   last part unlocks the vault (rules/keys.ts). A Three Keys vault takes the manager's card, swiped by a crew member
  *   who took it, while the crew holds the CCTV room (`cctvControlled`: no operator watching, one of the crew at the
  *   desk; nothing to hold in a bank without one), in the time-lock window (implementation plan §6 decision 79).
- *   Either works only while the time lock stands open (decision 77). A power cut darkening the console is M4's.
+ *   Either works only while the time lock stands open (decision 77), and neither with the power out: the console is dark
+ *   (§14.6, rules/power.ts).
  *   The console also carries the vault sensors' wiring (decision 81): `interact … sensors` (hacking kit,
  *   `rules.sensorActions` (4) actions of work, Steady Hands half, the illegal act 'hack') cuts them for good.
  * - **The manager's PC** (`interact … hack`, hacking kit, `rules.pcActions` (2) actions of work kept on the PC, Steady

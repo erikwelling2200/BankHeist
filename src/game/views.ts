@@ -580,6 +580,12 @@ export function describeEvent(world: ReadonlyWorld, state: State, event: SimEven
         case 'codeEntered': return event.npc ? `${name(event.npc)} entered their part of the vault code` : `${name(event.crew)} entered ${CODE_PART[event.part]}`;
         case 'vaultUnlocked': return event.how === 'keycard' && event.by ? `${name(event.by)} swiped the card: the vault is unlocked` : 'The code is in: the vault is unlocked';
         case 'timeLockShut': return 'The time lock locked the vault again';
+        case 'breakerCut': return `${name(event.crew)} cut the power`;
+        case 'breakerReset': return `${name(event.crew)} turned the power back on`;
+        case 'generatorDisabled': return `${name(event.crew)} disabled the generator`;
+        case 'generatorStarted': return 'The backup generator started';
+        case 'powerOut': return event.generatorAt === null ? 'Lights out: no generator will start' : `Lights out: the generator starts on turn ${event.generatorAt}`;
+        case 'powerBack': return 'The lights are back on';
         case 'drillTaken': return `${name(event.crew)} took the drill back`;
         case 'sensorsCut': return `${name(event.crew)} cut the vault’s sensors`;
         case 'pcHacked': return `${name(event.crew)} got into the manager’s PC: ${event.part ? CODE_PART[event.part] : 'no code'}${event.window ? `; the time lock takes codes on turns ${event.window.from}–${event.window.until - 1}` : ''}`;

@@ -15,7 +15,7 @@ import { TILE } from '../../level/constants';
 import { headingOf } from '../../art/bank/people';
 import type { PersonPose } from '../../level/plan';
 import {
-    COMBAT_STATUSES, crewPicture, edgeBetween, edgeKey, dashRefusal, IllegalCommand, knownDoorStatus, knownView, lootWeight, planRoute, throwPlan, VISIBILITY, routeBreak, soundRing, type ActionPreview,
+    COMBAT_STATUSES, crewPicture, edgeBetween, edgeKey, dashRefusal, IllegalCommand, knownDoorStatus, knownView, lootWeight, planRoute, powerOn, throwPlan, VISIBILITY, routeBreak, soundRing, type ActionPreview,
     type AutoStop, type Command, type CrewState, type KnownView, type MarkerKind, type PathSafety, type State, type TileVisibility, type Facing, type Pos, type SimEvent
 } from '../../sim';
 import { mountAutoBar, type AutoBarHandle } from '../../ui/hud/autoBar';
@@ -30,6 +30,7 @@ import type { Knowledge } from './knowledge';
 import type { People } from './people';
 import type { Walls } from './walls';
 import type { Vehicles } from './vehicles';
+import type { PowerCut } from './power';
 
 /*
  * Play mode (the game on `/`, implementation plan §2.5, M1-13): the bank scene driven by a Session. What the crew knows
@@ -108,6 +109,8 @@ export interface PlayParts {
     knowledge: Knowledge;
     /** The crew's vehicles as drawn (M3-08). */
     vehicles: Vehicles;
+    /** The bank drawn with the power out (M4-03). */
+    power: PowerCut;
     /** The heist was resumed: show the recap card first (§20.6). */
     resumed: boolean;
 }
@@ -119,6 +122,7 @@ export class PlayMode {
     private readonly camera: BankCamera;
     private readonly knowledge: Knowledge;
     private readonly vehicles: Vehicles;
+    private readonly power: PowerCut;
     private readonly hud: HudHandle;
     private readonly overlay: WorldOverlay;
     private readonly input: MapInput;
@@ -226,6 +230,7 @@ export class PlayMode {
         this.camera = camera;
         this.knowledge = knowledge;
         this.vehicles = parts.vehicles;
+        this.power = parts.power;
         this.recap = parts.resumed && session.recent.length > 0;
         this.lastStop = session.ui.autoStop ?? null;
         bank.people.forEach((p, i) => {
@@ -684,6 +689,7 @@ export class PlayMode {
             if (e.door) this.showDoor(e.door, true);
             else this.showGap(e.edge);
         } else if (e.type === 'debrisFell') this.showDebris(e.at);
+        else if (e.type === 'powerOut' || e.type === 'powerBack') this.power.set(e.type === 'powerOut');
         else if (e.type === 'npcEntered' || e.type === 'npcLeft') {
             const index = this.sprite.get(e.npc);
             if (index === undefined) return;
@@ -932,6 +938,8 @@ export class PlayMode {
             this.people.setAlpha(index, dragger ? 1 : MARKER_ALPHA[m.kind]);
         }
         this.syncPolice();
+        // The power (M4-03): plain to see, whoever cut it.
+        this.power.set(!powerOn(state));
         // Gaps and debris (M4-01): the crew's own work.
         for (const key of Object.keys(state.edges)) if (state.edges[key]!.gap) this.showGap(key);
         for (const p of state.debris ?? []) this.showDebris(p);

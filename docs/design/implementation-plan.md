@@ -263,7 +263,7 @@ Each package lists its goal, the design sections it covers, the files, what it d
       tied people, missing colleagues and empty teller windows (staff or guards down, stashed or dragged off while their
       schedule has them standing somewhere), a Secure door left open with nobody in the doorway, holes (breached doors,
       opened walls), dead cameras, and `State.evidence` items left on the floor (`placeEvidence`: weapon, blood, an
-      unattended loot bag, a drill); lights out waits for power (M4). Noticed only in the world phase (decision 26)
+      unattended loot bag, a drill); lights out (M4-03, decision 245). Noticed only in the world phase (decision 26)
       along the very walks perception judges (`worldPoses`): `evidenceWorldPhase(world, state, sight, options)` is both
       the hatched overlay's answer (with `crew`/`tile` for a crew member elsewhere, on a copy) and what the
       `evidence.judge` (−101) / `evidence.notice` (−95) hooks apply. Each NPC reacts once per item (`NpcState.noticed`);
@@ -845,7 +845,8 @@ M2 is complete: every package below has landed.
       12345 (its first version injected a command the rules can't make, 3 pips, which the command check rightly
       refused). Save shape hash `f3b3351d03de6ab8`.
     - **Deferred:** the vault wiring box as a prop (M5-04; its wiring is at the console until then, decision 81); a
-      power cut darkening the console (M4); thermite's fire and scorched loot (M4); heat ticks while drilling (M3); the
+      power cut darkening the console (done in M4-03, decision 244); thermite's fire and scorched loot (M4); heat
+      ticks while drilling (M3); the
       Silent and Beast drills (M6 planning); the armoured car's couriers opening the vault (M6); the operator buzzing
       the crew through the mantrap (M6, with bribes and inside men; until then his card opens it); the alarm panel's disarm code
       and smashing it, and the CCTV room and counting room breaches (M3–M4, with charges); the deposit box that holds
@@ -1354,9 +1355,34 @@ M2 is complete: every package below has landed.
       barricading a gap or a blown door (M4-01); gas on barricaded rooms (M3-06b); the crew's shaped charge on a
       reinforced wall (M4-01); a vehicle ramming a barricade (M4-04); staff reading a barricade or lowered blinds as
       evidence (§8.10); the reinforcement kit bought in planning (M4-07).
-- [ ] **M4-03 Power grid and darkness.**
+- [x] **M4-03 Power grid and darkness.** (partial: see Deferred)
   - **Covers:** §8.13, §14.6.
   - **Work:** the breaker and generator; Lit; maglocks; the console going dark; a dim-lighting variant for the art (decision Q10).
+  - **Notes (done):** decisions 240–246. `src/sim/core/power.ts` (`State.power`, `powerOn`, `litNow`, `darkensAt`,
+    `failSafeDoors`, `lockReleased`, `rules.generatorPhases`) and `src/sim/rules/power.ts` (the `breakerPanel`'s `cut`
+    and `reset`, the `generator`'s `disable`, the `power.generator` crew-phase hook, the `power` evidence source;
+    events `breakerCut`, `breakerReset`, `generatorDisabled`, `generatorStarted`, `powerOut { generatorAt }`,
+    `powerBack`). Read by geo/los.ts (the sight map's `lit`), geo/cones.ts (`cameraObserver`), geo/move.ts
+    (`doorStatus`), rules/keys.ts (`vaultShut`), rules/cameras.ts (panning), rules/knowledge.ts (unknown watchers, the
+    cameras' status), rules/routine.ts (`seesTile`), rules/evidence.ts (`Evidence.everywhere`) and door.ts (locking, the
+    looped reader). `World.building` moved into core/types.ts; fixtures take `building`.
+  - **Game and scene:** the grid's Cut power, Restore power and Disable generator (VERBS), recap lines for every event
+    ("Lights out: the generator starts on turn N"); `PowerCut` (scenes/bank/power.ts) draws the dark, synced from the
+    state and the `powerOut`/`powerBack` events; `debugState.powerOut` and `timings['power cut']`.
+  - **Setups and tests:** `npm run shot` preset `power-out`; `tests/sim/power.test.ts` (the cut, three dark world phases
+    and the generator, reset, disabling before and while it runs, no generator, the illegal act seen, sight halved,
+    combat sight halved, cameras off and still, maglocks fail safe and secure, the dark console, lights out noticed by
+    staff and guards in the building and not by civilians or anyone outside, a guard sent to the breaker, the save and
+    its check, the grid and recap; previews equal commits); `e2e/power.spec.ts` (`screenshots/power-on.png`,
+    `power-out.png`: cut from the grid, drawn in under 500 ms, people relit darker, restored). Save shape hash
+    `f5d8006409c38678` (with M4-01's and M4-02's review fields); the `power` state check refuses saves from before. No visual baseline changed.
+  - **Deferred:** a guard resetting the breaker when he reaches it (he only looks for now) and staff reading a cut as
+    more than minor; a HUD chip for the power and the generator's countdown (the recap line names the turn); the grid
+    offers the first object in reach, so beside both panels the breaker needs tapping; the manager's PC, card readers
+    on Secure doors and the phones needing power; cutting the phone line (§9.1); SWAT's wedges (`wedgeReach`) and
+    police aim not halved in the dark (their sight is); raised floors, debris, gaps' rubble and the walls' doorways
+    opened after the cut drawn untinted, and daylight through windows not lighting the dark rooms more than it did;
+    the fire alarm (v2); the generator and breaker as assets on the planning screen (M4-07).
 - [ ] **M4-04 Vehicles in full.**
   - **Covers:** §14.4.
   - **Work:** ramming; the ram truck; the backup car; police cars blocking; vehicle damage.
@@ -1466,7 +1492,7 @@ Later milestones: within each milestone, the `∥` notes in §3 apply. UI packag
    - Boundary is only the plot's edge.
    - Sound (§8.9, M1-03): Glass (windows, glass doors, curtains) counts as Soft, costing 3 tiles of reach; Teller glass is armoured and counts as Reinforced, stopping it; Fence and Rail carry it for free. A closed door costs 3 whatever its material, except a vault door, which stops it.
 9. **Doors.** Leaf doors start closed and close themselves at the end of the world phase unless propped (§3's staff door swings shut). Doors with a lock are locked. Staff carry the keys their role and the key graph give them.
-10. **Lit.** A room is lit unless its light is `none` and it is indoors; outdoors is lit by day. Power cuts and darkness come in M4, and the baked lamps are not a rules input. Darkness is judged by the *seen* tile: an unlit tile is seen only within half of each range (rounded down), so a guard in a dark room still sees the lit lobby.
+10. **Lit.** A room is lit unless its light is `none` and it is indoors; outdoors is lit by day. A power cut darkens the building (M4-03, decision 241), and the baked lamps are not a rules input. Darkness is judged by the *seen* tile: an unlit tile is seen only within half of each range (rounded down), so a guard in a dark room still sees the lit lobby.
 11. **Several observers per action.** Each NPC applies its matrix cell independently; the preview shows the worst tint plus a pip count per NPC.
 12. **Previews that involve dice.** They show odds or geometry, never an outcome. The property test checks only the parts that aren't rolled, plus that the shown odds equal the odds rolled with.
 13. **Undo.** Undoable only if the events contain movement and nothing else: no new tile seen, no perception check, no dice.
@@ -2445,6 +2471,39 @@ Later milestones: within each milestone, the `∥` notes in §3 apply. UI packag
 226. **Drawn as markers (M4-02).** Fortifications are drawn in the world overlay (planks with a pip per hit point
     left, slats, a riveted bar), in stealth too, not as props in the bank: hand-drawn furniture against doors in four
     facings is deferred with pushing real furniture (decision 220). The crew made each, so showing them tells nothing.
+240. **The grid (M4-03, §8.13, §14.6).** `State.power` (`core/power.ts`, so sight, cameras and doors in `geo` can read
+    it): powered while the mains breaker is on or the generator runs. `interact … cut` at the `breakerPanel` (1 action,
+    the illegal act 'hack', no noise) cuts the mains; the generator starts by itself as the crew phase
+    `cutAt + rules.generatorPhases` (3) begins (`power.generator`, a crew-phase hook), so the dark lasts three world
+    phases and the crew phases between; `powerOut.generatorAt` names that turn. `interact … disable` at the `generator`
+    (1 action, 'hack') disables it for good: the next cut lasts, a running one stops. `interact … reset` (1 action, not
+    illegal) turns the mains back on and stands the generator by. A bank without a generator has no backup. Nothing
+    rolls a die.
+241. **Dark (M4-03, §8.3, §14.6).** With the power out every tile of the bank's building (`World.building`; every tile
+    of a world without one) is unlit (`litNow`, the sight map's `lit`, `sightInputs` gains `|dark`): sight onto it is
+    halved, as for rooms without lamps; outdoors and next door stay lit. The safe floor's unknown watchers read the same
+    `lit` (and no unknown camera sees anything), and combat sight (`seesTile`) is halved onto a dark tile, so the police
+    see half as far too.
+242. **Maglocks (M4-03, §14.6).** A card or maglock door with no Secure side is a staff door and fails safe: with the
+    power out a locked one reads closed (`doorStatus`, `lockReleased`), anyone walks through, and it can't be locked
+    ("The maglock has no power"); the power back, it holds again. A door with a Secure side fails secure: it stays
+    locked, its reader on the security circuit's battery like the alarm panel's, so cards and hacking work as before.
+243. **Cameras (M4-03, §14.6).** Every camera is off with the power out, whatever its tier (`cameraObserver` is null):
+    no reports, footage or lookout; they don't pan; the mantrap's looped reader isn't watched; the crew sees them `off`
+    (a cut is plain to see). They aren't `cameraDown` evidence: lights out is the evidence.
+244. **The console goes dark (M4-03, §15.2).** `vaultShut` refuses with the power out ("The console is dark"), so no
+    code (the crew's or a coerced key-holder's) and no Three Keys card; the sensors' wiring can still be cut.
+245. **Lights out (M4-03, §8.13).** Minor evidence bank-wide: `lightsOut:<outSince>` at the breaker, with
+    `Evidence.everywhere`, is noticed by every staff member and guard in the building in the next world phase, seen or
+    not; the investigator (a guard first, `pickInvestigator`) walks to the breaker, which the intent shows, and the
+    others look its way. Each outage is its own; the power back, it is forgotten.
+246. **The dark drawn (M4-03, decision Q10).** Not a rebake (floor, walls, props and people take about 0.6 s at load):
+    `PowerCut` (scenes/bank/power.ts) works out what the powered lamps (`bankLamps`' `electric`: ceiling lamps and the
+    props' lights, not the exit signs on their battery) gave with the bake's own formula for a floor facing up, and
+    multiplies it away: a shade over the building's floor (under the sun's shafts), a tint on each prop and wall
+    segment for where it stands, people relit without the lamps (`Baker.off`), powered glows put out; all under a cool
+    emergency cast. Made the first time the power goes out (`debugState.timings['power cut']`, about 70 ms on the dev
+    server here) and kept; with the power on nothing is drawn differently.
 
 ### Critical files for implementation
 

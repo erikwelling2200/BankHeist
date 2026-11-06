@@ -149,7 +149,10 @@ export const VERBS: Readonly<Record<string, { label: string; icon: HudIconName }
     'vaultConsole.unlock': { label: 'Unlock vault', icon: 'lock' },
     'vaultConsole.sensors': { label: 'Cut sensors', icon: 'hack' },
     'managerPc.hack': { label: 'Hack PC', icon: 'hack' },
-    'depositBoxes.pick': { label: 'Pick a box', icon: 'lockpick' }
+    'depositBoxes.pick': { label: 'Pick a box', icon: 'lockpick' },
+    'breakerPanel.cut': { label: 'Cut power', icon: 'hack' },
+    'breakerPanel.reset': { label: 'Restore power', icon: 'interact' },
+    'generator.disable': { label: 'Disable generator', icon: 'hack' }
 };
 
 const DOOR_LABEL = { open: 'Open', close: 'Close', lock: 'Lock', unlock: 'Unlock' } as const;

@@ -235,6 +235,11 @@ export interface World {
     people: PersonDef[];
     cameras: CameraDef[];
     rules: Rules;
+    /**
+     * The rooms of the bank's building (§15.1: a dye pack bursts outside them; §14.6: they go dark in a power cut).
+     * Absent: tiles in any room.
+     */
+    building?: string[];
 }
 
 export type ReadonlyWorld = DeepReadonly<World>;

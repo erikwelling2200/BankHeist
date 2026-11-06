@@ -78,7 +78,7 @@ describe('saving', () => {
  * NpcStatusMap, CarrierKindMap or adds a field must also fill it in below, or a change of shape goes unnoticed.
  */
 const SHAPE_HASHES: Record<number, string> = {
-    1: '2c057f90eff4f952'
+    1: 'f5d8006409c38678'
 };
 
 /** Paths whose objects are records by id, not structs. */
@@ -227,6 +227,7 @@ describe('the save format', () => {
         full.outcome = {
             result: 'partial', turn: 9, vehicle: 'van', escaped: ['jun'], arrested: ['mara'], dead: [], loot: ['cash'], value: 5000, ruined: 0, target: 75000, heat: 2
         };
+        full.power = { breaker: false, generator: 'running', cutAt: 3, outSince: 6 };
         full.radio = { calls: { guard: { next: 6, missed: 1, ringing: 4 } }, answers: 1, silentSince: 2, driveBy: 12, heard: 5 };
         const save = JSON.parse(serialise({
             genVersion: 'fixture',

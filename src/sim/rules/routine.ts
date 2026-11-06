@@ -9,6 +9,7 @@ import { NOISES } from '../data/noise';
 import { BREACH_FROM, COMBAT_SIGHT, OFFICER_STATS, ROUTINE_KINDS } from '../data/police';
 import { SUPPRESSED_AIM, THROWABLES, weaponDef } from '../data/weapons';
 import { lineOfSight, sightMap } from '../geo/los';
+import { rangeOn } from '../geo/cones';
 import { barred, doorBetween, doorStatus, occupancy, pathTo, reachable, stepCost, type MoveOptions } from '../geo/move';
 import { coverAgainst, shotFabric, shotMap, tileKey } from '../geo/shot';
 import { makeNoise } from '../geo/sound';
@@ -158,10 +159,14 @@ function marked(state: State, f: Fighter, member: DeepReadonly<CrewState>): bool
     return f.npc.exposedTo.includes(member.id) || Object.hasOwn(f.npc.lastSeen, member.id);
 }
 
-/** Whether `from` sees `to` in combat (all round, `COMBAT_SIGHT` tiles, line of sight). */
+/**
+ * Whether `from` sees `to` in combat (all round, `COMBAT_SIGHT` tiles, line of sight): half as far onto a dark tile
+ * (§14.6: darkness halves vision for everyone, police included).
+ */
 export function seesTile(world: ReadonlyWorld, state: State, from: Pos, to: Pos): boolean {
-    const dx = to.x - from.x, dy = to.y - from.y;
-    return dx * dx + dy * dy <= COMBAT_SIGHT * COMBAT_SIGHT && lineOfSight(sightMap(world, state), from, to);
+    const dx = to.x - from.x, dy = to.y - from.y, sight = sightMap(world, state);
+    const r = rangeOn(COMBAT_SIGHT, sight.lit[to.y * sight.width + to.x] === 1);
+    return dx * dx + dy * dy <= r * r && lineOfSight(sight, from, to);
 }
 
 /** The crew members a fighter sees now, from its tile or leaning out past a corner, and takes for the crew; not dead. */

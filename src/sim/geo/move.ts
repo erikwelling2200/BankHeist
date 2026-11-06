@@ -1,5 +1,6 @@
 import { cornerEdges, edgeBetween, edgeKey, FACING_STEP, FACINGS, inBounds, tileAt } from '../core/grid';
 import { edgeNow, registerRuleDefaults } from '../core/state';
+import { lockReleased } from '../core/power';
 import type { ClimbSide, CrewState, DeepReadonly, DoorDef, DoorStatus, EdgeProps, NpcStatus, Pos, ReadonlyWorld, State, Tile } from '../core/types';
 import { DIAGONAL_COST, HALF_STEPS_PER_TILE, HEAVY_ARMOUR_ITEM, ORTHOGONAL_COST } from '../data/movement';
 import { vehicleAt } from './drive';
@@ -96,9 +97,11 @@ export function doorBetween(world: ReadonlyWorld, a: Pos, b: Pos): DeepReadonly<
 /** Whether an edge as it is now is barred (§14.3): barricaded, or a door the crew reinforced shut. */
 export const barred = (now: DeepReadonly<EdgeProps>): boolean => !!now.barricade || !!now.reinforced;
 
-/** A door's status now. */
-export const doorStatus = (world: ReadonlyWorld, state: State, id: string): DoorStatus =>
-    Object.hasOwn(state.doors, id) ? state.doors[id]!.status : world.doors[id]!.start;
+/** A door's status now: a locked one whose maglock a power cut released reads closed (§14.6, core/power.ts). */
+export function doorStatus(world: ReadonlyWorld, state: State, id: string): DoorStatus {
+    const status = Object.hasOwn(state.doors, id) ? state.doors[id]!.status : world.doors[id]!.start;
+    return status === 'locked' && lockReleased(world, state, id) ? 'closed' : status;
+}
 
 /** Whether a wall on this edge stops a step across it, given the doors the mover may pass. */
 function edgeStops(world: ReadonlyWorld, state: State, a: Pos, b: Pos, options: MoveOptions): boolean {

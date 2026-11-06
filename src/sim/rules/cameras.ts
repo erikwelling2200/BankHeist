@@ -1,5 +1,6 @@
 import { registerCommandHook, registerWorldHook, type Ctx } from '../core/engine';
 import { crewMember, registerRuleDefaults, registerStateInit } from '../core/state';
+import { powerOn } from '../core/power';
 import type { CrewState, DeepReadonly, NpcState, Pos, ReadonlyWorld, State, WorldObject } from '../core/types';
 import { registerEvents } from '../core/undo';
 import { cameraObserver, fieldOn } from '../geo/cones';
@@ -101,7 +102,8 @@ registerWorldHook('devices', 'cameras.pan', (ctx, phase) => {
             now.loopedUntil = null;
             ctx.emit({ type: 'feedRestored', camera: def.id });
         }
-        if (!now.live || def.facings.length < 2) continue;
+        // Dead cameras don't pan, nor any with the power out (§14.6).
+        if (!now.live || def.facings.length < 2 || !powerOn(state)) continue;
         now.facing = (now.facing + 1) % def.facings.length;
         ctx.emit({ type: 'cameraPanned', camera: def.id, facing: now.facing });
     }

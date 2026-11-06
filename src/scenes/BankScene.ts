@@ -13,7 +13,8 @@ import { Knowledge } from './bank/knowledge';
 import { People } from './bank/people';
 import { addProps, bankLamps, placeProps, type ShownProp } from './bank/props';
 import { Vehicles } from './bank/vehicles';
-import { VEHICLE_PROPS } from '../sim';
+import { darkensAt, VEHICLE_PROPS } from '../sim';
+import { PowerCut } from './bank/power';
 import { RaisedFloors } from './bank/raised';
 import { PlayMode, type PlayParts } from './bank/sim';
 import { Walls } from './bank/walls';
@@ -54,6 +55,8 @@ export class BankScene extends Phaser.Scene {
     private still = false;
     /** Play mode (the game, `/`): the bank driven by a Session. */
     private play?: PlayMode;
+    /** The bank with the power out (play mode). */
+    private power?: PowerCut;
 
     constructor() {
         super('bank');
@@ -72,10 +75,10 @@ export class BankScene extends Phaser.Scene {
 
         this.timings = {};
         const props = this.timed('prop art', () => placeProps(this.bank));
-        const { lamps, reach } = this.timed('lamp reach', () => {
-            const lamps = bankLamps(this.bank, props), reach = new LampReach(lightBlockers(level), lamps);
+        const { lamps, electric, reach } = this.timed('lamp reach', () => {
+            const { lamps, electric } = bankLamps(this.bank, props), reach = new LampReach(lightBlockers(level), lamps);
             this.litTiles = tileLight(level, lamps, reach).map(row => row.map(light => light >= LIT));
-            return { lamps, reach };
+            return { lamps, electric, reach };
         });
         const exposure = this.timed('exposure', () => buildExposure(level));
         const baker = (this.baker = new Baker(this, lamps, reach, exposure));
@@ -109,7 +112,14 @@ export class BankScene extends Phaser.Scene {
         });
         if (play?.setupMs !== undefined) this.timings.heist = play.setupMs;
         if (play) this.timed('play', () => {
-            this.play = new PlayMode(this, { ...play, people: this.people, walls: this.walls, camera: this.camera, knowledge, vehicles: new Vehicles(baker, this.bank, built) });
+            // A power cut (§14.6) darkens the rules' building: drawn when the state first has one.
+            const world = play.session.world;
+            this.power = new PowerCut(this, baker, electric, {
+                walls: this.walls, people: this.people, props: shown, width: this.mapWidth, height: this.mapHeight, dark: (tx, ty) => darkensAt(world, { x: tx, y: ty })
+            });
+            this.play = new PlayMode(this, {
+                ...play, people: this.people, walls: this.walls, camera: this.camera, knowledge, vehicles: new Vehicles(baker, this.bank, built), power: this.power
+            });
             this.camera.prepareZoomIn();
             // Play mode opens on the crew: the walls stand as that view asks from the first frame.
             this.walls.update(0, this.cameras.main.midPoint.y, this.camera.onMap);
@@ -145,7 +155,11 @@ export class BankScene extends Phaser.Scene {
     get debugState() {
         const cam = this.cameras.main, { zoom, zoomLevels, map, plot } = this.camera.state;
         return {
-            ready: true, width: this.mapWidth, height: this.mapHeight, lamps: this.baker.lamps.length, timings: this.timings,
+            ready: true, width: this.mapWidth, height: this.mapHeight, lamps: this.baker.lamps.length,
+            /** Each stage's ms, and once the power first went out, how long drawing that took (`power cut`). */
+            timings: this.power?.built !== undefined ? { ...this.timings, 'power cut': this.power.built } : this.timings,
+            /** The power is out as drawn (§14.6). */
+            powerOut: this.power?.isOut ?? false,
             zoom, zoomLevels, tilesHigh: cam.height / TILE, map,
             midX: cam.midPoint.x, midY: cam.midPoint.y,
             /** Where the plot shows, in CSS pixels from the canvas's top-left corner. */

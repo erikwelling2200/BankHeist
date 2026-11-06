@@ -1,7 +1,7 @@
 import {
     bandAt, cameraObserver, CLEAR, decodeBits, DIAGONAL_COST, doorDoubt, driveByDue, edgeBetween, edgeKey, evidenceOnMap, evidenceWorldPhase, fieldOn, isEyesDown,
-    isKnownNow, isMajor, isPresent, LEAVING_ACTIVITIES, lineOfSight, npcCanPass, npcLabel, observerName, ORTHOGONAL_COST, paceBudget, personOf, posesAlong,
-    previewPicture, profilesOf, sightMap, unknownReach, visibilityMap, worldPoses, type AutoStop, type DeepReadonly, type DoorDoubt, type Evidence, type EvidenceKind, type NpcState, type Pos, type ReadonlyWorld, type SightMap, type State
+    isKnownNow, isMajor, isPresent, LEAVING_ACTIVITIES, lineOfSight, litNow, npcCanPass, npcLabel, observerName, ORTHOGONAL_COST, paceBudget, personOf, posesAlong,
+    powerOn, previewPicture, profilesOf, sightMap, unknownReach, visibilityMap, worldPoses, type AutoStop, type DeepReadonly, type DoorDoubt, type Evidence, type EvidenceKind, type NpcState, type Pos, type ReadonlyWorld, type SightMap, type State
 } from '../sim';
 import { doubtStops, viewDoubted, viewOpen } from '../sim/rules/knowledge';
 import { rolePortrait } from './views';
@@ -275,7 +275,7 @@ export function unknownAt(world: ReadonlyWorld, state: State): Uint8Array {
 
 /** Whether a camera the crew doesn't know about (one on a hidden tile) could see `p`: within a camera's reach, every door open. */
 function unknownCamera(world: ReadonlyWorld, state: State, p: Pos): boolean {
-    const { sight, vis } = openSight(world, state), w = world.width, r = unknownReach(world, 'camera', world.tiles[p.y * w + p.x]!.lit);
+    const { sight, vis } = openSight(world, state), w = world.width, r = unknownReach(world, 'camera', litNow(world, state, p), powerOn(state));
     if (r < 0 || vis[p.y * w + p.x] === 0) return false;
     for (let y = Math.max(0, p.y - r); y <= Math.min(world.height - 1, p.y + r); y++) {
         for (let x = Math.max(0, p.x - r); x <= Math.min(w - 1, p.x + r); x++) {
@@ -292,7 +292,7 @@ function unknownCamera(world: ReadonlyWorld, state: State, p: Pos): boolean {
  */
 export function unknownWalkers(world: ReadonlyWorld, state: State, p: Pos): boolean {
     const { sight, vis } = openSight(world, state), w = world.width, h = world.height;
-    const lit = world.tiles[p.y * w + p.x]!.lit, r = unknownReach(world, 'npc', lit);
+    const lit = litNow(world, state, p), r = unknownReach(world, 'npc', lit);
     if (r < 0 || vis[p.y * w + p.x] === 0) return false;
     const budget = fastest(world), can = unknownAt(world, state);
     const source = (i: number): boolean => can[i] === 1;

@@ -69,10 +69,6 @@ declare module '../../core/types' {
          */
         dyePacks: boolean;
     }
-    interface World {
-        /** The rooms of the bank's building (§15.1: a dye pack bursts outside them). Absent: tiles in any room. */
-        building?: string[];
-    }
     interface CommandMap {
         /** Take loot in reach, from where the bank keeps it or off the floor (1 action): pocketed if Light, else in the hands. */
         takeLoot: { crew: string; loot: string };

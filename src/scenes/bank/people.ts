@@ -131,6 +131,11 @@ export class People {
         this.showIfSeen(p);
     }
 
+    /** Lights everyone again where they stand, by the lamps that reach them now (`Baker.off`: a power cut). */
+    relight(): void {
+        for (const p of this.sprites) this.move(p.index, p.x, p.y);
+    }
+
     /**
      * Puts a person's sprite, drop shadow and ring where they stand, lifted with the raised floor under them if there is
      * one; there the shadow and ring go just after the floor they lie on, as the ground's lie under everything standing.
