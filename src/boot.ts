@@ -11,7 +11,7 @@ import { PropSheetScene } from './scenes/PropSheetScene';
 import { Fullscreen } from './ui/Fullscreen';
 import { installDebugHandle, MemoryStorage, Session, webStorage } from './game';
 import { bankAddress, playPlan, sameAddress, savedHeist, startHeist } from './game/heist';
-import { defaultSetup, planOptions } from './game/plan';
+import { defaultSetup, planOptions, setupProblems, type HeistSetup } from './game/plan';
 import { Planner } from './ui/planning/Planner';
 import type { BankData } from './level/bankData';
 import type { PlaySetup } from './scenes/BankScene';
@@ -159,20 +159,12 @@ function plan(params: URLSearchParams): void {
         const scene = game.scene.getScene('bank') as BankScene | null;
         return scene?.sys.isActive() ? scene : undefined;
     };
-    const planner = new Planner(generated, options, defaultSetup(options), map, async setup => {
-        const storage = webStorage() ?? new MemoryStorage();
-        const saved = savedHeist(storage);
-        if (saved) {
-            const name = saved.name ? `in ${saved.name}` : 'in another bank';
-            if (!(await askPlayer(`A heist ${name} is saved on this device.`, 'Starting this one overwrites it.', 'Start new', 'Keep planning'))) return;
-        }
-        startHeist(generated, storage, {}, setup);
-        // The game resumes the heist just saved: without a seed for the pinned bank, else with its address.
-        const here = bankAddress(generated);
-        const pinned = here.seed === PLAY_BANK.seed && here.tier === PLAY_BANK.tier && here.archetype === PLAY_BANK.archetype;
-        const keep = [...new URLSearchParams(location.search)].filter(([k]) => !['plan', 'seed', 'tier', 'archetype', 'plot'].includes(k));
-        const query = new URLSearchParams(pinned ? keep : [['play', ''], ...Object.entries(here), ...keep]).toString().replace(/(^|&)(play)=(?=&|$)/g, '$1$2');
-        location.replace(`${location.pathname}${query ? `?${query}` : ''}`);
+    // Start opens the game with the plan in its address (`&setup=`): it starts the heist there, asking first if one is
+    // saved, so the plan survives the page change even with no storage, and never carries `new` along.
+    const planner = new Planner(generated, options, defaultSetup(options), map, setup => {
+        const keep = [...new URLSearchParams(location.search)].filter(([k]) => !['plan', 'new', 'play', 'seed', 'tier', 'archetype', 'plot', 'setup'].includes(k));
+        const query = new URLSearchParams([['play', ''], ...Object.entries(bankAddress(generated)), ['setup', JSON.stringify(setup)], ...keep]);
+        location.assign(`${location.pathname}?${query.toString().replace(/(^|&)(play)=(?=&|$)/g, '$1$2')}`);
     });
     Object.assign(window, { planner, generated });
 }
@@ -193,7 +185,7 @@ function writePlayAddress(bank: GeneratedBank, saved: ReturnType<typeof savedHei
     const here = bankAddress(bank);
     const pinned = here.seed === PLAY_BANK.seed && here.tier === PLAY_BANK.tier && here.archetype === PLAY_BANK.archetype;
     const params = new URLSearchParams(location.search);
-    for (const k of ['play', 'new', 'seed', 'tier', 'archetype', 'plot']) params.delete(k);
+    for (const k of ['play', 'new', 'seed', 'tier', 'archetype', 'plot', 'setup']) params.delete(k);
     const rest = [...params];
     replaceQuery(new URLSearchParams(pinned || sameAddress(saved?.address, here) ? rest : [['play', ''], ...Object.entries(here), ...rest]));
 }
@@ -222,6 +214,21 @@ async function preparePlay(params: URLSearchParams): Promise<{ bank: ReturnType<
     let plan = playPlan(saved, { seeded, fresh }, bankAddress(generated));
     let session: Session | null = null;
     let target = storage;
+    // A heist planned on the planning screen (`&setup=`, M4-07): started here, asking first if one is saved; a plan
+    // that can't be read or played goes back to planning.
+    const planned = params.has('setup') ? plannedSetup(params.get('setup')!, generated) : undefined;
+    if (params.has('setup')) {
+        const back = () => {
+            location.replace(planAddress(generated));
+            return new Promise<never>(() => undefined);
+        };
+        if (!planned) return back();
+        if (saved) {
+            const name = saved.name ? `in ${saved.name}` : 'in another bank';
+            if (!(await askPlayer(`A heist ${name} is saved on this device.`, 'Starting the planned one overwrites it.', 'Start new', 'Keep planning'))) return back();
+        }
+        plan = 'new';
+    }
     if (plan === 'ask') {
         const name = saved?.name ? `in ${saved.name}` : 'in another bank';
         if (!(await askPlayer(`A heist ${name} is saved on this device.`, 'Starting this one overwrites it.', 'Start new', 'Resume saved'))) {
@@ -238,7 +245,7 @@ async function preparePlay(params: URLSearchParams): Promise<{ bank: ReturnType<
         }
     }
     const resumed = !!session;
-    session ??= startHeist(generated, target);
+    session ??= startHeist(generated, target, {}, planned);
     writePlayAddress(generated, savedHeist(target));
     const setupMs = performance.measure('bank: heist', { start: started }).duration;
     installDebugHandle(session);
@@ -247,6 +254,22 @@ async function preparePlay(params: URLSearchParams): Promise<{ bank: ReturnType<
     window.addEventListener('pagehide', () => s.save());
     Object.assign(window, { generated });
     return { bank, setup: { session, bank: generated, resumed, setupMs } };
+}
+
+/** The plan in the address, if it reads as a setup this bank can play. */
+function plannedSetup(text: string, bank: GeneratedBank): HeistSetup | undefined {
+    try {
+        const setup = JSON.parse(text) as HeistSetup;
+        return setupProblems(setup, planOptions(bank)).length ? undefined : setup;
+    } catch {
+        return undefined;
+    }
+}
+
+/** The planning screen's address for a bank, keeping `still`. */
+function planAddress(bank: GeneratedBank): string {
+    const still = new URLSearchParams(location.search).has('still') ? '&still' : '';
+    return `${location.pathname}?plan&${new URLSearchParams({ ...bankAddress(bank) })}${still}`;
 }
 
 /** A small dialog in the HUD's style; resolves true for `yes`. */

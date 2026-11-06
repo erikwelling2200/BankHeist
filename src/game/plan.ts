@@ -1,7 +1,7 @@
 import type { GeneratedBank, GenRoom } from '../gen/model';
 import {
-    facingToward, footprint, freezeWorld, initialState, ITEMS, maxProfile, newId, tileAt, VEHICLES, wallBetween, worldFromBank, type CrewStart,
-    type Facing, type ItemId, type Pose, type Pos, type Profile, type ReadonlyWorld, type State, type Trait, type VehicleDef, type VehicleType
+    facingToward, footprint, markerKind, freezeWorld, initialState, ITEMS, maxProfile, newId, tileAt, VEHICLES, wallBetween, worldFromBank, type CrewStart,
+    type Facing, type ItemId, type MarkerKind, type Pose, type Pos, type Profile, type ReadonlyWorld, type State, type Trait, type VehicleDef, type VehicleType
 } from '../sim';
 import { crewStarts } from './heist';
 
@@ -68,11 +68,11 @@ export interface CrewPlan { id: string; loadout: Loadout; start: StartPick }
 
 /** The planning assets the rules can carry out so far (§18.2), with their cost in cash and favours. */
 export const ASSETS = {
-    ramTruck: { name: 'Ram truck', cost: 8000, favours: 2 },
-    car: { name: 'Backup car', cost: 6000, favours: 1 },
-    nest: { name: 'Sniper nest rental', cost: 6000, favours: 2 },
-    jammer: { name: 'Jammer pre-placed', cost: 5000, favours: 2 }
-} as const satisfies Record<string, { name: string; cost: number; favours: number }>;
+    ramTruck: { name: 'Ram truck', short: 'Ram', cost: 8000, favours: 2 },
+    car: { name: 'Backup car', short: 'Car', cost: 6000, favours: 1 },
+    nest: { name: 'Sniper nest rental', short: 'Nest', cost: 6000, favours: 2 },
+    jammer: { name: 'Jammer pre-placed', short: 'Jammer', cost: 5000, favours: 2 }
+} as const satisfies Record<string, { name: string; short: string; cost: number; favours: number }>;
 
 export type AssetId = keyof typeof ASSETS;
 
@@ -124,6 +124,8 @@ export interface PlanOptions {
     nestRoom: GenRoom | null;
     /** The middle of the bank's lobby, which the crew face. */
     lobby: Pos;
+    /** The rooms that are open ground outside (the street, the alley, lots): where a jammer may stand. */
+    outdoors: readonly string[];
 }
 
 /**
@@ -184,13 +186,16 @@ export function planOptions(bank: GeneratedBank, world: ReadonlyWorld = worldFro
         const d = (p: Pos) => Math.abs(p.x - lobby.x) + Math.abs(p.y - lobby.y);
         nest.sort((a, b) => d(a) - d(b) || a.y - b.y || a.x - b.x);
     }
-    return { world, spots, nest, nestRoom, lobby };
+    return { world, spots, nest, nestRoom, lobby, outdoors: bank.rooms.filter(r => r.zone === 'outdoors').map(r => r.id) };
 }
 
-/** Whether a pre-placed jammer may stand on `p` (§18.2 "next to the building"): open ground outside, within reach of it. */
+/**
+ * Whether a pre-placed jammer may stand on `p` (§18.2 "next to the building"): open ground outdoors (not in the bank or
+ * a neighbour), within reach of the bank's building.
+ */
 export function jammerSpot(options: PlanOptions, p: Pos): boolean {
     const { world } = options, tile = tileAt(world, p), building = world.building ?? [];
-    if (!tile || !tile.room || tile.blocksMove || tile.raised || building.includes(tile.room)) return false;
+    if (!tile || !tile.room || tile.blocksMove || tile.raised || !options.outdoors.includes(tile.room)) return false;
     if (world.people.some(n => n.pos.x === p.x && n.pos.y === p.y)) return false;
     for (let dy = -JAMMER_REACH; dy <= JAMMER_REACH; dy++) for (let dx = -JAMMER_REACH; dx <= JAMMER_REACH; dx++) {
         const near = tileAt(world, { x: p.x + dx, y: p.y + dy });
@@ -254,8 +259,8 @@ const VEHICLE_IDS: Readonly<Record<VehicleType, string>> = { van: 'van', car: 'c
  * The heist a setup plays (§18.1): the World with the crew's vehicles where the plan parks them, and the crew at their
  * starts with their loadouts, the jammer running from turn 1. Throws for a setup with problems (`setupProblems`).
  */
-export function heistFromSetup(bank: GeneratedBank, setup: HeistSetup): { world: ReadonlyWorld; state: State } {
-    const built = worldFromBank(bank), options = planOptions(bank, built);
+export function heistFromSetup(bank: GeneratedBank, setup: HeistSetup, options: PlanOptions = planOptions(bank)): { world: ReadonlyWorld; state: State } {
+    const built = options.world;
     const problems = setupProblems(setup, options);
     if (problems.length) throw new Error(`The plan can't be played: ${problems.join('; ')}`);
     const vehicles: VehicleDef[] = (Object.keys(VEHICLES) as VehicleType[]).filter(t => setup.vehicles[t] !== undefined).map(type => {
@@ -292,4 +297,19 @@ export function heistFromSetup(bank: GeneratedBank, setup: HeistSetup): { world:
     const state = initialState(world, { seed: (bank.seed.layout * 1000 + bank.seed.population) >>> 0, crew });
     if (setup.jammer) state.jammers.push({ id: newId(state, 'jammer'), pos: { ...setup.jammer }, crew: '', turn: state.turn });
     return { world, state };
+}
+
+/**
+ * What the crew knows at the start of a planned heist (§17.8, decision 328): each NPC the crew sees or predicts as the
+ * heist starts, by how the play scene draws it (`markerKind`), and the vehicles where they wait. The planning map shows
+ * only these, as play does at turn 1.
+ */
+export function startView(bank: GeneratedBank, setup: HeistSetup, options: PlanOptions): { npcs: Record<string, MarkerKind>; vehicles: State['vehicles'] } {
+    const { world, state } = heistFromSetup(bank, setup, options);
+    const npcs: Record<string, MarkerKind> = {};
+    for (const n of state.npcs) {
+        const kind = markerKind(world, state, n.id);
+        if (kind) npcs[n.id] = kind;
+    }
+    return { npcs, vehicles: state.vehicles };
 }

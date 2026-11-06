@@ -1538,7 +1538,7 @@ M2 is complete: every package below has landed.
   - **Covers:** §18.
   - **Work:** crew and loadouts; starts; vehicle spots; assets with their costs and the favour cap of 8, placed on the map; output a `HeistSetup` that becomes the starting state.
   - **Depends on:** M4-01 to M4-05 for which assets exist.
-  - **Notes (done):** decisions 320–327. `src/game/plan.ts`: the `ROSTER`, slots (`SLOT_ITEMS`), `ASSETS`,
+  - **Notes (done):** decisions 320–328. `src/game/plan.ts`: the `ROSTER`, slots (`SLOT_ITEMS`), `ASSETS`,
     `PLANNING_CASH`, `FAVOUR_CAP`; `HeistSetup` (crew with loadout and start, each vehicle's spot, the jammer, the nest);
     `planOptions` (each vehicle's spots and poses, the nest's tiles), `setupProblems`, `spent`, `jammerSpot`;
     `heistFromSetup` builds the World with the plan's vehicles (`bankVehicles` is the generator's, rules' and scene's
@@ -1550,10 +1550,13 @@ M2 is complete: every package below has landed.
     favour pips), the crew rail (portrait in the crew colour, profile, weapon, start; a tap opens the loadout sheet with a
     select per slot and the start, and brings or leaves out), the assets with price and favour pips, the map's pins
     (each vehicle's spot with who starts there and a police-view eye, the spots the one being moved could take, the nest,
-    the jammer with its radius), Start with the first problem above it. `BankScene.tileAtPage` for its taps; the scene
+    the jammer with its radius), Start with the first problem above it; the planned vehicles drawn where they wait and
+    only the NPCs the crew knows (decision 328). Narrow screens keep each asset's short name. `BankScene.tileAtPage` for its taps; the scene
     draws a vehicle the plan parked away from the generator's spot, the backup car and the ram truck in the van's art.
   - **Tests:** `tests/game/plan.test.ts` (the default plan, vehicles at their own spots with drivers, the nest, the
-    jammer, cash, the save and resume); `e2e/planning.spec.ts` plans and starts a heist (`screenshots/planning.png`,
+    jammer outdoors only, the NPCs known at the start, cash, the save and resume); `e2e/planning.spec.ts` plans and
+    starts a heist, shows only the NPCs play shows at turn 1, asks before overwriting a saved heist (and goes back on
+    Keep planning), and the outcome's New heist goes to planning (`screenshots/planning.png`,
     `planning-assets.png`, `planned-heist.png`). No visual baseline changed.
   - **Deferred:** the other §18.2 assets: Blueprints and Guard rota (M5-03), Inside man (M5-02), Stash drop (needs Gear
     up and a stash to take from), Cut phone line (M5-04's phone line), Tow truck (police arriving by side), pre-placed
@@ -2819,17 +2822,26 @@ Later milestones: within each milestone, the `∥` notes in §3 apply. UI packag
 323. **Cash and favours (M4-07, §18.1, §18.2).** The sandbox has $24k for assets (the campaign's money is M6-03's) under
     the favour cap of 8. The assets are those the rules carry out so far: the ram truck ($8k, 2), the backup car ($6k,
     1), the sniper nest rental ($6k, 2) and the jammer pre-placed ($5k, 2); all four cost $25k, so one has to go.
-324. **The pre-placed jammer (M4-07, §18.2, §12.2).** On open ground outside the building within 2 tiles (Chebyshev)
-    of it, nobody standing there; it runs from turn 1 as a placed jammer does (`State.jammers`, `crew` '').
+324. **The pre-placed jammer (M4-07, §18.2, §12.2).** On open ground outdoors (the street, the alley, a lot; never in
+    the bank or a neighbour) within 2 tiles (Chebyshev) of the building, nobody standing there; it runs from turn 1 as
+    a placed jammer does (`State.jammers`, `crew` ''), so dispatch's lost-contact count (`rules.dispatchSilence`) starts
+    then and nothing in play takes it back: the hint, its card and its pin say so (review).
 325. **The sniper nest (M4-07, §18.1, §14.5).** Renting it lets a crew member with a long gun start in the bank's nest
     room (the generator makes one at most): on its free tiles nearest the lobby first, facing the lobby. Giving the
     rental back, or the long gun, puts them in the van.
 326. **Each crew member's own colour (M4-07, UI.md "Crew").** Mara, Jun, Dex and Sol wear their colours wherever they
     stand in the crew's order (`crewColour`); anyone else takes the colour of their place.
 327. **Planning in the game's flow (M4-07).** `?plan` (`&seed=…` for another bank) opens the bank's tactical map at the
-    crew's starting knowledge with the planner over it; Start saves the planned heist (asking first if one is saved)
-    and opens the game, which resumes it. The outcome's New heist plans the next one in the same bank. `/` with no
-    heist saved still starts the M1 crew unplanned (`newHeist` without a setup).
+    crew's starting knowledge with the planner over it; Start opens the game with the plan in its address (`?play`,
+    the bank's address and `&setup=` the plan's JSON, never `new`), which starts it there, asking first if a heist is
+    saved ("Keep planning" goes back), so the plan survives the page change with no storage; a plan that can't be
+    read or played goes back to planning. The address drops `setup` once started. The outcome's New heist forgets the
+    finished heist for good (the session retired, so leaving the page doesn't save it again) and plans the next one in
+    the same bank. `/` with no heist saved still starts the M1 crew unplanned (`newHeist` without a setup).
+328. **The planning map shows what the crew knows at the start (M4-07 review, §17.8).** The NPCs drawn are those the
+    crew sees or predicts as the planned heist starts (`startView`: `markerKind` on the planned state, as play draws
+    them at turn 1, a predicted one translucent), recomputed after each change to a playable plan, and the vehicles
+    stand where the plan parks them. Guard posts and anyone else unknown stay hidden until intel (M5-03).
 
 ### Critical files for implementation
 

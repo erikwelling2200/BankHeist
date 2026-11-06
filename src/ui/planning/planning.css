@@ -35,6 +35,9 @@
 .pl-asset.on { border-color: var(--gold); box-shadow: inset 0 0 0 1px rgba(242, 201, 76, 0.35); }
 .pl-asset .sh-num { font-size: calc(var(--sh-text) * 17px); }
 .pl-name { flex: 1; min-width: 0; font: 500 calc(var(--sh-text) * 10px)/1.1 var(--sans); letter-spacing: 0; color: var(--dim); overflow: hidden; }
+.pl-short { display: none; flex: 1; min-width: 0; font: 500 calc(var(--sh-text) * 11px)/1.1 var(--sans); letter-spacing: 0; color: var(--dim); }
+.pl-with-note { display: flex; flex-direction: column; gap: 2px; }
+.pl-note { padding: 0 4px; font: 500 calc(var(--sh-text) * 10px)/1.2 var(--sans); letter-spacing: 0; color: var(--amber); text-shadow: 0 1px 0 #000; }
 .pl-fv { display: flex; gap: 2px; flex: none; }
 .pl-fv i { display: block; width: 7px; height: 7px; background: var(--gold); border: 1px solid #000; }
 
@@ -42,7 +45,7 @@
 .pl-problem { position: absolute; right: var(--pr); bottom: calc(var(--pb) + 64px); max-width: calc(var(--side) + 60px); padding: 5px 8px;
   border-color: var(--amber); color: var(--amber); font: 500 calc(var(--sh-text) * 12px)/1.25 var(--sans); letter-spacing: 0; text-align: right; }
 .pl-hint { position: absolute; left: 50%; bottom: var(--pb); transform: translateX(-50%); padding: 5px 10px; border-color: var(--cmd);
-  font: 500 calc(var(--sh-text) * 12px)/1.25 var(--sans); letter-spacing: 0; white-space: nowrap; }
+  font: 500 calc(var(--sh-text) * 12px)/1.25 var(--sans); letter-spacing: 0; width: max-content; max-width: min(420px, calc(100vw - 2 * var(--side) - 60px)); box-sizing: border-box; text-align: center; }
 
 /* Pins over the map, placed every frame from the camera. */
 .pl-pins { position: absolute; inset: 0; pointer-events: none; }
@@ -77,6 +80,10 @@
 @media (max-width: 720px) {
   .pl { --rail: 118px; --side: 112px; }
   .pl-name { display: none; }
+  .pl-short { display: block; font-size: calc(var(--sh-text) * 10px); }
+  .pl-asset { gap: 3px; padding: 0 4px; }
+  .pl-asset .sh-num { font-size: calc(var(--sh-text) * 15px); }
+  .pl-fv i { width: 6px; height: 6px; }
   .pl-card { height: 42px; }
   .pl-portrait { width: 32px; height: 32px; }
 }

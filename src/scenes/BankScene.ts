@@ -13,7 +13,7 @@ import { Knowledge } from './bank/knowledge';
 import { People } from './bank/people';
 import { addProps, bankLamps, placeProps, type ShownProp } from './bank/props';
 import { Vehicles } from './bank/vehicles';
-import { darkensAt, VEHICLE_PROPS } from '../sim';
+import { darkensAt, VEHICLE_PROPS, type DeepReadonly, type MarkerKind, type VehicleState } from '../sim';
 import { PowerCut } from './bank/power';
 import { RaisedFloors } from './bank/raised';
 import { PlayMode, type PlayParts } from './bank/sim';
@@ -61,6 +61,8 @@ export class BankScene extends Phaser.Scene {
      * HTML planner (src/ui/planning) over it.
      */
     private planning = false;
+    /** The planned heist's vehicles as drawn on the planning screen. */
+    private planVehicles?: Vehicles;
     /** The bank with the power out (play mode). */
     private power?: PowerCut;
 
@@ -119,8 +121,11 @@ export class BankScene extends Phaser.Scene {
         });
         if (play?.setupMs !== undefined) this.timings.heist = play.setupMs;
         if (this.planning) {
-            // What the crew knows before casing (§17.8), the whole plot to plan on.
+            // What the crew knows before casing (§17.8), the whole plot to plan on; nobody shows until the planner says
+            // whom the crew knows (`showPlan`), and the vehicles stand where the plan parks them.
             knowledge.show(false);
+            this.planVehicles = new Vehicles(baker, this.bank, built);
+            this.bank.people.forEach((_, i) => this.people.setAway(i, true));
             this.camera.toggleMap();
             this.walls.update(0, this.cameras.main.midPoint.y, this.camera.onMap);
             this.walls.settle();
@@ -196,6 +201,19 @@ export class BankScene extends Phaser.Scene {
         const cam = this.cameras.main, box = this.game.canvas.getBoundingClientRect();
         const sx = box.width / this.scale.width, sy = box.height / this.scale.height;
         return { x: box.left + ((tx + 0.5) * TILE - cam.worldView.x) * sx, y: box.top + ((ty + 0.5) * TILE - cam.worldView.y) * sy };
+    }
+
+    /**
+     * The planning screen's picture of the heist's start (decision 328): only the NPCs the crew knows then (by the bank's
+     * people's order), as play draws them at turn 1 (a predicted one translucent), and the vehicles where the plan parks them.
+     */
+    showPlan(view: { npcs: readonly (MarkerKind | null)[]; vehicles: DeepReadonly<Record<string, VehicleState>> }): void {
+        this.bank.people.forEach((_, i) => {
+            const kind = view.npcs[i] ?? null;
+            this.people.setAway(i, kind === null);
+            if (kind) this.people.setAlpha(i, kind === 'live' ? 1 : kind === 'predicted' ? 0.55 : 0.3);
+        });
+        this.planVehicles?.sync(view.vehicles);
     }
 
     /** The tile under page point (x, y), in CSS pixels (the planner's taps): the inverse of `tileOnPage`. */

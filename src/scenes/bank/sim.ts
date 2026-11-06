@@ -289,6 +289,8 @@ export class PlayMode {
             // A new heist once this one is over (§15.5): the saved one is done with; the next is planned first, in the
             // same bank (§18, M4-07).
             newHeist: () => {
+                // Done with for good: leaving the page mustn't save it again.
+                this.session.retire();
                 this.session.storage.remove(HEIST_KEY);
                 const still = new URLSearchParams(location.search).has('still') ? '&still' : '';
                 window.location.assign(`${location.pathname}?plan&${new URLSearchParams({ ...this.address })}${still}`);

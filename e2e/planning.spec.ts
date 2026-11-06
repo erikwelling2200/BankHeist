@@ -100,3 +100,73 @@ test('plans a heist and starts it with the chosen loadout, starts and assets (M4
     expect(await page.evaluate(() => (window as any).sim.world.vehicles.map((v: any) => v.id))).toEqual(['van', 'car']);
     expect(errors).toEqual([]);
 });
+
+/** The bank's people as drawn (play adds the crew after them): whether each shows. */
+const npcsShown = async (page: Page) => {
+    const count = await page.evaluate(() => (window as any).generated.people.length);
+    return ((await scene(page)).people as { visible: boolean }[]).slice(0, count).map(p => p.visible);
+};
+
+test('planning shows only the NPCs the crew knows at the start, and asks before overwriting a saved heist (M4-07)', async ({ page }) => {
+    test.setTimeout(180000);
+    const errors: string[] = [];
+    page.on('pageerror', e => errors.push(e.message));
+    // A heist saved on this device.
+    await page.goto('/?new&still');
+    await page.waitForFunction(() => (window as any).game?.scene?.getScene('bank')?.debugState?.play && (window as any).sim, undefined, { timeout: 60000 });
+    const savedTurn = await page.evaluate(() => (window as any).sim.state.turn);
+    await page.goto('/?plan&still');
+    await page.waitForFunction(() => (window as any).game?.scene?.getScene('bank')?.sys.isActive() && (window as any).planner, undefined, { timeout: 60000 });
+    await expect.poll(async () => (await npcsShown(page)).filter(v => !v).length, { timeout: 20000 }).toBeGreaterThan(0);
+    const planned = await npcsShown(page);
+    // Start asks first; keeping the plan goes back to it.
+    await page.locator('.pl-start').click();
+    await page.locator('.play-dialog-keep').click({ timeout: 60000 });
+    await page.waitForFunction(() => (window as any).planner, undefined, { timeout: 60000 });
+    expect(new URL(page.url()).searchParams.has('plan')).toBe(true);
+    // Overwriting it starts the plan: the NPCs shown at turn 1 are those the planning map showed.
+    await page.locator('.pl-start').click();
+    await page.locator('.play-dialog-new').click({ timeout: 60000 });
+    await page.waitForFunction(() => (window as any).game?.scene?.getScene('bank')?.debugState?.play && (window as any).sim, undefined, { timeout: 60000 });
+    expect(await page.evaluate(() => (window as any).sim.state.crew.map((c: any) => c.id))).toEqual(['mara', 'jun', 'dex', 'sol']);
+    expect(savedTurn).toBe(1);
+    await expect.poll(() => npcsShown(page)).toEqual(planned);
+    expect(new URL(page.url()).searchParams.has('setup')).toBe(false);
+    expect(errors).toEqual([]);
+});
+
+test("the outcome's New heist plans the next one in the same bank (M4-07)", async ({ page }) => {
+    test.setTimeout(180000);
+    const errors: string[] = [];
+    page.on('pageerror', e => errors.push(e.message));
+    await page.goto('/?plan&still');
+    await page.waitForFunction(() => (window as any).planner, undefined, { timeout: 60000 });
+    // Mara alone, at the wheel of the van.
+    for (const id of ['jun', 'dex', 'sol']) {
+        await page.locator(`.pl-card[data-crew="${id}"]`).click();
+        await page.locator('.pl-sheet .pl-toggle').click();
+        await page.locator('.pl-sheet .pl-done').click();
+    }
+    await page.locator('.pl-card[data-crew="mara"]').click();
+    await page.locator('.pl-sheet [data-slot="start"]').selectOption('van:in');
+    await page.locator('.pl-sheet .pl-done').click();
+    await page.locator('.pl-start').click();
+    await page.waitForFunction(() => (window as any).game?.scene?.getScene('bank')?.debugState?.play && (window as any).sim, undefined, { timeout: 60000 });
+    // Driven off the plot a Drive at a time.
+    for (let i = 0; i < 20 && !(await page.evaluate(() => !!(window as any).sim.state.outcome)); i++) {
+        await page.evaluate(() => {
+            const sim = (window as any).sim;
+            if (sim.state.crew[0].actionsLeft === 0) sim.endTurn();
+            else sim.commit({ type: 'drive', crew: 'mara', vehicle: 'van', to: sim.getaway().to });
+        });
+        await expect.poll(async () => (await scene(page)).play.playing, { timeout: 15000 }).toBe(false);
+    }
+    await page.locator('[aria-label="New heist"]').click({ timeout: 60000 });
+    await page.waitForFunction(() => (window as any).planner, undefined, { timeout: 60000 });
+    const url = new URL(page.url());
+    expect(url.searchParams.has('plan')).toBe(true);
+    expect(url.searchParams.get('seed')).toBe('31-2');
+    // The finished heist is forgotten: nothing to resume.
+    expect(await page.evaluate(() => localStorage.getItem('bankheist:heist') !== null)).toBe(false);
+    expect(errors).toEqual([]);
+});

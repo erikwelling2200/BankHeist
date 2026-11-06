@@ -1,10 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import { newHeist, startHeist } from '../../src/game/heist';
 import {
-    ASSETS, defaultSetup, FAVOUR_CAP, heistFromSetup, jammerSpot, loadoutProfile, PLANNING_CASH, planOptions, ROSTER, setupProblems, spent, type HeistSetup
+    ASSETS, defaultSetup, startView, FAVOUR_CAP, heistFromSetup, jammerSpot, loadoutProfile, PLANNING_CASH, planOptions, ROSTER, setupProblems, spent, type HeistSetup
 } from '../../src/game/plan';
 import { MemoryStorage, Session } from '../../src/game';
-import { footprint, jammed, tileAt, VEHICLES, type VehicleType } from '../../src/sim';
+import { footprint, jammed, markerKind, tileAt, VEHICLES, type VehicleType } from '../../src/sim';
 import { cachedBank } from '../bankCache';
 
 const bank = cachedBank({ layout: 31, population: 2, tier: 'small', archetype: 'twoWing' });
@@ -86,6 +86,21 @@ describe('planning a heist (M4-07, §18)', () => {
         expect(state.jammers).toEqual([{ id: expect.any(String), pos: at, crew: '', turn: 1 }]);
         expect(jammed(world, state, lobby)).toBe(true);
         expect(setupProblems(plan(s => { s.jammer = lobby; }), options)).toEqual(['The jammer must stand outside, next to the building']);
+        // Never inside a neighbour, however near the bank: a mid-block bank between two.
+        const midBlock = cachedBank({ layout: 7, population: 3 }), next = planOptions(midBlock), building = next.world.building ?? [];
+        const near = (p: { x: number; y: number }) => [-2, -1, 0, 1, 2].some(dy => [-2, -1, 0, 1, 2].some(dx => building.includes(tileAt(next.world, { x: p.x + dx, y: p.y + dy })?.room ?? '')));
+        const neighbours = midBlock.rooms.filter(r => r.zone === 'neighbour').flatMap(r => r.parts.flatMap(part =>
+            Array.from({ length: part.w * part.h }, (_, i) => ({ x: part.x + (i % part.w), y: part.y + Math.floor(i / part.w) })))).filter(near);
+        expect(neighbours.length).toBeGreaterThan(0);
+        for (const p of neighbours) expect(jammerSpot(next, p)).toBe(false);
+    });
+
+    it('shows the planning map only the NPCs the crew knows at the start, as play does at turn 1', () => {
+        const setup = plan();
+        const view = startView(bank, setup, options), { world, state } = heistFromSetup(bank, setup);
+        expect(Object.keys(view.npcs).sort()).toEqual(state.npcs.filter(n => markerKind(world, state, n.id) !== null).map(n => n.id).sort());
+        expect(Object.keys(view.npcs).length).toBeLessThan(state.npcs.length);
+        expect(view.vehicles).toEqual(state.vehicles);
     });
 
     it('keeps to the cash and the favour cap', () => {

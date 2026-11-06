@@ -1,9 +1,9 @@
 import type { GeneratedBank } from '../../gen/model';
 import {
     ASSETS, assetsOf, CREW_SIZE, FAVOUR_CAP, hasLongGun, jammerSpot, loadoutProfile, PLANNING_CASH, rosterMember, ROSTER, setupProblems, SLOT_ITEMS,
-    spent, type AssetId, type CrewPlan, type HeistSetup, type PlanOptions, type StartPick
+    spent, startView, type AssetId, type CrewPlan, type HeistSetup, type PlanOptions, type StartPick
 } from '../../game/plan';
-import { CONTRACT_TARGETS, footprint, VEHICLES, type ItemId, type Pos, type VehicleType } from '../../sim';
+import { CONTRACT_TARGETS, footprint, VEHICLES, type ItemId, type MarkerKind, type Pos, type State, type VehicleType } from '../../sim';
 import { h, img } from '../hud/dom';
 import { iconUrl, portraitUrl } from '../hud/icons';
 import { crewColour, type HudIcon } from '../hud/viewModels';
@@ -24,6 +24,8 @@ import './planning.css';
 export interface PlanMap {
     tileOnPage(x: number, y: number): { x: number; y: number };
     tileAtPage(x: number, y: number): Pos;
+    /** Draws the heist's start as planned: the NPCs the crew knows (by the bank's people's order) and the vehicles. */
+    showPlan(view: { npcs: readonly (MarkerKind | null)[]; vehicles: State['vehicles'] }): void;
 }
 
 /** Each item's picture on the planning screen. */
@@ -73,6 +75,9 @@ export class Planner {
     /** Crew left out of the plan keep their loadout and start, should they come back. */
     private readonly benched = new Map<string, CrewPlan>();
     private frame = 0;
+    /** The heist's start as the plan stands (the last playable plan's), and the one the map shows. */
+    private view?: Parameters<PlanMap['showPlan']>[0];
+    private shownView?: Parameters<PlanMap['showPlan']>[0];
     /** Start was pressed and the game is being opened (or the player asked about a saved heist). */
     private starting = false;
     private down?: { x: number; y: number };
@@ -103,6 +108,12 @@ export class Planner {
         window.addEventListener('keydown', this.onKey);
         this.render();
         const tick = () => {
+            // The map shows the start as planned once the scene is up, and again after every change.
+            const map = this.map();
+            if (map && this.view && this.view !== this.shownView) {
+                map.showPlan(this.view);
+                this.shownView = this.view;
+            }
             this.placePins();
             this.frame = requestAnimationFrame(tick);
         };
@@ -223,13 +234,17 @@ export class Planner {
         this.renderAssets();
         this.renderPins();
         const problems = setupProblems(this.setup, this.options);
+        if (!problems.length) {
+            const start = startView(this.bank, this.setup, this.options);
+            this.view = { npcs: this.bank.people.map(p => (Object.hasOwn(start.npcs, p.id) ? start.npcs[p.id]! : null)), vehicles: start.vehicles };
+        }
         this.start.classList.toggle('off', problems.length > 0);
         this.start.setAttribute('aria-disabled', String(problems.length > 0));
         this.problem.textContent = problems[0] ?? '';
         this.problem.hidden = !problems.length;
         const placing = this.placing;
         this.hint.hidden = placing === null;
-        this.hint.textContent = placing === 'jammer' ? 'Tap the map: the jammer outside the bank'
+        this.hint.textContent = placing === 'jammer' ? `Tap the street by the bank: it jams from turn 1, and dispatch notices after ${this.options.world.rules.dispatchSilence} phases`
             : placing ? `Tap a spot for the ${VEHICLES[placing].name.toLowerCase()}` : '';
         if (this.sheet) this.openSheet(this.sheet.dataset.crew!);
     }
@@ -284,8 +299,10 @@ export class Planner {
             const b = h(`button.sh-panel.pl-asset${on ? '.on' : ''}`, {
                 ...(full ? { disabled: true } : {}),
                 role: 'listitem', 'data-asset': id, 'aria-pressed': String(on), 'aria-label': `${a.name}, $${thousands(a.cost)}, ${a.favours} favour${a.favours === 1 ? '' : 's'}`
-            }, img(iconUrl(ASSET_ICONS[id])), h('span.sh-num', {}, thousands(a.cost)), h('span.pl-name', {}, a.name), h('span.pl-fv', {}, ...Array.from({ length: a.favours }, () => h('i'))));
+            }, img(iconUrl(ASSET_ICONS[id])), h('span.sh-num', {}, thousands(a.cost)), h('span.pl-name', {}, a.name), h('span.pl-short', {}, a.short), h('span.pl-fv', {}, ...Array.from({ length: a.favours }, () => h('i'))));
             b.addEventListener('click', () => this.toggleAsset(id));
+            // A jammer running from turn 1 starts dispatch's lost-contact count then (decision 324).
+            if (id === 'jammer' && owned.includes('jammer')) return h('div.pl-with-note', {}, b, h('span.pl-note', {}, `Dispatch notices in ${this.options.world.rules.dispatchSilence}`));
             return b;
         }));
     }
@@ -331,7 +348,7 @@ export class Planner {
         }
         if (this.setup.jammer) {
             pins.push(h('div.pl-ring', { 'data-pin': 'jammerRing' }));
-            const pin = h('button.pl-pin.pl-jammer', { 'data-pin': 'jammer', 'aria-label': 'Jammer: tap to move it' }, img(iconUrl('radio')));
+            const pin = h('button.pl-pin.pl-jammer', { 'data-pin': 'jammer', 'aria-label': `Jammer, running from turn 1 (dispatch notices after ${this.options.world.rules.dispatchSilence} phases): tap to move it` }, img(iconUrl('radio')));
             pin.addEventListener('click', () => {
                 this.placing = 'jammer';
                 this.render();
