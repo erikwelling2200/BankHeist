@@ -19,9 +19,9 @@ export interface Harm {
     target: string;
     /** Who dealt it. */
     by: string;
-    /** How: a volley of bullets or a blow. */
-    cause: 'shot' | 'strike';
-    /** The weapon row it came from ('pistol', 'shotgunSlug'), or 'strike'. */
+    /** How: a volley of bullets, a blow, or a charge's blast (rules/actions/charges.ts). */
+    cause: 'shot' | 'strike' | 'blast';
+    /** The weapon row it came from ('pistol', 'shotgunSlug'), 'strike', or the charge ('breachCharge', 'tripwire'). */
     weapon: string;
     /** Bullets (or blows) that landed. */
     hits: number;

@@ -1,4 +1,5 @@
 import { HEAVY_ARMOUR_ITEM } from './movement';
+import type { Material } from '../core/types';
 
 /*
  * The weapons' combat numbers (§12.1), the armour (§12.3) and what cover can take (§11.4), as data. The shot geometry
@@ -172,6 +173,25 @@ export const isThrowable = (id: string): id is ThrowableId => Object.hasOwn(THRO
 
 /** World phases a smoke cloud blocks sight (§12.2: 3). */
 export const SMOKE_PHASES = 3;
+
+/**
+ * A wall charge (§12.2, §14.2): per kit item, the damage it deals on the far side, the materials it opens (a gap of one
+ * segment, or the door that stands there breached) and whether it leaves debris (half cover) on the far side.
+ */
+export interface ChargeDef { count: number; damage: number; opens: readonly Material[]; debris: boolean }
+
+export const CHARGES = {
+    breachCharge: { count: 2, damage: 4, opens: ['glass', 'soft'], debris: false },
+    // Teller glass is armoured: it counts as Reinforced here, as it does for sound (data/noise.ts).
+    shapedCharge: { count: 1, damage: 6, opens: ['glass', 'soft', 'reinforced', 'tellerGlass'], debris: true }
+} as const satisfies Record<string, ChargeDef>;
+
+export type ChargeId = keyof typeof CHARGES;
+
+export const isCharge = (id: string): id is ChargeId => Object.hasOwn(CHARGES, id);
+
+/** The tripwire charge (§12.2): per kit item, its damage and radius (Euclidean, as a grenade's) where it goes off. */
+export const TRIPWIRE = { item: 'tripwire', count: 2, damage: 6, radius: 1 } as const;
 
 /**
  * The props that can be flipped into improvised cover (§11.4: tables, light desks, café tables), by the generator's

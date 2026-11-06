@@ -17,6 +17,7 @@ import './geo/sound';
 import './rules/actions/act';
 import './rules/actions/attack';
 import './rules/actions/body';
+import './rules/actions/charges';
 import './rules/actions/disguise';
 import './rules/actions/door';
 import './rules/actions/hostage';
@@ -224,6 +225,7 @@ export { blastTiles, flipBlocked, grenadeTargets, throwBlocked, type Grenade } f
 export {
     besideEdge, dropBarricade, dropField, edgesAround, edgeSides, FORTIFY_ACTIONS, fortificationOf, fortifiedEdges, fortifyBlocked, isWindow, REINFORCEMENT_KIT, type FortifyAction
 } from './rules/fortify';
+export { chargeBlast, chargeBlocked, chargeEdges, lootOn, scorchTiles, tripwireAt, tripwireBlocked, type Charge, type ChargeBlast, type Tripwire } from './rules/actions/charges';
 export { type SmokeCloud } from './geo/los';
 export { attackCone } from './preview/attack';
 export * from './data/police';

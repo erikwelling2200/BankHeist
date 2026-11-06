@@ -534,7 +534,77 @@ export const BESIDE_DOOR = `(() => { ${PAGE_HELPERS}
     return null;
 })()`;
 
+/**
+ * Mara beside a wall a charge opens (M4-01): a plaster wall for a breach charge, else a concrete or brick one for a
+ * shaped charge, with free floor both sides, inside the building, preferring one with loot lying within a tile of it
+ * (the preview's crosses); she carries both charges. `info` names the segment and the charge.
+ */
+export const BESIDE_WALL = (material: 'soft' | 'reinforced') => `(() => { ${PAGE_HELPERS}
+    const base = clone(sim.state), item = '${material}' === 'soft' ? 'breachCharge' : 'shapedCharge';
+    const lootNear = (a, b) => Object.values(base.loot).filter(l => l.holder === null && [a, b].some(p => Math.abs(l.pos.x - p.x) <= 1 && Math.abs(l.pos.y - p.y) <= 1)).length;
+    const options = [];
+    for (const key of Object.keys(w.edges).sort()) {
+        const e = w.edges[key];
+        if (e.door || e.material !== '${material}') continue;
+        const a = e.run === 'eastWest' ? { x: e.tx, y: e.ty - 1 } : { x: e.tx - 1, y: e.ty }, b = { x: e.tx, y: e.ty };
+        if (!free(base, a) || !free(base, b)) continue;
+        const ta = w.tiles[a.y * w.width + a.x], tb = w.tiles[b.y * w.width + b.x];
+        const inside = r => !!r && (!w.building || w.building.includes(r));
+        if (!inside(ta.room) || !inside(tb.room) || ta.raised || tb.raised) continue;
+        // Public floor both sides is on the blueprint, so the preview shows its far side; nobody near, so nobody sees.
+        const open = ta.zone === 'public' && tb.zone === 'public' ? 1 : 0;
+        const near = base.npcs.filter(n => n.status !== 'away' && Math.abs(n.pos.x - a.x) + Math.abs(n.pos.y - a.y) < 7).length;
+        options.push({ key, a, b, score: open * 8 + (e.run === 'eastWest' ? 6 : 0) + lootNear(a, b) * 3 - near });
+    }
+    options.sort((p, q) => q.score - p.score);
+    for (const o of options) {
+        for (const [near, far] of [[o.b, o.a], [o.a, o.b]]) {
+            const st = clone(base), m = st.crew[0];
+            m.pos = near;
+            m.loadout.items.push('breachCharge', 'shapedCharge');
+            m.charges = { breachCharge: 2, shapedCharge: 1 };
+            m.facing = far.x > near.x ? 'e' : far.x < near.x ? 'w' : far.y > near.y ? 's' : 'n';
+            if (sim.whyNot({ type: 'placeCharge', crew: 'mara', item, edge: o.key }, st)) continue;
+            return { state: st, info: { edge: o.key, item, at: near, far } };
+        }
+    }
+    return null;
+})()`;
+
+/** Mara's charge set on the wall, then the turn ended: the gap, and the shaped charge's debris. */
+const blowWall = async (page: Page, info: { edge: string; item: string; at: { x: number; y: number }; far: { x: number; y: number } }): Promise<void> => {
+    await page.evaluate(i => {
+        const sim = (window as any).sim;
+        sim.commit({ type: 'placeCharge', crew: 'mara', item: i.item, edge: i.edge });
+        sim.commit({ type: 'endTurn' });
+    }, info);
+    await page.waitForFunction(() => !(window as any).game.scene.getScene('bank').debugState.play?.playing);
+    // Looking from a few tiles south of it, so the wall stands full height.
+    await lookAt(page, { x: info.at.x, y: Math.max(info.at.y, info.far.y) + 3 });
+    await page.waitForTimeout(800);
+};
+
 export const SETUPS: Record<string, Setup> = {
+    'charge-preview': {
+        about: 'Mara beside a plaster wall with her Breach charge previewed: the far side it hits outlined, a cross on any loot it would destroy, its fuse',
+        script: BESIDE_WALL('soft'),
+        then: async (page, info: { item: string; at: { x: number; y: number } }) => {
+            await selectMara(page);
+            await page.locator(`.sh-actions button[data-action="charge:${info.item}"]`).click();
+            await lookAt(page, info.at);
+            await page.waitForTimeout(400);
+        }
+    },
+    'wall-gap': {
+        about: 'a breach charge gone off: the gap through the plaster wall (its stubs, the rubble), the bank loud',
+        script: BESIDE_WALL('soft'),
+        then: blowWall
+    },
+    'wall-debris': {
+        about: 'a shaped charge gone off on a concrete or brick wall: the gap, and the debris across it',
+        script: BESIDE_WALL('reinforced'),
+        then: blowWall
+    },
     'loud-standoff': {
         about: 'the bank loud at Heat 3 in Assault: a SWAT officer with a red wedge on Jun, a police flashbang lying by Mara with its fuse, the heat strip',
         script: LOUD('assault'),

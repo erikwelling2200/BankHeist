@@ -1,6 +1,7 @@
 import type { NegotiatorOfferVM, NegotiatorVM } from '../ui/hud/viewModels';
 import { actionMenu } from './actions';
 import {
+    chargeBlast, isCharge, lootOn, scorchTiles, tileVisibility, type ChargeId,
     COMBAT_SIGHT, isKnownNow, negotiatorCalling, offerEffect, releasable, tradeable, drivePlan, footprint, isDown, OFFICER_STATS, poseKey, seenWedges, THROWABLES, vehicleDef, vehicleReach, weaponDef,
     type Command, type KnownView, type Pose, type Pos, type ReadonlyWorld, type State
 } from '../sim';
@@ -55,9 +56,29 @@ export interface DriveVM {
     refusal?: string;
 }
 
+/**
+ * A wall charge set (or previewed), or thermite burning at the vault door (M4-01): the far side it hits, the loot it
+ * would destroy (§14.2 "the preview shows which loot would be lost"), and the world phases until it goes off.
+ */
+export interface ChargeVM {
+    kind: string;
+    /** The middle of the segment it is on, in tiles (a tile's middle is +0.5); thermite: the middle of its tile. */
+    at: { x: number; y: number };
+    /** The tiles it hits (none for thermite), only those the crew has a picture of. */
+    tiles: Pos[];
+    /** Where loot it would destroy lies. */
+    loot: Pos[];
+    fuse: number;
+    preview?: boolean;
+}
+
 export interface LoudVM {
     wedges: WedgeVM[];
     grenades: GrenadeVM[];
+    /** Wall charges and burning thermite, with the loot each would destroy. */
+    charges: ChargeVM[];
+    /** Tripwires the crew laid. */
+    tripwires: Pos[];
     drive?: DriveVM;
 }
 
@@ -103,8 +124,41 @@ export function loudView(world: ReadonlyWorld, state: State, known: KnownView, p
         .filter(g => crewIds.has(g.by) || known.inView[g.at.y * known.width + g.at.x] === 1 || known.fresh[g.at.y * known.width + g.at.x] === 1)
         .map(g => ({ at: { ...g.at }, kind: g.kind, radius: THROWABLES[g.kind].radius, police: !crewIds.has(g.by), fuse: Math.max(1, g.turn - state.turn + 1) }));
     const drive = pending?.type === 'drive' ? driveView(world, state, pending) : undefined;
-    if (!wedges.length && !grenades.length && !drive) return undefined;
-    return { wedges, grenades, ...(drive ? { drive } : {}) };
+    const charges = chargeViews(world, state, pending), tripwires = (state.tripwires ?? []).map(t => ({ ...t.at }));
+    if (!wedges.length && !grenades.length && !drive && !charges.length && !tripwires.length) return undefined;
+    return { wedges, grenades, charges, tripwires, ...(drive ? { drive } : {}) };
+}
+
+/**
+ * The charges lying, a charge or thermite previewed, and thermite burning (M4-01), each with what it would destroy as
+ * `chargeBlast` and `scorchTiles` (the rules' own) have it now. Only tiles the crew has a picture of (decision 44): the
+ * far side of a wall into a room nobody has looked into shows nothing of it.
+ */
+export function chargeViews(world: ReadonlyWorld, state: State, pending: Command | null): ChargeVM[] {
+    const shown = (p: Pos) => tileVisibility(world, state, p) !== 'hidden';
+    const lootAt = (ids: readonly string[]) => ids.map(id => ({ ...state.loot[id]!.pos })).filter(shown);
+    const middle = (edge: string) => {
+        const e = world.edges[edge]!;
+        return e.run === 'eastWest' ? { x: e.tx + 0.5, y: e.ty } : { x: e.tx, y: e.ty + 0.5 };
+    };
+    const wall = (kind: ChargeId, edge: string, from: Pos, fuse: number, preview: boolean): ChargeVM => {
+        const blast = chargeBlast(world, state, kind, edge, from);
+        return { kind, at: middle(edge), tiles: blast.tiles.filter(shown), loot: lootAt(blast.loot), fuse, ...(preview ? { preview: true } : {}) };
+    };
+    const out: ChargeVM[] = (state.charges ?? []).map(c => wall(c.kind, c.edge, c.from, Math.max(1, c.turn - state.turn + 1), false));
+    if (pending?.type === 'placeCharge' && isCharge(pending.item) && world.edges[pending.edge]) {
+        const m = state.crew.find(c => c.id === pending.crew);
+        if (m) out.push(wall(pending.item, pending.edge, m.pos, 1, true));
+    }
+    const burning = (state.devices ?? []).filter(d => d.kind === 'thermite' && d.done < d.needed && world.doors[d.at]);
+    const scorch = (door: string, at: Pos, fuse: number, preview: boolean): ChargeVM =>
+        ({ kind: 'thermite', at: { x: at.x + 0.5, y: at.y + 0.5 }, tiles: [], loot: lootAt(lootOn(state, scorchTiles(world, state, door))), fuse, ...(preview ? { preview: true } : {}) });
+    for (const d of burning) out.push(scorch(d.at, d.pos, d.needed - d.done, false));
+    if (pending?.type === 'thermite' && world.doors[pending.door]) {
+        const m = state.crew.find(c => c.id === pending.crew);
+        if (m) out.push(scorch(pending.door, m.pos, 1, true));
+    }
+    return out;
 }
 
 /** The driving overlay for a previewed drive: the reach, the chosen footprint and its swept path, crew left on foot. */

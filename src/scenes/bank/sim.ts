@@ -15,7 +15,7 @@ import { TILE } from '../../level/constants';
 import { headingOf } from '../../art/bank/people';
 import type { PersonPose } from '../../level/plan';
 import {
-    COMBAT_STATUSES, crewPicture, dashRefusal, IllegalCommand, knownDoorStatus, knownView, lootWeight, planRoute, throwPlan, VISIBILITY, routeBreak, soundRing, type ActionPreview,
+    COMBAT_STATUSES, crewPicture, edgeBetween, edgeKey, dashRefusal, IllegalCommand, knownDoorStatus, knownView, lootWeight, planRoute, throwPlan, VISIBILITY, routeBreak, soundRing, type ActionPreview,
     type AutoStop, type Command, type CrewState, type KnownView, type MarkerKind, type PathSafety, type State, type TileVisibility, type Facing, type Pos, type SimEvent
 } from '../../sim';
 import { mountAutoBar, type AutoBarHandle } from '../../ui/hud/autoBar';
@@ -680,6 +680,10 @@ export class PlayMode {
         if (this.applyAlarmEvent(e)) return;
         if (e.type === 'doorOpened') this.showDoor(e.door, true);
         else if (e.type === 'doorClosed') this.showDoor(e.door, false);
+        else if (e.type === 'chargeWentOff') {
+            if (e.door) this.showDoor(e.door, true);
+            else this.showGap(e.edge);
+        } else if (e.type === 'debrisFell') this.showDebris(e.at);
         else if (e.type === 'npcEntered' || e.type === 'npcLeft') {
             const index = this.sprite.get(e.npc);
             if (index === undefined) return;
@@ -928,6 +932,9 @@ export class PlayMode {
             this.people.setAlpha(index, dragger ? 1 : MARKER_ALPHA[m.kind]);
         }
         this.syncPolice();
+        // Gaps and debris (M4-01): the crew's own work.
+        for (const key of Object.keys(state.edges)) if (state.edges[key]!.gap) this.showGap(key);
+        for (const p of state.debris ?? []) this.showDebris(p);
         // Doors as the crew last saw them (decision 44): one not seen this turn may have moved since.
         for (const id of Object.keys(world.doors)) {
             const status = knownDoorStatus(world, state, id);
@@ -992,6 +999,21 @@ export class PlayMode {
         const d = FACING_DELTA[member.facing], { world } = this.session, behind = { x: member.pos.x - d.x, y: member.pos.y - d.y };
         const ok = behind.x >= 0 && behind.y >= 0 && behind.x < world.width && behind.y < world.height && !world.tiles[behind.y * world.width + behind.x]!.blocksMove;
         return ok ? behind : member.pos;
+    }
+
+    /** A gap blown through a wall (M4-01): crew-made, so always shown. */
+    private showGap(key: string): void {
+        const e = this.session.world.edges[key];
+        if (e) this.walls.setGap(e.run, e.tx, e.ty);
+    }
+
+    /** Debris on a tile, beside the gap that dropped it. */
+    private showDebris(at: Pos): void {
+        const { world, state } = this.session;
+        for (const [dx, dy] of [[0, -1], [1, 0], [0, 1], [-1, 0]] as const) {
+            const key = edgeKey(edgeBetween(at, { x: at.x + dx, y: at.y + dy })), e = world.edges[key];
+            if (e && state.edges[key]?.gap) return this.walls.addDebris(e.run, e.tx, e.ty, at.x, at.y);
+        }
     }
 
     private showDoor(id: string, open: boolean): void {
@@ -1550,7 +1572,8 @@ export class PlayMode {
         // The floor is judged whenever someone is selected: their own tile (what ending the turn there does) shows even
         // with no actions left or the range stepped aside.
         // A grenade lying (decision 101) changes the world phase after it outside what the floor judges: no floor then.
-        const lying = this.session.state.grenades.length > 0;
+        // So does a charge set (M4-01).
+        const lying = this.session.state.grenades.length > 0 || (this.session.state.charges ?? []).length > 0;
         const judged = this.floor(member), floor = range && !lying ? judged : undefined, stay = lying ? undefined : this.floorFor?.stay;
         // The cones shown: those of the observers reacting to them somewhere they could go (with a path, on it: below).
         const reactors = (path?: PathSafety) => ({ reactors: reactingObservers(this.floorFor?.job, path) });

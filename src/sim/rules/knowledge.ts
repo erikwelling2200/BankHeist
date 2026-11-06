@@ -1658,6 +1658,8 @@ export function projectEvents(world: ReadonlyWorld, state: State, events: readon
         if (PERSON_FIELDS.some(f => typeof fields[f] === 'string' && unitIds.has(fields[f] as string) && !officerKnown(fields[f] as string))) continue;
         if (typeof fields.camera === 'string' && !cameras.has(fields.camera)) continue;
         if (typeof fields.door === 'string' && !(typeof fields.by === 'string' && crewIds.has(fields.by)) && !seesDoor(fields.door)) continue;
+        // Loot a blast or thermite destroyed where the crew has never looked isn't told (M4-01).
+        if (e.type === 'lootDestroyed' && tileVisibility(world, base, e.at) === 'hidden') continue;
         if (e.type === 'heard') {
             const npcs = e.npcs.filter(known);
             if (npcs.length) out.push({ ...e, npcs });

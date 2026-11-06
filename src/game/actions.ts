@@ -1,5 +1,5 @@
 import {
-    besideDoor, COMBAT_COMMANDS, crewPicture, negotiatorCalling, offerEffect, releasable, tradeable, withDoubtedShut, doorStatus, DRAGGABLE, draggedBy, goBlocked, HACKING_KIT, inHands, inReach, interactionVerbs, isKnownNow, JAMMER, officerSeen, legalActions, LOCKPICK, lockActions, LOOP_FROM, lootWeight,
+    besideDoor, COMBAT_COMMANDS, FACING_STEP, crewPicture, negotiatorCalling, offerEffect, releasable, tradeable, withDoubtedShut, doorStatus, DRAGGABLE, draggedBy, goBlocked, HACKING_KIT, inHands, inReach, interactionVerbs, isKnownNow, JAMMER, officerSeen, legalActions, LOCKPICK, lockActions, LOOP_FROM, lootWeight,
     pocketed, preview, IllegalCommand, reachesObject, STASH_KINDS, throwTargets, tieIneligible, tileVisibility, whyNot, driveBudget, driveMap, driveReach, exitTiles, poseKey, vehicleBeside,
     vehicleDef, edgesAround, fortificationOf, fortifyBlocked, isWindow, type FortifyAction, type Command, type DriveNode, type Pose, type Pos, type ReadonlyWorld, type State
 } from '../sim';
@@ -16,6 +16,9 @@ import type { HudIcon as HudIconName } from '../ui/hud/viewModels';
  * - Vault access (M2-05): the console's Unlock vault, the manager's PC's Hack PC and a deposit wall's Pick a box (as
  *   interactions, with their work so far), Cut sensors at the console; Drill and Thermite where the sim allows them, Fix
  *   drill for a jammed one, Take drill to put one back in the kit.
+ * - Charges (M4-01): a Breach charge and a Shaped charge with the kit's count, on the tapped door beside them, else the
+ *   wall they face, else the first segment beside them it can open; once loud, a Tripwire on the tile they face (else
+ *   their own).
  * - Knockout: an NPC the crew knows of (§8.15), in reach, still on their feet.
  * - Drag: a body (knocked out, dead, tied) in reach; while dragging, Drop and Stash (a stash object in reach, or the
  *   stash room they stand in).
@@ -50,6 +53,9 @@ import type { HudIcon as HudIconName } from '../ui/hud/viewModels';
  *   once loud, after Command and Hold (before Mask up and GO). Each only where the rules allow it with the doors the
  *   crew can't vouch for shut, so no offer tells how such a door stands.
  */
+
+/** What the grid calls each wall charge. */
+const CHARGE_NAME: Readonly<Record<string, string>> = { breachCharge: 'Breach charge', shapedCharge: 'Shaped charge' };
 
 /** One entry of the grid: its id (stable while the target is), what it shows and the command it gives. */
 export interface ActionEntry {
@@ -317,6 +323,19 @@ export function actionMenu(world: ReadonlyWorld, state: State, crewId: string, t
     if (fix) add('fixDrill', 'Fix drill', 'drill', fix);
     const back = legal.find((c): c is Extract<Command, { type: 'takeDrill' }> => c.type === 'takeDrill');
     if (back) add('takeDrill', 'Take drill', 'drill', back);
+
+    // Wall charges (M4-01): on the tapped door beside them, else the segment they face, else the first they can open.
+    for (const item of ['breachCharge', 'shapedCharge'] as const) {
+        const set = legal.filter((c): c is Extract<Command, { type: 'placeCharge' }> => c.type === 'placeCharge' && c.item === item);
+        const onDoor = target ? set.find(c => world.edges[c.edge]?.door === target) : undefined;
+        const charge = onDoor ?? set[0];
+        if (charge) add(`charge:${item}`, `${CHARGE_NAME[item]} (${member.charges[item] ?? 0})`, 'charge', charge, onDoor ? target! : undefined);
+    }
+    // A tripwire (loud only): on the tile they face, else their own, else the first next to them.
+    const wires = legal.filter((c): c is Extract<Command, { type: 'placeTripwire' }> => c.type === 'placeTripwire');
+    const ahead = { x: member.pos.x + FACING_STEP[member.facing].x, y: member.pos.y + FACING_STEP[member.facing].y };
+    const wire = wires.find(c => c.at.x === ahead.x && c.at.y === ahead.y) ?? wires.find(c => c.at.x === member.pos.x && c.at.y === member.pos.y) ?? wires[0];
+    if (wire) add('tripwire', `Tripwire (${member.charges.tripwire ?? 0})`, 'grenade', wire);
 
     const loot = pick(targets.loot);
     if (loot) add('take', `Take ${LOOT_NAME[lootWeight(world, loot)]}`, 'bag', { type: 'takeLoot', crew: crewId, loot }, loot);

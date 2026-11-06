@@ -4,7 +4,8 @@ import { drawNumber, numberWidth } from '../../art/ui/glyphs';
 
 /*
  * The loud layer drawn on the world overlay (UI.md "Loud", M3-09; src/game/loudBoards.ts makes it): Watch wedges (the
- * crew's steel blue, the police's red), grenades lying with their radius and fuse, and the driving overlay (every
+ * crew's steel blue, the police's red), grenades lying with their radius and fuse, charges with what they would
+ * destroy and tripwires (M4-01), and the driving overlay (every
  * footprint the van can reach tinted, the chosen one bracketed, its swept path drawn, crew left on foot flagged).
  * Hairline strokes over a 1px ink shadow, outlines rather than fills, as the rest of the world UI.
  */
@@ -105,6 +106,55 @@ function drawGrenade(d: LoudDraw, g: LoudVM['grenades'][number]): void {
     drawNumber(ctx, text, px + 4, py + 3, colour);
 }
 
+/** A plate with a number on it (a fuse), centred over map point (x, y) in UI pixels. */
+function plate(d: LoudDraw, text: string, x: number, y: number, colour: string): void {
+    const { ctx } = d, w = numberWidth(text) + 8, px = Math.round(x - w / 2), py = Math.round(y);
+    ctx.fillStyle = 'rgba(11, 13, 23, 0.85)';
+    ctx.fillRect(px, py, w, 12);
+    ctx.strokeStyle = colour;
+    ctx.lineWidth = 1;
+    ctx.strokeRect(px + 0.5, py + 0.5, w - 1, 11);
+    drawNumber(ctx, text, px + 4, py + 3, colour);
+}
+
+/**
+ * A wall charge (or thermite) and what it would do (M4-01): the far side it hits outlined, a red cross on every piece of
+ * loot it would destroy, a dot on the segment and its fuse on a plate. Dashed while previewed.
+ */
+function drawCharge(d: LoudDraw, c: LoudVM['charges'][number]): void {
+    const { ctx, S } = d, dash = c.preview ? [5, 4] : [];
+    if (c.tiles.length) d.outline(c.tiles, d.pal.amber, 2, dash);
+    for (const p of c.loot) {
+        const [x, y] = at(d, p.x + 0.5, p.y + 0.5), k = S * 0.28;
+        shadowed(d, d.pal.red, 3, () => {
+            ctx.moveTo(x - k, y - k);
+            ctx.lineTo(x + k, y + k);
+            ctx.moveTo(x + k, y - k);
+            ctx.lineTo(x - k, y + k);
+        });
+    }
+    const [x, y] = at(d, c.at.x, c.at.y);
+    ctx.fillStyle = d.pal.amber;
+    ctx.strokeStyle = d.ink;
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.rect(x - S * 0.12, y - S * 0.12, S * 0.24, S * 0.24);
+    ctx.fill();
+    ctx.stroke();
+    plate(d, String(c.fuse), x, y - S * 0.5 - 16, d.pal.amber);
+}
+
+/** A tripwire lying: a taut line across its tile between two posts. */
+function drawTripwire(d: LoudDraw, p: Pos): void {
+    const { ctx, S } = d, [x0, y] = at(d, p.x + 0.15, p.y + 0.6), [x1] = at(d, p.x + 0.85, p.y + 0.6);
+    shadowed(d, d.pal.amber, 2, () => {
+        ctx.moveTo(x0, y);
+        ctx.lineTo(x1, y);
+    });
+    ctx.fillStyle = d.pal.amber;
+    for (const x of [x0, x1]) ctx.fillRect(Math.round(x - 2), Math.round(y - S * 0.15), 4, Math.round(S * 0.15) + 2);
+}
+
 /** Corner brackets round a box of tiles. */
 function brackets(d: LoudDraw, tiles: Pos[], colour: string): void {
     if (!tiles.length) return;
@@ -190,4 +240,6 @@ export function drawBoards(d: LoudDraw, vm: LoudVM): void {
     for (const w of vm.wedges) if (w.side === 'police') drawWedge(d, w);
     for (const w of vm.wedges) if (w.side === 'crew') drawWedge(d, w);
     for (const g of vm.grenades) drawGrenade(d, g);
+    for (const t of vm.tripwires ?? []) drawTripwire(d, t);
+    for (const c of vm.charges ?? []) drawCharge(d, c);
 }

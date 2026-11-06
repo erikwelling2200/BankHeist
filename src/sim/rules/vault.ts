@@ -12,6 +12,7 @@ import { inReach, lacksActions, registerAction } from './actions/act';
 import { besideDoor, LOCKPICK } from './actions/door';
 import { registerInteraction } from './actions/interact';
 import { HACKING_KIT, hasTrait, workActions } from './alarms';
+import { scorch } from './actions/charges';
 import { raiseCarrier, registerCarrierCheck } from './carriers';
 import { cctvControlled, cctvDesk } from './cctv';
 import { registerEvidenceSource, type Evidence } from './evidence';
@@ -46,7 +47,8 @@ import { entered, enterPart, partOf, timeLockOpen, unlockVault, vaultLock, vault
  *   odds shown (the end-of-turn preview stops there);
  *   fixing it takes 1 action in reach (`fixDrill`), and Steady Hands in reach of it as the crew phase begins fixes it
  *   for free and keeps it from jamming then (decision 80). A running drill or charge is major evidence ('drill').
- *   Scorched loot and fire on the tile are M4's; heat ticks are M3's; the Silent and Beast drills are planning's (M6).
+ *   Thermite scorches the loot within a tile of the door every phase it burns (M4-01,
+ *   rules/actions/charges.ts); fire on the tile is deferred; heat ticks are M3's; the Silent and Beast drills are planning's (M6).
  * - **The sensors** (§9.1): drilling or burning a Class II+ vault starts the seismic carrier (`rules.seismicCountdown`,
  *   4); on Class III, a crew member stepping into the vault outside the time-lock window starts the motion carrier (2).
  *   Both are wired: the dead alarm panel kills them (carriers.ts), and so does cutting the sensors at the console, in
@@ -432,6 +434,8 @@ registerWorldHook('devices', 'vault.devices', ctx => {
         device.done++;
         ctx.emit({ type: 'deviceWorked', device: device.id, kind: device.kind, done: device.done, needed: device.needed });
         makeNoise(ctx, device.kind, device.pos, `${device.kind} ${device.id}`, device.noise);
+        // Burning, thermite scorches the loot within a tile of the door (§12.2, M4-01).
+        if (device.kind === 'thermite' && Object.hasOwn(world.doors, device.at)) scorch(ctx, device.at);
         if (device.done < device.needed) continue;
         // A finished drill stays where it worked until taken back; a charge is burnt out.
         if (device.kind === 'thermite') state.devices.splice(state.devices.indexOf(device), 1);

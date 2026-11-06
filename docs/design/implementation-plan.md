@@ -1282,9 +1282,34 @@ M2 is complete: every package below has landed.
 
 ### M4: Sandbox v1
 
-- [ ] **M4-01 Charges, gaps and explosions.**
+- [x] **M4-01 Charges, gaps and explosions.** (partial: see Deferred)
   - **Covers:** §12.2, §14.2.
   - **Work:** breach and shaped charges; thermite; tripwires; edge state changes; the loot-loss preview; debris cover; wall-gap art.
+  - **Notes (done):** decisions 200–207. `src/sim/rules/actions/charges.ts`: `placeCharge { crew, item, edge }` (breach,
+    shaped), `placeTripwire { crew, at }`, `State.charges` (gone off in the `fuses` step, `charges.fuses`),
+    `State.tripwires`, `State.debris`, `CrewState.charges` (kit counts), `EdgeProps.gap`; `chargeBlast` (what a charge
+    would do now: the door breached or the gap, the far side's tiles, the loot lost, the debris) is both the fuse's and
+    the preview's; `scorchTiles`/`scorch` for thermite at the vault door (rules/vault.ts). `Harm.cause` 'blast'. The
+    walks of the world phase call `steppedOn`/`stopsWalk` (`src/sim/rules/steps.ts`), which charges.ts registers, so
+    the walks don't import it. Data: `CHARGES`, `TRIPWIRE` (data/weapons.ts), the `tripwire` noise (14). Debris is half
+    cover nothing shoots away in `shotFabric`. `lootDestroyed` on a hidden tile isn't told (`projectEvents`).
+  - **Game and scene:** the grid's Breach charge, Shaped charge (with the kit's counts) and, once loud, Tripwire
+    (actions.ts); the loud board's `charges` (lying, previewed, thermite burning or previewed: the far side outlined, a
+    red cross on each piece of loot it would destroy, its fuse; only tiles not hidden) and `tripwires`
+    (`chargeViews`, loudBoards.ts; drawn in loud.ts); a lying charge hides the safe floor as a grenade does; wall gaps
+    (`gapWallArt`, src/art/bank/gaps.ts: the segment's own art at each cut step with a ragged hole, darker torn stubs
+    and rubble of its material on the footprint; `Walls.setGap`) and debris heaps (`debrisArt`, `Walls.addDebris`),
+    synced from the state. Recap lines for every event.
+  - **Setups and tests:** `npm run shot` presets `charge-preview`, `wall-gap`, `wall-debris`; `tests/sim/charges.test.ts`,
+    `tests/game/charges.test.ts`, `e2e/charges.spec.ts` (`screenshots/charge-preview.png`, `wall-gap.png`,
+    `wall-debris.png`). Save shape hash `ebfdf01cb70013e2` (with M4-02's fields); the `charges` state check refuses saves from before.
+    No visual baseline changed (nothing new shows at the start).
+  - **Deferred:** police breaching windows and walls and using charges as kit, spotting tripwires from Heat 3 and
+    disarming them (M3-05/M3-06's breaches stay door-only); thermite's fire on the tile, and thermite through a floor;
+    picking which wall beside a crew member a charge goes on by tapping it (the grid takes the tapped door, else the
+    wall faced, else the first); vehicle-ram gaps of 3 segments (M4-04); a charge's blast or a tripwire on loot held
+    in the hands; police and NPCs routing round known tripwires; the blast's own animation (the scene shows the result);
+    the long-press material tag (§14.2 "which of the squad's tools can open it").
 - [x] **M4-02 Fortifying.** (partial: see Deferred)
   - **Covers:** §14.3.
   - **Work:** barricades, reinforcing, blinds; police breaking barricades.
@@ -2327,6 +2352,44 @@ Later milestones: within each milestone, the `∥` notes in §3 apply. UI packag
 193. **Police vehicles park clear of the van (M3-08 review, §13.4).** A police vehicle stops at its staging point, else
     on the nearest drivable tile to it (rings, row-major) nothing blocks and no crew vehicle or person stands on. A drive never counts
     anything on the vehicle's own footprint as in its way, so nothing there can shut it in.
+200. **Wall charges (M4-01, §12.2, §14.2).** `placeCharge { crew, item, edge }`: 1 action, hands free, not aboard,
+    from a tile beside the segment, the illegal act 'plantCharge'; a breach charge opens Glass and Soft, a shaped charge
+    Reinforced and teller glass too (armoured, as for sound); never Vault, railings or fences. Not on a segment open
+    already (an open or breached door, a gap) or one with a charge on it. Allowed in stealth: it lies one crew phase,
+    so the scene draws no safe floor while one lies (decision 101's rule), and the end-of-turn preview shows the blast.
+    Each kit carries 2 breach charges, 1 shaped charge (`CrewState.charges`); the last one takes the item off them.
+201. **The blast (M4-01).** Goes off in the world phase's `fuses` step after the grenades, before anyone acts. A door on
+    the segment is breached (one door over several segments goes with it); any other wall gets a gap: `State.edges`
+    `{ blocksMove, blocksSight, blocksSound, midHeight: false, gap: true }`, so movement, sight, sound, bullets
+    (`BulletEdge.open`) and the NPCs' paths pass it, and the evidence source tells it as a hole. The **far side** is the
+    tile across and its two neighbours along the wall (each unless a sight-blocking wall stands between it and the tile
+    across): everyone on foot there (crew, NPCs and bodies, officers) takes the charge's damage (4; shaped 6), lethal,
+    through `dealHarm` ('blast'). The near side is spared (charges are shaped to blow outwards). A loud noise (14;
+    shaped 18) where it was set; the bank goes Loud.
+202. **Loot lost (M4-01, §14.2).** "Within 1 tile" is both sides' strips of three tiles: loot there nobody holds (where
+    the bank keeps it, or dropped; not in a hand, a pocket or a hold) is destroyed (`ruined`). `chargeBlast` decides
+    it, as the fuse does, and the preview draws it (a red cross per piece) for the charge previewed and every charge
+    lying, recomputed each refresh, so picking a bag up before the world phase takes its cross away. Loot on hidden
+    tiles is neither drawn nor told.
+203. **Debris (M4-01).** Only a shaped charge (§12.2's table, the more specific) opening a wall (not a door) leaves debris,
+    on the tile across, unless something stands there already (furniture, cover, a flipped table, debris): half cover
+    nothing shoots away (`INDESTRUCTIBLE` in the fabric); it doesn't block movement.
+204. **Tripwires (M4-01).** A combat tool as grenades are (decision 101): laid only once Loud, 1 action, hands free, on
+    their own tile or a neighbour they could step to, 'plantCharge'; 2 per kit. They go off when an NPC or an officer
+    steps on the tile: a passive walk stops there and the wire goes off once all the passive group has moved (its
+    frisk or telling, judged on where its walk would end, is dropped); a fighter sets it off on that step, before the
+    Watch reactions. 6 damage, lethal, to everyone within radius 1 (Euclidean) the tile sees, the crew included; a loud
+    noise of 14. Police spotting and disarming them is deferred.
+205. **Thermite scorches (M4-01, §12.2).** Every world phase thermite burns at the vault door, loot lying in the strips
+    either side of each of the door's segments is scorched (`lootDestroyed` 'thermite'); its preview, and a burning
+    charge, show the crosses. Fire on the tile is deferred.
+206. **Steps (M4-01).** `src/sim/rules/steps.ts` is a registry of what stepping on a tile sets off (`registerStepHook`),
+    so the walks (rules/npc/act.ts, rules/routine.ts) call it without importing charges.ts, which reaches most of the
+    rules (an import cycle otherwise).
+207. **Gap art (M4-01).** A gap is the segment's own bitmap at each cut step with a ragged hole from the floor to its top
+    (stubs of 1–3 pixels, their torn columns darker) and rubble of its material on its footprint; a north-south segment
+    loses the middle of its section. So it follows the wall's real thickness and its cut height. A breached door shows
+    as an open door, as police breaches do. Debris is a low heap of the wall's material on the tile across.
 
 220. **Barricades are abstract furniture (M4-02, §14.3).** "Furniture is everywhere": a barricade takes 1 action and
     nothing from the floor (no desk leaves its tile, no count). It goes on a shut door (closed or locked; not the

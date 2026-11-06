@@ -1,5 +1,6 @@
 import type Phaser from 'phaser';
 import { leafArt, openWallArt, opens, type Hinge } from '../../art/bank/doors';
+import { debrisArt, gapWallArt } from '../../art/bank/gaps';
 import { bakeLighting, type Exposure, type Lamp } from '../../art/bank/lamps';
 import { farFront, streetFront } from '../../art/bank/lightmap';
 import { supportArt, supportMaterial, wallArt, wallLook, wallMargin, type SupportMaterial, type WallLook } from '../../art/bank/walls';
@@ -53,6 +54,8 @@ interface WallSprite {
     dressing: { top: number; images: Phaser.GameObjects.Image[] }[];
     /** A door, once it has been opened: its doorway and its leaf, each with a frame per step, and whether it is open now. */
     door?: OpenDoor;
+    /** A gap blown through it (M4-01): its art, a frame per step, in place of the segment's own. */
+    gap?: { image: Phaser.GameObjects.Image; frames: string[] };
 }
 
 interface OpenDoor {
@@ -73,6 +76,8 @@ interface OpenDoor {
  */
 export class Walls {
     private readonly sprites: WallSprite[] = [];
+    /** Debris heaps by tile ("x,y"). */
+    private readonly debris = new Map<string, Phaser.GameObjects.Image>();
     private clock = 0;
     private baker?: Baker;
 
@@ -231,13 +236,58 @@ export class Walls {
     setDoorOpen(run: Wall['run'], tx: number, ty: number, open: boolean): void {
         const w = this.sprites.find(s => s.wall.run === run && s.wall.tx === tx && s.wall.ty === ty);
         if (!w) throw new Error(`No wall segment at ${run} ${tx},${ty} to open`);
-        if (!opens(w.look) || (!open && !w.door)) return;
+        if (!opens(w.look) || (!open && !w.door) || w.gap) return;
         const door = (w.door ??= this.drawDoor(w, this.sprites.indexOf(w)));
         door.open = open;
         w.image.setVisible(!open);
         door.gap.setVisible(open);
         door.leaf?.setVisible(open);
         this.showDressing(w);
+    }
+
+    /**
+     * Shows the segment at tile edge (`run`, tx, ty) with a gap blown through it (M4-01, `gapWallArt`): baked at each
+     * step of `WALL_STEPS` the first time, lit as its wall is, and cut down with the wall. A gap is for good; a door
+     * blown open shows its gap in place of the doorway and leaf.
+     */
+    setGap(run: Wall['run'], tx: number, ty: number): void {
+        const w = this.sprites.find(s => s.wall.run === run && s.wall.tx === tx && s.wall.ty === ty);
+        if (!w) throw new Error(`No wall segment at ${run} ${tx},${ty} to blow a gap in`);
+        if (w.gap) return;
+        const index = this.sprites.indexOf(w), key = `${KEY.walls}-gap-${index}`, f = wallFootprint(w.wall), margin = wallMargin(w.wall);
+        const fresh = !this.scene.textures.exists(key), pieces: AtlasPiece[] = [];
+        const frames = WALL_STEPS.map((height, i) => {
+            const frame = `gap-${i}`;
+            if (fresh) {
+                const art = gapWallArt(w.wall, w.look, height);
+                pieces.push({ frame, rgba: bakeLighting(art, f.x - margin, w.base - art.height, AMBIENT, w.lamps, EVERYWHERE, w.exposure), w: art.width, h: art.height });
+            }
+            return frame;
+        });
+        if (fresh) this.baker!.packAtlas(key, pieces, pieces.reduce((sum, p) => sum + p.w + 1, 0));
+        w.gap = { image: this.scene.add.image(w.image.x, w.image.y, key, frames[0]!).setOrigin(0, 1).setDepth(w.image.depth), frames };
+        w.image.setVisible(false);
+        if (w.door) {
+            w.door.gap.setVisible(false);
+            w.door.leaf?.setVisible(false);
+        }
+        for (const d of w.dressing) for (const image of d.images) image.setVisible(false);
+        this.setStep(w, w.step);
+    }
+
+    /**
+     * Debris on floor tile (tx, ty) from a gap blown in the segment at (`run`, wx, wy) beside it (M4-01): a heap of that
+     * wall's material, lit as the wall is, ordered by its tile's south edge.
+     */
+    addDebris(run: Wall['run'], wx: number, wy: number, tx: number, ty: number): void {
+        const w = this.sprites.find(s => s.wall.run === run && s.wall.tx === wx && s.wall.ty === wy);
+        if (!w || this.debris.has(`${tx},${ty}`)) return;
+        const key = `${KEY.walls}-debris-${tx}-${ty}`, art = debrisArt(w.wall), left = tx * TILE, bottom = (ty + 1) * TILE;
+        if (!this.scene.textures.exists(key)) {
+            this.baker!.packAtlas(key, [{ frame: 'heap', rgba: bakeLighting(art, left, bottom - art.height, AMBIENT, w.lamps, EVERYWHERE, w.exposure), w: art.width, h: art.height }]);
+        }
+        const image = this.scene.add.image(left, bottom, key, 'heap').setOrigin(0, 1).setDepth(DEPTH.standing + bottom - 1);
+        this.debris.set(`${tx},${ty}`, image);
     }
 
     /** The open doorway and leaf of a door segment, baked at each step of `WALL_STEPS` and lit as its wall is. */
@@ -279,7 +329,7 @@ export class Walls {
 
     /** Dressing on a segment shows while the wall stands tall enough to hold it, and goes with its door when that opens. */
     private showDressing(w: WallSprite): void {
-        const open = w.door?.open ?? false, height = WALL_STEPS[w.step]!;
+        const open = (w.door?.open ?? false) || !!w.gap, height = WALL_STEPS[w.step]!;
         for (const d of w.dressing) for (const image of d.images) image.setVisible(!open && d.top <= height);
     }
 
@@ -294,6 +344,7 @@ export class Walls {
             w.support.image.setVisible(frame !== undefined).setY(w.base - lift.foot);
             if (frame) w.support.image.setFrame(frame);
         }
+        w.gap?.image.setFrame(w.gap.frames[step]!).setY(w.base - lift.floor);
         if (w.door) {
             w.door.gap.setFrame(w.door.gapFrames[step]!).setY(w.base - lift.floor);
             w.door.leaf?.setFrame(w.door.leafFrames[step]!).setY(w.door.leafBottom - lift.floor);

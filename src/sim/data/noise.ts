@@ -61,6 +61,8 @@ export const NOISES = {
     /** At the landing tile, as it goes off (§12.2). */
     flashbang: fixed('loud', 14),
     shapedCharge: fixed('loud', 18),
+    /** Where it goes off (§12.2). */
+    tripwire: fixed('loud', 14),
     vehicleRam: fixed('loud', 16),
     /** Each world phase it runs; louder in a Three Keys bank (§17.2, the key graph's `noise`). */
     drill: range('loud', 6, 9),

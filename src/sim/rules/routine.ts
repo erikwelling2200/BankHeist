@@ -14,6 +14,7 @@ import { coverAgainst, shotFabric, shotMap, tileKey } from '../geo/shot';
 import { makeNoise } from '../geo/sound';
 import { previewShot } from '../preview/shot';
 import { NOISE_OF, suppressReact, watchReact } from './actions/attack';
+import { steppedOn } from './steps';
 import { inReach } from './actions/act';
 import { besideDoor } from './actions/door';
 import { blastTiles } from './actions/throwables';
@@ -241,6 +242,9 @@ export function walk(ctx: Ctx, phase: WorldPhase, f: Fighter, path: readonly Pos
             f.unit.moved = phase.turn;
             ctx.emit({ type: 'policeMoved', unit: f.id, from: { ...from }, path: [{ x: p.x, y: p.y }] });
         }
+        // A tripwire on the tile goes off under them (M4-01).
+        steppedOn(ctx, f.id, p);
+        if (!standing(state, f)) return false;
         watchReact(ctx, phase, f.id);
         suppressReact(ctx, phase, f.id);
         if (!standing(state, f)) return false;

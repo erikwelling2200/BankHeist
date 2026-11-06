@@ -8,6 +8,7 @@ import { doorBetween, doorStatus } from '../../geo/move';
 import type { Sighting } from '../perceive';
 import { crewLook, friskFinds, type CrewLook } from '../profile';
 import { expose, isEyesDown, isExposedTo, pipsOf } from '../suspicion';
+import { steppedOn, stopsWalk } from '../steps';
 import { isPresent, worldWalks, type Walked } from './walk';
 
 /*
@@ -133,6 +134,7 @@ function walk(ctx: Ctx, phase: WorldPhase): void {
     // Judged before anyone is moved, like the overlay: on where the walks end.
     const effects = actionEffects(state, phase.intents, walking, endOf, crewAt);
     const byId = new Map(state.npcs.map(n => [n.id, n]));
+    const tripped: { npc: string; at: Pos }[] = [];
     for (const w of walks) {
         const npc = byId.get(w.npc)!, intent = phase.intents[w.npc]!;
         if (w.entered) {
@@ -144,8 +146,14 @@ function walk(ctx: Ctx, phase: WorldPhase): void {
             continue;
         }
         const from = { x: npc.pos.x, y: npc.pos.y };
-        let prev: Pos = from;
-        for (const p of w.steps) {
+        let prev: Pos = from, steps = w.steps;
+        // A walk that steps onto a tripwire stops there; it goes off once every walker has moved (M4-01).
+        const wire = steps.findIndex(p => stopsWalk(state, p));
+        if (wire >= 0) {
+            steps = steps.slice(0, wire + 1);
+            tripped.push({ npc: npc.id, at: steps[wire]! });
+        }
+        for (const p of steps) {
             const door = Math.abs(p.x - prev.x) + Math.abs(p.y - prev.y) === 1 ? doorBetween(world, prev, p) : undefined;
             if (door) {
                 const status = doorStatus(world, state, door.id);
@@ -158,7 +166,8 @@ function walk(ctx: Ctx, phase: WorldPhase): void {
             npc.pos = { x: p.x, y: p.y };
             prev = p;
         }
-        if (w.steps.length) ctx.emit({ type: 'npcWalked', npc: npc.id, from, path: w.steps.map(p => ({ x: p.x, y: p.y })) });
+        if (steps.length) ctx.emit({ type: 'npcWalked', npc: npc.id, from, path: steps.map(p => ({ x: p.x, y: p.y })) });
+        if (wire >= 0) continue;
         if (!w.complete) {
             const next = w.stop?.next ?? intent.path[w.steps.length]!;
             npc.facing = facingToward(npc.pos, next) ?? npc.facing;
@@ -173,9 +182,12 @@ function walk(ctx: Ctx, phase: WorldPhase): void {
             ctx.emit({ type: 'npcLeft', npc: npc.id, at: { x: npc.pos.x, y: npc.pos.y } });
         }
     }
+    for (const t of tripped) steppedOn(ctx, t.npc, t.at);
+    // A walk cut short by a tripwire doesn't get where its frisk or its telling was judged.
+    const cut = new Set(tripped.map(t => t.npc));
     for (const e of effects) {
         const npc = byId.get(e.npc)!, member = state.crew.find(c => c.id === e.crew);
-        if (!member) continue;
+        if (!member || cut.has(e.npc) || cut.has(e.by)) continue;
         if (e.why === 'frisk') {
             ctx.emit({ type: 'frisked', npc: npc.id, crew: e.crew, found: e.found });
             if (e.found) expose(ctx, npc, e.crew, ['frisk'], member.pos);

@@ -245,9 +245,11 @@ export function shotFabric(world: ReadonlyWorld, state: State, map: ShotMap, cov
     const cover = new Int32Array(world.width * world.height).fill(NO_COVER);
     // A flipped table is half cover with the hit points it keeps (M3-02, decision 102).
     const flipped = new Set(state.flipped.map(f => tileKey(f.at)));
+    // A blast's debris (M4-01, §14.2) is half cover nothing shoots away.
+    const debris = new Set((state.debris ?? []).map(tileKey));
     world.tiles.forEach((t, i) => {
         const key = `${i % world.width} ${Math.floor(i / world.width)}`;
-        const own = t.halfCover ? t.coverHp ?? null : flipped.has(key) && t.flipHp !== undefined ? t.flipHp : undefined;
+        const own = t.halfCover ? t.coverHp ?? null : flipped.has(key) && t.flipHp !== undefined ? t.flipHp : debris.has(key) ? null : undefined;
         if (own === undefined) return;
         if (own === null) cover[i] = INDESTRUCTIBLE;
         else {

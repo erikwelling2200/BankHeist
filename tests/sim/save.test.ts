@@ -78,13 +78,13 @@ describe('saving', () => {
  * NpcStatusMap, CarrierKindMap or adds a field must also fill it in below, or a change of shape goes unnoticed.
  */
 const SHAPE_HASHES: Record<number, string> = {
-    1: '4f1872941248b4ff'
+    1: 'ebfdf01cb70013e2'
 };
 
 /** Paths whose objects are records by id, not structs. */
 const RECORDS = new Set([
     'world.edges', 'world.doors', 'state.doors', 'state.edges', 'state.objects', 'state.cameras', 'state.rng',
-    'state.cover', 'state.crew[].arms.guns', 'state.crew[].arms.throwables', 'state.npcs[].suspicion', 'state.npcs[].lastSeen', 'state.npcs[].frisked', 'state.police.known', 'state.police.teams', 'state.knowledge.npcs', 'state.knowledge.doors', 'state.knowledge.officers', 'state.radio.calls',
+    'state.cover', 'state.crew[].arms.guns', 'state.crew[].arms.throwables', 'state.crew[].charges', 'state.npcs[].suspicion', 'state.npcs[].lastSeen', 'state.npcs[].frisked', 'state.police.known', 'state.police.teams', 'state.knowledge.npcs', 'state.knowledge.doors', 'state.knowledge.officers', 'state.radio.calls',
     'state.vehicles'
 ]);
 
@@ -160,7 +160,7 @@ describe('the save format', () => {
         full.cameraEvidence = [{ camera: 'cam', evidence: 'body:guard', kind: 'body', tile: { x: 1, y: 1 }, turn: 2, handled: true }];
         full.cameraReports = [{ camera: 'cam', crew: 'jun', tile: { x: 0, y: 0 }, turn: 1, phase: 'crew' }];
         full.crew[0]!.notoriety = 2;
-        full.edges['eastWest 0 1'] = { material: 'soft', blocksMove: false, blocksSight: false, blocksSound: false, midHeight: false, shattered: true, hits: 2, barricade: 2, blinds: true, reinforced: true };
+        full.edges['eastWest 0 1'] = { material: 'soft', blocksMove: false, blocksSight: false, blocksSound: false, midHeight: false, shattered: true, hits: 2, barricade: 2, blinds: true, reinforced: true, gap: true };
         full.cover = { '2 1': 3 };
         full.crew[0]!.leaning = { at: { x: 1, y: 0 }, corner: { x: -1, y: -1 } };
         full.npcs[0]!.leaning = { at: { x: 1, y: 0 }, corner: { x: 1, y: 1 } };
@@ -178,6 +178,10 @@ describe('the save format', () => {
         full.grenades = [{ id: 'smoke-5', kind: 'smoke', by: 'jun', at: { x: 1, y: 1 }, turn: 2 }];
         full.smoke = [{ id: 'smoke-4', at: { x: 1, y: 1 }, tiles: [{ x: 1, y: 1 }], until: 3 }];
         full.flipped = [{ at: { x: 1, y: 1 }, side: 'w' }];
+        full.charges = [{ id: 'breachCharge-6', kind: 'breachCharge', by: 'jun', edge: 'eastWest 0 1', from: { x: 0, y: 0 }, turn: 2 }];
+        full.tripwires = [{ id: 'tripwire-7', by: 'jun', at: { x: 1, y: 1 } }];
+        full.debris = [{ x: 1, y: 1 }];
+        full.crew[0]!.charges = { shapedCharge: 1 };
         full.doors.staffDoor = { status: 'open', propped: true, work: 1 };
         full.objects.panel = { disabled: true, open: false, progress: 2, codes: ['manager'], sensorsCut: true };
         full.devices = [{ id: 'drill-4', kind: 'drill', at: 'vault', pos: { x: 1, y: 1 }, crew: 'jun', done: 2, needed: 5, jammed: true, noise: 6 }];
