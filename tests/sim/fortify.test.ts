@@ -155,6 +155,7 @@ describe('reinforcing (§14.3)', () => {
         expect(actionMenu(world, rested, 'jun').map(e => e.id)).toContain('fortify:unbar');
         const off = commit(world, rested, fortify('jun', DOOR, 'unbar'));
         expect(off.state.edges[DOOR]).toBeUndefined();
+        expect(off.events.find(e => e.type === 'noise')).toMatchObject({ kind: 'quiet', radius: 4 });
         expect(off.state.crew[0]!.reinforcements).toBe(1);
         expect(whyNot(world, off.state, { type: 'door', crew: 'jun', door: 'd', action: 'open' })).toBeUndefined();
     });
@@ -205,6 +206,8 @@ describe('the police break barricades, announced like breaches (§13.5)', () => 
         expect(two.state.edges[DOOR]).toEqual({ barricade: 1 });
         // The strike that clears the way is announced through a crew phase too.
         expect(two.state.police.breaches).toEqual([{ door: 'd', unit: 'cop', turn: two.state.turn - 1 }]);
+        // The last strike breaks the door: the ledger says so.
+        expect(threatLedger(two.state, world)).toContainEqual(expect.objectContaining({ id: 'breach:d', label: expect.stringMatching(/^Breach next phase/) }));
         expect(types(two.events)).not.toContain('doorBreached');
         const three = commit(world, two.state, endTurn);
         expect(of(three.events, 'barricadeStruck')).toEqual([{ type: 'barricadeStruck', door: 'd', edge: DOOR, unit: 'cop', left: 0 }]);

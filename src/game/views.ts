@@ -75,8 +75,9 @@ function clocks(world: ReadonlyWorld, state: State): ThreatVM[] {
         // The breaches announced for the next world phase (§13.6 "breach next phase"), at the door.
         for (const b of state.police.breaches) {
             const at = doorSides(world, world.doors[b.door]!)?.[0];
-            // A barricade on it is struck first (§13.5, M4-02).
-            const struck = !!fortificationOf(state, world.doors[b.door]!.edge).barricade;
+            // A barricade on it is struck first (§13.5, M4-02); its last strike, by one who can blow the door, breaches it.
+            const f = fortificationOf(state, world.doors[b.door]!.edge), unit = state.police.units.find(u => u.id === b.unit);
+            const struck = !!f.barricade && !(f.barricade <= 1 && (!f.reinforced || unit?.kind === 'heavy'));
             const label = `${struck ? 'Barricade struck next phase' : 'Breach next phase'}: ${doorName(world, b.door)}`;
             out.push({ id: `breach:${b.door}`, kind: 'reinforcement', source: 'police', label, countdown: 1, halted: null,
                 pos: at ? { x: at.x, y: at.y } : policePos(world), portrait: 'police', urgent: true });

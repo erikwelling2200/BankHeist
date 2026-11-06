@@ -71,8 +71,8 @@ import { isWounded } from './woundsState';
  *   At Heat 1–2 they use open or unlocked doors only. A door barred by the crew (rules/fortify.ts, §13.5, §14.3) is
  *   planned through by an officer that can break it (`canBreak`: any a barricade, only heavy SWAT a reinforced door)
  *   and announced the same way; the act due strikes a barricade first (`barricadeStruck`, a hit point), announcing the
- *   next strike at once while any are left, the last one breaking the door with it; a breach on a door reinforced
- *   since by someone who can't open it is called off (decision 223).
+ *   next strike at once while any are left, the last one breaking the door with it; the crew can't change a door
+ *   under an announced breach (decision 223).
  * - **Arrests** stay rules/wounds.ts's: an officer that walks up to a downed crew member arrests them in the next
  *   world phase, having stood there through a crew phase (`PoliceUnit.moved`).
  */
@@ -598,13 +598,8 @@ export function goalOf(state: State, f: Fighter): Pos | undefined {
 export function dueBreach(ctx: Ctx, phase: WorldPhase, unit: PoliceUnit): { door: string; blown: boolean } | null | 'down' {
     const { world, state } = ctx, due = state.police.breaches.find(b => b.unit === unit.id && b.turn < phase.turn);
     if (!due) return null;
-    // Reinforced since it was announced, and this officer can't open that (§14.3): called off, its act unspent.
+    // Nothing at a door changes under an announced breach (rules/fortify.ts), so it is carried out as announced.
     const edge = world.doors[due.door]?.edge, now = edge ? edgeNow(world, state, edge) : undefined;
-    if (now && barred(now) && !canBreak(unit, now)) {
-        state.police.breaches.splice(state.police.breaches.indexOf(due), 1);
-        ctx.emit({ type: 'breachCalledOff', door: due.door, unit: unit.id });
-        return null;
-    }
     if (!react(ctx, phase, { kind: 'police', id: unit.id, unit })) return 'down';
     state.police.breaches.splice(state.police.breaches.indexOf(due), 1);
     // A barricade on it (put up since, or what was announced) is struck first; then the door is blown.

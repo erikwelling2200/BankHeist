@@ -35,7 +35,7 @@ import { addSuspicion, isEyesDown } from './suspicion';
  * - **Blinds** on a window (1 action, quiet): down, the pane blocks sight both ways, so the street (the patrol car's
  *   drive-by, rules/checkins.ts) sees nothing inside; up again the same.
  *
- * Barricading, clearing and reinforcing make a quiet noise (`barricade`, `reinforce`, 4) and, seen during stealth, cost the
+ * Barricading, clearing, reinforcing and unbarring make a quiet noise (`barricade`, `reinforce`, 4) and, seen during stealth, cost the
  * suspicion of flipping a table (`FLIP_PIPS`, §11.4): people don't move furniture against a bank's doors for no reason.
  * Blinds make none. Nothing here rolls a die, so every preview is the outcome.
  */
@@ -236,8 +236,10 @@ registerAction('fortify', {
                 makeNoise(ctx, 'reinforce', member.pos, `reinforce ${member.id}`);
                 break;
             case 'unbar':
+                seenFortifying(ctx, member, 'reinforce');
                 dropField(state, edge, 'reinforced', 'material', 'barredFrom');
                 ctx.emit({ type: 'unbarred', crew: member.id, edge });
+                makeNoise(ctx, 'barricade', member.pos, `unbar ${member.id}`);
                 break;
             case 'lowerBlinds':
             case 'raiseBlinds': {

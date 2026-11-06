@@ -1327,7 +1327,7 @@ M2 is complete: every package below has landed.
     - rules/routine.ts and swat.ts: officers allowed to breach plan through barred doors they can break (`canBreak`,
       `toBreak`) and announce at them like a breach (a SWAT team stacks there); the due act strikes a barricade
       (`barricadeStruck`) and re-announces while it has hit points left, the last strike breaking the door; a door blown takes the crew's reinforcement
-      with it; a breach on a door reinforced since is called off. `dueBreach` returns `{ door, blown }` (a flashbang
+      with it; nothing at a door changes under an announced breach. `dueBreach` returns `{ door, blown }` (a flashbang
       follows only a door blown).
     - **State:** `CrewState.reinforcements` (kits × `rules.reinforceUses` 2); `EdgeProps.barricade`, `blinds`,
       `reinforced`, `barredFrom`. The `fortify` state check refuses saves without `reinforcements`. Save shape hash
@@ -2424,13 +2424,12 @@ Later milestones: within each milestone, the `∥` notes in §3 apply. UI packag
     door struck by anyone else stays barred), so it is the one announced breach. While a strike or a breach stands
     announced at a door, the crew can't barricade, clear or reinforce it: what is announced happens. Together these
     make a barricade cost the police 2 phases once, never more: no clearing and re-barricading resets it, and a broken
-    door takes none again (review of 90b355a: 5 actions had held an officer for 15 phases). A breach on a door that
-    became barred by something its officer can't break is called off (its act unspent). The ledger reads "Barricade
-    struck next phase" on a barricaded door.
+    door takes none again (review of 90b355a: 5 actions had held an officer for 15 phases). The ledger reads "Barricade
+    struck next phase" on a barricaded door, and "Breach next phase" for a last strike that will break it.
 224. **Blinds (M4-02, §14.3).** Down on a window (1 action, no noise, no suspicion: staff lower blinds too) the pane
     blocks sight both ways, so the patrol car's drive-by sees nothing through it (`patrolSightings` reads sight); up
     again the same. Only a window has them, glass doors and the teller glass not.
-225. **Fortifying seen in stealth (M4-02, §11.4).** Barricading, clearing a barricade and reinforcing make a quiet noise of 4 (`barricade`,
+225. **Fortifying seen in stealth (M4-02, §11.4).** Barricading, clearing a barricade, reinforcing and unbarring make a quiet noise of 4 (`barricade`,
     `reinforce`) and cost what a table flip costs (`FLIP_PIPS`) with everyone who sees the crew member while the bank
     is quiet, judged before the barricade goes up (it would hide them in a window).
 226. **Drawn as markers (M4-02).** Fortifications are drawn in the world overlay (planks with a pip per hit point
