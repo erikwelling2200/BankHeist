@@ -37,6 +37,7 @@ import './rules/command';
 import './rules/damage';
 import './rules/doors';
 import './rules/evidence';
+import './rules/fortify';
 import './rules/getaway';
 import './rules/heat';
 import './rules/knowledge';
@@ -106,7 +107,7 @@ export {
     type BudgetModifier, type MoveCut, type MoveHook, type MoveLimit, type MoveMode, type PlanView
 } from './crew/movement';
 export {
-    ABSENT_STATUSES, dashBudget, doorBetween, doorStatus, inHeavyArmour, LYING_STATUSES, moveBudget, occupancy, pathTo, reachable, reachAt, stepCost,
+    ABSENT_STATUSES, barred, dashBudget, doorBetween, doorStatus, inHeavyArmour, LYING_STATUSES, moveBudget, occupancy, pathTo, reachable, reachAt, stepCost,
     validatePath, type MoveOptions, type Occupant, type PathCheck, type Reach, type ReachTile
 } from './geo/move';
 export {
@@ -220,6 +221,9 @@ export {
     attackPlan, COMBAT_COMMANDS, inWedge, officersInRange, PICTURED_COMMANDS, strikeBlocked, suppressPlan, suppressReact, suppressTargets, targetsInRange, watchBlocked, watchReact, type AttackPlan
 } from './rules/actions/attack';
 export { blastTiles, flipBlocked, grenadeTargets, throwBlocked, type Grenade } from './rules/actions/throwables';
+export {
+    besideEdge, dropBarricade, dropField, edgesAround, edgeSides, FORTIFY_ACTIONS, fortificationOf, fortifiedEdges, fortifyBlocked, isWindow, REINFORCEMENT_KIT, type FortifyAction
+} from './rules/fortify';
 export { type SmokeCloud } from './geo/los';
 export { attackCone } from './preview/attack';
 export * from './data/police';

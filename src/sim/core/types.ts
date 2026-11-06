@@ -90,6 +90,15 @@ export interface EdgeProps {
     material: Material;
     blocksSight: boolean;
     blocksMove: boolean;
+    /**
+     * A barricade across it (§14.3, rules/fortify.ts): the hit points it has left against the police (§13.5). It blocks
+     * movement and sight whatever the door does (`edgeNow`); bullets pass it as half cover.
+     */
+    barricade?: number;
+    /** Blinds down on a window (§14.3): it blocks sight. */
+    blinds?: boolean;
+    /** Reinforced by the crew (§14.3): its material is Reinforced, and a door so is barred shut. */
+    reinforced?: boolean;
 }
 
 /**

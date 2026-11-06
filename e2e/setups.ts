@@ -513,6 +513,27 @@ const drivePreview = async (page: Page, info: { vehicle: string }): Promise<void
     await page.waitForTimeout(400);
 };
 
+/**
+ * Mara on a free tile beside a shut door that isn't the vault's, with a reinforcement kit (M4-02); `info`: the door,
+ * its edge and Mara's tile.
+ */
+export const BESIDE_DOOR = `(() => { ${PAGE_HELPERS}
+    for (const id of Object.keys(w.doors).sort()) {
+        const def = w.doors[id], e = w.edges[def.edge];
+        if (!e || def.lock === 'vault' || (sim.state.doors[id]?.status ?? def.start) === 'open') continue;
+        const sides = [e.run === 'eastWest' ? { x: e.tx, y: e.ty - 1 } : { x: e.tx - 1, y: e.ty }, { x: e.tx, y: e.ty }];
+        for (const p of sides) {
+            const st = clone(sim.state);
+            if (!free(st, p)) continue;
+            st.crew[0].pos = p;
+            st.crew[0].loadout.items.push('reinforcementKit');
+            st.crew[0].reinforcements = 2;
+            return { state: st, info: { door: id, edge: def.edge, at: p } };
+        }
+    }
+    return null;
+})()`;
+
 export const SETUPS: Record<string, Setup> = {
     'loud-standoff': {
         about: 'the bank loud at Heat 3 in Assault: a SWAT officer with a red wedge on Jun, a police flashbang lying by Mara with its fuse, the heat strip',
@@ -538,6 +559,14 @@ export const SETUPS: Record<string, Setup> = {
         then: async page => {
             await selectMara(page);
             await page.waitForTimeout(400);
+        }
+    },
+    'barricade': {
+        about: 'Mara beside a shut door she has barricaded (M4-02): the planks over it with a pip per hit point left',
+        script: BESIDE_DOOR,
+        then: async (page, info) => {
+            await page.evaluate(i => (window as any).sim.commit({ type: 'fortify', crew: (window as any).sim.state.crew[0].id, edge: i.edge, action: 'barricade' }), info);
+            await page.evaluate(p => (window as any).game.scene.getScene('bank').lookAt(p.x * 16 + 8, p.y * 16 + 8), info.at);
         }
     },
     'drive': {

@@ -31,7 +31,7 @@ describe('the action grid', () => {
         const { world, state } = scene();
         const down = commit(world, state, { type: 'command', crew: 'jun' }).state;
         // Loud now: Strike joins, after Hold (M3-02).
-        expect(ids(world, down)).toEqual(['door:open', 'door:lock', 'knockout!', 'zipTie', 'escort', 'wait', 'command', 'hold', 'strike', 'mask']);
+        expect(ids(world, down)).toEqual(['door:open', 'door:lock', 'knockout!', 'zipTie', 'escort', 'wait', 'command', 'hold', 'fortify:barricade', 'strike', 'mask']);
         expect(menuIsLegal(world, down, 'jun', actionMenu(world, down, 'jun'))).toBe(true);
         const tied = commit(world, down, actionMenu(world, down, 'jun').find(e => e.id === 'zipTie')!.command);
         expect(tied.state.npcs[0]!.status).toBe('tied');
@@ -81,7 +81,7 @@ describe('the action grid', () => {
     it('offers what the sim allows where the crew member stands, for the tapped target', () => {
         const { world, state } = scene();
         expect(targetsOf(world, state, 'jun')).toEqual({ doors: ['d'], npcs: ['clerk'], objects: ['dumpster-0'], cameras: [], loot: [] });
-        expect(ids(world, state)).toEqual(['door:open', 'door:lock', 'knockout', 'wait', 'command', 'mask', 'go']);
+        expect(ids(world, state)).toEqual(['door:open', 'door:lock', 'knockout', 'wait', 'command', 'mask', 'go', 'fortify:barricade']);
         expect(menuIsLegal(world, state, 'jun', actionMenu(world, state, 'jun'))).toBe(true);
         // Locked: Unlock shows, refused with the sim's own reason.
         const locked = commit(world, state, { type: 'door', crew: 'jun', door: 'd', action: 'lock' }).state;
@@ -120,7 +120,7 @@ describe('the action grid', () => {
         // Dragging a body reads Armed on the crew card (§7.4), the moment it starts.
         expect(crewCards(world, s, 'jun')[0]!.profile).toBe('armed');
         s = commit(world, s, { type: 'endTurn' }).state;
-        expect(ids(world, s)).toEqual(['door:open', 'door:lock', 'drop', 'stash', 'wait', 'command', 'mask', 'go']);
+        expect(ids(world, s)).toEqual(['door:open', 'door:lock', 'drop', 'stash', 'wait', 'command', 'mask', 'go', 'fortify:barricade!']);
         const jun = s.crew[0]!, range = moveRange(world, crewPicture(world, s), jun, dashRefusal(world, s, 'jun') === null);
         expect(range.dash).toBeNull();
         expect(range.run).toEqual([]);

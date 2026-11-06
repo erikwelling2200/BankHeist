@@ -36,6 +36,10 @@ export const NOISES = {
     meleeStrike: fixed('quiet', 2),
     /** §6.3. */
     flipTable: fixed('quiet', 4),
+    /** Pushing furniture against a door or window (§14.3), as flipping a table. */
+    barricade: fixed('quiet', 4),
+    /** Bolting a reinforcement kit to a wall or door (§14.3). */
+    reinforce: fixed('quiet', 4),
     /** At the landing tile. */
     noisemaker: fixed('quiet', 3),
     /** At the landing tile, as it goes off (§12.2). */

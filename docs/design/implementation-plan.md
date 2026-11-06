@@ -698,7 +698,7 @@ M2 is complete: every package below has landed.
     - **Deferred:** "Bold" shown on Inspect within 3 tiles and the panic badges' polish (M2-06); panicked crowds jamming
       doorways (+1 move cost, with the police, M3); police outside shifting reactions toward fleeing (M3); a Hostile
       civilian firing (M3); screaming customers (§16.2 "or screams"); barricades and vehicles across a runner's lane
-      (M3–M4).
+      (M3–M4; a barricaded door stops a runner since M4-02).
 - [x] **M2-03 Zip-ties, frisking, escort, coercion and disguises.**
   - **Covers:** §10.6, §10.7 (keys, drawers), §8.14 (decision Q14).
   - **Depends on:** M2-01. **∥** M2-02, M2-04.
@@ -1089,7 +1089,7 @@ M2 is complete: every package below has landed.
       ending Negotiate (police sight of kills, from M3-04); advancing cover to cover along the way they came in, and
       holding the exits at Heat 1 (they take the shortest way); the patrol shotgun, the shield's frontal shield, sniper
       nests and fire, and SWAT's own play (M3-06; SWAT run this routine until then); breaching windows and walls,
-      barricades and breach charges as kit (M3-06); a melee strike or taser dart on an officer (the dart is spent);
+      barricades (M4-02) and breach charges as kit (M3-06); a melee strike or taser dart on an officer (the dart is spent);
       flashbangs and knockout windows on officers; the wounded crawler leaving the map and its escapee carrier (from
       M3-03); carrying a downed crew member and surrendering (§16.2); projecting the recap's police lines through what
       the crew knows (M3-09).
@@ -1128,7 +1128,7 @@ M2 is complete: every package below has landed.
       (Heat 4) and pushing characters out of their tiles; suppressive fire as cover; wedges on the angles a plan
       depends on beyond the crew's known positions (the doorway to flank by, the loot corridor, the route to the van);
       a pair going to free hostages out of crew fire (§13.6, they still free those on their way); breaching windows and
-      walls, barricades and breach charges as kit; dragging a casualty out; clearing rooms after a trap; the threat
+      walls, and breach charges as kit (barricades: M4-02); dragging a casualty out; clearing rooms after a trap; the threat
       ledger showing police grenades and wedges (M3-09).
 - [x] **M3-07 Negotiation, release and trade.**
   - **Covers:** §10.7, §13.4. The release cap is a constant (decision Q17).
@@ -1285,10 +1285,45 @@ M2 is complete: every package below has landed.
 - [ ] **M4-01 Charges, gaps and explosions.**
   - **Covers:** §12.2, §14.2.
   - **Work:** breach and shaped charges; thermite; tripwires; edge state changes; the loot-loss preview; debris cover; wall-gap art.
-- [ ] **M4-02 Fortifying.**
+- [x] **M4-02 Fortifying.** (partial: see Deferred)
   - **Covers:** §14.3.
   - **Work:** barricades, reinforcing, blinds; police breaking barricades.
   - **∥** M4-01.
+  - **Notes (done):** decisions 220–226.
+    - `rules/fortify.ts`: `fortify { crew, edge, action }` on a wall segment beside the crew member: `barricade` and
+      `clear` (a shut door that isn't the vault's, or a window; 1 action, hands free), `reinforce` (a Soft wall or shut
+      door; `rules.reinforceActions` 2 actions and a kit use), `lowerBlinds` / `raiseBlinds` (a window; 1 action, no
+      noise). What it changes lives on the edge: `EdgeProps.barricade` (hit points, `rules.barricadeHp` 2),
+      `blinds`, `reinforced` (with `material: 'reinforced'`); `edgeNow` lets a barricade block movement and sight
+      whatever the door does and blinds block sight. geo/move.ts `barred` and `MoveOptions.canBreak`: nobody passes a
+      barred door but a police plan that will break it; geo/shot.ts: a barricade is half cover for the tiles either side,
+      like a railing; rules/actions/door.ts: a barred door doesn't open and its lock isn't worked.
+    - rules/routine.ts and swat.ts: officers allowed to breach plan through barred doors they can break (`canBreak`,
+      `toBreak`) and announce at them like a breach (a SWAT team stacks there); the due act strikes a barricade
+      (`barricadeStruck`) and re-announces while it has hit points left; a door blown takes the crew's reinforcement
+      with it; a breach on a door reinforced since is called off. `dueBreach` returns `{ door, blown }` (a flashbang
+      follows only a door blown).
+    - **State:** `CrewState.reinforcements` (kits × `rules.reinforceUses` 2); `EdgeProps.barricade`, `blinds`,
+      `reinforced`. The `fortify` state check refuses saves without `reinforcements`. Save shape hash `4f1872941248b4ff`.
+    - **Session and UI:** the grid's Barricade / Clear barricade and Reinforce on the door, else Blinds and Barricade on
+      the first window beside them, else Reinforce wall (`fortifyEntries`: in stealth last, once loud after Command);
+      the recap names the new events; the ledger's breach reads "Barricade struck next phase" on a barricaded door;
+      the world overlay draws fortified edges (`fortifyMarkers`, loudDraw.ts: planks with a pip per hit point, slats,
+      a riveted bar), in stealth too; `debugState.play.loud.fortified`.
+    - **Tests:** `tests/sim/fortify.test.ts` (a barricaded door shut for everyone and Clear; a window barricade's sight
+      and half cover; refusals; suspicion seen in stealth; reinforcing a wall and a door, kit uses; blinds against the
+      patrol car; an officer striking a barricade twice, each announced, then walking through; barricade, then lock,
+      each announced; nothing below Heat 3; only heavy SWAT through a reinforced door; a reinforced door calling a
+      patrol breach off; preview equals commit, legalActions, the save; the grid); the random player of
+      `perception.property.test.ts` plays fortifying now and then; `e2e/fortify.spec.ts` (`screenshots/barricade.png`)
+      and the `barricade` shot preset.
+    - **Deferred:** furniture actually pushed from its tile (the barricade is abstract, decision 220) and barricade,
+      blinds and reinforcement drawn as props in the bank (they are world-UI markers for now, as flipped tables aren't
+      drawn either); tapping a window to choose it (the grid takes the first beside the member); the police's breach
+      charge on a nearby Soft wall when every entry is barricaded, and breaching windows and walls (with M4-01's gaps);
+      barricading a gap or a blown door (M4-01); gas on barricaded rooms (M3-06b); the crew's shaped charge on a
+      reinforced wall (M4-01); a vehicle ramming a barricade (M4-04); staff reading a barricade or lowered blinds as
+      evidence (§8.10); the reinforcement kit bought in planning (M4-07).
 - [ ] **M4-03 Power grid and darkness.**
   - **Covers:** §8.13, §14.6.
   - **Work:** the breaker and generator; Lit; maglocks; the console going dark; a dim-lighting variant for the art (decision Q10).
@@ -2292,6 +2327,39 @@ Later milestones: within each milestone, the `∥` notes in §3 apply. UI packag
 193. **Police vehicles park clear of the van (M3-08 review, §13.4).** A police vehicle stops at its staging point, else
     on the nearest drivable tile to it (rings, row-major) nothing blocks and no crew vehicle or person stands on. A drive never counts
     anything on the vehicle's own footprint as in its way, so nothing there can shut it in.
+
+220. **Barricades are abstract furniture (M4-02, §14.3).** "Furniture is everywhere": a barricade takes 1 action and
+    nothing from the floor (no desk leaves its tile, no count). It goes on a shut door (closed or locked; not the
+    vault's, a jammed or a blown one: a door must be closed first) or a window (glass that isn't a door), from either
+    tile beside it, with hands free; Clear takes it down the same way. It lives on the edge (`EdgeProps.barricade`, its
+    hit points), so every rule that reads walls through `edgeNow` sees it.
+221. **What a barricade stops (M4-02, §14.3, §11.4).** It blocks movement and sight whatever the door behind does
+    (`edgeNow`), so nobody walks through it, an escapee's way is blocked and the door can't be opened, picked or
+    hacked. Bullets: it is half cover for the tiles either side, as a railing (`BulletEdge.halfCover`); what it stands
+    in (the door's wood, the pane) still slows, stops or shatters as before. Its hit points count only against the
+    police (§13.5), not bullets.
+222. **Reinforcing (M4-02, §14.3).** 2 actions and one of a kit's 2 uses (`CrewState.reinforcements`), on a Soft wall
+    or a shut Soft door: its material becomes Reinforced (`EdgeProps.material`, `reinforced`), so bullets stop and sound
+    doesn't carry through a wall (§8.9; a closed door's cost is unchanged). A reinforced door is barred shut for
+    everyone (the crew too): reinforcing an unlocked door would otherwise stop nobody. Only heavy SWAT open it (§14.3
+    "only shaped charges or heavy SWAT"), by a breach that takes the reinforcement with the door. It can't be undone.
+223. **Police break barricades as they breach (M4-02, §13.5, §13.6).** From Heat 3 in Assault an officer plans through
+    a door barred by what it can break (`canBreak`: any officer a barricade, only heavy SWAT a reinforced door, a
+    barricade on one first by anyone), stops beside it and announces as for a locked door (a SWAT team stacks there).
+    The due act, a Watch answered first, strikes a barricade for one hit point (`barricadeStruck`) and, while some are
+    left, announces the next strike at once: every strike stands announced through a crew phase, the one that clears
+    the way above all. Then a locked door is announced and blown as before. A barricade put up after a breach was
+    announced is struck instead; a door reinforced since, by an officer who can't open it, calls the breach off
+    (its act unspent). The ledger reads "Barricade struck next phase" on a barricaded door.
+224. **Blinds (M4-02, §14.3).** Down on a window (1 action, no noise, no suspicion: staff lower blinds too) the pane
+    blocks sight both ways, so the patrol car's drive-by sees nothing through it (`patrolSightings` reads sight); up
+    again the same. Only a window has them, glass doors and the teller glass not.
+225. **Fortifying seen in stealth (M4-02, §11.4).** Barricading and reinforcing make a quiet noise of 4 (`barricade`,
+    `reinforce`) and cost what a table flip costs (`FLIP_PIPS`) with everyone who sees the crew member while the bank
+    is quiet, judged before the barricade goes up (it would hide them in a window).
+226. **Drawn as markers (M4-02).** Fortifications are drawn in the world overlay (planks with a pip per hit point
+    left, slats, a riveted bar), in stealth too, not as props in the bank: hand-drawn furniture against doors in four
+    facings is deferred with pushing real furniture (decision 220). The crew made each, so showing them tells nothing.
 
 ### Critical files for implementation
 

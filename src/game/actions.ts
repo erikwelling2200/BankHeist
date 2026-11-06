@@ -1,7 +1,7 @@
 import {
     besideDoor, COMBAT_COMMANDS, crewPicture, negotiatorCalling, offerEffect, releasable, tradeable, withDoubtedShut, doorStatus, DRAGGABLE, draggedBy, goBlocked, HACKING_KIT, inHands, inReach, interactionVerbs, isKnownNow, JAMMER, officerSeen, legalActions, LOCKPICK, lockActions, LOOP_FROM, lootWeight,
     pocketed, preview, IllegalCommand, reachesObject, STASH_KINDS, throwTargets, tieIneligible, tileVisibility, whyNot, driveBudget, driveMap, driveReach, exitTiles, poseKey, vehicleBeside,
-    vehicleDef, type Command, type DriveNode, type Pose, type Pos, type ReadonlyWorld, type State
+    vehicleDef, edgesAround, fortificationOf, fortifyBlocked, isWindow, type FortifyAction, type Command, type DriveNode, type Pose, type Pos, type ReadonlyWorld, type State
 } from '../sim';
 import type { HudIcon as HudIconName } from '../ui/hud/viewModels';
 
@@ -38,6 +38,8 @@ import type { HudIcon as HudIconName } from '../ui/hud/viewModels';
  * - Wounds (§11.12, M3-03): Revive a downed teammate in reach; Medkit on the teammate tapped, else the most hurt in
  *   reach (oneself included).
  * - Wait.
+ * - Fortifying (§14.3, M4-02): Barricade or Clear barricade and Reinforce on the door, else Blinds and Barricade on a
+ *   window beside them, else Reinforce wall (`fortifyEntries`).
  * - The takeover (§9.3, §10.1–10.3, M2-01), after Wait: Command always; Hold while anyone is Commanded; Mask up while
  *   unmasked; GO while it can still be pressed.
  * - Combat (§6.3, §11, M3-02; the loud interface with aim mode, the loupe and the wedges is M3-09's): Fire the drawn
@@ -357,11 +359,47 @@ export function actionMenu(world: ReadonlyWorld, state: State, crewId: string, t
     // After Wait, so a full grid drops these first and the stealth entries keep their places; the HUD puts GO first (views.ts).
     add('command', 'Command', 'command', { type: 'command', crew: crewId });
     if (state.npcs.some(n => n.command !== null)) add('hold', 'Hold', 'hold', { type: 'hold', crew: crewId });
+    if (loud) fortifyEntries(world, state, crewId, door, add);
     if (loud) combatEntries(world, state, crewId, target, legal, add);
     if (!member.loadout.masked) add('mask', 'Mask up', 'mask', { type: 'maskUp', crew: crewId });
     if (!goBlocked(state)) add('go', 'GO', 'star', { type: 'go', crew: crewId });
     if (!loud) combatEntries(world, state, crewId, target, legal, add);
+    if (!loud) fortifyEntries(world, state, crewId, door, add);
     return out;
+}
+
+/**
+ * Fortifying (§14.3, M4-02): on the door the grid is for, Barricade (or Clear barricade) and, with a reinforcement kit
+ * left, Reinforce; with no door, the first window beside them: Blinds down or up, and Barricade; with neither, a Soft
+ * wall to reinforce. Once loud right after Command and Hold; in stealth last, where a full grid drops them first.
+ */
+function fortifyEntries(
+    world: ReadonlyWorld, state: State, crewId: string, door: string | undefined,
+    add: (id: string, label: string, icon: HudIconName, command: Command, on?: string) => void
+): void {
+    const member = state.crew.find(c => c.id === crewId)!;
+    const fortify = (edge: string, action: FortifyAction): Command => ({ type: 'fortify', crew: crewId, edge, action });
+    const barricade = (edge: string, on?: string): void => {
+        if (fortificationOf(state, edge).barricade) add('fortify:clear', 'Clear barricade', 'heavy', fortify(edge, 'clear'), on);
+        else add('fortify:barricade', 'Barricade', 'shield', fortify(edge, 'barricade'), on);
+    };
+    const kit = member.reinforcements > 0;
+    if (door) {
+        const edge = world.doors[door]!.edge;
+        barricade(edge, door);
+        if (kit && !fortificationOf(state, edge).reinforced) add('fortify:reinforce', `Reinforce (${member.reinforcements})`, 'lock', fortify(edge, 'reinforce'), door);
+        return;
+    }
+    const around = edgesAround(world, member.pos);
+    const pane = around.find(e => isWindow(world, e));
+    if (pane) {
+        const down = !!fortificationOf(state, pane).blinds;
+        add('fortify:blinds', down ? 'Blinds up' : 'Blinds down', 'eye', fortify(pane, down ? 'raiseBlinds' : 'lowerBlinds'));
+        barricade(pane);
+        return;
+    }
+    const wall = kit ? around.find(e => !world.edges[e]!.door && !fortifyBlocked(world, state, member, e, 'reinforce')) : undefined;
+    if (wall) add('fortify:reinforce', `Reinforce wall (${member.reinforcements})`, 'lock', fortify(wall, 'reinforce'));
 }
 
 /** The icon of a weapon's Fire entry. */

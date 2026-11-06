@@ -1,4 +1,4 @@
-import type { AimBodyVM, AimVM, BreachVM, ShieldVM } from '../../game/loudUi';
+import type { AimBodyVM, AimVM, BreachVM, FortifyVM, ShieldVM } from '../../game/loudUi';
 import type { Signal } from '../../game/worldUi';
 import type { Pos } from '../../sim';
 
@@ -15,11 +15,15 @@ import type { Pos } from '../../sim';
  *   shooter, a dashed grey line when flanked, a notch where this attack could break it, a `?` where it may be gone.
  * - **Breaches** announced for the next world phase: a red bracketed plate with a charge's flash on the door.
  * - **The acting unit** of a world phase in a firefight: red corner brackets round its tile.
+ * - **Fortifications** (M4-02, drawn in stealth too): a barricade as crossed planks over the wall segment with a pip
+ *   per hit point left, blinds as slats along a window, the crew's reinforcement as a riveted steel bar.
  */
 
 export interface LoudContent {
     aim?: AimVM;
     breaches?: BreachVM[];
+    /** The wall segments the crew fortified (§14.3). */
+    fortified?: FortifyVM[];
     /** The unit acting now in a world phase's playback: bracketed in red. */
     acting?: Pos;
     /** Shots just fired in playback: a tracer from the shooter to where they aimed, red for the police and NPCs, the crew's in cream. */
@@ -74,6 +78,7 @@ function reachAt(outline: readonly [number, number][], angle: number): number {
 
 /** The cone, its bodies' markers and their cover. */
 export function drawLoud(ctx: CanvasRenderingContext2D, c: LoudContent, f: Frame): void {
+    for (const w of c.fortified ?? []) drawFortified(ctx, w, f);
     if (c.aim) drawAim(ctx, c.aim, f);
     for (const b of c.breaches ?? []) drawBreach(ctx, b, f);
     if (c.acting) drawActing(ctx, c.acting, f, f.pal.red);
@@ -243,6 +248,56 @@ function drawBreach(ctx: CanvasRenderingContext2D, b: BreachVM, f: Frame): void 
         ctx.lineTo(x + Math.cos(a) * r1, y + Math.sin(a) * r1);
     }
     ctx.stroke();
+}
+
+const PLANK = '#b07a45';
+const STEEL = '#9fb3c4';
+const SLAT = '#d9d4c4';
+
+/** A fortified wall segment (see the header), along its edge from `a` to `b`. */
+function drawFortified(ctx: CanvasRenderingContext2D, w: FortifyVM, f: Frame): void {
+    const x0 = f.left(w.a), y0 = f.top(w.a), x1 = f.left(w.b), y1 = f.top(w.b);
+    const along = [(x1 - x0), (y1 - y0)] as const, len = Math.hypot(along[0], along[1]) || 1;
+    const ux = along[0] / len, uy = along[1] / len, nx = -uy, ny = ux;
+    const at = (t: number, n: number): [number, number] => [x0 + ux * t + nx * n, y0 + uy * t + ny * n];
+    if (w.reinforced) {
+        inked(ctx, STEEL, 4, dy => {
+            const [ax, ay] = at(2, 0), [bx, by] = at(len - 2, 0);
+            ctx.moveTo(ax, ay + dy);
+            ctx.lineTo(bx, by + dy);
+        });
+        ctx.fillStyle = INK;
+        for (const t of [0.25, 0.5, 0.75]) {
+            const [rx, ry] = at(len * t, 0);
+            ctx.fillRect(Math.round(rx) - 1, Math.round(ry) - 1, 2, 2);
+        }
+    }
+    if (w.blinds) {
+        inked(ctx, SLAT, 1.5, dy => {
+            for (let t = 3; t < len - 1; t += 4) {
+                const [ax, ay] = at(t, -3), [bx, by] = at(t, 3);
+                ctx.moveTo(ax, ay + dy);
+                ctx.lineTo(bx, by + dy);
+            }
+        });
+    }
+    if (w.barricade !== null) {
+        inked(ctx, PLANK, 3, dy => {
+            for (const s of [-1, 1]) {
+                const [ax, ay] = at(4, -8 * s), [bx, by] = at(len - 4, 8 * s);
+                ctx.moveTo(ax, ay + dy);
+                ctx.lineTo(bx, by + dy);
+            }
+        });
+        // A pip per hit point left against the police.
+        for (let i = 0; i < w.barricade; i++) {
+            const [px, py] = at(len / 2 + (i - (w.barricade - 1) / 2) * 5, 0);
+            ctx.fillStyle = INK;
+            ctx.fillRect(Math.round(px) - 2, Math.round(py) - 1, 4, 4);
+            ctx.fillStyle = CREAM;
+            ctx.fillRect(Math.round(px) - 2, Math.round(py) - 2, 3, 3);
+        }
+    }
 }
 
 /** Red corner brackets round the tile of the unit acting now (UI.md "World phase in a firefight"). */

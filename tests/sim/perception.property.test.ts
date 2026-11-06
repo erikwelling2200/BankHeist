@@ -240,9 +240,11 @@ describe('perception previews (property)', () => {
                     if (rng.chance(member.dragging !== null ? 0.2 : 0.45)) {
                         // Stealth perception: the takeover (commands, GO, masks, holds; M2-01) has its own property test
                         // in preview.property.test.ts, where rolled outcomes are told apart.
-                        // The combat commands that play here (swap, reload, Watch, a strike, a flip…) now and then, so the stealth ones keep their share.
+                        // The combat commands that play here (swap, reload, Watch, a strike, a flip…) and fortifying (M4-02) now and
+                        // then, so the stealth ones keep their share.
                         const armed = rng.chance(0.15);
-                        const options = legalActions(world, state, member.id).filter(c => (c.type !== 'wait' || rng.chance(0.2)) && !TAKEOVER.has(c.type) && !PICTURED_COMMANDS.has(c.type) && (armed || !COMBAT_COMMANDS.has(c.type)));
+                        const options = legalActions(world, state, member.id).filter(c => (c.type !== 'wait' || rng.chance(0.2)) && !TAKEOVER.has(c.type) && !PICTURED_COMMANDS.has(c.type)
+                            && (armed || (!COMBAT_COMMANDS.has(c.type) && c.type !== 'fortify')));
                         if (!options.length) continue;
                         // A kind of action first, then one of its commands: every kind gets played, however many
                         // commands another offers.
@@ -387,7 +389,7 @@ describe('perception previews (property)', () => {
         expect(dragMoves).toBeGreaterThan(WORLDS / 20);
         // Carriers start, and the M1-08 actions are played.
         expect(carriersTotal).toBeGreaterThan(WORLDS / 10);
-        for (const type of ['interact', 'placeJammer']) expect(actions[type] ?? 0, type).toBeGreaterThan(0);
+        for (const type of ['interact', 'placeJammer', 'fortify']) expect(actions[type] ?? 0, type).toBeGreaterThan(0);
         expect((actions.loopFeed ?? 0) + (actions.answerRadio ?? 0)).toBeGreaterThan(0);
     }, Math.max(10_000, WORLDS * 20));
 });

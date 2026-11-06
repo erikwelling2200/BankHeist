@@ -1,7 +1,7 @@
 import {
     CARRIERS, commandPreview, doorSides, crewLoot, crewLook, DASH_ACTIONS, hasWeaponInHand, heatOf, holdPreview, isKnownNow, knownCarriers, lootOf, markerKind, mayBeDyed, MODE_LABELS, nextWave,
-    policeModeView, POLICE_LABELS, steadyHand, walkingToAlarm, MOVE_ACTIONS, nextDriveBy, type CarrierChanges, type CarrierPreview,
-    type CommandRings, type Command, type HoldRing, type OutcomeResult, type ReadonlyWorld, type SimEvent, type State
+    fortificationOf, isWindow, policeModeView, POLICE_LABELS, steadyHand, walkingToAlarm, MOVE_ACTIONS, nextDriveBy, type CarrierChanges, type CarrierPreview,
+    type CommandRings, type Command, type FortifyAction, type HoldRing, type OutcomeResult, type ReadonlyWorld, type SimEvent, type State
 } from '../sim';
 import {
     CREW_COLOURS, OVERLAY_IDS, type ActionVM, type BankStatus, type CommitKind, type ConfirmVM, type HudIcon, type BankStatusVM, type CrewVM, type HudViewModel, type LootVM, MAX_ACTIONS, type OverlayId,
@@ -75,7 +75,10 @@ function clocks(world: ReadonlyWorld, state: State): ThreatVM[] {
         // The breaches announced for the next world phase (§13.6 "breach next phase"), at the door.
         for (const b of state.police.breaches) {
             const at = doorSides(world, world.doors[b.door]!)?.[0];
-            out.push({ id: `breach:${b.door}`, kind: 'reinforcement', source: 'police', label: `Breach next phase: ${doorName(world, b.door)}`, countdown: 1, halted: null,
+            // A barricade on it is struck first (§13.5, M4-02).
+            const struck = !!fortificationOf(state, world.doors[b.door]!.edge).barricade;
+            const label = `${struck ? 'Barricade struck next phase' : 'Breach next phase'}: ${doorName(world, b.door)}`;
+            out.push({ id: `breach:${b.door}`, kind: 'reinforcement', source: 'police', label, countdown: 1, halted: null,
                 pos: at ? { x: at.x, y: at.y } : policePos(world), portrait: 'police', urgent: true });
         }
         // After the Alarm nobody calls a guard or drives past to check: the police are coming anyway.
@@ -338,6 +341,7 @@ function describeCommand(cmd: Command, world?: ReadonlyWorld): { label: string; 
         case 'brace': return { label: 'Brace', icon: 'shield', cost: 1 };
         case 'throwGrenade': return { label: cmd.item === 'smoke' ? 'Smoke' : 'Flashbang', icon: 'grenade', cost: 1 };
         case 'flipTable': return { label: 'Flip table', icon: 'flip', cost: 1 };
+        case 'fortify': return FORTIFY_LABEL[cmd.action];
         case 'revive': return { label: 'Revive', icon: 'revive', cost: 1 };
         case 'medkit': return { label: 'Medkit', icon: 'medkit', cost: 1 };
         case 'board': return { label: 'Get in', icon: 'car', cost: 1 };
@@ -347,6 +351,15 @@ function describeCommand(cmd: Command, world?: ReadonlyWorld): { label: string; 
         default: return { label: cmd.type, icon: 'interact', cost: 1 };
     }
 }
+
+/** The fortify actions (§14.3) on Confirm. */
+const FORTIFY_LABEL: Readonly<Record<FortifyAction, { label: string; icon: HudIcon; cost: number }>> = {
+    barricade: { label: 'Barricade', icon: 'shield', cost: 1 },
+    clear: { label: 'Clear barricade', icon: 'heavy', cost: 1 },
+    reinforce: { label: 'Reinforce', icon: 'lock', cost: 2 },
+    lowerBlinds: { label: 'Blinds down', icon: 'eye', cost: 1 },
+    raiseBlinds: { label: 'Blinds up', icon: 'eye', cost: 1 }
+};
 
 const NEGOTIATE_LABEL = { release: 'Release', trade: 'Trade', stall: 'Stall', hangUp: 'Hang up' } as const;
 
@@ -636,6 +649,11 @@ export function describeEvent(world: ReadonlyWorld, state: State, event: SimEven
         case 'flashed': return `${name(event.npc)} was flashbanged`;
         case 'smokeCleared': return 'The smoke cleared';
         case 'tableFlipped': return `${name(event.crew)} flipped a table`;
+        case 'barricaded': return `${name(event.crew)} barricaded ${edgeName(world, event.edge)}`;
+        case 'barricadeCleared': return `${name(event.crew)} cleared the barricade on ${edgeName(world, event.edge)}`;
+        case 'reinforced': return `${name(event.crew)} reinforced ${edgeName(world, event.edge)}`;
+        case 'blinds': return `${name(event.crew)} ${event.down ? 'lowered' : 'raised'} the blinds`;
+        case 'barricadeStruck': return event.left ? `Police struck the barricade on ${doorName(world, event.door)} (${event.left} left)` : `Police broke the barricade on ${doorName(world, event.door)}`;
         case 'crewWounded': return event.cause === 'bleeding' ? `${name(event.crew)} is bleeding: ${event.hp} HP` : `${name(event.crew)} is hit: ${event.hp} HP`;
         case 'crewDowned': return `${name(event.crew)} is down: bleeding out in ${event.phases}`;
         case 'bleedingOut': return `${name(event.crew)} bleeds out in ${event.phases}`;
@@ -689,6 +707,13 @@ const EVIDENCE_NAMES: Readonly<Record<string, string>> = {
 export const roomLabel = (id: string): string => id.replace(/-\d+$/, '').replace(/([a-z])([A-Z])/g, '$1 $2').toLowerCase();
 
 const ZONE_RANK: Readonly<Record<string, number>> = { secure: 3, staff: 2, public: 1 };
+
+/** A wall segment as the log names it: its door, a window, or a wall. */
+function edgeName(world: ReadonlyWorld, key: string): string {
+    const e = world.edges[key];
+    if (e?.door) return doorName(world, e.door);
+    return isWindow(world, key) ? 'a window' : 'a wall';
+}
 
 /** A door by the room it guards (the more private side): 'the vault corridor door'. */
 export function doorName(world: ReadonlyWorld, id: string): string {

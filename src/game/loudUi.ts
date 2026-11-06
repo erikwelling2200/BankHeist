@@ -1,5 +1,5 @@
 import {
-    attackPlan, crewPicture, weaponDef, crewShotPreview, officerMarkers, suppressPlan, type Command, type CoverView, type Pos, type ReadonlyWorld, type ShotPreview, type State
+    attackPlan, crewPicture, fortifiedEdges, weaponDef, crewShotPreview, officerMarkers, suppressPlan, type Command, type CoverView, type Pos, type ReadonlyWorld, type ShotPreview, type State
 } from '../sim';
 import { doorMiddle } from './actions';
 
@@ -133,6 +133,21 @@ export function breachMarkers(world: ReadonlyWorld, state: State): BreachVM[] {
     return (state.police?.breaches ?? []).flatMap(b => {
         const at = doorMiddle(world, b.door);
         return at ? [{ door: b.door, at }] : [];
+    });
+}
+
+/**
+ * A wall segment the crew fortified (§14.3, M4-02), from end `a` to end `b` in tiles: a barricade (its hit points left
+ * against the police), blinds down, or the crew's reinforcement. The crew made each, so it knows them all.
+ */
+export interface FortifyVM { edge: string; a: Pos; b: Pos; barricade: number | null; blinds: boolean; reinforced: boolean }
+
+export function fortifyMarkers(world: ReadonlyWorld, state: State): FortifyVM[] {
+    return fortifiedEdges(state).flatMap(f => {
+        const e = world.edges[f.edge];
+        if (!e) return [];
+        const a = { x: e.tx, y: e.ty }, b = e.run === 'eastWest' ? { x: e.tx + 1, y: e.ty } : { x: e.tx, y: e.ty + 1 };
+        return [{ ...f, a, b }];
     });
 }
 

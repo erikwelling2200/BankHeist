@@ -25,6 +25,8 @@ import { registerRuleDefaults } from '../../core/state';
  *   act 'lockpick' or 'hack' and a quiet noise of radius 1. The mantrap's reader waits until every live camera in it is
  *   looped (its technical key). Like any unlocked door it latches again when it swings shut.
  *
+ * A barricaded or reinforced door (rules/fortify.ts) doesn't open, nor is its lock worked on: it stays shut.
+ *
  * Closing a door by hand eases it shut without latching it: it stays closed, not locked, until someone locks it (doors
  * that swing shut on their own at the end of a world phase do latch, rules/doors.ts). None but picking and hacking is
  * an illegal act; what the door hides or shows is perception's and knowledge's business, as for a door a move walks
@@ -113,6 +115,12 @@ export function doorActionBlocked(
 ): string | undefined {
     if (status === 'breached') return 'The door is breached: there is nothing left to move';
     if (status === 'jammed') return 'The door is jammed shut';
+    // A barricade or the crew's reinforcement bars it (§14.3): it stays shut, whatever its lock does.
+    const fortified = Object.hasOwn(state.edges, door.edge) ? state.edges[door.edge]! : undefined;
+    if (action === 'open' || action === 'pick' || action === 'hack') {
+        if (fortified?.barricade) return 'The door is barricaded';
+        if (fortified?.reinforced) return 'The door is reinforced shut';
+    }
     switch (action) {
         case 'open':
             if (status === 'open') return 'The door is already open';

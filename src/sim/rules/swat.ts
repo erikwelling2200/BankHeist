@@ -21,7 +21,7 @@ import { dealHarm } from './damage';
 import { heatNow } from './heat';
 import type { PoliceUnit, PoliceWatch, SwatTeam } from './police';
 import {
-    advance, announceBreach, dueBreach, fallBack, fight, freeHostages, goalOf, hitbox, hurt, inSight, look, moveOptions, react, registerTeamPlay, seesTile, standing,
+    advance, announceBreach, dueBreach, toBreak, fallBack, fight, freeHostages, goalOf, hitbox, hurt, inSight, look, moveOptions, react, registerTeamPlay, seesTile, standing,
     threats, underGrenades, walk, cleanShot, type Fighter, type HoldReason
 } from './routine';
 import { resolveShot, shotRefusal, type Shot } from './shot';
@@ -361,10 +361,10 @@ registerWorldHook('combatNpcs', 'swat.breaches', (ctx, phase) => {
     const assault = state.police.mode?.kind === 'assault' && (heatNow(state)?.level ?? 1) >= BREACH_FROM;
     for (const id of sortedIds(state.police.teams)) {
         const team = state.police.teams[id]!, members = membersOf(state, id);
-        // Still beside a locked door nobody announced, and still in the team.
+        // Still beside a locked or barred door it can break that nobody announced, and still in the team.
         team.stack = team.stack.filter(s => {
             const unit = members.find(m => m.id === s.unit), door = world.doors[s.door];
-            return !!unit && !!door && state.doors[s.door]?.status === 'locked' && !!doorSides(world, door)?.some(p => samePos(p, unit.pos!))
+            return !!unit && !!door && toBreak(world, state, unit, s.door) && !!doorSides(world, door)?.some(p => samePos(p, unit.pos!))
                 && !state.police.breaches.some(b => b.door === s.door);
         });
         if (!assault || !team.stack.length) continue;
@@ -383,9 +383,10 @@ function teamActs(ctx: Ctx, phase: WorldPhase, unit: PoliceUnit): void {
     if (!team) return;
     plan(ctx, phase, id, team);
     look(ctx, f);
-    const door = dueBreach(ctx, phase, unit);
-    if (door === 'down') return;
-    if (door !== null) return flashThrough(ctx, phase, unit, door);
+    const due = dueBreach(ctx, phase, unit);
+    if (due === 'down') return;
+    // A barricade struck is the act; a door blown takes a flashbang through.
+    if (due !== null) return due.blown ? flashThrough(ctx, phase, unit, due.door) : undefined;
     const mode = state.police.mode?.kind ?? 'contain', assault = mode === 'assault';
     if (hurt(world, f)) return fallBack(ctx, phase, f, threats(state, f));
     if (mode === 'negotiate') return;

@@ -1,15 +1,15 @@
 import { registerWorldHook, type Ctx, type WorldPhase } from '../core/engine';
 import { facingToward, samePos } from '../core/grid';
 import { sortedIds } from '../core/json';
-import { registerRuleDefaults } from '../core/state';
-import type { CrewState, DeepReadonly, DoorDef, DoorStatus, NpcState, Pos, ReadonlyWorld, State } from '../core/types';
+import { edgeNow, registerRuleDefaults } from '../core/state';
+import type { CrewState, DeepReadonly, DoorDef, DoorStatus, EdgeProps, NpcState, Pos, ReadonlyWorld, State } from '../core/types';
 import { registerEvents } from '../core/undo';
 import { HALF_STEPS_PER_TILE } from '../data/movement';
 import { NOISES } from '../data/noise';
 import { BREACH_FROM, COMBAT_SIGHT, OFFICER_STATS, ROUTINE_KINDS } from '../data/police';
 import { SUPPRESSED_AIM, THROWABLES, weaponDef } from '../data/weapons';
 import { lineOfSight, sightMap } from '../geo/los';
-import { doorBetween, doorStatus, occupancy, pathTo, reachable, stepCost, type MoveOptions } from '../geo/move';
+import { barred, doorBetween, doorStatus, occupancy, pathTo, reachable, stepCost, type MoveOptions } from '../geo/move';
 import { coverAgainst, shotFabric, shotMap, tileKey } from '../geo/shot';
 import { makeNoise } from '../geo/sound';
 import { previewShot } from '../preview/shot';
@@ -18,6 +18,7 @@ import { inReach } from './actions/act';
 import { besideDoor } from './actions/door';
 import { blastTiles } from './actions/throwables';
 import { dealHarm, registerHarmHandler } from './damage';
+import { dropBarricade, dropField } from './fortify';
 import { heatNow } from './heat';
 import { releaseExit } from './negotiation';
 import { isPresent, npcCanPass, paceBudget, personOf } from './npc/walk';
@@ -66,7 +67,11 @@ import { isWounded } from './woundsState';
  *   stops beside it and announces the breach (`State.police.breaches`, `breachAnnounced`), shown through the crew
  *   phase; in the next world phase it blows the door (breached, a loud noise) as its act. Its breacher down, the breach
  *   is called off at once (rules/police.ts `policeDown`). Nothing is breached that wasn't announced a phase before.
- *   At Heat 1–2 they use open or unlocked doors only.
+ *   At Heat 1–2 they use open or unlocked doors only. A door barred by the crew (rules/fortify.ts, §13.5, §14.3) is
+ *   planned through by an officer that can break it (`canBreak`: any a barricade, only heavy SWAT a reinforced door)
+ *   and announced the same way; the act due strikes a barricade first (`barricadeStruck`, a hit point), announcing the
+ *   next strike at once while any are left, and a breach on a door reinforced since by someone who can't open it is
+ *   called off (decision 223).
  * - **Arrests** stay rules/wounds.ts's: an officer that walks up to a downed crew member arrests them in the next
  *   world phase, having stood there through a crew phase (`PoliceUnit.moved`).
  */
@@ -95,7 +100,7 @@ declare module '../core/types' {
         hostageFreed: { npc: string; unit: string; exit: Pos; cut: boolean };
         /** "Breach next phase" (§13.6): `unit` will blow `door` in the next world phase. */
         breachAnnounced: { door: string; unit: string };
-        /** An officer blew a door it announced. */
+        /** An officer blew a door it announced (a door the crew reinforced is no longer). */
         doorBreached: { door: string; unit: string };
         /** An announced breach won't happen: its breacher is down. */
         breachCalledOff: { door: string; unit: string };
@@ -284,8 +289,12 @@ export function advance(ctx: Ctx, phase: WorldPhase, f: Fighter, goal: Pos, atDo
     const breach = atDoor !== null;
     const { world, state } = ctx, from = posOf(f);
     if (chebyshev(from, goal) <= 1) return true;
-    const pass = passDoor(world, f);
-    const plan: MoveOptions = { mover: f.id, canPassDoor: (door, status) => pass(door, status) || (breach && door.lock !== 'vault' && status === 'locked') };
+    const pass = passDoor(world, f), unit = f.kind === 'police' ? f.unit : undefined;
+    const plan: MoveOptions = {
+        mover: f.id,
+        canPassDoor: (door, status) => pass(door, status) || (breach && door.lock !== 'vault' && status === 'locked'),
+        ...(breach && unit ? { canBreak: (door: DeepReadonly<DoorDef>, edge: DeepReadonly<EdgeProps>) => door.lock !== 'vault' && canBreak(unit, edge) } : {})
+    };
     const far = (world.width + world.height) * 4 * HALF_STEPS_PER_TILE;
     const reach = reachable(world, state, from, far, plan, t => t.canEnd && chebyshev(t.pos, goal) <= 1);
     const route = reach.stopped && pathTo(reach, reach.stopped.pos);
@@ -296,10 +305,25 @@ export function advance(ctx: Ctx, phase: WorldPhase, f: Fighter, goal: Pos, atDo
     // Stopped short of a locked door on the way: beside it, the breach is announced for the next world phase.
     const at = posOf(f), next = route[steps.length];
     const door = next && Math.abs(next.x - at.x) + Math.abs(next.y - at.y) === 1 ? doorBetween(world, at, next) : undefined;
-    if (door && doorStatus(world, state, door.id) === 'locked' && besideDoor(world, door, at) && !state.police.breaches.some(b => b.door === door.id)) {
+    if (door && f.kind === 'police' && toBreak(world, state, f.unit, door.id) && besideDoor(world, door, at) && !state.police.breaches.some(b => b.door === door.id)) {
         atDoor(door.id, steps.length > 0);
     }
     return true;
+}
+
+/**
+ * Whether an officer can break what bars a door (§13.5, §14.3): any officer a barricade, only heavy SWAT a door the crew
+ * reinforced (a barricade on one first, by anyone, decision 223).
+ */
+export const canBreak = (unit: DeepReadonly<PoliceUnit>, edge: DeepReadonly<EdgeProps>): boolean => !edge.reinforced || !!edge.barricade || unit.kind === 'heavy';
+
+/** Whether an officer would announce a breach at a door: locked, or barred by something it can break. */
+export function toBreak(world: ReadonlyWorld, state: State, unit: DeepReadonly<PoliceUnit>, id: string): boolean {
+    const door = world.doors[id];
+    if (!door || door.lock === 'vault') return false;
+    const now = edgeNow(world, state, door.edge);
+    if (now && barred(now)) return canBreak(unit, now);
+    return doorStatus(world, state, id) === 'locked';
 }
 
 /** "Breach next phase" (§13.6): `unit` blows `door` in the next world phase. */
@@ -515,12 +539,27 @@ export function freeHostages(ctx: Ctx, phase: WorldPhase, unit: PoliceUnit, spen
 
 // ---------------------------------------------------------------------------------------------------------- Acting
 
-/** Blows a door the officer announced last world phase; its act. */
+/** Blows a door the officer announced last world phase; its act. The crew's reinforcement goes with it. */
 function breach(ctx: Ctx, unit: PoliceUnit, door: string): void {
-    const { state } = ctx;
+    const { world, state } = ctx, edge = world.doors[door]?.edge;
     state.doors[door] = { ...state.doors[door], status: 'breached' };
+    if (edge && state.edges[edge]?.reinforced) dropField(state, edge, 'reinforced', 'material');
     ctx.emit({ type: 'doorBreached', door, unit: unit.id });
     makeNoise(ctx, 'breachCharge', unit.pos!, `breach ${door}`);
+}
+
+/**
+ * Strikes the barricade on a door an officer announced (§13.5: hit points against police actions), its act: one hit
+ * point, gone at none. While some are left the officer announces the next strike at once, so every strike, and the one
+ * that clears the way above all, stands announced through a crew phase (decision 223).
+ */
+function strike(ctx: Ctx, phase: WorldPhase, unit: PoliceUnit, door: string, edge: string): void {
+    const { state } = ctx, left = Math.max(0, (state.edges[edge]!.barricade ?? 1) - 1);
+    if (left) state.edges[edge] = { ...state.edges[edge], barricade: left };
+    else dropBarricade(state, edge);
+    ctx.emit({ type: 'barricadeStruck', door, edge, unit: unit.id, left });
+    makeNoise(ctx, 'barricade', unit.pos!, `strike ${door}`);
+    if (left) announceBreach(ctx, phase, unit.id, door);
 }
 
 /** The crew positions a fighter knows of, as threats to keep out of sight of. */
@@ -545,13 +584,25 @@ export function goalOf(state: State, f: Fighter): Pos | undefined {
  * Watch on it fires first, and an officer downed by it is called off (`policeDown`). The door, or null if none was due
  * or it went down.
  */
-export function dueBreach(ctx: Ctx, phase: WorldPhase, unit: PoliceUnit): string | null | 'down' {
-    const { state } = ctx, due = state.police.breaches.find(b => b.unit === unit.id && b.turn < phase.turn);
+export function dueBreach(ctx: Ctx, phase: WorldPhase, unit: PoliceUnit): { door: string; blown: boolean } | null | 'down' {
+    const { world, state } = ctx, due = state.police.breaches.find(b => b.unit === unit.id && b.turn < phase.turn);
     if (!due) return null;
+    // Reinforced since it was announced, and this officer can't open that (§14.3): called off, its act unspent.
+    const edge = world.doors[due.door]?.edge, now = edge ? edgeNow(world, state, edge) : undefined;
+    if (now && barred(now) && !canBreak(unit, now)) {
+        state.police.breaches.splice(state.police.breaches.indexOf(due), 1);
+        ctx.emit({ type: 'breachCalledOff', door: due.door, unit: unit.id });
+        return null;
+    }
     if (!react(ctx, phase, { kind: 'police', id: unit.id, unit })) return 'down';
     state.police.breaches.splice(state.police.breaches.indexOf(due), 1);
+    // A barricade on it (put up since, or what was announced) is struck first; then the door is blown.
+    if (edge && now?.barricade) {
+        strike(ctx, phase, unit, due.door, edge);
+        return { door: due.door, blown: false };
+    }
     breach(ctx, unit, due.door);
-    return due.door;
+    return { door: due.door, blown: true };
 }
 
 /** An officer's act in a SWAT team (rules/swat.ts), in place of the routine; registered there. */

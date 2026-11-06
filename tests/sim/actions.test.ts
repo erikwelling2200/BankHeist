@@ -93,6 +93,7 @@ describe('doors', () => {
             { type: 'command', crew: 'jun' },
             { type: 'door', crew: 'jun', door: 'd', action: 'open' },
             { type: 'door', crew: 'jun', door: 'd', action: 'lock' },
+            { type: 'fortify', crew: 'jun', edge: 'northSouth 5 2', action: 'barricade' },
             { type: 'go', crew: 'jun' },
             { type: 'maskUp', crew: 'jun' },
             { type: 'wait', crew: 'jun' }

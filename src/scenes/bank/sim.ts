@@ -8,7 +8,7 @@ import {
     type PlaybackItem, type PlaybackSpeed, type Session, type SessionChange
 } from '../../game';
 import { shownWarnings, warningLines, type EvidenceWarning } from '../../game/evidenceWarning';
-import { aimView, breachMarkers, fireSelector, policeMarkers, type AimVM, type PoliceMarkerVM } from '../../game/loudUi';
+import { aimView, breachMarkers, fireSelector, fortifyMarkers, policeMarkers, type AimVM, type PoliceMarkerVM } from '../../game/loudUi';
 import { loudView, negotiatorView, posesCovering, type LoudVM } from '../../game/loudBoards';
 import type { GeneratedBank } from '../../gen/model';
 import { TILE } from '../../level/constants';
@@ -347,12 +347,13 @@ export class PlayMode {
             doorsOpen: [...this.shownDoors].filter(([, open]) => open).map(([id]) => id),
             /**
              * Once loud (M3-09): the officers drawn (live or ghost, where), the unit acting in a world phase's playback and
-             * the queue strip's order, the previewed shot's cone (its bullets, bodies and shields) and the breaches drawn.
+             * the queue strip's order, the previewed shot's cone (its bullets, bodies and shields), the breaches drawn and
+             * the edges drawn fortified (M4-02).
              */
             loud: {
                 officers: this.officersShown.map(m => ({ id: m.id, live: m.live, pos: m.pos, shown: this.people.shown(this.officerSprite.get(m.id) ?? -1) })),
                 acting: this.acting, queue: this.acting ? this.actors?.order ?? [] : [], tracers: this.tracers.length,
-                aim: this.overlay.state.aim, breaches: this.overlay.state.breaches
+                aim: this.overlay.state.aim, breaches: this.overlay.state.breaches, fortified: this.overlay.state.fortified
             },
             /** Auto-advance (§6.5): running, the last stop, the routes and how they split into turns. */
             auto: {
@@ -1757,7 +1758,7 @@ export class PlayMode {
             flashes: this.liveFlashes(),
             crewColours: Object.fromEntries(state.crew.map((c, i) => [c.id, CREW_COLOURS[i % CREW_COLOURS.length]!])),
             // Breaches announced for the next world phase (M3-09), and the unit acting in a firefight's playback.
-            loud: { breaches: breachMarkers(world, state), ...(this.acting ? { acting: this.acting.pos } : {}), tracers: this.liveTracers() },
+            loud: { breaches: breachMarkers(world, state), fortified: fortifyMarkers(world, state), ...(this.acting ? { acting: this.acting.pos } : {}), tracers: this.liveTracers() },
             // People walking during playback: their plates come back when it is over.
             ...(busy ? {} : {
                 badges: npcBadges(world, state, view).filter(b => !state.npcs.some(n => n.id === b.id) || shown(b.id)),

@@ -120,13 +120,16 @@ export function initialState(world: ReadonlyWorld, options: { seed: number; crew
 
 /**
  * What passes an edge now: the World's wall with the heist's overrides, and nothing at all through an open or breached
- * door. Undefined where there is no wall.
+ * door. A barricade (§14.3) blocks movement and sight whatever the door does, and blinds down block sight. Undefined
+ * where there is no wall.
  */
 export function edgeNow(world: ReadonlyWorld, state: State, key: EdgeKey): EdgeProps | undefined {
     const built = world.edges[key];
     if (!built) return undefined;
     const now: EdgeProps = { material: built.material, blocksSight: built.blocksSight, blocksMove: built.blocksMove };
     if (Object.hasOwn(state.edges, key)) Object.assign(now, state.edges[key]);
+    if (now.barricade) return { ...now, blocksSight: true, blocksMove: true };
+    if (now.blinds) now.blocksSight = true;
     const door = built.door && Object.hasOwn(state.doors, built.door) ? state.doors[built.door]!.status : undefined;
     if (door === 'open' || door === 'breached') return { ...now, blocksSight: false, blocksMove: false };
     return now;

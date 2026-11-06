@@ -1,6 +1,6 @@
 import { cornerEdges, edgeBetween, edgeKey, FACING_STEP, FACINGS, inBounds, tileAt } from '../core/grid';
 import { edgeNow, registerRuleDefaults } from '../core/state';
-import type { ClimbSide, CrewState, DeepReadonly, DoorDef, DoorStatus, NpcStatus, Pos, ReadonlyWorld, State, Tile } from '../core/types';
+import type { ClimbSide, CrewState, DeepReadonly, DoorDef, DoorStatus, EdgeProps, NpcStatus, Pos, ReadonlyWorld, State, Tile } from '../core/types';
 import { DIAGONAL_COST, HALF_STEPS_PER_TILE, HEAVY_ARMOUR_ITEM, ORTHOGONAL_COST } from '../data/movement';
 import { vehicleAt } from './drive';
 
@@ -13,7 +13,8 @@ import { vehicleAt } from './drive';
  *
  * - A step can't cross a wall segment that blocks movement now (`edgeNow`: a closed door does, an open or breached one
  *   doesn't, nor does a hole). A closed or locked door passes only if `canPassDoor` says so; the mover then opens it
- *   on the way (the move command does, `crew/movement.ts`). A jammed door never passes.
+ *   on the way (the move command does, `crew/movement.ts`). A jammed door never passes, nor a barred one (a barricade,
+ *   a reinforced door, §14.3) but in a police plan that will break it (`canBreak`).
  * - A diagonal step can't cut a corner where a wall ends: none of the corner's four edges (`cornerEdges`) may hold a wall
  *   that blocks movement, nor a door frame, open or not (a breached door has no frame left). Furniture doesn't stop a
  *   diagonal: §6.3 names only walls, and a desk is smaller than its tile. Nor do people: a diagonal may squeeze between
@@ -43,6 +44,11 @@ export interface MoveOptions {
     mover?: string;
     /** Whether the mover may pass a door that is closed or locked, opening it on the way. Default: never. */
     canPassDoor?: (door: DeepReadonly<DoorDef>, status: DoorStatus) => boolean;
+    /**
+     * Whether a plan may go through a door barred by a barricade or the crew's reinforcement (§14.3), which only the
+     * police break, announced (rules/routine.ts). Default: never; nobody walks through one.
+     */
+    canBreak?: (door: DeepReadonly<DoorDef>, edge: EdgeProps) => boolean;
     /** Plan as if nobody stood anywhere (an NPC's route before people are placed, the overlay of an empty bank). */
     ignorePeople?: boolean;
     /** Per tile, row-major: 1 for a tile the mover may not enter (a crew plan's hidden tiles, crew/movement.ts). */
@@ -87,16 +93,20 @@ export function doorBetween(world: ReadonlyWorld, a: Pos, b: Pos): DeepReadonly<
     return id ? world.doors[id] : undefined;
 }
 
+/** Whether an edge as it is now is barred (§14.3): barricaded, or a door the crew reinforced shut. */
+export const barred = (now: DeepReadonly<EdgeProps>): boolean => !!now.barricade || !!now.reinforced;
+
 /** A door's status now. */
 export const doorStatus = (world: ReadonlyWorld, state: State, id: string): DoorStatus =>
     Object.hasOwn(state.doors, id) ? state.doors[id]!.status : world.doors[id]!.start;
 
 /** Whether a wall on this edge stops a step across it, given the doors the mover may pass. */
 function edgeStops(world: ReadonlyWorld, state: State, a: Pos, b: Pos, options: MoveOptions): boolean {
-    const key = edgeKey(edgeBetween(a, b));
-    if (!edgeNow(world, state, key)?.blocksMove) return false;
+    const key = edgeKey(edgeBetween(a, b)), now = edgeNow(world, state, key);
+    if (!now?.blocksMove) return false;
     const door = doorBetween(world, a, b);
     if (!door) return true;
+    if (barred(now)) return !options.canBreak?.(door, now);
     const status = doorStatus(world, state, door.id);
     return status === 'jammed' || !options.canPassDoor?.(door, status);
 }

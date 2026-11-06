@@ -19,7 +19,8 @@ import { footprint } from './drive';
  *   met first (`Body.shield`, §10 "a real shield", decision 88).
  * - **Walls** (§11.6): glass passes and shatters on its first hit; teller glass counts its hits, lets only Pierce 3
  *   through and shatters at the 4th; a Soft wall or wooden door lets Pierce 1 through with 1 damage less (a bullet left
- *   with none stops in it); Reinforced, Vault and the plot's edge stop all; a fence, a railing, an open door, a hole
+ *   with none stops in it); Reinforced (a wall or door the crew reinforced too, §14.3), Vault and the plot's edge stop
+ *   all; a barricade is half cover and stops nothing itself (what it stands in still does); a fence, a railing, an open door, a hole
  *   or a shattered pane are nothing to it. Full-height objects stop bullets; middle-height ones (vehicles) too, unless
  *   the shooter's tile or the aimed-at tile is raised (sight's rule, §14.7).
  * - **Corners** (decision 6's rule for bullets, decision 86): a ray exactly through a grid corner passes only if all four
@@ -69,7 +70,7 @@ export interface BulletEdge {
     material: Material;
     /** Nothing there to meet: an open or breached door, a hole. */
     open: boolean;
-    /** A railing or low wall: half cover for the tiles either side (§11.4). */
+    /** A railing, a low wall or a barricade: half cover for the tiles either side (§11.4, §14.3). */
     halfCover: boolean;
     /** The tiles either side (row-major indices), −1 off the map. */
     sides: [number, number];
@@ -217,7 +218,8 @@ export function shotMap(world: ReadonlyWorld, state: State): ShotMap {
         }
         const a = e.run === 'northSouth' ? (e.tx > 0 ? e.ty * width + e.tx - 1 : -1) : (e.ty > 0 ? (e.ty - 1) * width + e.tx : -1);
         const b = e.run === 'northSouth' ? (e.tx < width ? e.ty * width + e.tx : -1) : (e.ty < height ? e.ty * width + e.tx : -1);
-        edges.push({ key, material: now.material, open: !now.blocksMove && !now.blocksSight, halfCover: !!e.halfCover, sides: [a, b] });
+        // A barricade lets bullets through as half cover for the tiles either side (§14.3), as a railing does.
+        edges.push({ key, material: now.material, open: !now.blocksMove && !now.blocksSight, halfCover: !!e.halfCover || !!now.barricade, sides: [a, b] });
     }
     const coverSide = new Int8Array(width * height).fill(-1);
     for (const f of state.flipped) if (f.at.x >= 0 && f.at.y >= 0 && f.at.x < width && f.at.y < height) coverSide[f.at.y * width + f.at.x] = SIDE_INDEX[f.side];
