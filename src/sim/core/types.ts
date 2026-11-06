@@ -99,6 +99,8 @@ export interface EdgeProps {
     blinds?: boolean;
     /** Reinforced by the crew (§14.3): its material is Reinforced, and a door so is barred shut. */
     reinforced?: boolean;
+    /** A reinforced door's bar: the tile it was put on from, the one side it is lifted from. */
+    barredFrom?: Pos;
 }
 
 /**

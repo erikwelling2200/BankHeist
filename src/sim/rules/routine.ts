@@ -71,8 +71,8 @@ import { isWounded } from './woundsState';
  *   At Heat 1–2 they use open or unlocked doors only. A door barred by the crew (rules/fortify.ts, §13.5, §14.3) is
  *   planned through by an officer that can break it (`canBreak`: any a barricade, only heavy SWAT a reinforced door)
  *   and announced the same way; the act due strikes a barricade first (`barricadeStruck`, a hit point), announcing the
- *   next strike at once while any are left, and a breach on a door reinforced since by someone who can't open it is
- *   called off (decision 223).
+ *   next strike at once while any are left, the last one breaking the door with it; a breach on a door reinforced
+ *   since by someone who can't open it is called off (decision 223).
  * - **Arrests** stay rules/wounds.ts's: an officer that walks up to a downed crew member arrests them in the next
  *   world phase, having stood there through a crew phase (`PoliceUnit.moved`).
  */
@@ -547,23 +547,30 @@ export function freeHostages(ctx: Ctx, phase: WorldPhase, unit: PoliceUnit, spen
 function breach(ctx: Ctx, unit: PoliceUnit, door: string): void {
     const { world, state } = ctx, edge = world.doors[door]?.edge;
     state.doors[door] = { ...state.doors[door], status: 'breached' };
-    if (edge && state.edges[edge]?.reinforced) dropField(state, edge, 'reinforced', 'material');
+    if (edge && state.edges[edge]?.reinforced) dropField(state, edge, 'reinforced', 'material', 'barredFrom');
     ctx.emit({ type: 'doorBreached', door, unit: unit.id });
     makeNoise(ctx, 'breachCharge', unit.pos!, `breach ${door}`);
 }
 
 /**
  * Strikes the barricade on a door an officer announced (§13.5: hit points against police actions), its act: one hit
- * point, gone at none. While some are left the officer announces the next strike at once, so every strike, and the one
- * that clears the way above all, stands announced through a crew phase (decision 223).
+ * point. While some are left the officer announces the next strike at once, so every strike stands announced through a
+ * crew phase. The last one breaks the door with it (breached: nothing to barricade again), unless it is a door the crew
+ * reinforced and the officer isn't heavy SWAT, which stays barred (decision 223). Whether the door was blown.
  */
-function strike(ctx: Ctx, phase: WorldPhase, unit: PoliceUnit, door: string, edge: string): void {
+function strike(ctx: Ctx, phase: WorldPhase, unit: PoliceUnit, door: string, edge: string): boolean {
     const { state } = ctx, left = Math.max(0, (state.edges[edge]!.barricade ?? 1) - 1);
     if (left) state.edges[edge] = { ...state.edges[edge], barricade: left };
     else dropBarricade(state, edge);
     ctx.emit({ type: 'barricadeStruck', door, edge, unit: unit.id, left });
     makeNoise(ctx, 'barricade', unit.pos!, `strike ${door}`);
-    if (left) announceBreach(ctx, phase, unit.id, door);
+    if (left) {
+        announceBreach(ctx, phase, unit.id, door);
+        return false;
+    }
+    if (state.edges[edge]?.reinforced && unit.kind !== 'heavy') return false;
+    breach(ctx, unit, door);
+    return true;
 }
 
 /** The crew positions a fighter knows of, as threats to keep out of sight of. */
@@ -601,10 +608,7 @@ export function dueBreach(ctx: Ctx, phase: WorldPhase, unit: PoliceUnit): { door
     if (!react(ctx, phase, { kind: 'police', id: unit.id, unit })) return 'down';
     state.police.breaches.splice(state.police.breaches.indexOf(due), 1);
     // A barricade on it (put up since, or what was announced) is struck first; then the door is blown.
-    if (edge && now?.barricade) {
-        strike(ctx, phase, unit, due.door, edge);
-        return { door: due.door, blown: false };
-    }
+    if (edge && now?.barricade) return { door: due.door, blown: strike(ctx, phase, unit, due.door, edge) };
     breach(ctx, unit, due.door);
     return { door: due.door, blown: true };
 }

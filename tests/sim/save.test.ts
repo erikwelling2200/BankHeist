@@ -78,7 +78,7 @@ describe('saving', () => {
  * NpcStatusMap, CarrierKindMap or adds a field must also fill it in below, or a change of shape goes unnoticed.
  */
 const SHAPE_HASHES: Record<number, string> = {
-    1: 'ebfdf01cb70013e2'
+    1: '2c057f90eff4f952'
 };
 
 /** Paths whose objects are records by id, not structs. */
@@ -160,7 +160,7 @@ describe('the save format', () => {
         full.cameraEvidence = [{ camera: 'cam', evidence: 'body:guard', kind: 'body', tile: { x: 1, y: 1 }, turn: 2, handled: true }];
         full.cameraReports = [{ camera: 'cam', crew: 'jun', tile: { x: 0, y: 0 }, turn: 1, phase: 'crew' }];
         full.crew[0]!.notoriety = 2;
-        full.edges['eastWest 0 1'] = { material: 'soft', blocksMove: false, blocksSight: false, blocksSound: false, midHeight: false, shattered: true, hits: 2, barricade: 2, blinds: true, reinforced: true, gap: true };
+        full.edges['eastWest 0 1'] = { material: 'soft', blocksMove: false, blocksSight: false, blocksSound: false, midHeight: false, shattered: true, hits: 2, barricade: 2, blinds: true, reinforced: true, barredFrom: { x: 0, y: 0 }, gap: true };
         full.cover = { '2 1': 3 };
         full.crew[0]!.leaning = { at: { x: 1, y: 0 }, corner: { x: -1, y: -1 } };
         full.npcs[0]!.leaning = { at: { x: 1, y: 0 }, corner: { x: 1, y: 1 } };

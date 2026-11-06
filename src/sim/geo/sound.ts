@@ -46,8 +46,9 @@ function edgeSoundCost(world: ReadonlyWorld, state: State, key: EdgeKey): number
     }
     if (!(changed?.blocksSound ?? built.blocksSound ?? true)) return 0;
     const material: Material = changed?.material ?? built.material;
-    // A closed door costs 3 whatever it is made of, unless it is the vault's (§8.9 "each closed door").
-    if (built.door) return material === 'vault' ? -1 : WALL_COST;
+    // A closed door costs 3 whatever it is made of, unless it is the vault's (§8.9 "each closed door") or one the crew
+    // reinforced, plated and barred as a reinforced wall is (decision 222).
+    if (built.door) return material === 'vault' || changed?.reinforced ? -1 : WALL_COST;
     const damping = SOUND_DAMPING[material];
     return damping === 'passes' ? 0 : damping === 'stops' ? -1 : WALL_COST;
 }

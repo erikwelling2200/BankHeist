@@ -289,7 +289,7 @@ function blow(ctx: Ctx, charge: Charge): void {
     // What the crew fortified there goes with it (M4-02): a barricade, blinds, a reinforced door's bar.
     const segments = blast.door ? sortedIds(world.edges).filter(k => world.edges[k]!.door === blast.door) : [charge.edge];
     for (const key of segments) {
-        if (state.edges[key]?.reinforced && blast.door) dropField(state, key, 'reinforced', 'material');
+        if (state.edges[key]?.reinforced && blast.door) dropField(state, key, 'reinforced', 'material', 'barredFrom');
         if (Object.hasOwn(state.edges, key)) dropField(state, key, 'barricade', 'blinds');
     }
     if (blast.door) state.doors[blast.door] = { ...state.doors[blast.door], status: 'breached' };

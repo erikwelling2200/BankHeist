@@ -359,6 +359,7 @@ const FORTIFY_LABEL: Readonly<Record<FortifyAction, { label: string; icon: HudIc
     barricade: { label: 'Barricade', icon: 'shield', cost: 1 },
     clear: { label: 'Clear barricade', icon: 'heavy', cost: 1 },
     reinforce: { label: 'Reinforce', icon: 'lock', cost: 2 },
+    unbar: { label: 'Unbar', icon: 'lock', cost: 1 },
     lowerBlinds: { label: 'Blinds down', icon: 'eye', cost: 1 },
     raiseBlinds: { label: 'Blinds up', icon: 'eye', cost: 1 }
 };
@@ -660,6 +661,7 @@ export function describeEvent(world: ReadonlyWorld, state: State, event: SimEven
         case 'barricaded': return `${name(event.crew)} barricaded ${edgeName(world, event.edge)}`;
         case 'barricadeCleared': return `${name(event.crew)} cleared the barricade on ${edgeName(world, event.edge)}`;
         case 'reinforced': return `${name(event.crew)} reinforced ${edgeName(world, event.edge)}`;
+        case 'unbarred': return `${name(event.crew)} unbarred ${edgeName(world, event.edge)}`;
         case 'blinds': return `${name(event.crew)} ${event.down ? 'lowered' : 'raised'} the blinds`;
         case 'barricadeStruck': return event.left ? `Police struck the barricade on ${doorName(world, event.door)} (${event.left} left)` : `Police broke the barricade on ${doorName(world, event.door)}`;
         case 'crewWounded': return event.cause === 'bleeding' ? `${name(event.crew)} is bleeding: ${event.hp} HP` : `${name(event.crew)} is hit: ${event.hp} HP`;

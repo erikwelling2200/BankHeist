@@ -389,7 +389,7 @@ export function actionMenu(world: ReadonlyWorld, state: State, crewId: string, t
 
 /**
  * Fortifying (§14.3, M4-02): on the door the grid is for, Barricade (or Clear barricade) and, with a reinforcement kit
- * left, Reinforce; with no door, the first window beside them: Blinds down or up, and Barricade; with neither, a Soft
+ * left, Reinforce (Unbar on one reinforced); with no door, the first window beside them: Blinds down or up, and Barricade; with neither, a Soft
  * wall to reinforce. Once loud right after Command and Hold; in stealth last, where a full grid drops them first.
  */
 function fortifyEntries(
@@ -406,7 +406,8 @@ function fortifyEntries(
     if (door) {
         const edge = world.doors[door]!.edge;
         barricade(edge, door);
-        if (kit && !fortificationOf(state, edge).reinforced) add('fortify:reinforce', `Reinforce (${member.reinforcements})`, 'lock', fortify(edge, 'reinforce'), door);
+        if (fortificationOf(state, edge).reinforced) add('fortify:unbar', 'Unbar', 'lock', fortify(edge, 'unbar'), door);
+        else if (kit) add('fortify:reinforce', `Reinforce (${member.reinforcements})`, 'lock', fortify(edge, 'reinforce'), door);
         return;
     }
     const around = edgesAround(world, member.pos);

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
-    clonePlain, commit, coverAgainst, deserialiseState, edgeBetween, edgeKey, edgeNow, fixtureWorld, hasLineOfSight, initialState, legalActions, OFFICER_STATS, patrolSightings, preview,
+    clonePlain, commit, newTeam, soundEdgeCost, coverAgainst, deserialiseState, edgeBetween, edgeKey, edgeNow, fixtureWorld, hasLineOfSight, initialState, legalActions, OFFICER_STATS, patrolSightings, preview,
     reachable, serialiseState, shotFabric, shotMap, whyNot, type Command, type CrewStart, type FixtureOptions, type FixtureWall, type PersonDef, type PoliceKind, type Pos, type ReadonlyWorld,
     type SimEvent, type State
 } from '../../src/sim';
@@ -86,6 +86,7 @@ describe('barricades (§14.3)', () => {
         expect(whyNot(world, r.state, fortify('jun', DOOR, 'barricade'))).toMatch(/already/);
         const cleared = commit(world, r.state, fortify('jun', DOOR, 'clear'));
         expect(cleared.state.edges[DOOR]).toBeUndefined();
+        expect(cleared.events.find(e => e.type === 'noise')).toMatchObject({ kind: 'quiet', radius: 4 });
         const rested = clonePlain(cleared.state);
         rested.crew[0]!.actionsLeft = 2;
         expect(whyNot(world, rested, { type: 'door', crew: 'jun', door: 'd', action: 'open' })).toBeUndefined();
@@ -142,6 +143,22 @@ describe('reinforcing (§14.3)', () => {
         expect(whyNot(world, next, fortify('jun', key(P(5, 4), P(6, 4)), 'reinforce'))).toMatch(/no reinforcement kit/);
     });
 
+    it('bars a door, unbarred again only from the side it was barred from; sound stops at it', () => {
+        const { world, state } = quiet({ crew: [{ id: 'jun', pos: P(5, 2), items: ['reinforcementKit'] }, { id: 'mara', pos: P(6, 2), items: [] }] });
+        const r = commit(world, state, fortify('jun', DOOR, 'reinforce'));
+        expect(r.state.edges[DOOR]).toMatchObject({ reinforced: true, barredFrom: P(5, 2) });
+        expect(soundEdgeCost(world, r.state, DOOR)).toBeUndefined();
+        expect(soundEdgeCost(world, state, DOOR)).toBeDefined();
+        expect(whyNot(world, r.state, fortify('mara', DOOR, 'unbar'))).toMatch(/other side/);
+        const rested = clonePlain(r.state);
+        rested.crew[0]!.actionsLeft = 2;
+        expect(actionMenu(world, rested, 'jun').map(e => e.id)).toContain('fortify:unbar');
+        const off = commit(world, rested, fortify('jun', DOOR, 'unbar'));
+        expect(off.state.edges[DOOR]).toBeUndefined();
+        expect(off.state.crew[0]!.reinforcements).toBe(1);
+        expect(whyNot(world, off.state, { type: 'door', crew: 'jun', door: 'd', action: 'open' })).toBeUndefined();
+    });
+
     it('bars a door shut and refuses glass', () => {
         const { world, state } = quiet();
         const r = commit(world, state, fortify('jun', DOOR, 'reinforce'));
@@ -176,7 +193,7 @@ describe('blinds (§14.3)', () => {
 });
 
 describe('the police break barricades, announced like breaches (§13.5)', () => {
-    it('an officer stops at a barricaded door, announces, strikes it twice a phase apart, each announced, then walks through', () => {
+    it('an officer stops at a barricaded door, announces, strikes it twice a phase apart, each announced, the last breaking the door', () => {
         const { world, state } = loud();
         const barred = stepBack(commit(world, state, fortify('jun', DOOR, 'barricade')).state);
         const one = commit(world, barred, endTurn);
@@ -194,9 +211,12 @@ describe('the police break barricades, announced like breaches (§13.5)', () => 
         expect(three.state.edges[DOOR]).toBeUndefined();
         expect(three.state.police.breaches).toEqual([]);
         expect(describeEvent(world, three.state, of(three.events, 'barricadeStruck')[0]!)).toMatch(/broke the barricade/);
-        // The door behind was only closed: the officer walks on through it.
+        // The last strike breaks the door with it: nothing left to barricade again (decision 223).
+        expect(three.state.doors.d!.status).toBe('breached');
+        expect(whyNot(world, three.state, fortify('jun', DOOR, 'barricade'))).toBeDefined();
+        // Through the broken door the officer sees Jun and fights.
         const four = commit(world, three.state, endTurn);
-        expect(four.state.police.units[0]!.pos!.x).toBeLessThan(6);
+        expect(types(four.events)).toContain('fighterFired');
     });
 
     it('a barricade on a locked door goes first, then the door is breached, each announced', () => {
@@ -208,7 +228,34 @@ describe('the police break barricades, announced like breaches (§13.5)', () => 
             seen.push(...types(r.events).filter(t => t === 'breachAnnounced' || t === 'barricadeStruck' || t === 'doorBreached'));
             s = r.state;
         }
-        expect(seen).toEqual(['breachAnnounced', 'barricadeStruck', 'breachAnnounced', 'barricadeStruck', 'breachAnnounced', 'doorBreached']);
+        expect(seen).toEqual(['breachAnnounced', 'barricadeStruck', 'breachAnnounced', 'barricadeStruck', 'doorBreached']);
+    });
+
+    it('can\u2019t be stalled: barricading, clearing and re-barricading in every crew phase holds the breach 3 phases at most', () => {
+        const { world, state } = loud();
+        let s = clonePlain(state), phases = 0;
+        while (s.doors.d?.status !== 'breached' && phases < 10) {
+            // Jun at the door with his actions back, trying everything to keep a fresh barricade up.
+            s.crew[0]!.pos = P(5, 2);
+            for (const action of ['clear', 'barricade'] as const) {
+                if (!whyNot(world, s, fortify('jun', DOOR, action))) s = commit(world, s, fortify('jun', DOOR, action)).state;
+            }
+            s = clonePlain(s);
+            s.crew[0]!.pos = P(1, 2);
+            s = commit(world, s, endTurn).state;
+            phases++;
+        }
+        expect(s.doors.d!.status).toBe('breached');
+        expect(phases).toBeLessThanOrEqual(3);
+    });
+
+    it('while a strike or a breach stands announced, the crew can\u2019t barricade, clear or reinforce that door', () => {
+        const { world, state } = loud({ lock: 'mechanical', start: 'locked' });
+        const one = commit(world, stepBack(state), endTurn);
+        expect(types(one.events)).toContain('breachAnnounced');
+        const back = clonePlain(one.state);
+        back.crew[0]!.pos = P(5, 2);
+        for (const action of ['barricade', 'reinforce'] as const) expect(whyNot(world, back, fortify('jun', DOOR, action))).toMatch(/breaking in/);
     });
 
     it('below Heat 3 they leave a barricade be', () => {
@@ -216,6 +263,7 @@ describe('the police break barricades, announced like breaches (§13.5)', () => 
         const barred = stepBack(commit(world, state, fortify('jun', DOOR, 'barricade')).state);
         const r = commit(world, barred, endTurn);
         expect(types(r.events)).not.toContain('breachAnnounced');
+        expect(r.state.police.units[0]!.pos!.x).toBeGreaterThanOrEqual(6);
     });
 
     it('only heavy SWAT open a reinforced door, which goes with the breach', () => {
@@ -232,16 +280,29 @@ describe('the police break barricades, announced like breaches (§13.5)', () => 
         expect(s.edges[DOOR]).toBeUndefined();
     });
 
-    it('a door reinforced after a patrol officer announced its breach: called off', () => {
-        const { world, state } = loud({ lock: 'mechanical', start: 'locked' });
-        const one = commit(world, stepBack(state), endTurn);
-        expect(types(one.events)).toContain('breachAnnounced');
-        const back = clonePlain(one.state);
-        back.crew[0]!.pos = P(5, 2);
-        const shut = stepBack(commit(world, back, fortify('jun', DOOR, 'reinforce')).state);
-        const two = commit(world, shut, endTurn);
-        expect(of(two.events, 'breachCalledOff')).toEqual([{ type: 'breachCalledOff', door: 'd', unit: 'cop' }]);
-        expect(two.state.doors.d?.status ?? 'locked').toBe('locked');
+    it('SWAT stack at a barricaded door, announce and strike it; a heavy team blows a reinforced one', () => {
+        const swat = loud();
+        swat.state.police.units[0]!.kind = 'swat';
+        swat.state.police.units[0]!.team = 't';
+        swat.state.police.units[0]!.hp = OFFICER_STATS.swat.hp;
+        swat.state.police.teams.t = newTeam();
+        let s = stepBack(commit(swat.world, swat.state, fortify('jun', DOOR, 'barricade')).state);
+        const seen: string[] = [];
+        for (let k = 0; k < 6 && s.doors.d?.status !== 'breached'; k++) {
+            const r = commit(swat.world, s, endTurn);
+            seen.push(...types(r.events).filter(t => t === 'breachAnnounced' || t === 'barricadeStruck' || t === 'doorBreached'));
+            s = r.state;
+        }
+        expect(seen).toEqual(['breachAnnounced', 'barricadeStruck', 'breachAnnounced', 'barricadeStruck', 'doorBreached']);
+        const heavy = loud({ kind: 'heavy' });
+        heavy.state.police.units[0]!.team = 't';
+        heavy.state.police.teams.t = newTeam();
+        s = stepBack(commit(heavy.world, heavy.state, fortify('jun', DOOR, 'reinforce')).state);
+        const one = commit(heavy.world, s, endTurn);
+        expect(of(one.events, 'breachAnnounced')).toEqual([{ type: 'breachAnnounced', door: 'd', unit: 'cop' }]);
+        const two = commit(heavy.world, one.state, endTurn);
+        expect(of(two.events, 'doorBreached')).toEqual([{ type: 'doorBreached', door: 'd', unit: 'cop' }]);
+        expect(two.state.edges[DOOR]).toBeUndefined();
     });
 });
 
