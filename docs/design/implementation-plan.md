@@ -1538,7 +1538,7 @@ M2 is complete: every package below has landed.
   - **Covers:** §18.
   - **Work:** crew and loadouts; starts; vehicle spots; assets with their costs and the favour cap of 8, placed on the map; output a `HeistSetup` that becomes the starting state.
   - **Depends on:** M4-01 to M4-05 for which assets exist.
-  - **Notes (done):** decisions 320–328. `src/game/plan.ts`: the `ROSTER`, slots (`SLOT_ITEMS`), `ASSETS`,
+  - **Notes (done):** decisions 320–329. `src/game/plan.ts`: the `ROSTER`, slots (`SLOT_ITEMS`), `ASSETS`,
     `PLANNING_CASH`, `FAVOUR_CAP`; `HeistSetup` (crew with loadout and start, each vehicle's spot, the jammer, the nest);
     `planOptions` (each vehicle's spots and poses, the nest's tiles), `setupProblems`, `spent`, `jammerSpot`;
     `heistFromSetup` builds the World with the plan's vehicles (`bankVehicles` is the generator's, rules' and scene's
@@ -1554,7 +1554,7 @@ M2 is complete: every package below has landed.
     only the NPCs the crew knows (decision 328). Narrow screens keep each asset's short name. `BankScene.tileAtPage` for its taps; the scene
     draws a vehicle the plan parked away from the generator's spot, the backup car and the ram truck in the van's art.
   - **Tests:** `tests/game/plan.test.ts` (the default plan, vehicles at their own spots with drivers, the nest, the
-    jammer outdoors only, the NPCs known at the start, cash, the save and resume); `e2e/planning.spec.ts` plans and
+    jammer outdoors only, the NPCs the free starts know, plans that aren't one, cash, the save and resume); `e2e/planning.spec.ts` plans and
     starts a heist, shows only the NPCs play shows at turn 1, asks before overwriting a saved heist (and goes back on
     Keep planning), and the outcome's New heist goes to planning (`screenshots/planning.png`,
     `planning-assets.png`, `planned-heist.png`). No visual baseline changed.
@@ -2839,9 +2839,17 @@ Later milestones: within each milestone, the `∥` notes in §3 apply. UI packag
     finished heist for good (the session retired, so leaving the page doesn't save it again) and plans the next one in
     the same bank. `/` with no heist saved still starts the M1 crew unplanned (`newHeist` without a setup).
 328. **The planning map shows what the crew knows at the start (M4-07 review, §17.8).** The NPCs drawn are those the
-    crew sees or predicts as the planned heist starts (`startView`: `markerKind` on the planned state, as play draws
-    them at turn 1, a predicted one translucent), recomputed after each change to a playable plan, and the vehicles
-    stand where the plan parks them. Guard posts and anyone else unknown stay hidden until intel (M5-03).
+    crew sees or predicts at turn 1 from the plan's free starts (`startView` on `freeSetup`: the van alone, everyone
+    who starts by or in a bought vehicle or the nest at the van instead; `markerKind`, as play draws them at turn 1, a
+    predicted one translucent), recomputed after each change to a playable plan, and the vehicles stand where the plan
+    parks them. Cash is spent only at Start, so what a paid start would see shows only once the heist starts: renting
+    the nest, looking and giving it back scouts nothing (re-review). Guard posts and anyone else unknown stay hidden
+    until intel (M5-03).
+329. **A plan from the address is checked whole (M4-07 re-review).** `setupShapeProblem` refuses anything but a
+    `HeistSetup`'s exact fields and types: unknown keys, items that aren't items, other than two gadget slots (§7.3), a
+    start that isn't one (`aboard` a boolean, the nest with nothing else), `nest` not a boolean, a vehicle type that
+    doesn't exist, a jammer off the grid, and no van (no getaway). `setupProblems` reports it first, so the game sends
+    such an address back to planning.
 
 ### Critical files for implementation
 

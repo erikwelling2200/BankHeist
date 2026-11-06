@@ -129,4 +129,42 @@ describe('planning a heist (M4-07, §18)', () => {
         expect(resumed.state).toEqual(session.state);
         expect(resumed.state.crew.map(c => c.id)).toEqual(['mara', 'dex', 'sol']);
     });
+
+    it('refuses a plan that is not one (an address edited by hand)', () => {
+        const bad = (change: (s: any) => void) => {
+            const s: any = plan();
+            change(s);
+            return setupProblems(s, options);
+        };
+        const cant = (why: string) => [`The plan can't be read: ${why}`];
+        expect(bad(s => { s.crew[1].loadout.gadgets = ['jammer', 'jammer', 'jammer']; })).toEqual(cant('jun has two gadget slots'));
+        expect(bad(s => { s.crew[1].loadout.gadgets = ['jammer']; })).toEqual(cant('jun has two gadget slots'));
+        expect(bad(s => { s.extra = 1; })).toEqual(cant('not a plan'));
+        expect(bad(s => { s.crew[0].loadout.cape = 'red'; })).toEqual(cant("mara's loadout is not one"));
+        expect(bad(s => { s.crew[0].start.aboard = 'yes'; })).toEqual(cant("mara's start is not one"));
+        expect(bad(s => { s.crew[0].start = { at: 'nest', aboard: true }; })).toEqual(cant("mara's start is not one"));
+        expect(bad(s => { s.nest = 1; })).toEqual(cant('the nest is neither rented nor not'));
+        expect(bad(s => { s.vehicles = {}; })).toEqual(cant('no van'));
+        expect(bad(s => { s.vehicles.tank = 'alley'; })).toEqual(cant("no vehicle 'tank'"));
+        expect(bad(s => { s.jammer = { x: 1.5, y: 2 }; })).toEqual(cant('the jammer is nowhere'));
+        expect(bad(s => { s.crew[0].loadout.primary = 'bazooka'; })).toEqual(cant("mara's loadout is not one"));
+        expect(() => heistFromSetup(bank, (() => { const s: any = plan(); s.vehicles = {}; return s; })())).toThrow(/no van/);
+    });
+
+    it('shows the planning map only what the free starts see: a paid start scouts nothing before Start', () => {
+        // Everyone by the backup car in the alley, Sol in the nest: the map shows what the same starts at the van (by it,
+        // and Sol in it) see, not what the bought ones would.
+        const paid = plan(s => {
+            s.nest = true;
+            s.vehicles.car = 'alley';
+            for (const c of s.crew) c.start = c.id === 'sol' ? { at: 'nest' } : { at: 'car', aboard: false };
+        });
+        const view = startView(bank, paid, options);
+        const free = heistFromSetup(bank, plan(s => { for (const c of s.crew) c.start = { at: 'van', aboard: c.id === 'sol' }; }));
+        const knows = (h: typeof free) => h.state.npcs.filter(n => markerKind(h.world, h.state, n.id) !== null).map(n => n.id).sort();
+        expect(Object.keys(view.npcs).sort()).toEqual(knows(free));
+        // The heist itself starts with what its own starts see, which differs here.
+        expect(knows(heistFromSetup(bank, paid))).not.toEqual(Object.keys(view.npcs).sort());
+        expect(Object.keys(view.vehicles).sort()).toEqual(['car', 'van']);
+    });
 });

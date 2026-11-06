@@ -217,7 +217,37 @@ export function defaultSetup(options: PlanOptions): HeistSetup {
 }
 
 /** Why a setup can't be played, as the screen says it; empty when it can. */
+/**
+ * Why a value isn't a `HeistSetup` at all (one from the address may be anything), or undefined: exactly the fields of
+ * the type, each of its type, two gadget slots (§7.3), the van always.
+ */
+export function setupShapeProblem(value: unknown): string | undefined {
+    const record = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
+    const keys = (v: Record<string, unknown>, allowed: readonly string[]) => Object.keys(v).every(k => allowed.includes(k));
+    const item = (v: unknown) => v === null || (typeof v === 'string' && Object.hasOwn(ITEMS, v));
+    const whole = (v: unknown) => typeof v === 'number' && Number.isInteger(v);
+    if (!record(value) || !keys(value, ['crew', 'vehicles', 'jammer', 'nest'])) return 'not a plan';
+    const { crew, vehicles, jammer, nest } = value;
+    if (!Array.isArray(crew)) return 'no crew';
+    for (const c of crew as unknown[]) {
+        if (!record(c) || !keys(c, ['id', 'loadout', 'start']) || typeof c.id !== 'string') return 'a crew member who is no one';
+        const l = c.loadout, s = c.start;
+        if (!record(l) || !keys(l, ['primary', 'sidearm', 'armour', 'gadgets']) || !item(l.primary) || !item(l.sidearm) || !item(l.armour)) return `${c.id}'s loadout is not one`;
+        if (!Array.isArray(l.gadgets) || l.gadgets.length !== 2 || !l.gadgets.every(item)) return `${c.id} has two gadget slots`;
+        if (!record(s)) return `${c.id} starts nowhere`;
+        if (s.at === 'nest') { if (!keys(s, ['at'])) return `${c.id}'s start is not one`; }
+        else if (typeof s.at !== 'string' || !Object.hasOwn(VEHICLES, s.at) || !keys(s, ['at', 'aboard']) || typeof s.aboard !== 'boolean') return `${c.id}'s start is not one`;
+    }
+    if (!record(vehicles) || typeof vehicles.van !== 'string') return 'no van';
+    for (const [k, v] of Object.entries(vehicles)) if (!Object.hasOwn(VEHICLES, k) || typeof v !== 'string') return `no vehicle '${k}'`;
+    if (jammer !== null && (!record(jammer) || !keys(jammer, ['x', 'y']) || !whole(jammer.x) || !whole(jammer.y))) return 'the jammer is nowhere';
+    if (typeof nest !== 'boolean') return 'the nest is neither rented nor not';
+    return undefined;
+}
+
 export function setupProblems(setup: HeistSetup, options: PlanOptions): string[] {
+    const shape = setupShapeProblem(setup);
+    if (shape) return [`The plan can't be read: ${shape}`];
     const out: string[] = [];
     if (!setup.crew.length) out.push('Pick at least one crew member');
     if (setup.crew.length > CREW_SIZE) out.push(`The contract takes ${CREW_SIZE} at most`);
@@ -300,16 +330,30 @@ export function heistFromSetup(bank: GeneratedBank, setup: HeistSetup, options: 
 }
 
 /**
- * What the crew knows at the start of a planned heist (§17.8, decision 328): each NPC the crew sees or predicts as the
- * heist starts, by how the play scene draws it (`markerKind`), and the vehicles where they wait. The planning map shows
- * only these, as play does at turn 1.
+ * What the planning map shows of a planned heist's start (§17.8, decision 328): each NPC the crew sees or predicts at
+ * turn 1 from the free starts (`freeSetup`), by how the play scene draws it (`markerKind`), and the vehicles where
+ * the plan parks them.
  */
 export function startView(bank: GeneratedBank, setup: HeistSetup, options: PlanOptions): { npcs: Record<string, MarkerKind>; vehicles: State['vehicles'] } {
-    const { world, state } = heistFromSetup(bank, setup, options);
+    const { world, state } = heistFromSetup(bank, freeSetup(setup), options);
     const npcs: Record<string, MarkerKind> = {};
     for (const n of state.npcs) {
         const kind = markerKind(world, state, n.id);
         if (kind) npcs[n.id] = kind;
     }
-    return { npcs, vehicles: state.vehicles };
+    return { npcs, vehicles: heistFromSetup(bank, setup, options).state.vehicles };
+}
+
+/**
+ * The plan with nothing bought (decision 328): the van alone, no nest, no jammer, everyone who started by or in a
+ * bought vehicle or the nest in the van. What the crew sees from the free starts is all planning may show; what a paid
+ * start would reveal shows only once the heist starts, so renting and giving back scouts nothing.
+ */
+export function freeSetup(setup: HeistSetup): HeistSetup {
+    return {
+        crew: setup.crew.map(c => ({ ...c, start: c.start.at === 'van' ? c.start : { at: 'van', aboard: c.start.at === 'nest' || c.start.aboard } })),
+        vehicles: { van: setup.vehicles.van },
+        jammer: null,
+        nest: false
+    };
 }
