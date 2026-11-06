@@ -1,4 +1,4 @@
-import type { GeneratedBank, GenRoom, RoutineBlock } from '../../gen/model';
+import { DEPOSIT_BOX, type GeneratedBank, type GenRoom, type RoutineBlock } from '../../gen/model';
 import { CATALOG } from '../../level/catalog';
 import { floorHeight, RAISED_HEIGHT, type LevelProp, type PersonFacing } from '../../level/plan';
 import type { Facing as PropFacing } from '../../level/space';
@@ -29,9 +29,12 @@ import { DOOR_KINDS, WALL_MATERIALS } from './materials';
  * - edges: every wall segment, with its material from `materials.ts` and the door that stands in it.
  * - doors: every door with a leaf (open doorways and counter gates are gaps, not doors): closed, or locked if it has a
  *   lock (§6.9).
- * - objects: the props the rules act on (panels, consoles, hatches, dumpsters; `OBJECT_KINDS`), the CCTV desk's recorder, the
- *   manager's PC, the alarm buttons that start a §9.1 carrier, and the loot; the deposit boxes' loot becomes the wall's
- *   haul (Heavy, drilled) and its boxes (Light, picked one by one), rules/vault.ts.
+ * - objects: the props the rules act on (panels, consoles, hatches, dumpsters, the phones, the phone line, the uniforms,
+ *   the vault's wiring box; `OBJECT_KINDS`), the CCTV desk's recorder, the manager's PC, the alarm buttons that start a
+ *   §9.1 carrier, and the loot; the deposit boxes' loot becomes the wall's haul (Heavy, drilled) and its boxes (Light,
+ *   picked one by one, one of them the intel's), rules/vault.ts; side objectives (§19.5) as loot of their own; the
+ *   manager's keycard in his drawer at lunch when the generator says he leaves it there. A desk phone's owner is the
+ *   person whose post is at its desk (rules/phones.ts).
  * - locks: the key graph's, as the generator made it (rules/keys.ts).
  * - stash rooms: the cleaner's closet, where a body can be hidden (§8.10); the building: the bank's rooms under its
  *   roof, which a dye pack's cash must not leave (§15.1).
@@ -107,11 +110,16 @@ export const OBJECT_KINDS: Partial<Record<LevelProp['kind'], string>> = {
     // The back lot's generator: the building's backup power (§14.1 Powered).
     generator: 'generator',
     // Somewhere to stash a body (§8.10, rules/actions/body.ts).
-    dumpster: 'dumpster'
+    dumpster: 'dumpster',
+    // The telephones (§8.13, §9.1, rules/phones.ts), the staff uniforms (§8.14) and the vault sensors' wiring (§9.1).
+    deskPhone: 'deskPhone',
+    phoneLine: 'phoneLine',
+    uniformRack: 'uniformRack',
+    wiringBox: 'wiringBox'
 };
 
 /** What one deposit box holds (§15.1: a Light stack, as a drawer's $5k): the generator's deposit loot split by it. */
-export const DEPOSIT_BOX_VALUE = 5000;
+export const DEPOSIT_BOX_VALUE = DEPOSIT_BOX;
 
 /** The props that are the crew's vehicles (§14.4): `World.vehicles`, not furniture. */
 export const VEHICLE_PROPS: ReadonlySet<LevelProp['kind']> = new Set<LevelProp['kind']>(['van']);
@@ -262,18 +270,33 @@ export function worldFromBank(bank: GeneratedBank): ReadonlyWorld {
     for (const a of bank.alarms) if (!NOT_CARRIERS.has(a.name)) add('alarmButton', a.tx, a.ty, 's', { name: a.name });
     // The deposit boxes (§15.3, decision 78): the wall's haul where the generator put its loot, and the boxes, one Light
     // stack each, after the rest of the loot (so no other loot's id moves).
+    // A side objective (§19.5) is one more box of its own, or lies where the office keeps it.
     const boxes: (typeof bank.loot)[number][] = [];
+    const objective = (l: (typeof bank.loot)[number]) => (l.objective !== undefined ? { objective: l.objective, ...(l.lostOnAlarm ? { lostOnAlarm: true as const } : {}) } : {});
     for (const l of bank.loot) {
         if (l.behind === 'depositBoxes') {
             boxes.push(l);
-            add('loot', l.tx, l.ty, 's', { name: 'Deposit-box haul', loot: { value: l.value, weight: 'heavy', behind: 'depositWall' } });
+            if (l.objective === undefined) add('loot', l.tx, l.ty, 's', { name: 'Deposit-box haul', loot: { value: l.value, weight: 'heavy', behind: 'depositWall' } });
             continue;
         }
-        add('loot', l.tx, l.ty, 's', { name: l.name, loot: { value: l.value, weight: l.weight, ...(l.dyePack ? { dyePack: true as const } : {}) } });
+        add('loot', l.tx, l.ty, 's', { name: l.name, loot: { value: l.value, weight: l.weight, ...(l.dyePack ? { dyePack: true as const } : {}), ...objective(l) } });
     }
     for (const l of boxes) {
+        if (l.objective !== undefined) {
+            add('loot', l.tx, l.ty, 's', { name: l.name, loot: { value: l.value, weight: 'light', behind: 'depositBox', ...objective(l) } });
+            continue;
+        }
         const n = Math.max(1, Math.round(l.value / DEPOSIT_BOX_VALUE));
-        for (let k = 0; k < n; k++) add('loot', l.tx, l.ty, 's', { name: 'Deposit box', loot: { value: Math.floor(l.value / n), weight: 'light', behind: 'depositBox' } });
+        // One of them holds the intel (§17.4), where the generator put it.
+        for (let k = 0; k < n; k++) add('loot', l.tx, l.ty, 's', { name: 'Deposit box', loot: { value: Math.floor(l.value / n), weight: 'light', behind: 'depositBox', ...(k === l.intelBox ? { intel: true as const } : {}) } });
+    }
+    // The manager's keycard in the desk drawer while he is out at lunch, if he leaves it there (§17.6's opportunity,
+    // rules/actions/keycards.ts): from the lunch turn to his return.
+    const drawer = bank.opportunities.find(o => o.id === 'keycard-drawer'), manager = bank.people.find(p => p.role === 'manager');
+    const pc = objects.find(o => o.kind === 'managerPc');
+    if (drawer?.turn !== undefined && manager && pc) {
+        const lunch = bank.timeline.find(t => t.name === 'Lunch rotation' && t.turn === drawer.turn);
+        add('keycard', pc.pos.x, pc.pos.y, pc.facing, { name: "The manager's keycard", holder: manager.id, from: drawer.turn, until: drawer.turn + (lunch?.duration ?? 6) });
     }
 
     const people: PersonDef[] = bank.people.map(p => ({
@@ -284,6 +307,20 @@ export function worldFromBank(bank: GeneratedBank): ReadonlyWorld {
         // A hero (§16.2): resists a command, flees or tackles.
         ...(p.traits.hero ? { hero: true as const } : {})
     }));
+    // Each desk phone's owner (§8.13): whoever's post is at that desk (beside the phone, the nearest first), and where
+    // they stand to answer it.
+    for (const phone of objects.filter(o => o.kind === 'deskPhone')) {
+        const room = roomAt(phone.pos.x, phone.pos.y);
+        let best = Infinity;
+        for (const p of people) for (const b of p.schedule) {
+            if (b.activity !== 'post' || !b.at || roomAt(b.at.x, b.at.y) !== room) continue;
+            const dx = b.at.x - phone.pos.x, dy = b.at.y - phone.pos.y, d = dx * dx + dy * dy;
+            if (Math.max(Math.abs(dx), Math.abs(dy)) > 1 || d >= best) continue;
+            best = d;
+            phone.owner = p.id;
+            phone.answerAt = { x: b.at.x, y: b.at.y };
+        }
+    }
     const cameras: CameraDef[] = bank.cameras.map(c => ({
         id: c.id, pos: { x: c.tx, y: c.ty }, facings: c.pan ? [c.pan[0], c.pan[1]] : [PROP_FACING[c.facing]], room: c.room
     }));

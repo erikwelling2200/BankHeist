@@ -4,10 +4,13 @@ import { atmScreen, camera, clock, crest, exitSign, keycardLed, noticeBoard, pai
 import { backCounter, bin, brochureRack, coffeeTable, counter, filingCabinet, mat, plant, printer, queueRail, sofa, waterCooler, writingDesk } from './furniture';
 import { bench, cafeCounter, cafeTable, dumpster, generator, menuBoard, rifleCase, tree, wallLadder } from './outside';
 import { floorGrate, metalDetector, motionSensor, pillar, roofHatch, skylight, tubeTerminal, ventGrille } from './routes';
-import { alarmPanel, atmBack, bookshelf, boxes, breakerPanel, cashCart, cashShelf, cctvDesk, chair, depositBoxes, desk, diningTable, fridge, kitchenCounter, lockers, mopBucket, officeChair, serverRack, shelving, toilet, vaultConsole, washbasin } from './rooms';
+import {
+    alarmPanel, atmBack, bookshelf, boxes, breakerPanel, cashCart, cashShelf, cctvDesk, chair, depositBoxes, desk, diningTable, fridge, kitchenCounter, lockers, mopBucket, officeChair,
+    phoneLine, serverRack, shelving, toilet, uniformRack, vaultConsole, washbasin, wiringBox
+} from './rooms';
 import { cashBags, cleaningTrolley, coatStand, meetingTable, wetFloorSign } from './stories';
 import { bollard, hydrant, manhole, newsBox, streetBin, streetLamp } from './street';
-import { cake, cashCounter, deskLamp, microwave, monitor, mug, paperStack, photoFrame } from './tabletop';
+import { cake, cashCounter, deskLamp, deskPhone, microwave, monitor, mug, paperStack, photoFrame } from './tabletop';
 import { vanArt } from './van';
 import type { PropArt } from './view';
 
@@ -51,11 +54,14 @@ export function propArt(p: LevelProp, s: Size, facing: Facing): PropArt {
         case 'cashCart': return cashCart(s, facing);
         case 'alarmPanel': return alarmPanel(s, facing);
         case 'breakerPanel': return breakerPanel(s, facing);
+        case 'phoneLine': return phoneLine(s, facing);
+        case 'wiringBox': return wiringBox(s, facing);
         case 'cctvDesk': return cctvDesk(s, facing);
         case 'desk': return desk(s, facing, p.bare === true);
         case 'officeChair': return officeChair(s, facing);
         case 'bookshelf': return bookshelf(s, facing);
         case 'lockers': return lockers(s, facing);
+        case 'uniformRack': return uniformRack(s, facing);
         case 'shelving': return shelving(s, facing);
         case 'mopBucket': return mopBucket(s, facing);
         case 'atmBack': return atmBack(s, facing);
@@ -99,5 +105,6 @@ export function propArt(p: LevelProp, s: Size, facing: Facing): PropArt {
         case 'cashCounter': return cashCounter(s, facing);
         case 'microwave': return microwave(s, facing);
         case 'cake': return cake(s, facing);
+        case 'deskPhone': return deskPhone(s, facing);
     }
 }

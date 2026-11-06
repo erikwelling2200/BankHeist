@@ -115,6 +115,31 @@ describe('worldFromBank', { timeout: 30000 }, () => {
         expect(banks.some(b => b.world.cameras.some(c => c.facings.length === 2))).toBe(true);
         expect(banks.some(b => b.bank.hatches.length && b.bank.grates.length && b.bank.stations.length)).toBe(true);
     });
+
+    it('carries the phones and their owners, the phone line, the uniforms, the wiring box and the intel box (M5-04)', () => {
+        for (const { label, bank, world } of banks) {
+            const kinds = (k: string) => world.objects.filter(o => o.kind === k), has = (t: string) => bank.rooms.some(r => r.type === t);
+            expect(kinds('phoneLine').length, label).toBe(has('alarmCloset') ? 1 : 0);
+            // Every break room has staff uniforms: on their rail, or in lockers where a small room has no space left for it.
+            for (const room of bank.rooms.filter(r => r.type === 'breakRoom')) {
+                expect(world.objects.some(o => (o.kind === 'uniformRack' || o.kind === 'lockers') && o.room === room.id), `${label} ${room.id}`).toBe(true);
+            }
+            expect(kinds('wiringBox').length, label).toBe(has('antechamber') ? 1 : 0);
+            const phones = kinds('deskPhone');
+            expect(phones.length, label).toBeGreaterThan(0);
+            for (const p of phones.filter(o => o.owner !== undefined)) {
+                const owner = world.people.find(q => q.id === p.owner)!;
+                expect(owner.schedule.some(b => b.activity === 'post' && b.at?.x === p.answerAt!.x && b.at.y === p.answerAt!.y), `${label} ${p.id}`).toBe(true);
+                expect(Math.max(Math.abs(p.answerAt!.x - p.pos.x), Math.abs(p.answerAt!.y - p.pos.y)), `${label} ${p.id}`).toBeLessThanOrEqual(1);
+            }
+            // The manager answers his own desk's phone.
+            const office = bank.rooms.find(r => r.type === 'managerOffice'), manager = bank.people.find(p => p.role === 'manager');
+            if (office && manager && phones.some(p => p.room === office.id)) expect(phones.filter(p => p.room === office.id).map(p => p.owner), label).toContain(manager.id);
+            // One box of each deposit room's wall holds the intel.
+            const rooms = new Set(bank.loot.filter(l => l.behind === 'depositBoxes').map(l => l.room));
+            expect(kinds('loot').filter(o => o.loot?.intel).map(o => o.room).sort(), label).toEqual([...rooms].sort());
+        }
+    });
 });
 
 /** Whether a step between orthogonal neighbours is allowed by the raised/climb rule (as src/sim/geo/move.ts has it). */

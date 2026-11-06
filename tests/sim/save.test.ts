@@ -78,7 +78,7 @@ describe('saving', () => {
  * NpcStatusMap, CarrierKindMap or adds a field must also fill it in below, or a change of shape goes unnoticed.
  */
 const SHAPE_HASHES: Record<number, string> = {
-    1: '764c026126418108'
+    1: '92e55d7db1f5b4f8'
 };
 
 /** Paths whose objects are records by id, not structs. */
@@ -184,9 +184,10 @@ describe('the save format', () => {
         full.ammoBags = [{ id: 'ammoBag-8', at: { x: 1, y: 1 }, uses: 3, by: 'jun' }];
         full.crew[0]!.charges = { shapedCharge: 1 };
         full.doors.staffDoor = { status: 'open', propped: true, work: 1 };
-        full.objects.panel = { disabled: true, open: false, progress: 2, codes: ['manager'], sensorsCut: true };
+        full.objects.panel = { disabled: true, open: false, progress: 2, codes: ['manager'], sensorsCut: true, cutAt: 3 };
         full.devices = [{ id: 'drill-4', kind: 'drill', at: 'vault', pos: { x: 1, y: 1 }, crew: 'jun', done: 2, needed: 5, jammed: true, noise: 6 }];
         full.codesKnown = ['whole'];
+        full.intelFound = ['cash'];
         full.objects.recorder = { taken: 'jun', destroyed: false };
         full.cameras.cam = { facing: 0, live: true, loopedUntil: 3 };
         full.crew[0]!.loadout = { items: ['pistol', 'duffel'], packed: ['assaultRifle'], uniform: 'staff', masked: false, carrying: 'lootBag' };
@@ -256,7 +257,9 @@ describe('the save format', () => {
                 objects: [
                     { id: 'panel', kind: 'alarmPanel', pos: { x: 0, y: 0 }, facing: 's' },
                     { id: 'desk', kind: 'cctvDesk', pos: { x: 0, y: 0 }, facing: 's', name: 'CCTV desk', room: 'lobby', monitors: 4 },
-                    { id: 'cash', kind: 'loot', pos: { x: 0, y: 0 }, facing: 's', loot: { value: 5000, weight: 'light', dyePack: true, behind: 'depositBox' } }
+                    { id: 'cash', kind: 'loot', pos: { x: 0, y: 0 }, facing: 's', loot: { value: 5000, weight: 'light', dyePack: true, behind: 'depositBox', intel: true, objective: 'blueprints', lostOnAlarm: true } },
+                    { id: 'phone', kind: 'deskPhone', pos: { x: 0, y: 0 }, facing: 's', owner: 'guard', answerAt: { x: 0, y: 1 } },
+                    { id: 'card', kind: 'keycard', pos: { x: 0, y: 0 }, facing: 's', holder: 'guard', from: 3, until: 9 }
                 ],
                 cameras: [{ id: 'cam', pos: { x: 0, y: 0 }, facings: ['s', 'e'], room: 'lobby', seesInDark: true }],
                 people: world.people.map(p => ({

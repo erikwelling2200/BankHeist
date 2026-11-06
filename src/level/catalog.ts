@@ -73,12 +73,19 @@ export const CATALOG: Record<LevelProp['kind'], ItemSpec> = {
     cashCart: { size: fixed(0.6, 0.9, 1.0) },
     alarmPanel: { size: fixed(0.5, 0.08, 0.6), alignY: 'north', elevation: px(1.1) },
     breakerPanel: { size: fixed(0.7, 0.15, 0.9), alignY: 'north', elevation: px(0.8) },
+    // The phone line's junction box (§9.1 "cut the phone line"), where the landlines leave the building: a beige wall
+    // box with the cable conduit coming down to it. The vault sensors' wiring box (§9.1, §17.4) beside the vault.
+    phoneLine: { size: fixed(0.4, 0.12, 0.5), alignY: 'north', elevation: px(1.0) },
+    wiringBox: { size: fixed(0.5, 0.15, 0.6), alignY: 'north', elevation: px(0.9) },
     // The staff rooms.
     cctvDesk: { size: fixed(2.0, 0.7, 1.2), alignY: 'north', span: () => [2, 1] },
     desk: { size: fixed(1.6, 0.8, 0.75), span: () => [2, 1] },
     officeChair: { size: fixed(0.6, 0.6, 1.0) },
     bookshelf: { size: fixed(1.0, 0.35, 1.9), alignY: 'north' },
     lockers: { size: fixed(1.0, 0.5, 1.9), alignY: 'north' },
+    // The break room's rail of staff uniforms (§8.14, §16.3 shift change): jackets on hangers across a steel rail, low
+    // enough to see over (not full height).
+    uniformRack: { size: fixed(1.2, 0.55, 1.55), alignY: 'north' },
     shelving: { size: fixed(1.0, 0.45, 1.8), alignY: 'north' },
     mopBucket: { size: fixed(0.4, 0.4, 1.2) },
     // The cash machine's safe, inside, against the back of the shop front.
@@ -130,7 +137,7 @@ export const CATALOG: Record<LevelProp['kind'], ItemSpec> = {
 
     // The second tier: things standing on a desk (0.75m), a table (0.75m), a kitchen or back counter (0.9m) or the
     // teller counter (1.2m). A flat screen on its foot, an arched desk lamp, papers on a folder, a mug, a framed photo,
-    // a note counter, a microwave and a round cake.
+    // a note counter, a microwave, a round cake and a desk phone.
     monitor: { size: fixed(0.55, 0.2, 0.45), onTop: true },
     deskLamp: { size: fixed(0.3, 0.4, 0.45), onTop: true },
     paperStack: { size: fixed(0.45, 0.3, 0.12), onTop: true },
@@ -138,7 +145,9 @@ export const CATALOG: Record<LevelProp['kind'], ItemSpec> = {
     photoFrame: { size: fixed(0.3, 0.12, 0.22), onTop: true },
     cashCounter: { size: fixed(0.3, 0.3, 0.25), onTop: true },
     microwave: { size: fixed(0.5, 0.35, 0.3), onTop: true },
-    cake: { size: fixed(0.36, 0.36, 0.12), onTop: true }
+    cake: { size: fixed(0.36, 0.36, 0.12), onTop: true },
+    // A desk phone (§8.13): its handset lying across the back of its base, the keypad in front.
+    deskPhone: { size: fixed(0.28, 0.24, 0.12), onTop: true }
 };
 
 /** True for a kind that stands on another prop rather than on the floor or a wall. */

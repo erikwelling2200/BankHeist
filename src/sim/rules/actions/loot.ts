@@ -36,6 +36,8 @@ import { inReach, lacksActions, registerAction } from './act';
  *   the player can't know yet, so it is never offered as undoable. A stack that left without bursting is known clean.
  * - What the hands hold is `State.loot` and `CrewState.dragging`; `Loadout.carrying` follows them (rules/hands.ts).
  * - Loot behind a deposit box or its wall (`loot.behind`) is the heist's loot once opened (rules/vault.ts).
+ * - A side objective (§19.5, `loot.objective`) is Light loot worth nothing, pocketed as cash is; one the Alarm moves
+ *   (`loot.lostOnAlarm`: the manager's files, his safe) can't be taken from where the bank keeps it once the Alarm is up.
  * - A throw never passes a door the crew can't vouch for (decision 44), so its preview and its outcome can't differ.
  *
  * Commands: `takeLoot { crew, loot }`, `dropLoot { crew, loot? }` (the hands, or a ruined stack), `throwLoot { crew, to }`, `pass { crew, to }` (loot or a
@@ -108,8 +110,9 @@ registerRuleDefaults({ dyePacks: false });
 registerStateInit('loot', (world, state) => {
     state.loot = {};
     for (const o of world.objects) {
-        // Worth nothing (the manager's PC, keys, files) or behind a deposit box or its wall: not loot until opened (vault.ts).
-        if (o.kind !== 'loot' || !o.loot || o.loot.value <= 0 || o.loot.behind) continue;
+        // Worth nothing (the manager's PC, keys, files) or behind a deposit box or its wall: not loot until opened
+        // (vault.ts). A side objective (§19.5) is worth nothing at the fence but is loot all the same.
+        if (o.kind !== 'loot' || !o.loot || (o.loot.value <= 0 && o.loot.objective === undefined) || o.loot.behind) continue;
         state.loot[o.id] = { holder: null, pos: { x: o.pos.x, y: o.pos.y }, taken: false, dyePack: !!o.loot.dyePack, inspected: false, ruined: false };
     }
 });
@@ -163,6 +166,8 @@ function takeBlocked(world: ReadonlyWorld, state: State, member: DeepReadonly<Cr
     if (loot.holder !== null) return loot.holder === member.id ? `${member.name} has it already` : 'A teammate has it';
     if (loot.ruined) return 'The dye has ruined it';
     if (!inReach(world, state, member.pos, loot.pos)) return `${member.name} can't reach it from here`;
+    // A side objective the Alarm moves out of reach (§19.5: the files moved, the safe locked), unless already taken.
+    if (!loot.taken && state.bank.alarm && lootObject(world, id).loot.lostOnAlarm) return 'It was moved when the Alarm went off';
     if (lootWeight(world, id) === 'light') return pocketed(world, state, member.id).length >= POCKETS ? `${member.name}'s pockets are full` : undefined;
     return handsFree(member) ? undefined : `${member.name}'s hands are full`;
 }

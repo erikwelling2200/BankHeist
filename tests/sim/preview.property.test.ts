@@ -449,7 +449,7 @@ function playOne(run: Run, state: State, timing: boolean): State {
     // and hears is the truth's (an unknown NPC missing from the picture changes who is sent to look, an artefact of it).
     // The combat commands that play here (swap, reload, Watch, a strike, a flip…) now and then, so the stealth ones keep their share.
     const armed = rng.chance(0.15);
-    const options = legalActions(world, state, member.id).filter(c => (c.type !== 'wait' || rng.chance(0.3)) && !PICTURED_COMMANDS.has(c.type) && (armed || !COMBAT_COMMANDS.has(c.type)) && !(run.stealth && (c.type === 'knockout' || c.type === 'strike' || (c.type === 'door' && (c.action === 'pick' || c.action === 'hack'))))
+    const options = legalActions(world, state, member.id).filter(c => (c.type !== 'wait' || rng.chance(0.3)) && !PICTURED_COMMANDS.has(c.type) && (armed || !COMBAT_COMMANDS.has(c.type)) && !(run.stealth && (c.type === 'knockout' || c.type === 'strike' || c.type === 'ringPhone' || (c.type === 'door' && (c.action === 'pick' || c.action === 'hack'))))
         && (!TAKEOVER.has(c.type) || (run.omniscient && !run.stealth)));
     if (!options.length) return state;
     const favoured = run.loot ? LOOT_COMMANDS : run.vault ? VAULT_COMMANDS : undefined;

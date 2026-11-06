@@ -42,9 +42,10 @@ const ON_TABLE: OnTop[] = [
     { kind: 'microwave', x: 35, y: 9, facing: 'south' }, { kind: 'cake', x: 41, y: 9, facing: 'south' }
 ];
 
-/** A manager's desk with its own monitor, lamp and papers, and a photo turned to the chair, a note counter and a mug. */
+/** A manager's desk with its own monitor, lamp and papers, and a photo turned to the chair, a note counter, a mug and a phone. */
 const ON_DESK: OnTop[] = [
-    { kind: 'cashCounter', x: 10.5, y: 7.5, facing: 'north' }, { kind: 'photoFrame', x: 14, y: 5, facing: 'north' }, { kind: 'mug', x: 17.5, y: 7.5, facing: 'south' }
+    { kind: 'cashCounter', x: 10.5, y: 7.5, facing: 'north' }, { kind: 'photoFrame', x: 14, y: 5, facing: 'north' }, { kind: 'mug', x: 17.5, y: 7.5, facing: 'south' },
+    { kind: 'deskPhone', x: 4, y: 3, facing: 'north' }
 ];
 
 /** A single prop standing on the floor, its footprint's north-west corner at the origin. */

@@ -40,7 +40,9 @@ export const RELAX_ORDER: Rule[] = ['guardOverlap', 'usefulCameras', 'alarmsAndE
  * The props the crew acts on in a heist (the rules' objects with a verb: `OBJECT_KINDS` in `src/sim/world/fromBank.ts`,
  * the ways in aside, which `approachesReachVault` checks). The manager's PC is on the desk the office's loot lies on.
  */
-export const HEIST_OBJECTS: readonly LevelProp['kind'][] = ['alarmPanel', 'breakerPanel', 'cctvDesk', 'vaultConsole', 'serverRack', 'depositBoxes', 'atmBack'];
+export const HEIST_OBJECTS: readonly LevelProp['kind'][] = [
+    'alarmPanel', 'breakerPanel', 'cctvDesk', 'vaultConsole', 'serverRack', 'depositBoxes', 'atmBack', 'phoneLine', 'wiringBox', 'uniformRack'
+];
 
 /** How far (in steps) the crowd may be from a civilian exit (§17.7's "set distance band"). */
 export const EXIT_BAND: [number, number] = [1, 28];

@@ -13,7 +13,8 @@ import { neutralised } from './cctv';
  * - **Starting.** Every rule starts carriers through `raiseCarrier`: nothing starts once the Alarm is up; a wired
  *   carrier (`CARRIERS[kind].wired`: the teller buttons, the manager's button, the operator's panel, the vault sensors)
  *   doesn't start while the alarm panel is dead (§9.1: "kills every wired carrier"), which says so with `alarmDead`;
- *   and a source already carrying one of the same kind (about the same subject) keeps that one. `startCarrier` is the bare engine call.
+ *   a landline call doesn't start once the phone line is cut (`lineDead`, rules/phones.ts); and a source already carrying
+ *   one of the same kind (about the same subject) keeps that one. `startCarrier` is the bare engine call.
  * - **Ticking.** The devices step ticks every running carrier once per world phase, never in the world phase that
  *   started it, so one started in a world phase is seen at its full countdown for a whole crew phase. At 0 it raises
  *   the Alarm (§9.2): `bank.alarm`, "Police in N" (`rules.policeEta`, by tier: small 8, city 6, HQ 4) counting down in
@@ -66,7 +67,7 @@ export const CARRIERS: Readonly<Record<CarrierKind, CarrierDef>> = {
         // "Find them" (§9.1): a hider calls from where the crew doesn't see; finding them is what lets the crew command or
         // knock them out.
         counters: [{ name: 'knock out', now: true }, { name: 'jammer (mobiles)', now: true }, { name: 'command', now: true }, { name: 'find them', now: true },
-            { name: 'cut the phone line (landlines)', now: 'M4' }]
+            { name: 'cut the phone line (landlines)', now: true }]
     },
     escapee: {
         label: 'Escapee', wired: false, radio: false,
@@ -76,14 +77,14 @@ export const CARRIERS: Readonly<Record<CarrierKind, CarrierDef>> = {
         label: 'Missed check-in', wired: false, radio: true,
         counters: [{ name: 'neutralise the operator', now: true }, { name: 'answer the radio', now: true }, { name: 'jammer', now: true }]
     },
-    // The vault's wiring is reached at its console until M5-04 places the wiring box (rules/vault.ts, decision 81).
+    // The vault's wiring is cut at its wiring box, or at the console where the bank has none (rules/vault.ts, decision 81).
     seismicSensor: {
         label: 'Seismic sensor', wired: true, radio: false,
-        counters: [{ name: 'disable the alarm panel', now: true }, { name: 'cut the sensors at the vault console', now: true }]
+        counters: [{ name: 'disable the alarm panel', now: true }, { name: 'cut the sensors at the wiring box', now: true }]
     },
     motionSensor: {
         label: 'Motion sensor', wired: true, radio: false,
-        counters: [{ name: 'disable the alarm panel', now: true }, { name: 'cut the sensors at the vault console', now: true }, { name: 'the time-lock window', now: true }]
+        counters: [{ name: 'disable the alarm panel', now: true }, { name: 'cut the sensors at the wiring box', now: true }, { name: 'the time-lock window', now: true }]
     },
     patrolCar: {
         label: 'Patrol car', wired: false, radio: true,
@@ -159,6 +160,12 @@ export function panelDead(world: ReadonlyWorld, state: DeepReadonly<State>): boo
     return panels.length > 0 && panels.every(p => Object.hasOwn(state.objects, p.id) && state.objects[p.id]!.disabled === true);
 }
 
+/** Whether the bank's phone line is cut (§9.1, rules/phones.ts): it has one, and it is. */
+export function phoneLineDead(world: ReadonlyWorld, state: DeepReadonly<State>): boolean {
+    const line = world.objects.find(o => o.kind === 'phoneLine');
+    return !!line && Object.hasOwn(state.objects, line.id) && state.objects[line.id]!.cutAt !== undefined;
+}
+
 /** What a rule asks for: a carrier of a kind from a source, at least the minimum countdown unless it says more. */
 export interface CarrierRequest { kind: CarrierKind; source: string; pos: Pos; countdown?: number; about?: string; subject?: string; line?: 'landline' }
 
@@ -179,6 +186,11 @@ export function raiseCarrier(ctx: Ctx, request: CarrierRequest): Carrier | null 
     if (blocked === 'alarm') return null;
     if (blocked === 'panel') {
         ctx.emit({ type: 'alarmDead', source: request.source, kind: request.kind });
+        return null;
+    }
+    // A call on a landline doesn't go out once the phone line is cut (rules/phones.ts); the caller believes it did.
+    if (request.kind === 'phoneCall' && request.line === 'landline' && phoneLineDead(world, state)) {
+        ctx.emit({ type: 'lineDead', source: request.source });
         return null;
     }
     // One per source and kind, and per subject: the operator calls in each missing guard on his own.

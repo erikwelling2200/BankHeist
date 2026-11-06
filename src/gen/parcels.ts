@@ -7,7 +7,7 @@ import {
 } from './activities';
 import type { Furnisher, Placed } from './furnish';
 import { RoomPlan, type GroupDef, type Kind, type PlacedGroup } from './groups';
-import type { GenRoom, Rect, RoomType } from './model';
+import { DEPOSIT_BOX, type GenRoom, type Rect, type RoomType } from './model';
 import { reachesFrom, type P } from './nav';
 import type { Rng } from './rng';
 import type { Site } from './site';
@@ -36,13 +36,22 @@ export interface Furnished {
     cameraSlots: CameraSlot[];
     /** Silent-alarm stations (§9.1): the teller windows, the manager's desk button, the CCTV console's panel. */
     alarms: { tx: number; ty: number; name: string; room: string }[];
-    /** Loot by tile (§15.1). */
-    loot: { tx: number; ty: number; name: string; value: number; weight: 'light' | 'heavy' | 'very heavy'; room: string; dyePack?: true; behind?: 'depositBoxes' }[];
+    /**
+     * Loot by tile (§15.1). Behind deposit boxes, `intelBox` is which of its boxes holds the intel (§17.4); a side
+     * objective (§19.5, `objectives.ts`) is loot named by `objective`, `lostOnAlarm` when the Alarm moves it out of reach.
+     */
+    loot: Loot[];
     /** The inside ends of off-map routes and ducts, placed where a parcel has room for them. */
     grates: { tx: number; ty: number; room: string }[];
     vents: { tx: number; ty: number; room: string }[];
     hatches: { tx: number; ty: number; room: string }[];
     stories: Story[];
+}
+
+/** One piece of loot as a parcel leaves it (see `Furnished.loot`). */
+export interface Loot {
+    tx: number; ty: number; name: string; value: number; weight: 'light' | 'heavy' | 'very heavy'; room: string; dyePack?: true; behind?: 'depositBoxes';
+    intelBox?: number; objective?: string; lostOnAlarm?: true;
 }
 
 export const emptyFurnished = (): Furnished => ({ stations: [], cameraSlots: [], alarms: [], loot: [], grates: [], vents: [], hatches: [], stories: [] });
@@ -104,6 +113,13 @@ export class Parcel extends RoomPlan {
     /** Wall dressing on the north wall, somewhere between `from` and `to`. */
     hang(kind: LevelProp['kind'], from = 0, to = this.w): boolean {
         const options = this.rng.shuffle(Array.from({ length: Math.max(0, to - from) }, (_, i) => from + i));
+        return options.some(dx => this.put({ kind, dx, dy: 0 } as never));
+    }
+
+    /** Wall dressing on the north wall, not beside a door in it (a door's leaf and frame need the wall either side). */
+    hangClear(kind: LevelProp['kind']): boolean {
+        const nearDoor = (dx: number) => this.site.doors.some(d => d.run === 'eastWest' && d.ty === this.top && Math.abs(d.tx - this.x(dx)) <= 1);
+        const options = this.rng.shuffle(Array.from({ length: this.w }, (_, i) => i).filter(dx => !nearDoor(dx)));
         return options.some(dx => this.put({ kind, dx, dy: 0 } as never));
     }
 
@@ -432,7 +448,10 @@ function office(style: 'desk' | 'meeting' | 'shelves'): ParcelFn {
     };
 }
 
-/** The break room: the kitchenette (someone making coffee), a table or two with chairs, lockers, a sofa when there is room. */
+/**
+ * The break room: the kitchenette (someone making coffee), the rail of staff uniforms, a table or two with chairs,
+ * lockers, a sofa when there is room.
+ */
 function breakRoom(style: 'table' | 'lockers' | 'both'): ParcelFn {
     return p => {
         p.walks();
@@ -444,6 +463,9 @@ function breakRoom(style: 'table' | 'lockers' | 'both'): ParcelFn {
         p.hang('noticeBoard');
         p.dense(['plant', 'waterCooler', 'coatStand', 'lockers'], 8);
         p.cameraCorners();
+        // The staff uniforms on their rail (§8.14, §16.3: left unattended at the shift change), the floor in front kept;
+        // last, so the room rolls as it did before it had one.
+        p.group(storage(['uniformRack'], 'uniforms')) ?? p.slot(['uniformRack']);
     };
 }
 
@@ -496,11 +518,14 @@ function cctv(style: number): ParcelFn {
     };
 }
 
-/** The alarm and electrical closet: the panels on the wall, spares on shelving. */
+/** The alarm and electrical closet: the panels and the phone line's box on the wall, spares on shelving. */
 function alarmCloset(style: number): ParcelFn {
     return p => {
         p.hang('alarmPanel') && p.alarm('Alarm panel', 0, 0);
         p.hang('breakerPanel');
+        // Where the landlines leave the building (§9.1: cutting it is a phone call's counter), clear of the roof hatch's
+        // corner where there is room.
+        p.hang('phoneLine', 1) || p.hang('phoneLine');
         p.spot('grates', 1, p.h - 1);
         p.spot('hatches', 0, 0);
         p.walks();
@@ -544,6 +569,9 @@ function antechamber(style: number): ParcelFn {
         p.fillGaps([loose('cashCart')], 2);
         p.dense(['cashCart', 'cashShelf', 'cashCart'], 8);
         p.cameraCorners();
+        // The vault sensors' wiring box (§9.1, §17.4), clear of the vault door; last, so the room rolls as it did before
+        // it had one.
+        p.hangClear('wiringBox');
     };
 }
 
@@ -570,8 +598,11 @@ function depositRoom(style: number): ParcelFn {
         if (style === 2) p.group(accent('chair'));
         p.fillGaps([viewingTable(), storage(['depositBoxes', 'depositBoxes']), accent('plant')]);
         p.loot('Deposit boxes (jewels, one holds intel)', 30000, 'light', 0, 0);
-        // Each box is opened on its own (§15.2, §15.3: M2-05), not taken off the wall.
-        p.out.loot.at(-1)!.behind = 'depositBoxes';
+        // Each box is opened on its own (§15.2, §15.3: M2-05), not taken off the wall. Which one holds the intel comes
+        // from a stream of its own, so the rest of the room rolls as before.
+        const boxes = p.out.loot.at(-1)!;
+        boxes.behind = 'depositBoxes';
+        boxes.intelBox = p.rng.fork('intelBox').int(0, Math.max(1, Math.round(boxes.value / DEPOSIT_BOX)) - 1);
         p.dense(['depositBoxes', 'plant'], 8);
         p.cameraCorners();
     };

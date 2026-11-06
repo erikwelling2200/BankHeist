@@ -190,3 +190,20 @@ export function cake(s: Size, facing: Facing): PropArt {
     view.outline(0.2);
     return view.art();
 }
+
+/**
+ * A desk phone (§8.13): a charcoal base sloping to a pale keypad at its front, the handset lying in its cradle across
+ * the back with its ear and mouth pieces at either end, and a red message light by the keys.
+ */
+export function deskPhone(s: Size, facing: Facing): PropArt {
+    const t = new Turn(s, facing), view = new View(t.w, t.d, s.h);
+    t.draw(view, [
+        [part(0, 0, 0, s.w, s.d, 1), {
+            top: (u, v) => (v === 0 ? K[1]! : u === s.w - 1 && v === s.d - 1 ? PAL.emissive.ledRed : u > 0 && u < s.w - 1 ? ((u + v) % 2 ? PAL.paper[2] : PAL.paper[1]) : K[2]!),
+            front: (u: number) => (u === 0 || u === s.w - 1 ? K[1]! : K[2]!), sides: K[1]!, back: K[1]!
+        }],
+        [part(0, 0, 1, s.w, 1, 1), { top: (u: number) => (u === 0 || u === s.w - 1 ? K[3]! : K[2]!), sides: K[1]!, front: (u: number) => (u === 0 || u === s.w - 1 ? K[3]! : K[1]!), corner: 1 }]
+    ]);
+    view.outline(0.25);
+    return view.art();
+}

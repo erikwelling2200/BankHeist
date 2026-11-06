@@ -80,7 +80,7 @@ describe('the action grid', () => {
 
     it('offers what the sim allows where the crew member stands, for the tapped target', () => {
         const { world, state } = scene();
-        expect(targetsOf(world, state, 'jun')).toEqual({ doors: ['d'], npcs: ['clerk'], objects: ['dumpster-0'], cameras: [], loot: [] });
+        expect(targetsOf(world, state, 'jun')).toEqual({ doors: ['d'], npcs: ['clerk'], objects: ['dumpster-0'], cameras: [], loot: [], phones: [] });
         expect(ids(world, state)).toEqual(['door:open', 'door:lock', 'knockout', 'wait', 'command', 'mask', 'go', 'fortify:barricade']);
         expect(menuIsLegal(world, state, 'jun', actionMenu(world, state, 'jun'))).toBe(true);
         // Locked: Unlock shows, refused with the sim's own reason.

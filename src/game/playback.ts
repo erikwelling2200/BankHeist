@@ -37,10 +37,12 @@ registerImportance('alarmRaised', 'alarm');
 registerImportance('confronted', 'carrier');
 registerImportance('operatorVerifies', 'carrier');
 registerImportance('alarmDead', 'carrier');
+registerImportance('lineDead', 'carrier');
 // Radio check-ins (§8.11): a downed guard's radio ringing, a call missed; dispatch noticing the silence.
 registerImportance('checkInRinging', 'radio');
 registerImportance('checkInMissed', 'radio');
 registerImportance('dispatchLostContact', 'radio');
+registerImportance('deadLineNoticed', 'radio');
 // The patrol car (§16.3): worth a look only when its officers saw or heard something.
 registerImportance('patrolPassed', e => (e.saw !== null ? 'patrol' : null));
 // A crew move cut short by someone it didn't know was there (§8.15): the camera looks at who stopped and why.

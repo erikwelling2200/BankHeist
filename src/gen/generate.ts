@@ -12,6 +12,7 @@ import { placeWays } from './approaches';
 import { keyGraph } from './keys';
 import { roomMetrics } from './metrics';
 import { Nav, siteGrids } from './nav';
+import { placeObjectives, type SideObjectiveKind } from './objectives';
 import { furnishBank } from './parcels';
 import { populate } from './population';
 import { planRoutines } from './routines';
@@ -19,7 +20,15 @@ import { placeCameras, planGuards, trafficTiles } from './security';
 import { RELAX_ORDER, RULES, validate, type Rule } from './validate';
 import { cameraObserver, fieldOn, initialState, sightMap, worldFromBank } from '../sim';
 
-export interface GenerateOptions { layout: number; population: number; tier?: Tier; archetype?: Archetype; plot?: PlotKind }
+export interface GenerateOptions {
+    layout: number;
+    population: number;
+    tier?: Tier;
+    archetype?: Archetype;
+    plot?: PlotKind;
+    /** The contract's side objectives (§19.5, `objectives.ts`), placed after the furnishing so nothing else changes. */
+    objectives?: readonly SideObjectiveKind[];
+}
 
 /** The first stages (§17.2 steps 1–3 and 5): plot, archetype, the bank's rooms, walls and doors, the neighbours. */
 export interface Shell {
@@ -151,6 +160,7 @@ function finishBank(shell: Shell, rng: Rng, people: Rng, spec: TierSpec, opts: G
     const timeLock = archetype === 'threeKeys' || headlines.includes('armouredCar') || rng.fork('timelock').chance(spec.timeLock);
     const parcelCtx = { gateX: shell.gateX, tellers: spec.tellers[1], frontDoorX: shell.frontDoorX, metalDetector: spec.metalDetector, motionSensors: spec.motionSensors, dyePacks: spec.dyePacks, vaultClass, ...(shell.driveWindow ? { driveWindow: shell.driveWindow } : {}) };
     const furnished = furnishBank(site, bank, furnish, rng.fork('parcels'), parcelCtx);
+    placeObjectives(furnished, bank, opts.objectives ?? []);
     // What the furniture blocks: movement, and sight where it is full height (§8.3). The same grids build the rules' World.
     // Built again after the ways in, which add props of their own (ladders, hatches, grates, the getaway van).
     const ways = placeWays({ site, plot, bank, neighbours: shell.neighbours, furnished, furnish, nav: new Nav(site, siteGrids(site)), rng: rng.fork('ways'), tier, frontDoorX: shell.frontDoorX, skylight: shell.skylight, softOutside: archetype === 'fortress' });

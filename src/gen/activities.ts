@@ -13,7 +13,7 @@ import type { GroupDef, Kind, Piece } from './groups';
 
 /**
  * A clerk's desk against a wall: they face the wall, the monitor turned to them over the chair, a lamp or papers on the
- * other half where they stand, a bin beside the desk.
+ * other half where they stand, their desk phone between, a bin beside the desk.
  */
 export function workstation(role: string, dress: 'lamp' | 'papers'): GroupDef {
     return {
@@ -22,6 +22,7 @@ export function workstation(role: string, dress: 'lamp' | 'papers'): GroupDef {
             { kind: 'desk', at: [0, 0], facing: 'north', push: ['north'], extra: { bare: true }, tag: 'desk' },
             { kind: 'monitor', on: { piece: 0, u: 13.5, v: 6.5 }, facing: 'north' },
             dress === 'lamp' ? { kind: 'deskLamp', on: { piece: 0, u: 2.5, v: 5 }, facing: 'north' } : { kind: 'paperStack', on: { piece: 0, u: 4, v: 3 }, facing: 'north' },
+            { kind: 'deskPhone', on: { piece: 0, u: 9.5, v: 2.5 }, facing: 'north', optional: true },
             { kind: 'officeChair', at: [0, 1], facing: 'north', push: ['north'] },
             { kind: 'bin', at: [2, 0], push: ['north', 'west'], optional: true }
         ],
@@ -30,7 +31,7 @@ export function workstation(role: string, dress: 'lamp' | 'papers'): GroupDef {
     };
 }
 
-/** Two desks front to front in the middle of an open-plan office, a chair and a monitor each side. */
+/** Two desks front to front in the middle of an open-plan office, a chair, a monitor and a phone each side. */
 export function deskPair(role: string): GroupDef {
     const side = (y: number, facing: 'north' | 'south'): Piece[] => [
         { kind: 'desk', at: [0, y], facing, push: [facing], extra: { bare: true }, tag: 'desk' }
@@ -42,6 +43,8 @@ export function deskPair(role: string): GroupDef {
             { kind: 'monitor', on: { piece: 0, u: 13.5, v: 6.5 }, facing: 'north' },
             { kind: 'monitor', on: { piece: 1, u: 13.5, v: 6.5 }, facing: 'north' },
             { kind: 'paperStack', on: { piece: 1, u: 4, v: 3 }, facing: 'north', optional: true },
+            { kind: 'deskPhone', on: { piece: 0, u: 9.5, v: 2.5 }, facing: 'north', optional: true },
+            { kind: 'deskPhone', on: { piece: 1, u: 9.5, v: 2.5 }, facing: 'north', optional: true },
             { kind: 'officeChair', at: [1, 0], facing: 'south', push: ['south'] },
             { kind: 'officeChair', at: [0, 3], facing: 'north', push: ['north'] }
         ],
@@ -52,7 +55,7 @@ export function deskPair(role: string): GroupDef {
 
 /**
  * The manager's desk, facing into the room from in front of a wall: their chair behind it, the monitor and a family
- * photo turned to them, a lamp, two visitors' chairs in front.
+ * photo turned to them, a lamp, their desk phone, two visitors' chairs in front.
  */
 export function managerDesk(wall: boolean): GroupDef {
     return {
@@ -63,6 +66,7 @@ export function managerDesk(wall: boolean): GroupDef {
             { kind: 'monitor', on: { piece: 0, u: 5, v: 7 }, facing: 'north' },
             { kind: 'photoFrame', on: { piece: 0, u: 15, v: 7 }, facing: 'north' },
             { kind: 'deskLamp', on: { piece: 0, u: 17.5, v: 2.5 }, facing: 'north' },
+            { kind: 'deskPhone', on: { piece: 0, u: 11, v: 3 }, facing: 'north', optional: true },
             { kind: 'chair', at: [0, 2], facing: 'north', push: ['north'] },
             { kind: 'chair', at: [1, 2], facing: 'north', push: ['north'] },
             { kind: 'plant', at: [-1, 0], push: ['north'], optional: true }

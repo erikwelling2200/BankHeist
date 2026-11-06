@@ -1,5 +1,6 @@
 import { InvariantError, registerWorldHook, type Ctx } from '../core/engine';
 import { offMap } from '../core/transit';
+import { registerStateCheck } from '../core/save';
 import { crewMember, newId, registerRuleDefaults, registerStateInit } from '../core/state';
 import type { CrewState, DeepReadonly, Pos, ReadonlyWorld, State, WorldObject } from '../core/types';
 import { registerEvents } from '../core/undo';
@@ -11,12 +12,13 @@ import { NOISES } from '../data/noise';
 import type { CodePart, TimeWindow } from '../../gen/model';
 import { inReach, lacksActions, registerAction } from './actions/act';
 import { besideDoor, LOCKPICK } from './actions/door';
-import { registerInteraction } from './actions/interact';
+import { registerInteraction, type InteractionVerb } from './actions/interact';
 import { HACKING_KIT, hasTrait, workActions } from './alarms';
 import { scorch } from './actions/charges';
 import { raiseCarrier, registerCarrierCheck } from './carriers';
 import { cctvControlled, cctvDesk } from './cctv';
 import { registerEvidenceSource, type Evidence } from './evidence';
+import { registerPreviewSecret } from './knowledge';
 import { entered, enterPart, partOf, timeLockOpen, unlockVault, vaultLock, vaultShut } from './keys';
 
 /*
@@ -29,8 +31,9 @@ import { entered, enterPart, partOf, timeLockOpen, unlockVault, vaultLock, vault
  *   desk; nothing to hold in a bank without one), in the time-lock window (implementation plan §6 decision 79).
  *   Either works only while the time lock stands open (decision 77), and neither with the power out: the console is dark
  *   (§14.6, rules/power.ts).
- *   The console also carries the vault sensors' wiring (decision 81): `interact … sensors` (hacking kit,
- *   `rules.sensorActions` (4) actions of work, Steady Hands half, the illegal act 'hack') cuts them for good.
+ *   The vault sensors' wiring (decision 81) is cut at the wiring box beside the console (M5-04), or at the console in a
+ *   bank without one: `interact … sensors` (hacking kit, `rules.sensorActions` (4) actions of work, Steady Hands half,
+ *   the illegal act 'hack') cuts them for good.
  * - **The manager's PC** (`interact … hack`, hacking kit, `rules.pcActions` (2) actions of work kept on the PC, Steady
  *   Hands half; the illegal act 'hack', a quiet noise of radius 1 like panel work): it tells the manager's part of the
  *   code, or the whole code, into `State.codesKnown`, and the time-lock schedule (`pcHacked`).
@@ -53,12 +56,15 @@ import { entered, enterPart, partOf, timeLockOpen, unlockVault, vaultLock, vault
  *   rules/actions/charges.ts); fire on the tile is deferred; heat ticks are M3's; the Silent and Beast drills are planning's (M6).
  * - **The sensors** (§9.1): drilling or burning a Class II+ vault starts the seismic carrier (`rules.seismicCountdown`,
  *   4); on Class III, a crew member stepping into the vault outside the time-lock window starts the motion carrier (2).
- *   Both are wired: the dead alarm panel kills them (carriers.ts), and so does cutting the sensors at the console, in
+ *   Both are wired: the dead alarm panel kills them (carriers.ts), and so does cutting the sensors at their wiring, in
  *   their countdown too; the motion carrier also stops once the time-lock window opens (§9.1's counters).
  * - **Deposit boxes** (§15.3, decision 78): `worldFromBank` splits the deposit loot into boxes (Light, $5k) and the
  *   wall's haul (Heavy, the whole). `interact … pick` at a wall of boxes (lockpick set, `rules.lockpickActions` (2)
  *   actions of work, Steady Hands half; the illegal act 'lockpick', a quiet noise of radius 1) opens the next box in the
- *   room: its jewels lie there to take. Drilling the wall gives the haul instead: the two exclude each other.
+ *   room: its jewels lie there to take. Drilling the wall gives the haul instead: the two exclude each other. Opening
+ *   a box is final (the crew has seen inside). One box holds the bank's intel (M5-04, §17.4, `loot.intel`): opening it,
+ *   or drilling its wall, records it in `State.intelFound` (`intelFound`, which a preview never shows; what it tells is
+ *   M5-02's). A side objective's box (§19.5) is opened like the others, and comes open with a drilled wall.
  */
 
 /** What works on a lock across world phases: a drill, or a thermite charge. */
@@ -89,6 +95,8 @@ declare module '../core/types' {
         devices: Device[];
         /** The parts of the vault code the crew knows (the manager's PC). */
         codesKnown: CodePart[];
+        /** The intel the crew has found in the bank (§17.4): the deposit boxes it was in, by object id. */
+        intelFound: string[];
     }
     interface Rules {
         /** Actions of hacking that open the manager's PC (§7.2); Steady Hands halves them. */
@@ -105,7 +113,7 @@ declare module '../core/types' {
         sensorActions: number;
     }
     interface ObjectState {
-        /** At a vault console: its sensors' wiring is cut (§9.1). */
+        /** At the vault's wiring box (or its console): the sensors' wiring is cut (§9.1). */
         sensorsCut?: boolean;
     }
     interface CommandMap {
@@ -137,8 +145,13 @@ declare module '../core/types' {
         wallDrilled: { object: string; loot: string };
         /** A drill was taken back into a crew member's kit. */
         drillTaken: { crew: string; device: string };
-        /** The vault's sensors were cut at the console's wiring. */
+        /** The vault's sensors were cut at their wiring: `console` is the wiring box (or the console without one). */
         sensorsCut: { crew: string; console: string };
+        /**
+         * A crew member found the bank's intel in the deposit box `object` they opened (§17.4), or in the haul of its
+         * drilled wall (`crew` null). A preview never shows it.
+         */
+        intelFound: { crew: string | null; object: string };
     }
 }
 
@@ -147,7 +160,10 @@ registerRuleDefaults({ pcActions: 2, lockpickActions: 2, drillJamChance: 0.15, d
 registerStateInit('vault', (_world, state) => {
     state.devices = [];
     state.codesKnown = [];
+    state.intelFound = [];
 });
+
+registerStateCheck('intelFound', state => (Array.isArray(state.intelFound) ? undefined : 'no intel found (a save from before M5-04)'));
 
 const carries = (member: DeepReadonly<CrewState>, item: string): boolean => member.loadout.items.includes(item);
 
@@ -184,26 +200,36 @@ function consoleBlocked(world: ReadonlyWorld, state: State, member: DeepReadonly
     return state.codesKnown.some(p => !entered(state, console).includes(p)) ? undefined : 'Every part of the code the crew knows is in';
 }
 
-/** Whether the vault's sensors are cut at a console's wiring. */
+/** The objects the vault sensors' wiring is reached at: the wiring box, or the console where the bank has none. */
+const WIRING = new Set(['wiringBox', 'vaultConsole']);
+const hasWiringBox = (world: ReadonlyWorld): boolean => world.objects.some(o => o.kind === 'wiringBox');
+
+/** Whether the vault's sensors are cut at their wiring. */
 export const sensorsCut = (world: ReadonlyWorld, state: DeepReadonly<State>): boolean =>
-    world.objects.some(o => o.kind === 'vaultConsole' && Object.hasOwn(state.objects, o.id) && state.objects[o.id]!.sensorsCut === true);
+    world.objects.some(o => WIRING.has(o.kind) && Object.hasOwn(state.objects, o.id) && state.objects[o.id]!.sensorsCut === true);
+
+/** Cutting the sensors at their wiring (decision 81): the wiring box's, or the console's in a bank without one. */
+const CUT_SENSORS: InteractionVerb = {
+    cost: () => 1,
+    illegal: 'hack',
+    whyNot(world, state, member, object) {
+        if (object.kind === 'vaultConsole' && hasWiringBox(world)) return 'The sensors are wired at the wiring box';
+        if (!sensors(world).length) return 'The vault has no sensors';
+        if (sensorsCut(world, state)) return 'The sensors are cut already';
+        return carries(member, HACKING_KIT) ? undefined : `${member.name} has no hacking kit`;
+    },
+    run(ctx, member, object) {
+        makeNoise(ctx, 'panelWork', member.pos, `sensors ${member.id}`);
+        if (!work(ctx, member, object, ctx.world.rules.sensorActions)) return;
+        ctx.state.objects[object.id] = { ...ctx.state.objects[object.id], sensorsCut: true };
+        ctx.emit({ type: 'sensorsCut', crew: member.id, console: object.id });
+    }
+};
+
+registerInteraction('wiringBox', { sensors: CUT_SENSORS });
 
 registerInteraction('vaultConsole', {
-    sensors: {
-        cost: () => 1,
-        illegal: 'hack',
-        whyNot(world, state, member) {
-            if (!sensors(world).length) return 'The vault has no sensors';
-            if (sensorsCut(world, state)) return 'The sensors are cut already';
-            return carries(member, HACKING_KIT) ? undefined : `${member.name} has no hacking kit`;
-        },
-        run(ctx, member, object) {
-            makeNoise(ctx, 'panelWork', member.pos, `sensors ${member.id}`);
-            if (!work(ctx, member, object, ctx.world.rules.sensorActions)) return;
-            ctx.state.objects[object.id] = { ...ctx.state.objects[object.id], sensorsCut: true };
-            ctx.emit({ type: 'sensorsCut', crew: member.id, console: object.id });
-        }
-    },
+    sensors: CUT_SENSORS,
     unlock: {
         cost: () => 1,
         whyNot: (world, state, member, object) => consoleBlocked(world, state, member, object.id),
@@ -287,6 +313,13 @@ registerMoveHook('vault', {
 const boxesIn = (world: ReadonlyWorld, room: string | undefined): string[] =>
     world.objects.filter(o => o.kind === 'loot' && o.loot?.behind === 'depositBox' && o.room === room).map(o => o.id).sort();
 
+/** The crew learns what the intel box holds (§17.4): what it tells is the opportunities' (M5-02). */
+function findIntel(ctx: Ctx, crew: string | null, box: string): void {
+    if (ctx.state.intelFound.includes(box)) return;
+    ctx.state.intelFound = [...ctx.state.intelFound, box].sort();
+    ctx.emit({ type: 'intelFound', crew, object: box });
+}
+
 /** The haul of the deposit wall in a room, if it has one. */
 const haulIn = (world: ReadonlyWorld, room: string | undefined): string | undefined =>
     world.objects.find(o => o.kind === 'loot' && o.loot?.behind === 'depositWall' && o.room === room)?.id;
@@ -315,6 +348,7 @@ registerInteraction('depositBoxes', {
             const box = boxesIn(world, object.room).find(id => !Object.hasOwn(state.loot, id))!;
             state.loot[box] = { holder: null, pos: { x: object.pos.x, y: object.pos.y }, taken: false, dyePack: false, inspected: false, ruined: false };
             ctx.emit({ type: 'boxOpened', crew: member.id, object: object.id, loot: box });
+            if (world.objects.find(o => o.id === box)!.loot!.intel) findIntel(ctx, member.id, box);
         }
     }
 });
@@ -447,8 +481,15 @@ registerWorldHook('devices', 'vault.devices', ctx => {
             continue;
         }
         const object = world.objects.find(o => o.id === device.at)!, haul = haulIn(world, object.room)!;
-        state.loot[haul] = { holder: null, pos: { x: object.pos.x, y: object.pos.y }, taken: false, dyePack: false, inspected: false, ruined: false };
+        const opened = () => ({ holder: null, pos: { x: object.pos.x, y: object.pos.y }, taken: false, dyePack: false, inspected: false, ruined: false });
+        state.loot[haul] = opened();
         ctx.emit({ type: 'wallDrilled', object: object.id, loot: haul });
+        // The jewels are the haul; a side objective's box comes open with the rest, and the intel is in the haul.
+        for (const box of boxesIn(world, object.room)) {
+            const def = world.objects.find(o => o.id === box)!.loot!;
+            if (def.objective !== undefined && !Object.hasOwn(state.loot, box)) state.loot[box] = opened();
+            if (def.intel) findIntel(ctx, null, box);
+        }
     }
 }, { order: 20 });
 
@@ -476,10 +517,14 @@ registerWorldHook('crewPhase', 'vault.jams', ctx => {
 // A drill or a charge at work is major evidence (§8.10 "a drill").
 registerEvidenceSource('devices', (_world, state) => state.devices.map((d): Evidence => ({ id: `drill:${d.id}`, kind: 'drill', tiles: [{ x: d.pos.x, y: d.pos.y }] })));
 
+registerPreviewSecret('intelFound');
+
 registerEvents({
     pcHacked: { undoBlocking: true },
     lockWorked: { undoBlocking: false },
-    boxOpened: { undoBlocking: false },
+    // The crew has seen inside: final, whatever was in it, so neither the intel nor an undo tells which box held it.
+    boxOpened: { undoBlocking: true },
+    intelFound: { undoBlocking: true },
     deviceSet: { undoBlocking: false },
     deviceWorked: { undoBlocking: true },
     drillJammed: { undoBlocking: true },

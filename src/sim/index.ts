@@ -23,6 +23,7 @@ import './rules/actions/door';
 import './rules/actions/gadgets';
 import './rules/actions/hostage';
 import './rules/actions/interact';
+import './rules/actions/keycards';
 import './rules/actions/knockout';
 import './rules/actions/loot';
 import './rules/actions/throwables';
@@ -53,6 +54,7 @@ import './rules/npc/intent';
 import './rules/npc/schedule';
 import './rules/npc/walk';
 import './rules/perceive';
+import './rules/phones';
 import './rules/police';
 import './rules/power';
 import './rules/profile';
@@ -90,7 +92,7 @@ export {
     stableJson
 } from './core/json';
 export {
-    CARRIERS, carrierBlocked, carrierPreview, carriersStarted, carrierVerdict, holderKnown, knownCarriers, panelDead, pendingCarriers, projectCarriers, raiseCarrier,
+    CARRIERS, carrierBlocked, carrierPreview, carriersStarted, carrierVerdict, holderKnown, knownCarriers, panelDead, pendingCarriers, phoneLineDead, projectCarriers, raiseCarrier,
     registerCarrierCheck, settleCarriers, startCarrier, stopCarrier, type AlarmResponse, type CarrierChanges, type CarrierCheck, type CarrierDef,
     type CarrierPreview, type CarrierRequest, type CarrierVerdict, type KnownCarrier
 } from './rules/carriers';
@@ -211,6 +213,8 @@ export { reactionOdds, tackleTarget } from './rules/panic';
 export { type Panic, type PanicReaction } from './rules/panicState';
 export { cardOpens, codeParts, entered, lockOn, partOf, timeLockOpen, vaultLock, vaultShut } from './rules/keys';
 export { DRILL, steadyHand, THERMITE, type Device } from './rules/vault';
+export { keycardBlocked, keycardsHere } from './rules/actions/keycards';
+export { lineCutAt, phonesInReach, ringBlocked } from './rules/phones';
 export * from './data/weapons';
 export { atan2Deg, rotate, sinCosDeg } from './geo/angles';
 export {

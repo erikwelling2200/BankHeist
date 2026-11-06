@@ -4,7 +4,7 @@ import {
     type PathVM
 } from '../../game/worldUi';
 import {
-    actionMenu, AutoRun, HEIST_KEY, noisemakerTiles, rolePortrait, throwTiles, autoBarView, bankView, barkText, cameraName, doorMiddle, nextCamera, moveAlong, moveRange, moveTo, routeViews, stopNeedsAttention, targetsOf, waitMenu, type ActionId, type FloorJob, type MoveRange,
+    actionMenu, AutoRun, HEIST_KEY, noisemakerTiles, rolePortrait, throwTiles, autoBarView, bankView, barkText, cameraName, doorMiddle, nextCamera, nextPhone, moveAlong, moveRange, moveTo, routeViews, stopNeedsAttention, targetsOf, waitMenu, type ActionId, type FloorJob, type MoveRange,
     type PlaybackItem, type PlaybackSpeed, type Session, type SessionChange
 } from '../../game';
 import { bankAddress, type BankAddress } from '../../game/heist';
@@ -742,12 +742,22 @@ export class PlayMode {
                 return true;
             }
             case 'alarmDead': say(e.source, '*click*… nothing'); return true;
+            case 'lineDead': say(e.source, 'Hello? …no dial tone'); return true;
+            case 'deadLineNoticed': this.toast(`Dispatch noticed the dead line: patrol car on turn ${e.driveBy}`); return true;
+            case 'phoneLineCut': say(e.crew, 'Line cut'); return true;
+            case 'phoneRang': {
+                const phone = world.objects.find(o => o.id === e.phone);
+                if (phone) this.bark(phone.pos, 'Ring ring!');
+                return true;
+            }
+            case 'intelFound': if (e.crew) say(e.crew, 'Intel!'); return true;
             case 'panelWorked': say(e.crew, `Panel ${e.progress}/${e.needed}`); return true;
             case 'panelDisabled': say(e.crew, 'Alarm panel dead'); return true;
             case 'carrierStopped': {
                 const p = this.carrierAt.get(e.carrier);
                 if (p && e.why === 'panel') this.bark(p, 'Button dead');
                 else if (p && e.why === 'answered') this.bark(p, 'Check-in covered');
+                else if (p && e.why === 'phone line cut') this.bark(p, 'Line dead');
                 return true;
             }
             case 'feedLooped': {
@@ -1414,6 +1424,11 @@ export class PlayMode {
         const pending = this.session.pendingCommand;
         if (id === 'loop' && pending?.type === 'loopFeed') {
             const next = nextCamera(this.session.world, this.session.state, member.id, pending.camera);
+            if (next) this.target = next;
+        }
+        // Ring phone again while it is previewed: the next desk phone (src/game/actions.ts).
+        if (id === 'ring' && pending?.type === 'ringPhone') {
+            const next = nextPhone(this.session.world, this.session.state, member.id, pending.phone);
             if (next) this.target = next;
         }
         const entry = actionMenu(this.session.world, this.session.state, member.id, this.target).find(e => e.id === id);

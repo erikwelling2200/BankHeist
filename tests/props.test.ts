@@ -30,7 +30,7 @@ describe('hand-drawn props', () => {
     });
 
     it('shows a different side of the asymmetric props from each direction', () => {
-        for (const kind of ['counter', 'sofa', 'filingCabinet', 'hydrant', 'camera', 'plant', 'coatStand', 'cleaningTrolley', 'monitor', 'microwave', 'cake'] as const) {
+        for (const kind of ['counter', 'sofa', 'filingCabinet', 'hydrant', 'camera', 'plant', 'coatStand', 'cleaningTrolley', 'monitor', 'microwave', 'cake', 'deskPhone', 'uniformRack'] as const) {
             const p = kinds.get(kind)!, size = propSize(p);
             const [south, north] = [propArt(p, size, 'south'), propArt(p, size, 'north')];
             expect(south.lit.colors, kind).not.toEqual(north.lit.colors);
@@ -39,7 +39,7 @@ describe('hand-drawn props', () => {
 });
 
 describe('second-tier props', () => {
-    const ON_TOP: LevelProp['kind'][] = ['monitor', 'deskLamp', 'paperStack', 'mug', 'photoFrame', 'cashCounter', 'microwave', 'cake'];
+    const ON_TOP: LevelProp['kind'][] = ['monitor', 'deskLamp', 'paperStack', 'mug', 'photoFrame', 'cashCounter', 'microwave', 'cake', 'deskPhone'];
     const at = (kind: LevelProp['kind'], extra: Partial<LevelProp> = {}) => ({ kind, tx: 0, ty: 0, ...extra }) as LevelProp;
 
     it('marks exactly the things that stand on another prop, and sizes them at their real size', () => {

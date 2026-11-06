@@ -18,7 +18,8 @@ import { handsFree } from './loot';
  *   - a guard (an enforcer; a courier gives the courier's uniform) knocked out or tied, not stripped yet: the guard's
  *     uniform, and the guard is left stripped (`NpcState.stripped`). A stripped guard is still a body or a tied person,
  *     major evidence as before, until stashed (§8.10);
- *   - staff lockers (`lockers` in the Staff zone: the break room, where uniforms hang): a staff uniform.
+ *   - staff lockers or the break room's uniform rail (`lockers`, `uniformRack` in the Staff zone, M5-04): a staff
+ *     uniform.
  *   The staff uniform also comes with the Staff uniforms asset (`CrewStart.uniform`). The courier van's uniforms are the
  *   finale's (§19.5).
  * - **Out of every NPC's sight** (§8.14): it is refused while an NPC the crew sees now would see it (`seenChanging`), and
@@ -46,8 +47,8 @@ declare module '../../core/types' {
 /** Actions it takes to change into a uniform (§8.14). */
 const CHANGE_ACTIONS = 2;
 
-/** Object kinds that hold staff uniforms (in the Staff zone). */
-const UNIFORM_KINDS: ReadonlySet<string> = new Set(['lockers']);
+/** Object kinds that hold staff uniforms (in the Staff zone): the staff lockers, the break room's uniform rail. */
+const UNIFORM_KINDS: ReadonlySet<string> = new Set(['lockers', 'uniformRack']);
 
 registerNpcInit('disguise', (_world, _person, npc) => {
     npc.stripped = false;

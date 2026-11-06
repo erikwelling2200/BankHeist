@@ -121,7 +121,7 @@ export type LevelProp = Placed & (
     | { kind: 'streetLamp' | 'hydrant' | 'newsBox' | 'streetBin' | 'manhole' | 'bollard' }
     | { kind: 'van' }
     | { kind: 'depositBoxes' | 'cashShelf' | 'vaultConsole' | 'serverRack' | 'cashCart' }
-    | { kind: 'alarmPanel' | 'breakerPanel' | 'menuBoard' | 'wallLadder' }
+    | { kind: 'alarmPanel' | 'breakerPanel' | 'menuBoard' | 'wallLadder' | 'phoneLine' | 'wiringBox' }
     | { kind: 'cctvDesk' | 'officeChair' | 'bookshelf' | 'lockers' | 'shelving' | 'mopBucket' | 'atmBack' | 'boxes' }
     | { kind: 'chair' | 'fridge' | 'toilet' | 'washbasin' }
     // Tops drawn with their own dressing (a desk's monitor and lamp, a table's mugs, a counter's microwave), unless `bare`:
@@ -131,8 +131,8 @@ export type LevelProp = Placed & (
     | { kind: 'dumpster' | 'generator' }
     | { kind: 'tree' | 'bench' | 'rifleCase' }
     | { kind: 'floorGrate' | 'ventGrille' | 'roofHatch' | 'metalDetector' | 'motionSensor' | 'pillar' | 'tubeTerminal' | 'skylight' }
-    | { kind: 'meetingTable' | 'coatStand' | 'whiteboard' | 'cashBags' | 'cleaningTrolley' | 'wetFloorSign' }
-    | { kind: 'monitor' | 'deskLamp' | 'paperStack' | 'mug' | 'photoFrame' | 'cashCounter' | 'microwave' | 'cake' }
+    | { kind: 'meetingTable' | 'coatStand' | 'whiteboard' | 'cashBags' | 'cleaningTrolley' | 'wetFloorSign' | 'uniformRack' }
+    | { kind: 'monitor' | 'deskLamp' | 'paperStack' | 'mug' | 'photoFrame' | 'cashCounter' | 'microwave' | 'cake' | 'deskPhone' }
 );
 
 export type PersonFacing = 'front' | 'back';

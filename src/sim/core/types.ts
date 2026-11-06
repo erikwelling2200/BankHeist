@@ -142,9 +142,15 @@ export interface WorldObject {
     /**
      * Loot (§15.1): what it is worth and how heavy it is to carry; `dyePack` when a dye pack hides in it (a teller's
      * drawer), which the player isn't told; `behind` what must be opened to reach it: one deposit box (picked) or the
-     * wall of them (drilled: the haul), rules/vault.ts.
+     * wall of them (drilled: the haul), rules/vault.ts; the intel's box and side objectives (M5-04).
      */
-    loot?: { value: number; weight: 'light' | 'heavy' | 'very heavy'; dyePack?: true; behind?: 'depositBox' | 'depositWall' };
+    loot?: {
+        value: number; weight: 'light' | 'heavy' | 'very heavy'; dyePack?: true; behind?: 'depositBox' | 'depositWall';
+        /** The deposit box that holds the bank's intel (§17.4), found as it is opened (rules/vault.ts). */
+        intel?: true;
+        /** A side objective (§19.5): which, and whether the Alarm moves it out of reach (rules/actions/loot.ts). */
+        objective?: string; lostOnAlarm?: true;
+    };
     /** A CCTV desk: how many feeds its operator watches at once (§8.12). */
     monitors?: number;
 }

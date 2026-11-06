@@ -2,7 +2,7 @@ import type { Facing, Size } from '../../level/space';
 import { PAL, mix } from '../palette';
 import { mulberry32 } from '../random';
 import { hung } from './dressing';
-import { part, roundBands, rows, Turn, View, type Faces, type Part, type PropArt } from './view';
+import { NORMAL, part, roundBands, rows, softBody, Turn, View, type Faces, type Part, type PropArt } from './view';
 
 /*
  * Furniture of the bank's back rooms: the vault and the deposit boxes, the server and CCTV rooms, the manager's office,
@@ -436,4 +436,98 @@ export function washbasin(s: Size, facing: Facing): PropArt {
     ]);
     view.outline(0.3);
     return view.art();
+}
+
+/**
+ * The break room's rail of staff uniforms (§8.14): a chrome rail on two uprights with castored feet, navy uniform
+ * jackets hanging from it on wire hangers, and a wire shelf of folded white shirts underneath. The jackets hang across
+ * the rail, as on any coat rail: from either end of the rack the camera sees a jacket's front (lapels over a white
+ * collar, a brass name badge, the buttons) or its back (the vent), and from the front or behind only their edges, a row
+ * of sleeves.
+ */
+export function uniformRack(s: Size, facing: Facing): PropArt {
+    const t = new Turn(s, facing), view = new View(t.w, t.d, s.h, { margin: 1 });
+    const N = PAL.cloth.navy, navy = [N[0]!, N[1]!, N[2]!, N[3]!, mix(N[3]!, 0xffffff, 0.18)];
+    const mid = s.d / 2, top = s.h - 1, hem = 7, len = top - 2 - hem;
+    const sideOn = facing === 'east' || facing === 'west';
+    // Seen from the east the jackets show their fronts, from the west their backs.
+    const fronts = t.seen === 'left';
+    t.draw(view, [
+        // The feet along the rack's depth, a castor at each end, and the wire shelf between them.
+        [part(0, 0, 0, 1, s.d, 1), { top: rows(v => (v === 0 || v === s.d - 1 ? PAL.ink : S[4])), sides: S[2] }],
+        [part(s.w - 1, 0, 0, 1, s.d, 1), { top: rows(v => (v === 0 || v === s.d - 1 ? PAL.ink : S[4])), sides: S[2] }],
+        [part(1, 1, 2, s.w - 2, s.d - 2, 1), { top: (u, v) => ((u + v) % 3 === 0 ? S[2] : S[4]), sides: S[3] }],
+        // Folded shirts on the shelf.
+        [part(2, 2, 3, 4, 3, 1), { top: (u: number) => (u === 0 ? C[2] : C[3]), sides: rows(() => C[1]) }],
+        [part(9, 2, 3, 4, 3, 1), { top: (u: number) => (u === 0 ? C[2] : C[3]), sides: rows(() => C[1]) }]
+    ]);
+    // The jackets: narrow across the rail, wide along it, the shoulders rounding in at the top under the hanger.
+    const across = (k: number) => (k >= len - 1 ? 0.8 : 1.1), deep = (k: number) => (k >= len - 1 ? 1.7 : k >= len - 2 ? 2.4 : 2.7);
+    const collar = len - 2, badge = len - 4;
+    const jacket = (a: number, k: number, onTop: boolean): number => {
+        if (onTop) return k >= collar && fronts ? C[2] : navy[3]!;
+        if (k === 0) return navy[1]!;
+        if (!sideOn) return Math.abs(a) > 0.6 ? navy[1]! : k === Math.round(len * 0.45) ? navy[2]! : navy[3]!;
+        if (!fronts) return Math.abs(a) < 0.15 && k < 4 ? navy[1]! : roundBands(navy, a);
+        // The front: a white shirt collar in the V of the lapels, the lapels lighter, buttons down the middle, a badge.
+        const v = Math.abs(a), open = (k - (collar - 4)) * 0.1;
+        if (k >= collar - 4 && v < open) return C[3];
+        if (k >= collar - 4 && v < open + 0.22) return navy[4]!;
+        if (v < 0.12 && (k === 2 || k === 4)) return PAL.brass[3];
+        if (k === badge && a > 0.35 && a < 0.65) return PAL.brass[4];
+        return v < 0.1 ? navy[1]! : roundBands(navy, a, false);
+    };
+    const items: { y: number; draw: () => void }[] = [];
+    for (const x of [3.5, 6.5, 9.5, 12.5]) {
+        const [cx, cy] = t.point(x, mid);
+        items.push({ y: cy, draw: () => {
+            softBody(view, cx, cy, hem, len, k => (sideOn ? [deep(k), across(k)] : [across(k), deep(k)]), jacket);
+            // The wire hanger's hook up to the rail.
+            const [col, row] = view.project(cx, cy, top - 0.5);
+            view.dot(col, row, S[5], NORMAL.face);
+        } });
+    }
+    // The uprights at the rail's ends.
+    for (const x of [0, s.w - 1]) {
+        const [, y] = t.point(x + 0.5, mid);
+        items.push({ y, draw: () => t.draw(view, [[part(x, Math.floor(mid), 1, 1, 1, top - 1), { sides: rows(() => S[3]), top: S[5] }]]) });
+    }
+    for (const item of items.sort((a, b) => a.y - b.y)) item.draw();
+    t.draw(view, [[part(0, Math.floor(mid), top, s.w, 1, 1), { top: S[5], sides: S[4] }]]);
+    view.outline(0.3);
+    return view.art();
+}
+
+/**
+ * The phone line's junction box (§9.1), where the landlines leave the building: a cream plastic box under its grey
+ * cover strip, a red-and-white line label, two screws, and the black cable leaving it at the bottom.
+ */
+export function phoneLine(s: Size, facing: Facing): PropArt {
+    const P = PAL.paper, mid = Math.floor(s.w / 2);
+    return hung(s, facing, (u, v) => {
+        if (v === s.h - 1 && u === mid) return { c: PAL.ink };
+        if (u === 0 || u === s.w - 1 || v === s.h - 1) return { c: v === 0 ? P[2] : P[0] };
+        if (v === 0) return { c: P[3] };
+        if (v === 1) return { c: u === 1 ? PAL.carpet[4] : P[3] };
+        if (v === 2) return { c: S[3] };
+        if (v === s.h - 2 && (u === 1 || u === s.w - 2)) return { c: S[2] };
+        return { c: P[1] };
+    }, P[0], P[2]);
+}
+
+/**
+ * The vault sensors' wiring box (§9.1, §17.4): a locked olive-grey steel cabinet with a yellow and black hazard band
+ * across its top, vent slots, the key in its lock, and the sensors' conduits leaving it at the bottom.
+ */
+export function wiringBox(s: Size, facing: Facing): PropArt {
+    const G = [mix(S[1], PAL.cloth.olive[1]!, 0.5), mix(S[2], PAL.cloth.olive[2]!, 0.5), mix(S[3], PAL.cloth.olive[3]!, 0.5), mix(S[4], PAL.cloth.olive[3]!, 0.4)];
+    return hung(s, facing, (u, v) => {
+        if (v === s.h - 1) return { c: u === 1 || u === s.w - 2 ? PAL.ink : G[0]! };
+        if (u === 0 || u === s.w - 1) return { c: v === 0 ? G[3]! : G[0]! };
+        if (v === 0) return { c: G[3]! };
+        if (v === 1) return { c: (u + v) % 2 ? PAL.ink : PAL.cloth.mustard[3]! };
+        if ((v === 3 || v === 5) && u > 1 && u < s.w - 2) return { c: G[0]! };
+        if (u === s.w - 2 && v === 4) return { c: PAL.brass[4] };
+        return { c: v === 2 ? G[3]! : G[2]! };
+    }, G[0]!, G[3]!);
 }

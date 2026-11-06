@@ -1,7 +1,7 @@
 import {
     besideDoor, COMBAT_COMMANDS, FACING_STEP, crewPicture, negotiatorCalling, offerEffect, releasable, tradeable, withDoubtedShut, doorStatus, DRAGGABLE, draggedBy, goBlocked, HACKING_KIT, inHands, inReach, interactionVerbs, isKnownNow, JAMMER, officerSeen, legalActions, LOCKPICK, lockActions, LOOP_FROM, lootWeight,
     pocketed, preview, IllegalCommand, reachesObject, STASH_KINDS, throwTargets, tieIneligible, tileVisibility, whyNot, driveBudget, driveMap, driveReach, exitTiles, poseKey, ramPlan, vehicleBeside,
-    vehicleDef, edgesAround, fortificationOf, fortifyBlocked, isWindow, noisemakersLeft, noisemakerTargets, routeEndInReach, type FortifyAction, type RouteKind, type Command, type DriveNode, type Pose, type Pos, type ReadonlyWorld, type State
+    vehicleDef, edgesAround, keycardsHere, phonesInReach, fortificationOf, fortifyBlocked, isWindow, noisemakersLeft, noisemakerTargets, routeEndInReach, type FortifyAction, type RouteKind, type Command, type DriveNode, type Pose, type Pos, type ReadonlyWorld, type State
 } from '../sim';
 import type { HudIcon as HudIconName } from '../ui/hud/viewModels';
 
@@ -92,24 +92,44 @@ export interface Targets {
     cameras: string[];
     /** Loot in reach that nobody has (where the bank keeps it, or on the floor), ruined cash aside. */
     loot: string[];
+    /** The desk phones the member could ring (§8.13): from another desk phone in reach, or anywhere with a hacking kit. */
+    phones: string[];
 }
 
 /** The doors, NPCs (known to the crew) and stash or handled objects a crew member could act on from where they stand. */
 export function targetsOf(world: ReadonlyWorld, state: State, crewId: string): Targets {
     const member = state.crew.find(c => c.id === crewId);
-    if (!member) return { doors: [], npcs: [], objects: [], cameras: [], loot: [] };
+    if (!member) return { doors: [], npcs: [], objects: [], cameras: [], loot: [], phones: [] };
     const doors = Object.keys(world.doors).sort().filter(id => besideDoor(world, world.doors[id]!, member.pos));
     // Only NPCs the crew sees or predicts (§8.15): the grid gives nothing away about anyone else.
     const npcs = crewPicture(world, state).npcs
         .filter(n => n.status !== 'away' && n.stashed === null && !state.crew.some(c => c.dragging === n.id) && inReach(world, state, member.pos, n.pos))
         .map(n => n.id);
+    // A keycard lying in a drawer has its own entry, only when it can be taken (rules/actions/keycards.ts).
     const objects = world.objects
-        .filter(o => (STASH_KINDS.has(o.kind) || interactionVerbs(world, o.id).length) && reachesObject(world, state, member.pos, o))
+        .filter(o => o.kind !== 'keycard' && (STASH_KINDS.has(o.kind) || interactionVerbs(world, o.id).length) && reachesObject(world, state, member.pos, o))
         .map(o => o.id);
     const atConsole = world.objects.some(o => LOOP_FROM.has(o.kind) && inReach(world, state, member.pos, o.pos));
     // Not a ruined stack put down: it is nothing to take, and would hide real loot behind a greyed Take.
     const loot = Object.keys(state.loot).sort().filter(id => state.loot[id]!.holder === null && !state.loot[id]!.ruined && inReach(world, state, member.pos, state.loot[id]!.pos));
-    return { doors, npcs, objects, cameras: atConsole ? knownCameras(world, state) : [], loot };
+    return { doors, npcs, objects, cameras: atConsole ? knownCameras(world, state) : [], loot, phones: ringablePhones(world, state, member.pos, member.loadout.items.includes(HACKING_KIT)) };
+}
+
+/**
+ * The desk phones a crew member at `from` could ring: any with a hacking kit, else those other than one in reach; only
+ * where the crew has a picture of the floor, so the entry shows no desk in a room it hasn't seen.
+ */
+function ringablePhones(world: ReadonlyWorld, state: State, from: Pos, kit: boolean): string[] {
+    const near = phonesInReach(world, state, from).map(o => o.id);
+    if (!kit && !near.length) return [];
+    return world.objects.filter(o => o.kind === 'deskPhone' && (kit || near.some(id => id !== o.id)) && tileVisibility(world, state, o.pos) !== 'hidden').map(o => o.id);
+}
+
+/** The desk phone after `current` the member could ring, for cycling the Ring phone entry (the scene, as `nextCamera`). */
+export function nextPhone(world: ReadonlyWorld, state: State, crewId: string, current: string | null): string | undefined {
+    const phones = targetsOf(world, state, crewId).phones;
+    if (!phones.length) return undefined;
+    return phones[(current === null ? 0 : phones.indexOf(current) + 1) % phones.length];
 }
 
 /** The cameras the crew knows of (§8.15), in the World's order. */
@@ -160,6 +180,8 @@ export const VERBS: Readonly<Record<string, { label: string; icon: HudIconName }
     'recorder.destroy': { label: 'Smash recorder', icon: 'attack' },
     'vaultConsole.unlock': { label: 'Unlock vault', icon: 'lock' },
     'vaultConsole.sensors': { label: 'Cut sensors', icon: 'hack' },
+    'wiringBox.sensors': { label: 'Cut sensors', icon: 'hack' },
+    'phoneLine.cut': { label: 'Cut phone line', icon: 'hack' },
     'managerPc.hack': { label: 'Hack PC', icon: 'hack' },
     'depositBoxes.pick': { label: 'Pick a box', icon: 'lockpick' },
     'breakerPanel.cut': { label: 'Cut power', icon: 'hack' },
@@ -305,7 +327,7 @@ export function actionMenu(world: ReadonlyWorld, state: State, crewId: string, t
             add(`interact:${verb}`, named?.label ?? verb.charAt(0).toUpperCase() + verb.slice(1), named?.icon ?? 'interact', { type: 'interact', crew: crewId, object, verb }, object);
             if (kind === 'alarmPanel' && verb === 'disable') out.at(-1)!.progress = `${state.objects[object]?.progress ?? 0}/${world.rules.panelActions}`;
             if (kind === 'managerPc') out.at(-1)!.progress = `${state.objects[object]?.progress ?? 0}/${world.rules.pcActions}`;
-            if (kind === 'vaultConsole' && verb === 'sensors') out.at(-1)!.progress = `${state.objects[object]?.progress ?? 0}/${world.rules.sensorActions}`;
+            if ((kind === 'vaultConsole' || kind === 'wiringBox') && verb === 'sensors') out.at(-1)!.progress = `${state.objects[object]?.progress ?? 0}/${world.rules.sensorActions}`;
             if (kind === 'depositBoxes') out.at(-1)!.progress = `${state.objects[object]?.progress ?? 0}/${world.rules.lockpickActions}`;
         }
     }
@@ -332,6 +354,13 @@ export function actionMenu(world: ReadonlyWorld, state: State, crewId: string, t
     const desk = loopFrom(world, state, crewId);
     const camera = desk && (target && targets.cameras.includes(target) ? target : nextCamera(world, state, crewId, null) ?? targets.cameras[0]);
     if (desk && camera) add('loop', 'Loop feed', 'hack', { type: 'loopFeed', crew: crewId, object: desk, camera }, camera);
+
+    // Ring a desk phone (§8.13): the tapped one, else the first; tapping the entry again rings the next (the scene).
+    const phone = target && targets.phones.includes(target) ? target : targets.phones[0];
+    if (phone) add('ring', 'Ring phone', 'phone', { type: 'ringPhone', crew: crewId, phone }, phone);
+    // The manager's keycard in his drawer (§17.6), only while it can be taken: a drawer gives nothing away before.
+    const card = keycardsHere(world, state).find(o => reachesObject(world, state, member.pos, o));
+    if (card) add('takeKeycard', 'Take keycard', 'bag', { type: 'interact', crew: crewId, object: card.id, verb: 'take' }, card.id);
 
     if (member.loadout.items.includes(JAMMER)) add('jammer', 'Jammer', 'radio', { type: 'placeJammer', crew: crewId });
     // Off-map routes (§14.7, M4-05): the route whose end is in reach, offered even when closed (the helicopter, loot too
@@ -380,7 +409,8 @@ export function actionMenu(world: ReadonlyWorld, state: State, crewId: string, t
     if (wire) add('tripwire', `Tripwire (${member.charges.tripwire ?? 0})`, 'grenade', wire);
 
     const loot = pick(targets.loot);
-    if (loot) add('take', `Take ${LOOT_NAME[lootWeight(world, loot)]}`, 'bag', { type: 'takeLoot', crew: crewId, loot }, loot);
+    const objective = loot ? world.objects.find(o => o.id === loot)?.loot?.objective : undefined;
+    if (loot) add('take', objective !== undefined ? 'Take it' : `Take ${LOOT_NAME[lootWeight(world, loot)]}`, 'bag', { type: 'takeLoot', crew: crewId, loot }, loot);
     const held = inHands(world, state, crewId);
     if (held) add('putDown', 'Put down', 'flip', { type: 'dropLoot', crew: crewId });
     const mates = state.crew.filter(c => c.id !== crewId);

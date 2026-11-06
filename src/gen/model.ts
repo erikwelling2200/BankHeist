@@ -239,6 +239,9 @@ export interface GenPerson extends LevelPerson {
     hidden?: boolean;
 }
 
+/** What one deposit box holds (§15.1: a Light stack, as a drawer's $5k): the boxes' loot is split by it. */
+export const DEPOSIT_BOX = 5000;
+
 /** One entry on the bank's timeline (§16.3). */
 export interface TimelineEvent { turn: number; name: string; detail: string; duration?: number }
 

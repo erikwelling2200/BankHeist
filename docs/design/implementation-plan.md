@@ -844,7 +844,7 @@ M2 is complete: every package below has landed.
       and coerces with every preview equal to its commit, each required to happen; it passes on seeds 20261016, 777 and
       12345 (its first version injected a command the rules can't make, 3 pips, which the command check rightly
       refused). Save shape hash `f3b3351d03de6ab8`.
-    - **Deferred:** the vault wiring box as a prop (M5-04; its wiring is at the console until then, decision 81); a
+    - **Deferred:** the vault wiring box as a prop (done in M5-04, decision 366); a
       power cut darkening the console (done in M4-03, decision 244); thermite's fire and scorched loot (M4); heat
       ticks while drilling (M3); the
       Silent and Beast drills (M6 planning); the armoured car's couriers opening the vault (M6); the operator buzzing
@@ -1528,8 +1528,7 @@ M2 is complete: every package below has landed.
     `legalActions`; the ammo bag Loud only, refills, reach, the last use, the save; reinforcement kits coming off; the
     suppressed SMG's quiet shot); `e2e/gadgets.spec.ts` (`screenshots/noisemaker.png`, `gadgets.png`). Save shape hash
     `7af157e58b930bf7` (with M4-03's fields). No visual baseline changed (nothing new shows at the start).
-  - **Deferred:** ringing a desk phone (§8.13: desk phones and their owners are props of M5-04; with them, the
-    hacking kit's remote ring and the owner's walk to answer); a phone-alarm noisemaker set to go off later (a fuse in
+  - **Deferred:** ringing a desk phone (done in M5-04, decisions 360–361); a phone-alarm noisemaker set to go off later (a fuse in
     stealth would change a world phase the safe floor doesn't judge, decision 101); picking the jammer or an ammo bag
     up again; the ammo bag in the van or a stash drop (§18.2); the suppressor as an attachment fitted or taken off in
     play (it is its own item); the police's own grenade throws through `throwMap` (rules/swat.ts); the jammer's and the ammo bag's
@@ -1597,9 +1596,30 @@ M2 is complete: every package below has landed.
   - **Covers:** §17.8.
   - **Work:** the Blueprints and Guard rota assets; casing persisting between days; intel shown on the planning screen.
   - **Depends on:** M4-07.
-- [ ] **M5-04 Generator content for the rules.**
+- [x] **M5-04 Generator content for the rules.** (partial: see Deferred)
   - **Work:** desk phones and their owners; the phone line; uniforms in the break room; keycards as items; the deposit-box intel box; a hook for placing side objectives (needed by M6).
   - **Missing interactables (found in M1-02):** the catalog has no desk phones or phone-line point (the line §9.1's calls go out on), and no vault wiring box; `worldFromBank` derives no objects for them until they are props.
+  - **Done:** four new props, each with a catalog entry and four hand-drawn facings (`/?scene=props`): the `deskPhone`
+    (on every clerk's workstation, both desks of a desk pair and the manager's desk, `src/gen/activities.ts`), the
+    `phoneLine` junction box (alarm closet), the `uniformRack` (break rooms; a small one already full keeps its lockers
+    as the uniform source; 1.55m, so it doesn't block sight) and the vault sensors' `wiringBox` (antechamber); the rack
+    and the wiring box go in last, so their rooms roll as before. `validate.ts` checks the last three are reachable. `worldFromBank` makes them objects; a desk
+    phone's owner is the person whose post is beside it (decision 360). Rules (`src/sim/rules/phones.ts`):
+    `ringPhone` (decision 361) and cutting the phone line (decision 362). The uniform rail is a source of staff
+    uniforms as the lockers are. The manager's keycard lies in his desk drawer during lunch when the generator's
+    `keycard-drawer` opportunity says so (`rules/actions/keycards.ts`, decision 364). One deposit box holds the intel
+    (`loot.intel`, `State.intelFound`, decision 363). `GenerateOptions.objectives` places side objectives
+    (`src/gen/objectives.ts`, decision 365). The sensors are cut at the wiring box (decision 366). The action grid offers
+    Ring phone (cycling through the phones as Loop feed does cameras), Cut phone line and Take keycard.
+  - **Tests:** `tests/sim/phones.test.ts`, `tests/objectives.test.ts`, the M5-04 case in `tests/sim/fromBank.test.ts`.
+    The pinned M1 bank `31-2` and every generated bank change (phones on the desks, the new props, the furnishing that
+    follows them; in `31-2` the roof hatch moves along the closet wall): the visual baselines are updated, and the M1
+    recording (e2e/m1Run.ts) still plays unchanged. Save shape hash `92e55d7db1f5b4f8`.
+  - **Deferred:** the Cut phone line and Staff uniforms planning assets (§18.2: the plan's shape and the planner UI);
+    what the intel tells and the drawer card's discovery (M5-02); counting side objectives at the debrief and placing
+    them from contracts (M6-02); a landline caller turning to a mobile on a dead line; the owner answering in an
+    animation of their own (they walk as an investigator, status Investigating); a phone picker on the map (the grid
+    cycles); the security chief's absence and the other finale effects (M6/M7).
 - [ ] **M5-05 Playability bot (stretch).**
   - **Work:** a scripted Clean infiltrator that must reach the alarm closet unexposed on N seeds, run in the sweep.
 
@@ -2856,6 +2876,37 @@ Later milestones: within each milestone, the `∥` notes in §3 apply. UI packag
     start that isn't one (`aboard` a boolean, the nest with nothing else), `nest` not a boolean, a vehicle type that
     doesn't exist, a jammer off the grid, and no van (no getaway). `setupProblems` reports it first, so the game sends
     such an address back to planning.
+360. **Desk phones and their owners (M5-04, §8.13).** The generator puts a phone on every desk someone works at; the
+    owner is the person whose `post` block stands within a tile of the phone, in its room (the nearest), and they answer
+    from that post (`answerAt`). A phone with nobody's post beside it has no owner: ringing it brings nobody.
+361. **Ringing a desk phone (M5-04, §8.13).** `ringPhone { crew, phone }`, 1 action: from another desk phone in reach
+    (Clean, no illegal act), or anywhere with a hacking kit (the illegal act 'hack'). The owner, if present, deciding for
+    themselves, not alerted and not panicking, is sent as an errand (`sendToLook`, `phone:<id>:<turn>`): the walk is
+    telegraphed in the crew phase and ends beside the post or after `rules.evidencePhases`, as a guard sent to look.
+    The ring event never names the owner, so a preview says nothing about an owner the crew doesn't know. A dead line
+    rings nothing.
+362. **The phone line (M5-04, §9.1).** `interact … cut` at the alarm closet's `phoneLine` (1 action, 'hack', no kit):
+    a landline call (`Carrier.line`) doesn't start (`lineDead`, as `alarmDead`) and one under way is countered
+    (`registerCarrierCheck('phoneLine')`); mobiles are the jammer's. Dispatch notices after `rules.phoneLineNoticed`
+    (15) world phases counted from the cut, inclusive, and sends a drive-by `driveByLead` later (`deadLineNoticed`),
+    unless one is already due or the Alarm is up. Undoable: nobody sees a cut line.
+363. **The intel box (M5-04, §17.4).** The deposit parcel picks which box holds the intel from a stream of its own
+    (`Loot.intelBox`); `worldFromBank` marks that box (`loot.intel`). Opening it, or drilling its wall, adds it to
+    `State.intelFound` (`intelFound`, a preview secret). Opening any deposit box is now final (`boxOpened` undo-blocking),
+    so neither the intel nor an undo tells which box held it; what the intel tells is M5-02's.
+364. **Keycards as things (M5-04, §15.2, §17.6).** A `keycard` object is a card lying somewhere with its `holder`, from
+    `from` until `until`; `worldFromBank` makes the manager's, in his desk drawer through his lunch, when the generator's
+    `keycard-drawer` opportunity is rolled. Taking it (1 action, 'takeLoot') gives the crew the holder's card
+    (`CrewState.keycards`) and takes it from the holder (`NpcState.keycard`); it isn't there if the holder lost it
+    already. The grid offers it only while it can be taken, so the drawer tells nothing before lunch.
+365. **Side objectives (M5-04, §19.5).** `GenerateOptions.objectives` places each after the furnishing (so nothing else
+    in the bank changes): the blueprints and the chief's dirt as one more deposit box (the manager's office without a
+    deposit room), the blackmail material and half the code at the manager's desk, moved out of reach once the Alarm is
+    up (`lostOnAlarm`, refused by `takeLoot` unless already taken). They are Light loot worth $0, pocketed (a pocket
+    slot), and come open with a drilled wall; M6 counts the one its carrier escapes with.
+366. **The vault wiring box (M5-04, decision 81).** Where the antechamber has a `wiringBox`, the sensors are cut there
+    (same work and act as before); the console refuses ("The sensors are wired at the wiring box"). A bank without one
+    keeps decision 81's console.
 
 340. **Validation sees with the rules (M5-01, §17.7).** The checks of what is seen run on the World the game builds from
     the bank (`worldFromBank`) in its state on turn 1 (`initialState`: everyone where they start, the doors as they
