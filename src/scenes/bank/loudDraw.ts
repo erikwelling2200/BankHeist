@@ -1,4 +1,4 @@
-import type { AimBodyVM, AimVM, BreachVM, FortifyVM, ShieldVM } from '../../game/loudUi';
+import type { AimBodyVM, AimVM, BreachVM, FortifyVM, GadgetVM, ShieldVM } from '../../game/loudUi';
 import type { Signal } from '../../game/worldUi';
 import type { Pos } from '../../sim';
 
@@ -17,6 +17,8 @@ import type { Pos } from '../../sim';
  * - **The acting unit** of a world phase in a firefight: red corner brackets round its tile.
  * - **Fortifications** (M4-02, drawn in stealth too): a barricade as crossed planks over the wall segment with a pip
  *   per hit point left, blinds as slats along a window, the crew's reinforcement as a riveted steel bar.
+ * - **Gadgets** (M4-06, drawn in stealth too): a running jammer as a small mast with its radius as a dashed cream
+ *   circle (the carriers it pauses lie inside), an ammo bag as a bag with a pip per refill left.
  */
 
 export interface LoudContent {
@@ -24,6 +26,8 @@ export interface LoudContent {
     breaches?: BreachVM[];
     /** The wall segments the crew fortified (§14.3). */
     fortified?: FortifyVM[];
+    /** The crew's jammers and ammo bags on the floor. */
+    gadgets?: GadgetVM[];
     /** The unit acting now in a world phase's playback: bracketed in red. */
     acting?: Pos;
     /** Shots just fired in playback: a tracer from the shooter to where they aimed, red for the police and NPCs, the crew's in cream. */
@@ -79,6 +83,7 @@ function reachAt(outline: readonly [number, number][], angle: number): number {
 /** The cone, its bodies' markers and their cover. */
 export function drawLoud(ctx: CanvasRenderingContext2D, c: LoudContent, f: Frame): void {
     for (const w of c.fortified ?? []) drawFortified(ctx, w, f);
+    for (const g of c.gadgets ?? []) drawGadget(ctx, g, f);
     if (c.aim) drawAim(ctx, c.aim, f);
     for (const b of c.breaches ?? []) drawBreach(ctx, b, f);
     if (c.acting) drawActing(ctx, c.acting, f, f.pal.red);
@@ -297,6 +302,45 @@ function drawFortified(ctx: CanvasRenderingContext2D, w: FortifyVM, f: Frame): v
             ctx.fillStyle = CREAM;
             ctx.fillRect(Math.round(px) - 2, Math.round(py) - 2, 3, 3);
         }
+    }
+}
+
+const BAG = '#6b7a4a';
+
+/** A jammer or an ammo bag on the floor (see the header). */
+function drawGadget(ctx: CanvasRenderingContext2D, g: GadgetVM, f: Frame): void {
+    const [cx, cy] = f.mid(g.at);
+    if (g.kind === 'jammer') {
+        inked(ctx, rgba(CREAM, 0.55), 1, dy => {
+            ctx.moveTo(cx + (g.radius ?? 0) * f.S, cy + dy);
+            ctx.arc(cx, cy + dy, (g.radius ?? 0) * f.S, 0, Math.PI * 2);
+        }, [4, 4]);
+        // The box and its mast, with two arcs of signal.
+        ctx.fillStyle = INK;
+        ctx.fillRect(Math.round(cx) - 5, Math.round(cy) - 1, 11, 7);
+        ctx.fillStyle = CREAM;
+        ctx.fillRect(Math.round(cx) - 4, Math.round(cy), 9, 5);
+        inked(ctx, CREAM, 1.5, dy => {
+            ctx.moveTo(cx, cy + dy);
+            ctx.lineTo(cx, cy - 10 + dy);
+            ctx.moveTo(cx + 4, cy - 12 + dy);
+            ctx.arc(cx, cy - 12 + dy, 4, 0, Math.PI, true);
+        });
+        return;
+    }
+    ctx.fillStyle = INK;
+    ctx.fillRect(Math.round(cx) - 7, Math.round(cy) - 3, 15, 10);
+    ctx.fillStyle = BAG;
+    ctx.fillRect(Math.round(cx) - 7, Math.round(cy) - 5, 14, 9);
+    ctx.fillStyle = CREAM;
+    ctx.fillRect(Math.round(cx) - 3, Math.round(cy) - 7, 6, 2);
+    // A pip per refill left.
+    for (let i = 0; i < (g.uses ?? 0); i++) {
+        const px = Math.round(cx - ((g.uses ?? 0) - 1) * 2.5 + i * 5);
+        ctx.fillStyle = INK;
+        ctx.fillRect(px - 1, Math.round(cy) + 7, 3, 3);
+        ctx.fillStyle = CREAM;
+        ctx.fillRect(px - 1, Math.round(cy) + 6, 2, 2);
     }
 }
 

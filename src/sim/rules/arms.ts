@@ -7,7 +7,7 @@ import type { CrewState, DeepReadonly, Pos, ReadonlyWorld, State } from '../core
 import { registerEvents } from '../core/undo';
 import { itemDef } from '../data/items';
 import {
-    BRACEABLE, DEFAULT_NPC_GUN, isThrowable, loadsOf, NPC_GUN, NPC_SPARE_MAGS, SPARE_MAGS, SPARES_OF, THROWABLES, weaponDef, type WeaponId
+    BRACEABLE, DEFAULT_NPC_GUN, isThrowable, loadsOf, NOISEMAKER, NPC_GUN, NPC_SPARE_MAGS, SPARE_MAGS, SPARES_OF, THROWABLES, weaponDef, type WeaponId
 } from '../data/weapons';
 import { inReach, lacksActions, registerAction } from './actions/act';
 import { weaponsInHand } from './command';
@@ -34,7 +34,8 @@ import type { Shot } from './shot';
  * - **Brace** (`brace { crew }`, §6.3): the DMR or LMG drawn; their last action (what is left, at least 1). Braced until
  *   they move: no moving penalty, the LMG's braced recoil (rules/shot.ts `shotArcs`).
  * - **Moving** (`Arms.moved`): the turn a crew member last moved, for the moving penalty (§11.2); moving ends a brace.
- * - **Throwables** (`Arms.throwables`): flashbangs and smoke left (2 per kit item, §12.2), rules/actions/throwables.ts.
+ * - **Throwables** (`Arms.throwables`): flashbangs and smoke left (2 per kit item, §12.2), rules/actions/throwables.ts,
+ *   and noisemakers (3 per kit item), rules/actions/gadgets.ts.
  * - **NPCs' guns** (`NpcState.ammo`): an armed NPC's weapon (guards and the off-duty cop: a pistol) with a full magazine
  *   and 2 spares (decision 95). A frisk takes the weapon (`armed`), not the magazines on the belt.
  */
@@ -66,7 +67,7 @@ export interface Arms {
     drawn: string | null;
     /** Rounds by weapon item, for every weapon carried (packed ones too). */
     guns: Record<string, Gun>;
-    /** Flashbangs and smoke grenades left, by item. */
+    /** Flashbangs, smoke grenades and noisemakers left, by item. */
     throwables: Record<string, number>;
     /** The turn of this turn's free swap, or null. */
     swapped: number | null;
@@ -138,6 +139,7 @@ registerCrewInit('weapons', (_world, _start, member) => {
     for (const id of [...member.loadout.items, ...member.loadout.packed]) {
         if (isGun(id) && !Object.hasOwn(guns, id)) guns[id] = freshGun(id);
         if (isThrowable(id)) throwables[id] = (Object.hasOwn(throwables, id) ? throwables[id]! : 0) + THROWABLES[id].count;
+        if (id === NOISEMAKER.item) throwables[id] = (Object.hasOwn(throwables, id) ? throwables[id]! : 0) + NOISEMAKER.count;
     }
     member.arms = { drawn: startingDrawn(member), guns, throwables, swapped: null, moved: null, braced: false, watch: null, aiming: null };
 });

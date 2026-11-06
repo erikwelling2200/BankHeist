@@ -629,6 +629,29 @@ export const blowWall = async (page: Page, info: Wall): Promise<void> => {
 /** The world overlay and the HUD, hidden for a picture of the bank's art alone. */
 export const HIDE_FOR_ART = '.world-overlay, .sh, .play-speed, .play-toast, .camera-controls, .fullscreen-button { display: none !important; }';
 
+/** Mara beside a guard the crew knows, with three noisemakers (M4-06). */
+export const NOISEMAKER_SETUP = `(() => {
+    const found = ${BESIDE_GUARD};
+    if (!found) return null;
+    const m = found.state.crew[0];
+    m.loadout.items.push('noisemaker');
+    m.arms.throwables.noisemaker = 3;
+    return found;
+})()`;
+
+/** The bank loud with Mara in the thick of it, an ammo bag beside her with 3 refills and a jammer running at her feet (M4-06). */
+export const GADGETS_SETUP = `(() => { ${PAGE_HELPERS}
+    const found = ${LOUD_SETUP};
+    if (!found) return null;
+    const st = found.state, m = st.crew[0];
+    const bag = AROUND.map(d => ({ x: m.pos.x + d.x, y: m.pos.y + d.y })).find(p => free(st, p));
+    if (!bag) return null;
+    st.ammoBags = [{ id: 'ammoBag-e2e', at: bag, uses: 3, by: m.id }];
+    st.jammers = [{ id: 'jammer-e2e', pos: { ...m.pos }, crew: m.id, turn: st.turn }];
+    m.arms.guns.assaultRifle.spare = 0;
+    return { state: st, info: { at: m.pos, bag } };
+})()`;
+
 export const SETUPS: Record<string, Setup> = {
     'charge-preview': {
         about: 'Mara beside a plaster wall with her Breach charge previewed: the far side it hits outlined, a cross on any loot it would destroy, its fuse',
@@ -673,6 +696,25 @@ export const SETUPS: Record<string, Setup> = {
         script: LOUD('negotiate'),
         then: async page => {
             await selectMara(page);
+            await page.waitForTimeout(400);
+        }
+    },
+    'noisemaker': {
+        about: 'Mara beside a guard with her Noisemaker previewed: thrown as far as it goes ahead of her, its quiet ring and ears, every tile it could land on',
+        script: NOISEMAKER_SETUP,
+        then: async page => {
+            await selectMara(page);
+            await page.locator('.sh-actions button[data-action="noisemaker"]').click();
+            await lookAtMara(page);
+            await page.waitForTimeout(400);
+        }
+    },
+    'gadgets': {
+        about: 'the bank loud, an ammo bag beside Mara with a pip per refill left and a jammer at her feet with its radius',
+        script: GADGETS_SETUP,
+        then: async page => {
+            await selectMara(page);
+            await lookAtMara(page);
             await page.waitForTimeout(400);
         }
     },

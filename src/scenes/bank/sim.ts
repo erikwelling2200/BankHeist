@@ -4,11 +4,11 @@ import {
     type PathVM
 } from '../../game/worldUi';
 import {
-    actionMenu, AutoRun, HEIST_KEY, rolePortrait, throwTiles, autoBarView, bankView, barkText, cameraName, doorMiddle, nextCamera, moveAlong, moveRange, moveTo, routeViews, stopNeedsAttention, targetsOf, waitMenu, type ActionId, type FloorJob, type MoveRange,
+    actionMenu, AutoRun, HEIST_KEY, noisemakerTiles, rolePortrait, throwTiles, autoBarView, bankView, barkText, cameraName, doorMiddle, nextCamera, moveAlong, moveRange, moveTo, routeViews, stopNeedsAttention, targetsOf, waitMenu, type ActionId, type FloorJob, type MoveRange,
     type PlaybackItem, type PlaybackSpeed, type Session, type SessionChange
 } from '../../game';
 import { shownWarnings, warningLines, type EvidenceWarning } from '../../game/evidenceWarning';
-import { aimView, breachMarkers, fireSelector, fortifyMarkers, policeMarkers, type AimVM, type PoliceMarkerVM } from '../../game/loudUi';
+import { aimView, breachMarkers, fireSelector, fortifyMarkers, gadgetMarkers, policeMarkers, type AimVM, type PoliceMarkerVM } from '../../game/loudUi';
 import { loudView, negotiatorView, posesCovering, type LoudVM } from '../../game/loudBoards';
 import type { GeneratedBank } from '../../gen/model';
 import { TILE } from '../../level/constants';
@@ -353,12 +353,12 @@ export class PlayMode {
             /**
              * Once loud (M3-09): the officers drawn (live or ghost, where), the unit acting in a world phase's playback and
              * the queue strip's order, the previewed shot's cone (its bullets, bodies and shields), the breaches drawn and
-             * the edges drawn fortified (M4-02).
+             * the edges drawn fortified (M4-02) and the gadgets on the floor (M4-06).
              */
             loud: {
                 officers: this.officersShown.map(m => ({ id: m.id, live: m.live, pos: m.pos, shown: this.people.shown(this.officerSprite.get(m.id) ?? -1) })),
                 acting: this.acting, queue: this.acting ? this.actors?.order ?? [] : [], tracers: this.tracers.length,
-                aim: this.overlay.state.aim, breaches: this.overlay.state.breaches, fortified: this.overlay.state.fortified
+                aim: this.overlay.state.aim, breaches: this.overlay.state.breaches, fortified: this.overlay.state.fortified, gadgets: this.overlay.state.gadgets
             },
             /** Auto-advance (§6.5): running, the last stop, the routes and how they split into turns. */
             auto: {
@@ -747,6 +747,9 @@ export class PlayMode {
                 return true;
             }
             case 'jammerPlaced': this.bark(e.pos, 'Jammer on'); return true;
+            case 'noisemakerLanded': this.bark(e.at, 'Beep beep!'); return true;
+            case 'ammoBagDropped': this.bark(e.at, 'Ammo here'); return true;
+            case 'ammoRefilled': say(e.crew, `+${e.magazines} mags`); return true;
             case 'alarmRaised': {
                 const p = this.carrierAt.get(e.carrier);
                 if (p) this.flash({ at: p, kind: 'alarm' }, ALARM_MS);
@@ -1110,6 +1113,12 @@ export class PlayMode {
         // the grid's Throw to names the catcher.
         const onFloor = !onTile && !drawn && !this.known().npcs.some(m => m.kind !== 'ghost' && (same(m.pos, tile) || this.people.hit(this.sprite.get(m.id) ?? -1, x, y)));
         if (pending?.type === 'throwLoot' && onFloor && throwTiles(this.session.world, this.session.state, pending.crew).some(p => same(p, tile))) {
+            if (same(pending.to, tile)) return this.confirm();
+            this.preview({ ...pending, to: tile });
+            return;
+        }
+        // A noisemaker previewed (§8.13, M4-06): the same, on any floor tile it reaches.
+        if (pending?.type === 'throwNoisemaker' && onFloor && noisemakerTiles(this.session.world, this.session.state, pending.crew).some(p => same(p, tile))) {
             if (same(pending.to, tile)) return this.confirm();
             this.preview({ ...pending, to: tile });
             return;
@@ -1628,7 +1637,9 @@ export class PlayMode {
         // A throw (§15.1): the bag's arc, as `throwPlan` has it land, and every tile it could go to (a tap picks one).
         const thrown = pending?.type === 'throwLoot' ? throwPlan(this.session.world, this.session.state, pending) : undefined;
         const arc = thrown && typeof thrown !== 'string'
-            ? { throwArc: { from: thrown.from, to: thrown.to, caught: thrown.catcher !== null }, throwRange: throwTiles(this.session.world, this.session.state, member.id) } : {};
+            ? { throwArc: { from: thrown.from, to: thrown.to, caught: thrown.catcher !== null }, throwRange: throwTiles(this.session.world, this.session.state, member.id) }
+            : pending?.type === 'throwNoisemaker'
+                ? { throwArc: { from: member.pos, to: pending.to, caught: false }, throwRange: noisemakerTiles(this.session.world, this.session.state, member.id) } : {};
         // A command (§10.1): its two rings and each known NPC's outcome stand in for its noise ring and ear badges.
         if (pending?.type === 'command') {
             const rings = commandRings(this.session.world, this.session.state, this.known(), this.session.commandRings(pending.crew));
@@ -1789,7 +1800,7 @@ export class PlayMode {
             flashes: this.liveFlashes(),
             crewColours: Object.fromEntries(state.crew.map((c, i) => [c.id, CREW_COLOURS[i % CREW_COLOURS.length]!])),
             // Breaches announced for the next world phase (M3-09), and the unit acting in a firefight's playback.
-            loud: { breaches: breachMarkers(world, state), fortified: fortifyMarkers(world, state), ...(this.acting ? { acting: this.acting.pos } : {}), tracers: this.liveTracers() },
+            loud: { breaches: breachMarkers(world, state), fortified: fortifyMarkers(world, state), gadgets: gadgetMarkers(world, state), ...(this.acting ? { acting: this.acting.pos } : {}), tracers: this.liveTracers() },
             // People walking during playback: their plates come back when it is over.
             ...(busy ? {} : {
                 badges: npcBadges(world, state, view).filter(b => !state.npcs.some(n => n.id === b.id) || shown(b.id)),

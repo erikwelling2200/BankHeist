@@ -152,6 +152,20 @@ export function fortifyMarkers(world: ReadonlyWorld, state: State): FortifyVM[] 
 }
 
 /**
+ * The crew's gadgets left on the floor (M4-06): a running jammer (§12.2) with its radius (Euclidean, tiles), so the player
+ * sees which radios and phones it silences, and an ammo bag (§11.11) with its refills left. The crew put each there,
+ * so it knows them all.
+ */
+export interface GadgetVM { kind: 'jammer' | 'ammoBag'; at: Pos; radius?: number; uses?: number }
+
+export function gadgetMarkers(world: ReadonlyWorld, state: State): GadgetVM[] {
+    return [
+        ...(state.jammers ?? []).map(j => ({ kind: 'jammer' as const, at: { x: j.pos.x, y: j.pos.y }, radius: world.rules.jammerRadius })),
+        ...(state.ammoBags ?? []).map(b => ({ kind: 'ammoBag' as const, at: { x: b.at.x, y: b.at.y }, uses: b.uses }))
+    ];
+}
+
+/**
  * The fire selector of an attack (§11.1, UI.md "Shot cones": 1 round up to the weapon's Bullets, as many as are loaded):
  * the most it can fire and how many it fires now; undefined for a weapon that fires one (the taser) or no attack.
  */

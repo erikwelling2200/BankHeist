@@ -973,7 +973,7 @@ M2 is complete: every package below has landed.
       how such a door stands (a two-worlds test in `tests/game/actions.test.ts`).
     - **Deferred:** what harm does (M3-03); NPCs firing, their Watch and what Suppressed does to them (M3-05, M3-06;
       `watchReact` is the hook for NPCs acting one at a time); police grenades and what they do to the crew (M3-06);
-      the ammo bag, the SMG's suppressor and the noisemaker (M4); smoke in stealth (decision 101); stopping a
+      the ammo bag, the SMG's suppressor and the noisemaker (M4; done in M4-06); smoke in stealth (decision 101); stopping a
       shouted-down runner mid-run (decision 100); `watchReact` / `suppressReact` for NPCs acting one at a time (M3-05).
     - **Later fixes:** `movedOrActed` counts only what has happened by the passive step's reactions (a walk, a draw),
       not an intent's action still to come; the throw preview shows the noise each grenade makes as it goes off
@@ -1391,9 +1391,38 @@ M2 is complete: every package below has landed.
   - **Covers:** §14.5, §14.7.
   - **Work:** the transit track for roof and sewer routes; vents.
   - **∥** M4-01.
-- [ ] **M4-06 Distractions and gadgets.**
+- [x] **M4-06 Distractions and gadgets.** (partial: see Deferred)
   - **Covers:** §8.13, §12.2.
   - **Work:** the noisemaker; ringing a desk phone; the jammer; the ammo bag; the reinforcement kit.
+  - **Notes (done):** decisions 260–266. `src/sim/rules/actions/gadgets.ts`:
+    - `throwNoisemaker { crew, to }`: 1 action, hands free, up to `NOISEMAKER.range` 6 (Euclidean) to a tile the thrower
+      sees that isn't full height, in stealth too; `NOISEMAKER.count` 3 per kit item in `Arms.throwables.noisemaker`
+      (rules/arms.ts), the last taking the item off. It sounds as it lands (`noisemakerLanded`, then the quiet
+      `noisemaker` noise of 3 at the landing tile): the hearers react as to any quiet noise (rules/evidence.ts), so the
+      preview's ring and ears are the outcome. `noisemakerTargets` / `noisemakerBlocked`; every target is a candidate.
+    - The ammo bag: `dropAmmoBag { crew }` (1 action, hands free, Loud only, on their tile; `State.ammoBags`,
+      `rules.ammoBagUses` 4) and `refillAmmo { crew, bag }` (1 action, in reach: every gun's spares back to its start,
+      `refillMagazines`; the last use leaves nothing). The `gadgets` state check refuses saves without `ammoBags`.
+    - The reinforcement kit (rules/fortify.ts `spendReinforcement`): a kit whose two uses are spent comes off.
+    - The suppressed SMG: its own item and weapon row (`suppressedSmg`: the SMG's numbers, quiet noise 4).
+    - The jammer was already whole (M1-08: radios and mobile phone carriers paused in its radius 8, check-in calls not
+      reaching a guard in range, dispatch's lost contact after 10 phases); it is now drawn.
+  - **Game and scene:** the grid's Noisemaker (n) thrown as far as it goes ahead of them (`noisemakerTiles`: the targets
+    with the doubted doors shut, none hidden), a tap on another tile it reaches while previewed moving it, the throw's
+    arc and range drawn as a bag's; Ammo bag and Refill (n); the world overlay draws a running jammer with its radius and
+    an ammo bag with a pip per refill left, in stealth too (`gadgetMarkers`, loudDraw.ts `drawGadget`;
+    `debugState.play.loud.gadgets`); barks and recap lines.
+  - **Setups and tests:** `npm run shot` presets `noisemaker`, `gadgets`; `tests/sim/gadgets.test.ts` (the lure: ring,
+    ears, the guard sent and walking at once, back once beside the spot; refusals; the last noisemaker; the grid and
+    `legalActions`; the ammo bag Loud only, refills, reach, the last use, the save; reinforcement kits coming off; the
+    suppressed SMG's quiet shot); `e2e/gadgets.spec.ts` (`screenshots/noisemaker.png`, `gadgets.png`). Save shape hash
+    `7af157e58b930bf7` (with M4-03's fields). No visual baseline changed (nothing new shows at the start).
+  - **Deferred:** ringing a desk phone (§8.13: desk phones and their owners are props of M5-04; with them, the
+    hacking kit's remote ring and the owner's walk to answer); a phone-alarm noisemaker set to go off later (a fuse in
+    stealth would change a world phase the safe floor doesn't judge, decision 101); picking the jammer or an ammo bag
+    up again; the ammo bag in the van or a stash drop (§18.2); the suppressor as an attachment fitted or taken off in
+    play (it is its own item); the NPCs reading a noisemaker seen thrown as suspicious; the jammer's and the ammo bag's
+    own prop art (they are world-UI markers); every gadget bought in planning (M4-07).
 - [ ] **M4-07 Planning screen.**
   - **Covers:** §18.
   - **Work:** crew and loadouts; starts; vehicle spots; assets with their costs and the favour cap of 8, placed on the map; output a `HeistSetup` that becomes the starting state.
@@ -2504,6 +2533,33 @@ Later milestones: within each milestone, the `∥` notes in §3 apply. UI packag
     segment for where it stands, people relit without the lamps (`Baker.off`), powered glows put out; all under a cool
     emergency cast. Made the first time the power goes out (`debugState.timings['power cut']`, about 70 ms on the dev
     server here) and kept; with the power on nothing is drawn differently.
+
+260. **The noisemaker sounds as it lands (M4-06, §8.13, §12.2).** Thrown (1 action, hands free, up to 6 tiles
+    Euclidean to a tile the thrower sees, as a grenade) it makes its quiet noise of 3 at once, in the crew phase: no
+    fuse, so it is legal in stealth (decision 101 kept grenades out of stealth for their fuse) and the noise ring and
+    ears the preview shows are the outcome, by the same `hearing`. "Timed" is the lure's length (decision 261), not a
+    delay; a phone alarm set to ring later is deferred.
+261. **The lure lasts as a quiet noise does (M4-06, §8.13 "investigates it for 2 phases, then goes back").** The one sent
+    (the nearest of the right role, `pickInvestigator`) walks to the landing tile at the hurried pace in the next
+    world phase and goes back to its routine once beside it (rules/evidence.ts `evidence.settle`), or after
+    `rules.evidencePhases` (3) at the latest: in a radius of 3 that is the design's two phases (the walk there and the
+    walk back). The others who hear it face it for the phase. Throwing it is no illegal act and Clean: whoever sees the
+    thrower sees a customer, but those who turn to the noise see what is there.
+262. **The ammo bag is for when the bank is loud (M4-06, §11.11).** Dropped (1 action, hands free) on the crew member's
+    tile only once Loud, like the grenades and tripwires: a bag lying through a quiet world phase would be evidence
+    nobody judges. A refill (1 action, the bag in reach) tops up every gun the crew member carries to the spare
+    magazines it started with (3; the taser none), one of the bag's 4 uses; it is refused when nothing is short.
+263. **Kits come off when spent (M4-06, §12.2).** A reinforcement kit whose two uses are spent comes off the crew member
+    (its Concealed profile with it), as the last grenade or noisemaker does; with two kits, one at a time.
+264. **The suppressor is an SMG of its own (M4-06, §12.1 "suppressor optional").** `suppressedSmg` is a kit item with the
+    SMG's row but a quiet noise of 4 (§8.9), Armed as the SMG: chosen in the loadout, as the suppressed pistol is,
+    rather than fitted in play.
+265. **The jammer is drawn (M4-06, §12.2).** It already paused every radio and mobile phone carrier drawn within its
+    radius (M1-08; landline calls and wired carriers go on); the world overlay now draws a running jammer and its
+    radius, so the player sees which carriers it reaches. The crew placed it, so it tells nothing hidden.
+266. **No desk phones yet (M4-06, §8.13).** Ringing a desk phone needs the phones and their owners, props the
+    generator doesn't place (M5-04); without them there is no desk to ring, so it waits for them rather than guessing
+    owners from the schedule.
 
 ### Critical files for implementation
 

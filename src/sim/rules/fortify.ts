@@ -88,6 +88,20 @@ registerCrewInit('reinforcements', (world, _start, member) => {
     member.reinforcements = kits * world.rules.reinforceUses;
 });
 
+/**
+ * Spends one reinforcement (decision 263): a kit whose uses are all spent comes off the crew member, its profile with it
+ * (as the last grenade does), so they carry only the kits they still have uses of.
+ */
+function spendReinforcement(world: ReadonlyWorld, member: CrewState): void {
+    member.reinforcements--;
+    const uses = world.rules.reinforceUses;
+    const kits = [...member.loadout.items, ...member.loadout.packed].filter(i => i === REINFORCEMENT_KIT).length;
+    if (kits * uses - member.reinforcements < uses) return;
+    const i = member.loadout.items.indexOf(REINFORCEMENT_KIT);
+    if (i >= 0) member.loadout.items.splice(i, 1);
+    else member.loadout.packed.splice(member.loadout.packed.indexOf(REINFORCEMENT_KIT), 1);
+}
+
 registerStateCheck('fortify', raw => {
     const crew = (raw as unknown as Partial<State>).crew ?? [];
     for (const c of crew) if (typeof c.reinforcements !== 'number') return `crew member ${c.id} has no reinforcements (saved by an older build)`;
@@ -231,7 +245,7 @@ registerAction('fortify', {
                 break;
             case 'reinforce':
                 seenFortifying(ctx, member, 'reinforce');
-                member.reinforcements--;
+                spendReinforcement(world, member);
                 // A door's bar goes on the side the crew member stands on; only from there is it lifted again.
                 setEdge(state, edge, { material: 'reinforced', reinforced: true, ...(world.edges[edge]!.door ? { barredFrom: { x: member.pos.x, y: member.pos.y } } : {}) });
                 ctx.emit({ type: 'reinforced', crew: member.id, edge });

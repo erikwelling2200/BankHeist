@@ -20,6 +20,7 @@ import './rules/actions/body';
 import './rules/actions/charges';
 import './rules/actions/disguise';
 import './rules/actions/door';
+import './rules/actions/gadgets';
 import './rules/actions/hostage';
 import './rules/actions/interact';
 import './rules/actions/knockout';
@@ -224,6 +225,7 @@ export { isWounded, npcMaxHp } from './rules/woundsState';
 export {
     attackPlan, COMBAT_COMMANDS, inWedge, officersInRange, PICTURED_COMMANDS, strikeBlocked, suppressPlan, suppressReact, suppressTargets, targetsInRange, watchBlocked, watchReact, type AttackPlan
 } from './rules/actions/attack';
+export { noisemakerBlocked, noisemakersLeft, noisemakerTargets, refillBlocked, refillMagazines, type AmmoBag } from './rules/actions/gadgets';
 export { blastTiles, flipBlocked, grenadeTargets, throwBlocked, type Grenade } from './rules/actions/throwables';
 export {
     besideEdge, dropBarricade, dropField, edgesAround, edgeSides, FORTIFY_ACTIONS, fortificationOf, fortifiedEdges, fortifyBlocked, isWindow, REINFORCEMENT_KIT, type FortifyAction

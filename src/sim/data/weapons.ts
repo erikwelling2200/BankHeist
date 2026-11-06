@@ -47,6 +47,8 @@ export const WEAPONS = {
     suppressedPistol: { aim: 6, recoil: 6, bullets: 2, damage: 3, pierce: 0, range: 10, moved: 1, mag: 12, noise: 3 },
     machinePistol: { aim: 14, recoil: 3, bullets: 6, damage: 2, pierce: 0, range: 8, moved: 1, mag: 30, noise: 10 },
     smg: { aim: 7, recoil: 2, bullets: 4, damage: 2, pierce: 0, range: 12, moved: 1.25, mag: 30, noise: 9 },
+    // The SMG with its suppressor on (§12.1 "suppressor optional", §8.9: quiet 4): the same gun, its own kit item (decision 264).
+    suppressedSmg: { aim: 7, recoil: 2, bullets: 4, damage: 2, pierce: 0, range: 12, moved: 1.25, mag: 30, noise: 4 },
     shotgun: { aim: 20, recoil: 0, bullets: 6, damage: 2, pierce: 0, range: 8, moved: 1, mag: 6, noise: 12, close: { within: 3, damage: 1 } },
     shotgunSlug: { aim: 4, recoil: 0, bullets: 1, damage: 6, pierce: 2, range: 12, moved: 1, mag: 6, noise: 12 },
     assaultRifle: { aim: 2, recoil: 3, bullets: 3, damage: 4, pierce: 1, range: 20, moved: 2, mag: 30, noise: 14 },
@@ -131,7 +133,7 @@ export const HEAVY_FIRE: ReadonlySet<string> = new Set(['lmg']);
 
 /** The widest Watch wedge per weapon row (§11.8), degrees. */
 export const WATCH_ARC: Readonly<Record<string, number>> = {
-    taser: 60, pistol: 60, suppressedPistol: 60, machinePistol: 60, smg: 60, shotgun: 60, shotgunSlug: 60, lmg: 60, assaultRifle: 45, dmr: 15
+    taser: 60, pistol: 60, suppressedPistol: 60, machinePistol: 60, smg: 60, suppressedSmg: 60, shotgun: 60, shotgunSlug: 60, lmg: 60, assaultRifle: 45, dmr: 15
 };
 
 /** A Watch volley's Aim (§11.8): ×1.5, or ×1 when the wedge is `WATCH_NARROW` degrees or narrower. */
@@ -170,6 +172,15 @@ export const THROWABLES = {
 export type ThrowableId = keyof typeof THROWABLES;
 
 export const isThrowable = (id: string): id is ThrowableId => Object.hasOwn(THROWABLES, id);
+
+/**
+ * The noisemaker (§8.13, §12.2 "Noisemaker ×3"): how many come in a kit item and how far one is thrown (Euclidean, tiles,
+ * as the grenades). Its sound is `NOISES.noisemaker` (quiet, 3) at the landing tile, made as it lands (decision 260).
+ */
+export const NOISEMAKER = { item: 'noisemaker', count: 3, range: 6 } as const;
+
+/** The ammo bag (§11.11, §12.2): its kit item and the refills it holds (decision 262). */
+export const AMMO_BAG = { item: 'ammoBag', uses: 4 } as const;
 
 /** World phases a smoke cloud blocks sight (§12.2: 3). */
 export const SMOKE_PHASES = 3;

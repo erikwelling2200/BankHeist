@@ -1,7 +1,7 @@
 import {
     besideDoor, COMBAT_COMMANDS, FACING_STEP, crewPicture, negotiatorCalling, offerEffect, releasable, tradeable, withDoubtedShut, doorStatus, DRAGGABLE, draggedBy, goBlocked, HACKING_KIT, inHands, inReach, interactionVerbs, isKnownNow, JAMMER, officerSeen, legalActions, LOCKPICK, lockActions, LOOP_FROM, lootWeight,
     pocketed, preview, IllegalCommand, reachesObject, STASH_KINDS, throwTargets, tieIneligible, tileVisibility, whyNot, driveBudget, driveMap, driveReach, exitTiles, poseKey, vehicleBeside,
-    vehicleDef, edgesAround, fortificationOf, fortifyBlocked, isWindow, type FortifyAction, type Command, type DriveNode, type Pose, type Pos, type ReadonlyWorld, type State
+    vehicleDef, edgesAround, fortificationOf, fortifyBlocked, isWindow, noisemakersLeft, noisemakerTargets, type FortifyAction, type Command, type DriveNode, type Pose, type Pos, type ReadonlyWorld, type State
 } from '../sim';
 import type { HudIcon as HudIconName } from '../ui/hud/viewModels';
 
@@ -30,6 +30,8 @@ import type { HudIcon as HudIconName } from '../ui/hud/viewModels';
  * - Loop feed (§7.2, §8.12): at the CCTV desk or a server rack, for a camera the crew knows of: the tapped one, else
  *   the first it can loop; tapping the entry again cycles through them (the scene's `nextCamera`).
  * - Jammer (§12.2): while the member carries one.
+ * - Noisemaker (§8.13, M4-06): with the count left, thrown as far as it goes ahead of them (`noisemakerTiles`); a tap on
+ *   another tile it reaches while it is previewed moves it. Ammo bag (§11.11): put down once loud, Refill from one in reach.
  * - Loot (§15.1, M2-04): Take the loot in reach nobody has (the tapped one, else the first); with loot in the hands, Put
  *   down, Throw (a bag) to a teammate it would reach, and Pass (it, or a body) to a teammate in reach; Inspect a
  *   pocketed stack of cash not yet looked through; Drop ruined cash a dye pack spoilt. With nobody to catch it, Throw starts at the furthest tile the bag reaches;
@@ -316,6 +318,18 @@ export function actionMenu(world: ReadonlyWorld, state: State, crewId: string, t
     if (desk && camera) add('loop', 'Loop feed', 'hack', { type: 'loopFeed', crew: crewId, object: desk, camera }, camera);
 
     if (member.loadout.items.includes(JAMMER)) add('jammer', 'Jammer', 'radio', { type: 'placeJammer', crew: crewId });
+    // The noisemaker (§8.13, M4-06): as far as it goes ahead of them to start with; while it is previewed a tap on any
+    // tile it reaches throws it there (the scene).
+    if (noisemakersLeft(member) > 0) {
+        const tiles = noisemakerTiles(world, state, crewId), ahead = FACING_STEP[member.facing];
+        const score = (p: Pos): number => (p.x - member.pos.x) * ahead.x + (p.y - member.pos.y) * ahead.y;
+        const to = tiles.reduce<Pos | undefined>((best, p) => (!best || score(p) > score(best) ? p : best), undefined);
+        if (to) add('noisemaker', `Noisemaker (${noisemakersLeft(member)})`, 'ear', { type: 'throwNoisemaker', crew: crewId, to: { x: to.x, y: to.y } });
+    }
+    // The ammo bag (§11.11, M4-06): put down once loud; Refill from one in reach.
+    if (legal.some(c => c.type === 'dropAmmoBag')) add('ammoBag', 'Ammo bag', 'kit', { type: 'dropAmmoBag', crew: crewId });
+    const refill = legal.find((c): c is Extract<Command, { type: 'refillAmmo' }> => c.type === 'refillAmmo');
+    if (refill) add('refill', `Refill (${state.ammoBags.find(b => b.id === refill.bag)!.uses})`, 'reload', refill);
 
     // The drill and thermite (M2-05): at the vault door or a wall of deposit boxes the sim allows; a jammed drill in reach.
     const drill = legal.find((c): c is Extract<Command, { type: 'drill' }> => c.type === 'drill' && (!target || c.at === target));
@@ -426,7 +440,7 @@ function fortifyEntries(
 }
 
 /** The icon of a weapon's Fire entry. */
-const WEAPON_ICON: Readonly<Record<string, HudIconName>> = { pistol: 'pistol', suppressedPistol: 'pistol', smg: 'smg', machinePistol: 'smg', shotgun: 'shotgun', lmg: 'lmg', dmr: 'dmr' };
+const WEAPON_ICON: Readonly<Record<string, HudIconName>> = { pistol: 'pistol', suppressedPistol: 'pistol', smg: 'smg', suppressedSmg: 'smg', machinePistol: 'smg', shotgun: 'shotgun', lmg: 'lmg', dmr: 'dmr' };
 
 /**
  * The combat entries (see the header): each command one `legalActions` offers (so `menuIsLegal` holds), on the target
@@ -491,6 +505,13 @@ function combatEntries(
  */
 export const throwTiles = (world: ReadonlyWorld, state: State, crewId: string): Pos[] =>
     throwTargets(world, state, crewId).filter(p => tileVisibility(world, state, p) !== 'hidden');
+
+/**
+ * The tiles a crew member could throw a noisemaker to that the player may pick (§8.13): `noisemakerTargets` with the
+ * doors the crew can't vouch for shut, none of them hidden (decision 44: no throw tells how such a door stands).
+ */
+export const noisemakerTiles = (world: ReadonlyWorld, state: State, crewId: string): Pos[] =>
+    noisemakerTargets(world, withDoubtedShut(world, state), crewId).filter(p => tileVisibility(world, state, p) !== 'hidden');
 
 /** Whether a crew member's hands are free (nothing carried, nobody dragged or led). */
 const handsFreeOf = (member: State['crew'][number]): boolean => member.loadout.carrying === null && member.dragging === null;

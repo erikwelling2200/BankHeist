@@ -120,7 +120,7 @@ export const OFFICER_FLASHBANGS: Readonly<Record<PoliceKind, number>> = { patrol
 
 /** How heavy a weapon a SWAT team reads a crew member's drawn gun as (§13.6 target priority, last): by weapon row. */
 export const WEAPON_WEIGHT: Readonly<Record<string, number>> = {
-    lmg: 5, dmr: 4, assaultRifle: 4, shotgun: 3, shotgunSlug: 3, smg: 2, machinePistol: 2, pistol: 1, suppressedPistol: 1, taser: 0
+    lmg: 5, dmr: 4, assaultRifle: 4, shotgun: 3, shotgunSlug: 3, smg: 2, suppressedSmg: 2, machinePistol: 2, pistol: 1, suppressedPistol: 1, taser: 0
 };
 
 /** How far an officer (or a fighting guard) sees in combat, in tiles, all round (decision 151). */

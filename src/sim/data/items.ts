@@ -60,6 +60,7 @@ export const ITEMS = {
     suppressedPistol: { slot: 'sidearm', profile: 'concealed', holsterable: true, threat: 3, pistol: true },
     machinePistol: { slot: 'sidearm', profile: 'concealed', threat: 4 },
     smg: { slot: 'primary', profile: 'armed', duffel: 'longGun', threat: 4 },
+    suppressedSmg: { slot: 'primary', profile: 'armed', duffel: 'longGun', threat: 4 },
     shotgun: { slot: 'primary', profile: 'armed', duffel: 'longGun', threat: 5 },
     assaultRifle: { slot: 'primary', profile: 'armed', duffel: 'longGun', threat: 5 },
     dmr: { slot: 'primary', profile: 'armed', duffel: 'longGun', cased: true, threat: 5 },

@@ -126,7 +126,7 @@ const upright = (npc: DeepReadonly<NpcState>): boolean => !ABSENT_STATUSES.has(n
 
 /** The noise a weapon row makes (§8.9, §12.1), at its own radius. */
 export const NOISE_OF: Readonly<Record<string, NoiseSource>> = {
-    taser: 'taser', pistol: 'pistol', suppressedPistol: 'suppressedPistol', machinePistol: 'machinePistol', smg: 'smg',
+    taser: 'taser', pistol: 'pistol', suppressedPistol: 'suppressedPistol', machinePistol: 'machinePistol', smg: 'smg', suppressedSmg: 'suppressedSmg',
     shotgun: 'shotgun', shotgunSlug: 'shotgun', assaultRifle: 'assaultRifle', dmr: 'dmr', lmg: 'lmg'
 };
 
