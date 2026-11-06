@@ -385,13 +385,13 @@ describe('the backup car: a second way out (decision 284)', () => {
         expect(after.state.outcome).toMatchObject({ escaped: ['mara', 'jun'], dead: [], arrested: [] });
     });
 
-    it('ends once everyone left behind is dead, with those away escaped', () => {
+    it('ends once everyone left behind is dead, with those away escaped in the vehicle they left in', () => {
         const { world, state } = twoRides();
         const first = run(world, state, { type: 'drive', crew: 'mara', vehicle: 'van', to: offPose(world, state, 'van') }).state;
         const s = clonePlain(first);
         s.crew.find(c => c.id === 'jun')!.wounds = { ...s.crew.find(c => c.id === 'jun')!.wounds, hp: 0, dead: true };
         const done = run(world, s, { type: 'endTurn' });
-        expect(done.state.outcome).toMatchObject({ escaped: ['mara'], dead: ['jun'], vehicle: null });
+        expect(done.state.outcome).toMatchObject({ escaped: ['mara'], dead: ['jun'], vehicle: 'van' });
         expect(done.state.outcome!.result).not.toBe('failure');
     });
 });

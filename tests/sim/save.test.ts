@@ -78,7 +78,7 @@ describe('saving', () => {
  * NpcStatusMap, CarrierKindMap or adds a field must also fill it in below, or a change of shape goes unnoticed.
  */
 const SHAPE_HASHES: Record<number, string> = {
-    1: '3b36ab13a46112be'
+    1: '764c026126418108'
 };
 
 /** Paths whose objects are records by id, not structs. */
@@ -230,6 +230,7 @@ describe('the save format', () => {
         full.vehicles = { van: { pose: { x: 1, y: 1, heading: 'w' }, driver: 'jun', hold: ['cash'], gone: false, hp: 24 } };
         full.crew[0]!.aboard = 'van';
         for (const c of full.crew) c.transit = { route: 'roof', inward: true, left: 1, from: { x: 0, y: 0 }, escape: false };
+        full.crew[0]!.cameOut = 3;
         full.escaped = [{ crew: JSON.parse(JSON.stringify(full.crew[1]!)), vehicle: 'van', turn: 3 }, { crew: JSON.parse(JSON.stringify(full.crew[1]!)), vehicle: null, route: 'route-0', turn: 4 }];
         full.outcome = {
             result: 'partial', turn: 9, vehicle: 'van', escaped: ['jun'], arrested: ['mara'], dead: [], loot: ['cash'], value: 5000, ruined: 0, target: 75000, heat: 2

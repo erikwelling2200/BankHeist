@@ -1,4 +1,5 @@
 import type { Ctx } from '../../core/engine';
+import { offMap } from '../../core/transit';
 import { cornerEdges, edgeBetween, edgeKey, inBounds, tileAt } from '../../core/grid';
 import { sortedIds } from '../../core/json';
 import { registerRuleDefaults, registerStateInit } from '../../core/state';
@@ -263,7 +264,7 @@ function aim(world: ReadonlyWorld, state: State, member: DeepReadonly<CrewState>
         return `${member.name} can't see the door the bag would fly through`;
     }
     if (!throwFlies(world, state, member.pos, to)) return `A bag can't be thrown there from where ${member.name} stands`;
-    const mate = state.crew.find(c => c.id !== member.id && c.pos.x === to.x && c.pos.y === to.y);
+    const mate = state.crew.find(c => c.id !== member.id && !offMap(c) && c.pos.x === to.x && c.pos.y === to.y);
     return { loot: id, from: { x: member.pos.x, y: member.pos.y }, to: { x: to.x, y: to.y }, catcher: mate && handsFree(mate) ? mate.id : null };
 }
 

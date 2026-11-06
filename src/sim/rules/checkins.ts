@@ -1,4 +1,5 @@
 import { registerWorldHook, type Ctx } from '../core/engine';
+import { inTransit } from '../core/transit';
 import { tileAt } from '../core/grid';
 import { sortedIds } from '../core/json';
 import { crewMember, registerRuleDefaults, registerStateInit } from '../core/state';
@@ -268,6 +269,7 @@ export function patrolSightings(world: ReadonlyWorld, state: State): { pos: Pos;
         for (const facing of ['n', 's'] as const) {
             const field = fieldOn(sight, { pos, facing, profile: calm });
             for (const member of state.crew) {
+                if (inTransit(member)) continue;
                 const band = bandAt(field, member.pos), tile = tileAt(world, member.pos);
                 if (!band || !tile) continue;
                 const seen = reaction(world.rules, {

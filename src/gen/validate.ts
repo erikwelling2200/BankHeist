@@ -1,4 +1,4 @@
-import type { Approach, Door, GenCamera, GenRoom, GetawaySpot, PlotExit, RuleResult } from './model';
+import type { Approach, Door, GenCamera, GenRoom, GetawaySpot, OffMapRoute, PlotExit, RuleResult } from './model';
 import type { LevelProp } from '../level/plan';
 import { reachesFrom, type Nav, type P } from './nav';
 import type { Furnished } from './parcels';
@@ -19,7 +19,8 @@ export const RULES = {
     alarmsAndExits: "Every silent-alarm station reachable from the lobby, the manager's desk among them; civilian exits within reach of the crowd",
     getaways: 'Getaway spots connect to at least 2 plot exits',
     vaultDepth: 'The vault is at least 2 doors from any Public tile; the CCTV room is not on the vault corridor',
-    objectsReachable: 'Every piece of loot and every heist object can be reached by the crew from where they start'
+    objectsReachable: 'Every piece of loot and every heist object can be reached by the crew from where they start',
+    sewerExit: 'A sewer route: a way off the plot on foot that the helicopter cannot close (§15.4 "Escape is always possible")'
 } as const;
 
 export type Rule = keyof typeof RULES;
@@ -42,6 +43,7 @@ interface Ctx {
     bank: GenRoom[];
     doors: Door[];
     approaches: Approach[];
+    routes: OffMapRoute[];
     cameras: GenCamera[];
     guards: GuardPlan[];
     furnished: Furnished;
@@ -70,6 +72,11 @@ export function validate(ctx: Ctx): RuleResult[] {
     const covertToCore = ctx.approaches.some(a => a.category === 'covert' && (coreRooms.has(a.room) || toCore[a.inside.ty * site.width + a.inside.tx]! >= 0));
     results.push(result('approachesReachVault', !stuck.length && ctx.approaches.length >= 4 && categories.size >= 3 && covertToCore,
         `${ctx.approaches.length} approaches in ${categories.size} categories${covertToCore ? ', a covert one reaching the CCTV room or alarm closet' : ', no covert way to the CCTV room or alarm closet'}${stuck.length ? `; cut off: ${stuck.map(a => a.name).join(', ')}` : ''}`));
+
+    // A sewer route (§14.7, §15.4): the on-foot way off the plot that stays open under the helicopter, from a grate
+    // the crew can reach from the vault.
+    const sewer = ctx.routes.find(r => r.kind === 'sewer' && at({ x: r.inside.tx, y: r.inside.ty }) >= 0);
+    results.push(result('sewerExit', !!sewer, sewer ? 'a sewer route from the vault side' : 'no sewer route the crew can reach'));
 
     // A Clean-profile route: no vault door or mantrap, and no Secure room on the way but the one it ends in.
     const clean = (target: string) => {

@@ -1,4 +1,5 @@
 import { registerWorldHook } from '../core/engine';
+import { inTransit } from '../core/transit';
 import { sortedIds } from '../core/json';
 import type { Pos } from '../core/types';
 import { ABSENT_STATUSES } from '../geo/move';
@@ -28,7 +29,7 @@ registerWorldHook('devices', 'doors.swingShut', ctx => {
     const { world, state } = ctx;
     const standing = new Set<string>();
     const at = (p: Pos): string => `${p.x},${p.y}`;
-    for (const c of state.crew) standing.add(at(c.pos));
+    for (const c of state.crew) if (!inTransit(c)) standing.add(at(c.pos));
     // A body in the doorway doesn't hold the door (nor one being dragged, whose tile is its dragger's).
     for (const n of state.npcs) if (!ABSENT_STATUSES.has(n.status) && n.status !== 'unconscious' && n.status !== 'dead') standing.add(at(n.pos));
     for (const id of sortedIds(world.doors)) {

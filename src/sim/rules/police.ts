@@ -1,5 +1,5 @@
 import { registerCommandHook, registerWorldHook, type Ctx } from '../core/engine';
-import { offMap } from '../core/transit';
+import { inTransit, offMap } from '../core/transit';
 import { FACING_STEP, inBounds, tileAt } from '../core/grid';
 import { sortedIds } from '../core/json';
 import { newId, registerStateInit } from '../core/state';
@@ -336,7 +336,7 @@ export const newTeam = (): SwatTeam => ({ focus: null, planned: -1, movers: [], 
  */
 function parkingSpot(world: ReadonlyWorld, state: State, at: DeepReadonly<Pos>, kind: VehicleKind): Pos {
     const people = new Set<string>([
-        ...state.crew.map(c => `${c.pos.x},${c.pos.y}`),
+        ...state.crew.filter(c => !inTransit(c)).map(c => `${c.pos.x},${c.pos.y}`),
         ...state.npcs.filter(n => !ABSENT_STATUSES.has(n.status)).map(n => `${n.pos.x},${n.pos.y}`),
         ...state.police.units.flatMap(u => (u.pos ? [`${u.pos.x},${u.pos.y}`] : [])),
         ...state.police.vehicles.flatMap(v => policeFootprint(v).map(t => `${t.x},${t.y}`)),
@@ -367,7 +367,7 @@ function parkingSpot(world: ReadonlyWorld, state: State, at: DeepReadonly<Pos>, 
  */
 export function roadblockTiles(world: ReadonlyWorld, state: DeepReadonly<State>, at: DeepReadonly<Pos>): Pos[] {
     const taken = new Set<string>([
-        ...state.crew.filter(c => !c.aboard).map(c => `${c.pos.x},${c.pos.y}`),
+        ...state.crew.filter(c => !offMap(c)).map(c => `${c.pos.x},${c.pos.y}`),
         ...state.npcs.filter(n => !ABSENT_STATUSES.has(n.status)).map(n => `${n.pos.x},${n.pos.y}`),
         ...state.police.units.flatMap(u => (u.pos ? [`${u.pos.x},${u.pos.y}`] : [])),
         ...state.police.vehicles.flatMap(v => policeFootprint(v).map(t => `${t.x},${t.y}`)),

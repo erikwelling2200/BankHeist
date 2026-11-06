@@ -1,4 +1,5 @@
 import { COMBAT_STATUSES } from '../../core/engine';
+import { inTransit } from '../../core/transit';
 import { FACING_STEP, FACINGS, facingToward, inBounds, samePos, tileAt } from '../../core/grid';
 import { registerRuleDefaults } from '../../core/state';
 import type { DeepReadonly, DoorDef, DoorStatus, Intent, NpcState, PersonDef, Pos, ReadonlyWorld, State, Zone } from '../../core/types';
@@ -381,7 +382,7 @@ export function resolveWalks(
 /** The tiles the crew stand on, by index, with who: NPCs never walk through them. `moved` puts one elsewhere. */
 export function crewTiles(world: ReadonlyWorld, state: State, moved?: { crew: string; tile: Pos }): Map<number, string> {
     const out = new Map<number, string>();
-    for (const c of state.crew) out.set(indexOf(world, moved && c.id === moved.crew ? moved.tile : c.pos), c.id);
+    for (const c of state.crew) if (!inTransit(c)) out.set(indexOf(world, moved && c.id === moved.crew ? moved.tile : c.pos), c.id);
     return out;
 }
 

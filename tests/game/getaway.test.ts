@@ -11,7 +11,9 @@ const bank = cachedBank({ layout: 31, population: 2, tier: 'small', archetype: '
 
 describe('the getaway through the action grid', () => {
     it('offers Get in at the van\'s door, then Drive toward the plot\'s edge until it leaves, then the outcome', () => {
-        const { world, state } = newHeist(bank);
+        const heist = newHeist(bank), state = heist.state;
+        // Without its off-map routes, Jun left behind has no way out once the van has gone (decision 303).
+        const world = { ...heist.world, routes: [] };
         const van = world.vehicles![0]!;
         let s: State = clonePlain(state);
         s.crew[0]!.pos = doorTiles(van, van.start)[0]!;
@@ -37,6 +39,23 @@ describe('the getaway through the action grid', () => {
         expect(view).toMatchObject({ result: 'partial', title: 'Partial success', value: 0, target: 75000, payout: 0 });
         expect(view.crew.map(c => [c.name, c.fate])).toEqual([['Mara', 'escaped'], ['Jun', 'arrested']]);
         expect(hudView(world, s, { selected: null } as never).outcome).toEqual(view);
+    });
+
+    it('plays on after the van leaves while those left behind can still leave on foot by a route (decision 303)', () => {
+        const { world, state } = newHeist(bank);
+        expect(world.routes?.some(r => r.kind === 'sewer')).toBe(true);
+        const van = world.vehicles![0]!;
+        let s: State = clonePlain(state);
+        s.crew[0]!.pos = doorTiles(van, van.start)[0]!;
+        s = commit(world, s, { type: 'board', crew: 'mara', vehicle: 'van' }).state;
+        s = commit(world, s, { type: 'endTurn' }).state;
+        for (let i = 0; i < 12 && !s.vehicles.van!.gone; i++) {
+            if (s.crew[0]!.actionsLeft === 0) s = commit(world, s, { type: 'endTurn' }).state;
+            s = commit(world, s, actionMenu(world, s, 'mara').find(e => e.id === 'drive')!.command).state;
+        }
+        expect(s.vehicles.van!.gone).toBe(true);
+        expect(s.outcome).toBeNull();
+        expect(s.escaped.map(e => e.crew.id)).toEqual(['mara']);
     });
 
     it('shows no outcome while the heist goes on', () => {

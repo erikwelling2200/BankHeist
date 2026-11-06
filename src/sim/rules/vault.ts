@@ -1,4 +1,5 @@
 import { InvariantError, registerWorldHook, type Ctx } from '../core/engine';
+import { offMap } from '../core/transit';
 import { crewMember, newId, registerRuleDefaults, registerStateInit } from '../core/state';
 import type { CrewState, DeepReadonly, Pos, ReadonlyWorld, State, WorldObject } from '../core/types';
 import { registerEvents } from '../core/undo';
@@ -425,7 +426,7 @@ registerAction('takeDrill', {
 
 /** A crew member with Steady Hands in reach of a device, first in the crew's order (§7.2: fixes a jammed drill for free). */
 export const steadyHand = (world: ReadonlyWorld, state: State, device: DeepReadonly<Device>): CrewState | undefined =>
-    state.crew.find(c => hasTrait(c, 'steadyHands') && inReach(world, state, c.pos, device.pos));
+    state.crew.find(c => !offMap(c) && hasTrait(c, 'steadyHands') && inReach(world, state, c.pos, device.pos));
 
 // Each device works a phase in the world phase it runs in, a loud noise where it stands; the last one gets through.
 registerWorldHook('devices', 'vault.devices', ctx => {

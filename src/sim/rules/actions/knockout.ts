@@ -1,4 +1,5 @@
 import { registerWorldHook, type Ctx } from '../../core/engine';
+import { inTransit } from '../../core/transit';
 import { registerNpcInit, registerRuleDefaults } from '../../core/state';
 import type { DeepReadonly, NpcState, Pos, ReadonlyWorld, State } from '../../core/types';
 import { registerEvents } from '../../core/undo';
@@ -136,7 +137,7 @@ export function knockOut(ctx: Ctx, npc: NpcState, by: string): void {
  */
 function wakeTile(world: ReadonlyWorld, state: State, npcId: string, p: Pos): Pos {
     const taken = new Set<number>();
-    for (const c of state.crew) taken.add(c.pos.y * world.width + c.pos.x);
+    for (const c of state.crew) if (!inTransit(c)) taken.add(c.pos.y * world.width + c.pos.x);
     for (const n of state.npcs) if (n.id !== npcId && !ABSENT_STATUSES.has(n.status)) {
         const at = bodyPos(state, n);
         taken.add(at.y * world.width + at.x);

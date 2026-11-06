@@ -946,7 +946,7 @@ registerPlanView((world, state) => crewPicture(world, state), (world, state) => 
 
 // Loud noises reaching any crew member are heard wherever they come from (§8.15).
 registerNoiseHook('knowledge', (ctx, ring, kind, cause) => {
-    if (kind !== 'loud' || !ctx.state.crew.some(c => inRing(ring, c.pos)) || !ring.sources.length) return;
+    if (kind !== 'loud' || !ctx.state.crew.some(c => !inTransit(c) && inRing(ring, c.pos)) || !ring.sources.length) return;
     // A noise from many tiles (a dash, a drill's run) pings where its sources centre.
     const s = ring.sources, cx2 = s.reduce((a, p) => a + p.x, 0) * 2, cy2 = s.reduce((a, p) => a + p.y, 0) * 2;
     let at = s[0]!, best = Infinity;

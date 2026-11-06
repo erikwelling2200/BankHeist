@@ -1,4 +1,5 @@
 import { registerWorldHook, type Ctx } from '../core/engine';
+import { inTransit, offMap } from '../core/transit';
 import { samePos } from '../core/grid';
 import { crewMember, registerCrewInit } from '../core/state';
 import type { DeepReadonly, NpcState, Pos, ReadonlyWorld, State } from '../core/types';
@@ -137,12 +138,12 @@ export function rollReaction(ctx: Ctx, odds: readonly [Reaction, number][], stre
 
 /** The crew member a hero next to them would tackle: the first by id in reach, or undefined. */
 export function tackleTarget(world: ReadonlyWorld, state: State, npc: DeepReadonly<NpcState>): string | undefined {
-    return [...state.crew].sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0)).find(c => inReach(world, state, npc.pos, c.pos) && !samePos(c.pos, npc.pos))?.id;
+    return [...state.crew].sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0)).find(c => !offMap(c) && inReach(world, state, npc.pos, c.pos) && !samePos(c.pos, npc.pos))?.id;
 }
 
 /** Every crew member's sight (all round, crew range), for telling where nobody of the crew sees. */
 function crewFields(world: ReadonlyWorld, state: State, sight: SightMap): SightField[] {
-    return state.crew.map(c => fieldOn(sight, crewObserver(world, c)));
+    return state.crew.filter(c => !inTransit(c)).map(c => fieldOn(sight, crewObserver(world, c)));
 }
 
 const unseenBy = (fields: readonly SightField[], p: DeepReadonly<Pos>): boolean => fields.every(f => bandAt(f, { x: p.x, y: p.y }) === null);
@@ -213,7 +214,8 @@ function react(ctx: Ctx, npc: NpcState): void {
 /** The crew member nearest an NPC (Euclidean, then by id). */
 function nearestCrew(state: State, npc: DeepReadonly<NpcState>): string {
     let best: { id: string; d: number } | undefined;
-    for (const c of state.crew) {
+    const present = state.crew.filter(c => !inTransit(c));
+    for (const c of present.length ? present : state.crew) {
         const dx = c.pos.x - npc.pos.x, dy = c.pos.y - npc.pos.y, d = dx * dx + dy * dy;
         if (!best || d < best.d || (d === best.d && c.id < best.id)) best = { id: c.id, d };
     }

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
-    clonePlain, commit, deserialiseState, fixtureWorld, initialState, legalActions, OFFICER_STATS, preview, serialiseState,
-    type AccessRoute, type FixtureOptions, type Pos, type SimEvent, type State
+    clonePlain, commit, deserialiseState, fixtureWorld, heistOver, initialState, legalActions, occupancy, OFFICER_STATS, preview, routeExit, serialiseState, tackleTarget,
+    whyNot, type AccessRoute, type FixtureOptions, type PersonDef, type Pos, type SimEvent, type State
 } from '../../src/sim';
 
 /*
@@ -142,6 +142,102 @@ describe('off-map routes (§14.7)', () => {
         s = commit(world, s, endTurn).state;
         const r = commit(world, s, endTurn);
         expect(r.state.outcome).toMatchObject({ result: 'success', escaped: ['jun'], dead: ['mara'] });
+    });
+
+    it('can\'t be used again in the crew phase right after coming out (review)', () => {
+        const { world, state } = setup();
+        let s = commit(world, state, enter()).state;
+        s = commit(world, s, endTurn).state;
+        s = commit(world, s, endTurn).state;
+        expect(jun(s)).toMatchObject({ pos: P(14, 2), transit: null, cameOut: s.turn });
+        expect(whyNot(world, s, enter())).toMatch(/just come out/);
+        expect(legalActions(world, s, 'jun')).not.toContainEqual(enter());
+        // A turn later the way is open again.
+        s = commit(world, s, endTurn).state;
+        expect(whyNot(world, s, enter())).toBeUndefined();
+    });
+
+    it('leave a crew member in transit in nobody\'s way and nobody\'s reach: no pass, no catch, no tackle (review)', () => {
+        const objects = [{ id: 'bag', kind: 'loot', pos: P(2, 2), facing: 's' as const, loot: { value: 10000, weight: 'heavy' as const } }];
+        const { world, state } = setup({ objects });
+        const mara = state.crew.find(c => c.id === 'mara')!;
+        mara.pos = P(2, 2);
+        state.loot.bag = { ...state.loot.bag!, holder: 'mara', taken: true };
+        mara.loadout.carrying = 'lootBag';
+        const s = commit(world, state, enter('roof')).state;
+        const pass = { type: 'pass', crew: 'mara', to: 'jun' } as const;
+        expect(whyNot(world, s, pass)).toMatch(/in transit/);
+        expect(() => commit(world, s, pass)).toThrow(/in transit/);
+        expect(legalActions(world, s, 'mara')).not.toContainEqual(pass);
+        // Thrown onto the tile Jun left: it lands on the floor, nobody catches it.
+        const thrown = commit(world, s, { type: 'throwLoot', crew: 'mara', to: P(1, 2) });
+        expect(thrown.state.loot.bag!.holder).toBeNull();
+        // Nobody stands on the tile he left.
+        expect(occupancy(world, s).has(2 * world.width + 1)).toBe(false);
+        const hero: PersonDef = { id: 'hero', name: 'hero', role: 'customer', observer: 'civilian', pos: P(1, 1), facing: 's', schedule: [{ from: 1, activity: 'wait', label: 'waiting', room: '', at: P(1, 1), facing: 's' }] };
+        const w2 = fixtureWorld(OPEN, { routes: [ROOF, SEWER], people: [hero] });
+        const s2 = commit(w2, clonePlain(initialState(w2, { seed: 3, crew: [{ id: 'jun', pos: P(1, 2) }] })), enter()).state;
+        expect(tackleTarget(w2, s2, s2.npcs[0]!)).toBeUndefined();
+    });
+
+    it('come out in the room of the far end, never through a wall or a door, and wait while someone stands there (review)', () => {
+        const rooms = OPEN.map(() => 'aaaaaaaaaaaaabbb');
+        const walls = [0, 1, 2, 3, 4].map(y => ({ between: [P(12, y), P(13, y)] as [Pos, Pos], material: 'reinforced' as const }));
+        const { world, state } = setup({ rooms, walls });
+        // Mara on the inside end: Jun comes out beside her, in her room.
+        state.crew.find(c => c.id === 'mara')!.pos = P(14, 2);
+        let s = commit(world, state, enter()).state;
+        expect(routeExit(world, s, 'jun', ROOF.inside)!.x).toBeGreaterThanOrEqual(13);
+        // With the room full there is nowhere: none.
+        const full = clonePlain(s);
+        for (let y = 0; y < 5; y++) for (let x = 13; x < 16; x++) full.crew.push({ ...clonePlain(full.crew[1]!), id: `x${x}${y}`, pos: P(x, y) });
+        expect(routeExit(world, full, 'jun', ROOF.inside)).toBeNull();
+
+        const person: PersonDef = { id: 'ann', name: 'ann', role: 'customer', observer: 'civilian', pos: P(14, 2), facing: 's', schedule: [{ from: 1, activity: 'wait', label: 'waiting', room: '', at: P(14, 2), facing: 's' }] };
+        const held = setup({ rooms, walls, people: [person] });
+        s = commit(held.world, held.state, enter()).state;
+        s = commit(held.world, s, endTurn).state;
+        const r = commit(held.world, s, endTurn);
+        expect(of(r.events, 'routeHeld')).toEqual([{ type: 'routeHeld', crew: 'jun', route: 'roof' }]);
+        expect(jun(r.state).transit).toMatchObject({ left: 0 });
+    });
+
+    it('settle a dye pack on the way out of the building, by either kind of leaving (review)', () => {
+        const rooms = OPEN.map(() => 'oooooooobbbbbbbb');
+        const objects = [{ id: 'cash', kind: 'loot', pos: P(14, 2), facing: 's' as const, loot: { value: 5000, weight: 'light' as const, dyePack: true as const } }];
+        for (const escape of [false, true]) {
+            const { world, state } = setup({ rooms, building: ['b'], objects, rules: { dyePacks: true } }, P(14, 2));
+            state.loot.cash = { ...state.loot.cash!, holder: 'jun', taken: true };
+            let s = commit(world, state, { type: 'enterRoute', crew: 'jun', route: 'roof', ...(escape ? { escape } : {}) }).state;
+            s = commit(world, s, endTurn).state;
+            const r = commit(world, s, endTurn);
+            expect(of(r.events, 'dyePackBurst').map(e => e.loot)).toEqual(['cash']);
+            expect(r.state.loot.cash!.ruined).toBe(true);
+        }
+    });
+
+    it('end the heist after the last vehicle only when those left behind have no way out on foot (review)', () => {
+        const gone = (world: ReturnType<typeof fixtureWorld>) => {
+            const s = clonePlain(initialState(world, { seed: 3, crew: [{ id: 'jun', pos: P(1, 2) }] }));
+            s.vehicles = { van: { pose: { x: 0, y: 0, heading: 'n' }, driver: null, hold: [], gone: true, hp: 0 } } as unknown as State['vehicles'];
+            s.escaped = [{ crew: clonePlain(s.crew[0]!), vehicle: 'van', turn: 1 }];
+            s.escaped[0]!.crew.id = 'mara';
+            return s;
+        };
+        const none = fixtureWorld(OPEN);
+        expect(heistOver(none, gone(none))).toBe(true);
+        const routes = fixtureWorld(OPEN, { routes: [ROOF, SEWER] });
+        const s = gone(routes);
+        expect(heistOver(routes, s)).toBe(false);
+        // The helicopter closes the roof, not the sewer.
+        s.police.vehicles.push({ id: 'h', kind: 'helicopter', label: 'Helicopter', staging: null, pos: P(8, 2), arrived: 0, status: 'parked', hp: 10 });
+        expect(heistOver(routes, s)).toBe(false);
+        const roofOnly = fixtureWorld(OPEN, { routes: [ROOF] }), r = gone(roofOnly);
+        r.police.vehicles.push(clonePlain(s.police.vehicles[0]!));
+        expect(heistOver(roofOnly, r)).toBe(true);
+        // While someone is still on a route out it never ends.
+        r.crew[0]!.transit = { route: 'roof', inward: true, left: 1, from: P(1, 2), escape: true };
+        expect(heistOver(roofOnly, r)).toBe(false);
     });
 
     it('survive a save, and a save from before is refused', () => {

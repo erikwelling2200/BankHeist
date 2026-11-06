@@ -1,5 +1,5 @@
 import { preview, registerWorldHook, type Ctx } from '../core/engine';
-import { offMap } from '../core/transit';
+import { inTransit, offMap } from '../core/transit';
 import { facingToward, samePos, tileAt } from '../core/grid';
 import { sortedIds } from '../core/json';
 import { newId, registerNpcInit, registerRuleDefaults, registerStateInit } from '../core/state';
@@ -216,7 +216,7 @@ registerEvidenceSource('missing', (world, state) => state.npcs.flatMap((n): Evid
 registerEvidenceSource('doors', (world, state) => {
     const out: Evidence[] = [];
     // Someone standing in the doorway holds the door: a body lying there doesn't.
-    const standing = new Set<string>([...state.crew.map(c => `${c.pos.x},${c.pos.y}`),
+    const standing = new Set<string>([...state.crew.filter(c => !inTransit(c)).map(c => `${c.pos.x},${c.pos.y}`),
         ...state.npcs.filter(n => isPresent(n) && n.status !== 'unconscious' && n.status !== 'dead').map(n => `${n.pos.x},${n.pos.y}`)]);
     for (const id of sortedIds(world.doors)) {
         const def = world.doors[id]!, status = doorStatus(world, state, id), tiles = sides(world, def.edge);

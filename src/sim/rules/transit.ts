@@ -3,13 +3,16 @@ import { registerStateCheck } from '../core/save';
 import { crewMember, registerActorCheck, registerCrewInit } from '../core/state';
 import type { AccessRoute, Transit } from '../core/transit';
 import type { CrewState, DeepReadonly, Pos, ReadonlyWorld, State } from '../core/types';
+import { FACING_STEP, inBounds, tileAt } from '../core/grid';
+import { doorBetween, stepCost } from '../geo/move';
+import { offMap } from '../core/transit';
 import { registerEvents } from '../core/undo';
 import { inReach, lacksActions, registerAction } from './actions/act';
 import { cashLeaves, inBuilding } from './actions/loot';
 import { inHands } from './hands';
 import { perceiveEnd } from './perceive';
 import { leaveOnFoot } from './getaway';
-import { exitTile } from './police';
+import { registerPreviewSecret } from './knowledge';
 import { dropTargets } from './wounds';
 
 /*
@@ -24,10 +27,15 @@ import { dropTargets } from './wounds';
  *   to them is dropped (`dropTargets`).
  * - **The transit track**: each world phase's devices step takes one off what is left (`Transit.left`, the route's
  *   `transit`: the roof and the duct 2, the sewer 3), after the police have come (so a helicopter that arrives now is
- *   already over the roof); at 0 they come out at the far end, on its access point or the free tile nearest it (no
- *   free tile: they wait in transit a phase longer). Out by the start of the next crew phase, the turns in transit
- *   are the route's. Coming out of the building that way with cash settles its dye pack as a step out does
- *   (`cashLeaves`, §15.1).
+ *   already over the roof); at 0 they come out at the far end (`routeExit`): its access point, else the nearest tile
+ *   of the same room reachable from it without a door, with nothing standing on it and no crew member there. The tile is
+ *   chosen on what the crew knows for sure (the room, the furniture, the crew); if someone else stands on it when they
+ *   come out, they wait in transit a phase longer (`routeHeld`). Whether and where they come out is a preview secret
+ *   (the world phase can't be shown on the truth), and coming out is an action ending there: whoever sees the tile sees
+ *   them (`perceiveEnd`). Out by the start of the next crew phase, the turns in transit are the route's. Coming out of
+ *   the building that way with cash settles its dye pack as a step out does (`cashLeaves`, §15.1).
+ * - **No coming straight back** (decision 300): in the crew phase right after coming out (`CrewState.cameOut`) a crew
+ *   member can't go into a route again, so nobody stays off the map through every world phase.
  * - **Escaping** (§15.4 "Escape is always possible"; decision 303): `escape` takes the route off the plot instead of to its
  *   far end. When the transit is over the crew member is out of play, escaped with what they carry (rules/getaway.ts
  *   `leaveOnFoot`, as those who drive off); the heist ends once nobody else is still playing.
@@ -50,13 +58,23 @@ declare module '../core/types' {
         routeLeft: { crew: string; route: string; at: Pos; inward: boolean };
         /** A crew member leaving by a route is off the plot: escaped (§15.4). */
         routeEscaped: { crew: string; route: string };
+        /** A crew member due out found someone standing where they come out: still in transit, out next phase. */
+        routeHeld: { crew: string; route: string };
         /** The helicopter forced a crew member on the roof back to where they went in (§14.7). */
         routeTurnedBack: { crew: string; route: string; at: Pos };
     }
 }
 
+declare module '../core/types' {
+    interface CrewState {
+        /** The turn of the crew phase they came out of a route into (decision 300: no route again then), or null. */
+        cameOut: number | null;
+    }
+}
+
 registerCrewInit('transit', (_world, _start, member) => {
     member.transit = null;
+    member.cameOut = null;
 });
 
 registerActorCheck('transit', member => (member.transit ? `${member.name} is in transit` : undefined));
@@ -93,6 +111,7 @@ export function routeBlocked(world: ReadonlyWorld, state: State, member: DeepRea
     if (member.dragging !== null) return `${member.name} can't take someone ${route.kind === 'sewer' ? 'down the sewer' : 'over the roof'}`;
     if (inHands(world, state, member.id) !== undefined) return 'Nothing heavier than Light goes by this route';
     if (overRoof(route) && helicopterOver(state)) return 'The helicopter is over the roof';
+    if (member.cameOut === state.turn) return `${member.name} has only just come out`;
     return undefined;
 }
 
@@ -118,14 +137,60 @@ registerAction('enterRoute', {
     }
 }, { perceive: false });
 
-/** Puts a crew member in transit back on the map at `end` (or the free tile nearest it): where, or null when none is free. */
+/**
+ * Where a crew member comes out at the end `end` of a route (see the header): the end itself, else the nearest tile of
+ * its room reachable from it step by step without crossing a door, not blocked by furniture or a vehicle and with no
+ * other crew member on the map there; by rings of steps, in the order of the steps. Pure, and on what the crew knows:
+ * NPCs and officers aren't asked. Null when there is none.
+ */
+export function routeExit(world: ReadonlyWorld, state: DeepReadonly<State>, crewId: string, end: DeepReadonly<Pos>): Pos | null {
+    const room = tileAt(world, end)?.room ?? null;
+    const crewAt = new Set(state.crew.filter(c => c.id !== crewId && !offMap(c)).map(c => c.pos.y * world.width + c.pos.x));
+    const free = (p: Pos): boolean => {
+        const t = tileAt(world, p);
+        return !!t && !t.blocksMove && !t.tall && !crewAt.has(p.y * world.width + p.x);
+    };
+    const start = { x: end.x, y: end.y };
+    if (free(start)) return start;
+    const seen = new Set<number>([start.y * world.width + start.x]), queue: Pos[] = [start];
+    const steps = (['n', 'e', 's', 'w', 'ne', 'se', 'sw', 'nw'] as const).map(f => FACING_STEP[f]);
+    for (let i = 0; i < queue.length; i++) {
+        const at = queue[i]!;
+        for (const d of steps) {
+            const next = { x: at.x + d.x, y: at.y + d.y }, k = next.y * world.width + next.x;
+            if (!inBounds(world, next) || seen.has(k) || tileAt(world, next)!.room !== room) continue;
+            // From a blocked end tile (a ladder, a grate under a desk) out onto the floor; otherwise as people step.
+            const orthogonal = d.x === 0 || d.y === 0;
+            if (orthogonal && doorBetween(world, at, next)) continue;
+            if (!(i === 0 && !free(start) && orthogonal) && stepCost(world, state as State, at, next) === undefined) continue;
+            seen.add(k);
+            if (free(next)) return next;
+            queue.push(next);
+        }
+    }
+    return null;
+}
+
+/** Whether a person not of the crew stands on `p` now (an NPC present, an officer out). */
+function someoneOn(state: DeepReadonly<State>, p: DeepReadonly<Pos>): boolean {
+    return state.npcs.some(n => n.status !== 'away' && n.stashed === null && n.pos.x === p.x && n.pos.y === p.y)
+        || state.police.units.some(u => !!u.pos && u.pos.x === p.x && u.pos.y === p.y);
+}
+
+/**
+ * Puts a crew member in transit back on the map at `end` (`routeExit`), seen as an action ending there: where, or null
+ * when they can't come out this phase (no tile, or someone standing on it).
+ */
 function comeOut(ctx: Ctx, member: CrewState, end: DeepReadonly<Pos>): Pos | null {
-    const { world, state } = ctx, at = exitTile(world, state, end);
-    if (!at) return null;
+    const { world, state } = ctx, at = routeExit(world, state, member.id, end);
+    if (!at || someoneOn(state, at)) return null;
     const was = member.transit!.from;
     member.pos = { x: at.x, y: at.y };
     member.transit = null;
+    // Out in the crew phase about to begin: not straight back in then.
+    member.cameOut = state.turn + 1;
     if (inBuilding(world, was) && !inBuilding(world, at)) cashLeaves(ctx, member, at);
+    perceiveEnd(ctx, member.id);
     return at;
 }
 
@@ -138,7 +203,7 @@ registerWorldHook('devices', 'transit.track', ctx => {
         const route = routeOf(world, t.route)!;
         if (overRoof(route) && helicopterOver(state)) {
             const at = comeOut(ctx, member, t.from);
-            if (at) ctx.emit({ type: 'routeTurnedBack', crew: member.id, route: route.id, at });
+            ctx.emit(at ? { type: 'routeTurnedBack', crew: member.id, route: route.id, at } : { type: 'routeHeld', crew: member.id, route: route.id });
             continue;
         }
         t.left = Math.max(0, t.left - 1);
@@ -153,7 +218,7 @@ registerWorldHook('devices', 'transit.track', ctx => {
             continue;
         }
         const at = comeOut(ctx, member, t.inward ? route.inside : route.outside);
-        if (at) ctx.emit({ type: 'routeLeft', crew: member.id, route: route.id, at, inward: t.inward });
+        ctx.emit(at ? { type: 'routeLeft', crew: member.id, route: route.id, at, inward: t.inward } : { type: 'routeHeld', crew: member.id, route: route.id });
     }
 }, { order: 4 });
 
@@ -166,5 +231,12 @@ registerEvents({
     routeEntered: { undoBlocking: false },
     routeLeft: { undoBlocking: true },
     routeEscaped: { undoBlocking: true },
+    routeHeld: { undoBlocking: true },
     routeTurnedBack: { undoBlocking: true }
 });
+
+// Whether, and where, someone comes out depends on who stands at the far end, which the crew may not know: a preview of
+// the world phase doesn't tell it.
+registerPreviewSecret('routeLeft');
+registerPreviewSecret('routeHeld');
+registerPreviewSecret('routeTurnedBack');

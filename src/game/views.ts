@@ -681,6 +681,7 @@ export function describeEvent(world: ReadonlyWorld, state: State, event: SimEven
         case 'noisemakerLanded': return `${name(event.crew)} threw a noisemaker`;
         case 'routeEntered': return `${name(event.crew)} took the ${routeName(world, event.route)}: ${event.escape ? 'away' : 'out'} in ${event.turns}`;
         case 'routeEscaped': return `${name(event.crew)} got away by the ${routeName(world, event.route)}`;
+        case 'routeHeld': return `${name(event.crew)} found the way out blocked: out next phase`;
         case 'routeLeft': return `${name(event.crew)} came out of the ${routeName(world, event.route)}`;
         case 'routeTurnedBack': return `The helicopter forced ${name(event.crew)} off the roof`;
         case 'sniperAimed': return `Sniper laser on ${name(event.target)}`;

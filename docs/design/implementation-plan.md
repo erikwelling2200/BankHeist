@@ -1476,6 +1476,19 @@ M2 is complete: every package below has landed.
     (posts raised and nearest, the laser a phase before the shot, out of sight loses the shot, Negotiate, a bystander
     in the line holds fire, the laser told while the sniper is unseen); `e2e/snipers.spec.ts`
     (`screenshots/sniper.png`). Save shape hash `3b36ab13a46112be` (with M4-04's review fields). No visual baseline changed.
+  - **Review (MAJORs and MINORs fixed):** a crew member off the map is nobody's teammate to reach: every command naming
+    one (`to`, `ally`: pass, hand a magazine, revive, medkit) is refused (act.ts `teammateRefusal`), and a thrown bag
+    lands on the floor of the tile they left; every rule that read the crew's tiles skips those in transit (rams, the
+    roadblock, police parking, tackles, the panic and patrol-car eyes, the CCTV desk, doors swinging shut, NPC walks,
+    knockouts, leans, loud noises heard, steady hands at the drill); no route again in the crew phase right after
+    coming out (`CrewState.cameOut`); coming out (`routeExit`) is onto the end or the nearest tile of its room reachable
+    without a door, chosen on the crew and the furniture alone, waits a phase while someone stands there
+    (`routeHeld`), is seen as an action ending there, and is a preview secret; the heist's end is one rule after every
+    command (rules/getaway.ts `heistOver`): nobody but the dead left, or after a drive off nobody up behind, or those
+    behind with no crew vehicle and no route off the plot (they are arrested), never while someone is on a route out;
+    the outcome's `vehicle` is the last that drove off. A sewer route the crew can reach is a §17.7 rule never relaxed
+    (`sewerExit`, src/gen/validate.ts), so a crew turned back off the roof by the helicopter still has a way out.
+    Save shape hash `764c026126418108`.
   - **Deferred:** the crew's own sniper nest bought in planning and its pane (§14.5, M4-07: the nest room is generated
     and raised; any crew member on it already shoots with the height rule) and the police countering a known nest at
     Heat 4–5 (SWAT clearing the building); snipers walking to their posts (they appear there a phase after their wave)
@@ -1483,8 +1496,8 @@ M2 is complete: every package below has landed.
     staff reading someone vanishing down a hatch as more than a step ended there; a crowbar for the manhole (§15.4: no
     such item yet); the helicopter leaving (M3-05's deferral) and so reopening the roof; the transit track's own strip at
     the screen edge (the rail's badge stands for it) and route ends marked on the map; vents as a crawl through walls
-    between rooms (the generator makes only the duct from the roof); a sewer route in every bank (the roof route is in
-    every one, `tests/generator.test.ts`; under the helicopter a bank without a sewer has only its vehicles).
+    between rooms (the generator makes only the duct from the roof); the state of a previewed world phase still holding
+    whoever came out (only its events are kept secret).
 - [x] **M4-06 Distractions and gadgets.** (partial: see Deferred)
   - **Covers:** §8.13, §12.2.
   - **Work:** the noisemaker; ringing a desk phone; the jammer; the ammo bag; the reinforcement kit.
@@ -2730,7 +2743,10 @@ Later milestones: within each milestone, the `∥` notes in §3 apply. UI packag
     devices step of the world phase that brings the count to 0, then out on the far end or the free tile nearest it.
     Entered in turn T's crew phase, a 2-turn route has them acting again in T+2. Off the map they are seen by nobody,
     stand in nobody's way, are no body for a bullet or blast and see nothing themselves (`offMap`, the same checks as
-    aboard a shut vehicle); going in is seen as an action ending on the tile they stand on.
+    aboard a shut vehicle), nor a teammate anyone can hand anything to; going in and coming out are each seen as an
+    action ending on that tile. They come out onto the far end or the nearest tile of its room reachable without a door
+    (chosen on the crew and the furniture, so nothing hidden decides it), a phase later while someone stands there, and
+    can't go into a route again in the crew phase they come out into: nobody is off the map through every world phase.
 301. **Light only, no bodies (M4-05, §14.7).** Loot in the hands (Heavy or Very heavy) and a dragged body or a led
     hostage can't go; pocketed Light loot goes with them.
 302. **The helicopter closes the roof (M4-05, §14.7).** While it is over the plot (it doesn't leave yet) the roof route
@@ -2738,9 +2754,12 @@ Later milestones: within each milestone, the `∥` notes in §3 apply. UI packag
     at the next world phase's devices step, after the police have come.
 303. **Escaping on foot (M4-05, §15.4 "Escape is always possible").** Any route can be taken off the plot instead of to
     its far end (`escape`): when its transit is over the crew member is out of play with what they carry and counts as
-    escaped, as those who drive off (decision 286). The heist ends when nobody of the crew is left on the plot (all dead, in
-    custody or away); a vehicle leaving doesn't end it while someone is still on a route out. Cash taken out of the
-    building that way settles its dye pack.
+    escaped, as those who drive off (decision 286). The heist ends when nobody of the crew is left on the plot but the dead,
+    or, once a vehicle has driven off, when nobody up is left behind or those behind have no way out (no crew vehicle
+    that can drive and no route off the plot: the sewer always, the roof and duct while no helicopter is over); never
+    while someone is on a route out. A sewer route is in every bank (§17.7 `sewerExit`). Cash taken out of the building
+    that way settles its dye pack. This widens decision 177: a crew member left behind by the last vehicle plays on
+    while a route off the plot is open.
 304. **Sniper posts (M4-05, §13.4, §13.6, §14.7).** Snipers "walk in" to posts: tiles outside the building that see a
     pane of its outer wall within the DMR's range, raised floor first, then the most panes seen; they appear on the best
     free one, nearest their staging point among equals, a phase after their wave. Posts are worked out on the bank as

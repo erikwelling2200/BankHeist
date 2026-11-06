@@ -1,5 +1,5 @@
 import { IllegalCommand, registerCommandHook, registerWorldHook, type Ctx } from '../core/engine';
-import { offMap } from '../core/transit';
+import { inTransit, offMap } from '../core/transit';
 import { edgeBetween, edgeKey, inBounds, samePos, tileAt } from '../core/grid';
 import { clonePlain } from '../core/json';
 import { edgeNow, newId, registerCrewInit, registerNpcInit, registerRuleDefaults, registerStateInit } from '../core/state';
@@ -260,7 +260,7 @@ export function leanOptions(world: ReadonlyWorld, state: DeepReadonly<State>, id
     const fullCover = (a: Pos, b: Pos): boolean => wall(a, b) || (!unknown(b) && !!tileAt(world, b)!.tall);
     const open = (a: Pos, b: Pos): boolean => !wall(a, b) && !unknown(b) && !tileAt(world, b)!.tall;
     const standing = new Set<string>();
-    for (const c of state.crew) if (c.id !== id) standing.add(tileKey(c.pos));
+    for (const c of state.crew) if (c.id !== id && !inTransit(c)) standing.add(tileKey(c.pos));
     for (const n of state.npcs) if (n.id !== id && !ABSENT_STATUSES.has(n.status) && !LYING_STATUSES.has(n.status) && n.stashed === null) standing.add(tileKey(n.pos));
     for (const u of state.police?.units ?? []) if (u.id !== id && u.pos) standing.add(tileKey(u.pos));
     const out: Lean[] = [];

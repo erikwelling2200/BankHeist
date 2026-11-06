@@ -1,4 +1,5 @@
 import type { DeepReadonly, NpcState, ReadonlyWorld, State, WorldObject } from '../core/types';
+import { offMap } from '../core/transit';
 import { draggedBy } from './place';
 import { isPresent, personOf } from './npc/walk';
 
@@ -81,7 +82,7 @@ export function cctvControlled(world: ReadonlyWorld, state: DeepReadonly<State>)
         return !!npc && !neutralised(state, npc);
     });
     if (watched) return false;
-    return state.crew.some(c => Math.max(Math.abs(c.pos.x - desk.pos.x), Math.abs(c.pos.y - desk.pos.y)) <= 1);
+    return state.crew.some(c => !offMap(c) && Math.max(Math.abs(c.pos.x - desk.pos.x), Math.abs(c.pos.y - desk.pos.y)) <= 1);
 }
 
 /** The NPC ids of the guards (enforcers on the bank's staff list), sorted: who the operator calls (§8.11). */

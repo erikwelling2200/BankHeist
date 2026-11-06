@@ -130,6 +130,9 @@ describe('a generated bank', { timeout: HEAVY }, () => {
             expect(new Set(b.approaches.map(a => a.category)).size).toBe(3);
             expect(b.routes.some(r => r.kind === 'roof')).toBe(true);
             for (const r of b.routes) expect(r.transit).toBe(r.kind === 'sewer' ? 3 : 2);
+            // The on-foot way out the helicopter can't close (§15.4), a §17.7 rule never relaxed.
+            expect(b.routes.some(r => r.kind === 'sewer')).toBe(true);
+            expect(b.validation.results.find(x => x.rule === RULES.sewerExit)?.ok).toBe(true);
         }
     });
 

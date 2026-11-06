@@ -14,17 +14,18 @@ import { forgetCrew, isDown } from './wounds';
  *
  * - **Leaving.** The driver drives the vehicle off a plot edge (rules/vehicles.ts): everyone aboard escapes with what
  *   they carry and what is in the hold, and are out of play from then on (`State.escaped`, decision 286: no rule on
- *   the map sees, bleeds, arrests or counts them). With one crew vehicle that ends the heist (decision 177): crew left behind are
- *   arrested, alive or down, and the dead stay dead. With a second (the backup car, decision 284) the heist goes on while
- *   someone is still up on the plot and a crew vehicle that can drive (not disabled) is still there; it ends when the
- *   last such vehicle leaves or nobody up is left behind.
+ *   the map sees, bleeds, arrests or counts them). The heist then ends (`heistOver`, after the command) when nobody up
+ *   is left behind, or when those left behind have no way out: no crew vehicle that can drive (the backup car,
+ *   decision 284) and no off-map route off the plot (decision 303: the sewer, or the roof and duct with no helicopter
+ *   over); they are arrested, alive or down, and the dead stay dead (decision 177). The outcome's `vehicle` is the
+ *   last one that drove off with someone aboard.
  * - **Failure** (§15.5): every crew member not away is out for good, dead or in custody, checked after every command:
  *   the heist ends there (a Success or Partial if some got away earlier). A crew all down is played on until each is
  *   arrested or has bled out (decision 177). "None can still escape" otherwise (every vehicle disabled and nobody able
  *   to leave on foot) waits: an off-map route is the way out on foot (below).
  * - **On foot** (§15.4, M4-05, decision 303): a crew member who takes an off-map route off the plot (rules/transit.ts
  *   `escape`) is out of play as its transit ends (`leaveOnFoot`), escaped with what they carry, as if in a vehicle that
- *   left; while one is still on the way out, a vehicle leaving doesn't end the heist.
+ *   left; while one is still on the way out the heist doesn't end (`heistOver`).
  * - **The outcome** (`State.outcome`): Success when the loot that left (not ruined) is at least the contract's target
  *   (`rules.contractTarget`) and someone escaped, Partial when someone escaped below it, Failure when nobody did. Its
  *   debrief data: who escaped, was arrested or died, the loot that left and its value, what dye packs ruined of what the
@@ -132,8 +133,8 @@ function end(ctx: Ctx, vehicle: string | null): void {
     ctx.emit({ type: 'heistEnded', result: outcome.result, value: outcome.value, target: outcome.target, escaped: [...outcome.escaped] });
 }
 
-// A drive off the plot (rules/vehicles.ts): the vehicle and everyone aboard are away; the heist is over unless someone
-// up is left behind with a crew vehicle that can still drive (see the header).
+// A drive off the plot (rules/vehicles.ts): the vehicle and everyone aboard are away, out of play; whether that ends
+// the heist is `heistOver`'s, asked after the command (see the header).
 registerLeaveHook('getaway', (ctx, vehicle) => {
     const { state } = ctx;
     state.vehicles[vehicle]!.gone = true;
@@ -145,10 +146,6 @@ registerLeaveHook('getaway', (ctx, vehicle) => {
         forgetCrew(state, member.id);
     }
     if (leaving.length) ctx.emit({ type: 'crewEscaped', vehicle, crew: leaving.map(c => c.id) });
-    const behind = state.crew.some(c => !isDown(c) && !leavingOnFoot(c));
-    const ride = sortedIds(state.vehicles).some(id => !state.vehicles[id]!.gone && state.vehicles[id]!.hp > 0);
-    // Someone on their way out by a route is let finish it: the heist ends once they are away (`crewOut`).
-    if ((!behind || !ride) && !state.crew.some(leavingOnFoot)) end(ctx, vehicle);
 });
 
 /** Whether a crew member is on an off-map route out of the plot (rules/transit.ts `escape`). */
@@ -156,7 +153,7 @@ const leavingOnFoot = (c: DeepReadonly<CrewState>): boolean => !!c.transit?.esca
 
 /**
  * A crew member at the end of a route off the plot (§15.4): out of play from now on, as those who drive off are
- * (decision 286), with what they carry. rules/transit.ts calls it; `crewOut` then ends the heist once nobody is left.
+ * (decision 286), with what they carry. rules/transit.ts calls it; `heistOver` then ends the heist once nobody is left.
  */
 export function leaveOnFoot(ctx: Ctx, member: CrewState, route: string): void {
     const { state } = ctx;
@@ -173,9 +170,31 @@ export function leaveOnFoot(ctx: Ctx, member: CrewState, route: string): void {
 export const crewOut = (state: DeepReadonly<State>): boolean =>
     (state.crew.length > 0 || state.custody.length > 0 || state.escaped.length > 0) && state.crew.every(c => c.wounds.dead);
 
-// After every command (the world phase too): a crew that is all out has failed.
+/** Whether an off-map route still leads off the plot on foot (§15.4): the sewer always, the roof and duct unless the helicopter is over. */
+const wayOnFoot = (world: ReadonlyWorld, state: DeepReadonly<State>): boolean =>
+    (world.routes ?? []).some(r => r.kind === 'sewer' || !state.police.vehicles.some(v => v.kind === 'helicopter'));
+
+/**
+ * Whether the heist is over now (§15.4, §15.5; decisions 177, 284, 303): nobody of the crew is left on the plot but the
+ * dead (`crewOut`); or, once a crew vehicle has driven off, nobody up is left behind, or those left behind have no way
+ * out (no crew vehicle that can drive, no route off the plot on foot) and are arrested. Never while someone is still
+ * on a route off the plot: they are let finish it, and the heist is judged again when they are away.
+ */
+export function heistOver(world: ReadonlyWorld, state: DeepReadonly<State>): boolean {
+    if (state.crew.some(leavingOnFoot)) return false;
+    if (crewOut(state)) return true;
+    if (!sortedIds(state.vehicles).some(id => state.vehicles[id]!.gone)) return false;
+    const behind = state.crew.some(c => !isDown(c));
+    const ride = sortedIds(state.vehicles).some(id => !state.vehicles[id]!.gone && state.vehicles[id]!.hp > 0);
+    return !behind || (!ride && !wayOnFoot(world, state));
+}
+
+/** The last crew vehicle that drove off with someone aboard, or null: the outcome's `vehicle`. */
+const lastVehicle = (state: DeepReadonly<State>): string | null => [...state.escaped].reverse().find(e => e.vehicle !== null)?.vehicle ?? null;
+
+// After every command (the world phase too): the heist ends when it is over (`heistOver`).
 registerCommandHook('getaway.failure', ctx => {
-    if (ctx.state.outcome === null && crewOut(ctx.state)) end(ctx, null);
+    if (ctx.state.outcome === null && heistOver(ctx.world, ctx.state)) end(ctx, lastVehicle(ctx.state));
 }, { order: 50 });
 
 registerCommandGate('getaway', (_world, state) => (state.outcome ? 'The heist is over' : undefined));

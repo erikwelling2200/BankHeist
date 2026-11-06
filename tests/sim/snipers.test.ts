@@ -110,4 +110,27 @@ describe('police snipers', () => {
         expect(of(r.events, 'fighterFired')).toEqual([]);
         expect(of(r.events, 'heldFire')).toEqual([{ type: 'heldFire', shooter: 's1', target: 'jun', why: 'body', blockers: ['ann'] }]);
     });
+
+    it('lose the laser to a flashbang that costs them the phase (review)', () => {
+        const { world, state } = setup();
+        sniper(state, 's1', P(15, 1));
+        const aim = commit(world, state, endTurn).state;
+        aim.police.units[0]!.surprised = aim.turn;
+        const r = commit(world, aim, endTurn);
+        expect(of(r.events, 'fighterFired')).toEqual([]);
+        expect(of(r.events, 'sniperAimOff')).toEqual([{ type: 'sniperAimOff', sniper: 's1' }]);
+    });
+
+    it('stay by their staging point in a bank with no post (review)', () => {
+        const world = fixtureWorld(MAP, { rooms: ROOMS, walls: [...INNER], staging: [{ id: 'st', name: 'Street end', pos: P(15, 4) }] });
+        const s = clonePlain(initialState(world, { seed: 5, crew: [{ id: 'jun', pos: P(4, 2) }] }));
+        s.bank.alarm = true;
+        s.response = { raised: s.turn - 5, by: 'tellerButton', policeIn: 0, heat: 5 };
+        s.police.sent = 5;
+        s.police.mode = { kind: 'contain', left: 9, since: { turn: s.turn - 1, phase: 'world' }, after: null };
+        sniper(s, 's1', null);
+        expect(sniperPosts(world)).toEqual([]);
+        const r = commit(world, s, endTurn);
+        expect(of(r.events, 'policeDeployed').map(e => e.pos)).toEqual([P(15, 4)]);
+    });
 });

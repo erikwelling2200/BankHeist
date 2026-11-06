@@ -1,4 +1,5 @@
 import { IllegalCommand, registerCommand, registerCommandHook, type Ctx } from '../core/engine';
+import { offMap } from '../core/transit';
 import { edgeBetween, edgeKey, inBounds, tileAt } from '../core/grid';
 import { clonePlain, sortedIds } from '../core/json';
 import { actorRefusal, crewMember, edgeNow, registerActorCheck, registerCrewInit, registerRuleDefaults, registerStateInit, spendActions } from '../core/state';
@@ -296,7 +297,7 @@ export function driveMap(world: ReadonlyWorld, state: State, id: string, mode: '
     }
     // Nobody is driven over: crew on foot, NPCs on the map standing or lying, police out on scene and their vehicles.
     const sees = mode === 'truth' ? () => true : (npc: string) => markerKind(world, state, npc) === 'live';
-    for (const c of state.crew) if (c.aboard === null) put(c.pos);
+    for (const c of state.crew) if (!offMap(c)) put(c.pos);
     for (const n of state.npcs) if (!ABSENT_STATUSES.has(n.status) && sees(n.id)) put(n.pos);
     for (const u of state.police?.units ?? []) if (u.pos && (mode === 'truth' || officerSeen(world, state, u.id))) put(u.pos);
     // Police cars and vans (wrecks too) on their whole footprint, and the Heat 5 roadblock (decisions 283, 285).

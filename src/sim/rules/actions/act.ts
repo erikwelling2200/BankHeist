@@ -1,4 +1,5 @@
 import { IllegalCommand, registerCommand, type Ctx } from '../../core/engine';
+import { offMap } from '../../core/transit';
 import { cornerEdges, edgeBetween, edgeKey, FACING_STEP, inBounds, tileAt } from '../../core/grid';
 import { actorRefusal, crewMember, edgeNow, spendActions } from '../../core/state';
 import type { Command, CommandOf, CommandType, CrewState, DeepReadonly, Pos, ReadonlyWorld, State, Tile } from '../../core/types';
@@ -65,6 +66,21 @@ const ACTIONS = new Map<string, Entry>();
 const crewOf = (cmd: DeepReadonly<Command>): string => (cmd as { crew?: string }).crew ?? '';
 
 /**
+ * Why a command can't name the teammate it names (`to`, `ally`: a pass, a magazine handed over, a revive, a medkit),
+ * or undefined: one off the map (in transit, §14.7, or aboard a shut vehicle) is nobody's to reach, whatever tile their
+ * `pos` still holds.
+ */
+export function teammateRefusal(state: DeepReadonly<State>, cmd: DeepReadonly<Command>): string | undefined {
+    const fields = cmd as unknown as { to?: unknown; ally?: unknown };
+    for (const id of [fields.to, fields.ally]) {
+        if (typeof id !== 'string' || id === crewOf(cmd)) continue;
+        const mate = state.crew.find(c => c.id === id);
+        if (mate && offMap(mate)) return mate.transit ? `${mate.name} is in transit` : `${mate.name} is in the vehicle`;
+    }
+    return undefined;
+}
+
+/**
  * Registers a crew action command: its reducer runs the steps of the header in order. `options.perceive` false leaves
  * the end-of-action check to the action itself.
  */
@@ -72,7 +88,7 @@ export function registerAction<K extends CommandType>(type: K, def: ActionDef<K>
     const perceive = options.perceive ?? true;
     registerCommand(type, (ctx, cmd) => {
         const member = crewMember(ctx.state, crewOf(cmd as DeepReadonly<Command>));
-        const reason = actorRefusal(member) ?? def.whyNot(ctx.world, ctx.state, cmd as DeepReadonly<CommandOf<K>>);
+        const reason = actorRefusal(member) ?? teammateRefusal(ctx.state, cmd as DeepReadonly<Command>) ?? def.whyNot(ctx.world, ctx.state, cmd as DeepReadonly<CommandOf<K>>);
         if (reason) throw new IllegalCommand(reason);
         const illegal = def.illegal?.(ctx.world, ctx.state, cmd as DeepReadonly<CommandOf<K>>);
         const cost = def.cost(ctx.world, ctx.state, cmd as DeepReadonly<CommandOf<K>>);
@@ -123,7 +139,7 @@ export function whyNot(world: ReadonlyWorld, state: State, cmd: DeepReadonly<Com
     if (!entry) return undefined;
     const member = state.crew.find(c => c.id === crewOf(cmd));
     if (!member) return `No crew member '${crewOf(cmd)}'`;
-    return actorRefusal(member) ?? entry.whyNot(world, state, cmd);
+    return actorRefusal(member) ?? teammateRefusal(state, cmd) ?? entry.whyNot(world, state, cmd);
 }
 
 /**
@@ -137,7 +153,7 @@ export function legalActions(world: ReadonlyWorld, state: State, crewId: string)
     const out: Command[] = [];
     for (const type of [...ACTIONS.keys()].sort()) {
         const entry = ACTIONS.get(type)!;
-        for (const cmd of entry.candidates?.(world, state, member) ?? []) if (!entry.whyNot(world, state, cmd)) out.push(cmd);
+        for (const cmd of entry.candidates?.(world, state, member) ?? []) if (!teammateRefusal(state, cmd) && !entry.whyNot(world, state, cmd)) out.push(cmd);
     }
     return out;
 }

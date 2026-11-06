@@ -1,4 +1,5 @@
 import { IllegalCommand, registerCommand, type Ctx } from '../core/engine';
+import { offMap } from '../core/transit';
 import { edgeBetween, edgeKey, inBounds, tileAt } from '../core/grid';
 import { crewMember, edgeNow, spendActions } from '../core/state';
 import type { CrewState, DeepReadonly, EdgeKey, Pos, ReadonlyWorld, State } from '../core/types';
@@ -106,7 +107,7 @@ const rowMajor = (a: Pos, b: Pos): number => a.y - b.y || a.x - b.x;
 /** Who stands or lies on `p`: crew on foot, NPCs on the map, officers out; `known` only those the crew knows of. */
 function peopleOn(world: ReadonlyWorld, state: State, tiles: readonly Pos[], known: boolean): string[] {
     const on = new Set(tiles.map(tileKey)), out: string[] = [];
-    for (const c of state.crew) if (c.aboard === null && !c.wounds.dead && on.has(tileKey(c.pos))) out.push(c.id);
+    for (const c of state.crew) if (!offMap(c) && !c.wounds.dead && on.has(tileKey(c.pos))) out.push(c.id);
     // The living only, where their body lies (as a blast, rules/actions/charges.ts): the dead and the stashed are no one to hit.
     for (const n of state.npcs) {
         if (ABSENT_STATUSES.has(n.status) || n.status === 'dead' || n.stashed !== null || !on.has(tileKey(bodyPos(state, n)))) continue;

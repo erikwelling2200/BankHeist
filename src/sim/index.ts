@@ -124,7 +124,7 @@ export * from './data/movement';
 export * from './data/noise';
 export { darkensAt, failSafeDoors, litNow, lockReleased, powerOn, type PowerState } from './core/power';
 export { inTransit, offMap, type AccessRoute, type RouteKind, type Transit } from './core/transit';
-export { helicopterOver, routeBlocked, routeEndInReach, routeOf } from './rules/transit';
+export { helicopterOver, routeBlocked, routeEndInReach, routeExit, routeOf } from './rules/transit';
 export { sniperLasers, sniperSees, type KnownLaser, type SniperLaser } from './rules/snipers';
 export { sniperPost, sniperPosts } from './rules/sniperPosts';
 export { generatorAt, generatorOf } from './rules/power';
@@ -258,7 +258,7 @@ export {
 export {
     aboard, driveBudget, driveCut, driveMap, drivePlan, exitTiles, registerLeaveHook, holdOf, holdValue, inGetaway, vehicleBeside, vehicleDef, vehicleDoors, vehicleReach
 } from './rules/vehicles';
-export { crewOut, outcomeNow, type Escaped, type HeistOutcome, type OutcomeResult } from './rules/getaway';
+export { crewOut, heistOver, outcomeNow, type Escaped, type HeistOutcome, type OutcomeResult } from './rules/getaway';
 export { ramPlan, type RamPlan, type RamTarget } from './rules/ram';
 export { blastVehicles, damageVehicle, vehicleDisabled, vehiclesOn } from './rules/vehicleDamage';
 export * from './data/vehicles';
