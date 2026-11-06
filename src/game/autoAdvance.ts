@@ -2,7 +2,7 @@ import {
     AUTO_TURN_CAP, autoAdvanceBlocked, planRoute, waitOptions, type AutoStop, type Pos, type RouteLeg, type WaitOption, type WaitTarget
 } from '../sim';
 import type { AutoBarVM } from '../ui/hud/autoBar';
-import { CREW_COLOURS } from '../ui/hud/viewModels';
+import { crewColour } from '../ui/hud/viewModels';
 import type { Session } from './session';
 
 /*
@@ -112,7 +112,7 @@ function planViews(session: Session): RouteView[] {
         if (!route?.length) return;
         const plan = planRoute(world, state, c.id, route, { safety: true });
         out.push({
-            crew: c.id, colour: CREW_COLOURS[i % CREW_COLOURS.length]!, from: { ...c.pos }, legs: plan.legs, rest: route.slice(plan.walkable).map(p => ({ ...p })),
+            crew: c.id, colour: crewColour(c.id, i), from: { ...c.pos }, legs: plan.legs, rest: route.slice(plan.walkable).map(p => ({ ...p })),
             unsafe: plan.unsafe, now: state.turn
         });
     });

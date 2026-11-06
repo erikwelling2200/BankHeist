@@ -141,6 +141,25 @@ function scheduleBlock(b: RoutineBlock): ScheduleBlock {
 const zoneOf = (room: GenRoom): Zone => (room.zone === 'outdoors' || room.zone === 'neighbour' ? 'public' : room.zone);
 const litOf = (room: GenRoom): boolean => room.light !== 'none' || room.zone === 'outdoors';
 
+/**
+ * The crew's vehicles as the generator parked them (§14.4): the van, its footprint the tiles its box stands in the way on
+ * (the 2×4 of §14.4), its heading the way its nose points. Planning may park them elsewhere (game/plan.ts); the scene
+ * draws them here as the bank is built.
+ */
+export function bankVehicles(bank: Pick<GeneratedBank, 'props' | 'level'>): VehicleDef[] {
+    const wallOn = wallLookup(bank.level.walls);
+    const vehicles: VehicleDef[] = [];
+    for (const prop of bank.props) {
+        if (!VEHICLE_PROPS.has(prop.kind)) continue;
+        const placed = placeProp(prop, wallOn), on = tilesOfBox(placed.box).filter(t => blocksMoveAt(placed, t.x, t.y));
+        const x = Math.min(...on.map(t => t.x)), y = Math.min(...on.map(t => t.y));
+        const heading = PROP_FACING[prop.facing ?? CATALOG[prop.kind].facing ?? 'south'] as Heading;
+        const spec = VEHICLES.van;
+        vehicles.push({ id: vehicles.length ? `van-${vehicles.length}` : 'van', type: 'van', name: spec.name, width: spec.width, length: spec.length, start: { x, y, heading } });
+    }
+    return vehicles;
+}
+
 export function worldFromBank(bank: GeneratedBank): ReadonlyWorld {
     const { tiles: floors, walls } = bank.level;
     const height = floors.length, width = floors[0]?.length ?? 0;
@@ -294,17 +313,7 @@ export function worldFromBank(bank: GeneratedBank): ReadonlyWorld {
     const routes = bank.routes.map((r, i) => ({
         id: `route-${i}`, kind: r.kind, name: r.name, outside: { x: r.outside.tx, y: r.outside.ty }, inside: { x: r.inside.tx, y: r.inside.ty }, transit: r.transit
     }));
-    // The crew's vehicles (§14.4): the van where the generator parked it, its footprint the tiles its box stands in the
-    // way on (the 2×4 of §14.4), its heading the way its nose points.
-    const vehicles: VehicleDef[] = [];
-    for (const prop of bank.props) {
-        if (!VEHICLE_PROPS.has(prop.kind)) continue;
-        const placed = placeProp(prop, wallOn), on = tilesOfBox(placed.box).filter(t => blocksMoveAt(placed, t.x, t.y));
-        const x = Math.min(...on.map(t => t.x)), y = Math.min(...on.map(t => t.y));
-        const heading = PROP_FACING[prop.facing ?? CATALOG[prop.kind].facing ?? 'south'] as Heading;
-        const spec = VEHICLES.van;
-        vehicles.push({ id: vehicles.length ? `van-${vehicles.length}` : 'van', type: 'van', name: spec.name, width: spec.width, length: spec.length, start: { x, y, heading } });
-    }
+    const vehicles = bankVehicles(bank);
     return freezeWorld({
         width, height, tiles, edges, doors, objects, people, cameras, rules, stashRooms, building, locks, staging, ...(lane.length ? { patrol } : {}),
         ...(vehicles.length ? { vehicles } : {}), ...(routes.length ? { routes } : {})

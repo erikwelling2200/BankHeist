@@ -134,7 +134,7 @@ export {
     inArc, npcObserver, profilesOf, rangeOn, sees, seenTiles, seesOn, visionProfiles,
     type Arc, type Band, type HalfAngle, type Observer, type SightField, type VisionProfile, type VisionProfiles
 } from './geo/cones';
-export { worldFromBank, DEPOSIT_BOX_VALUE, NOT_CARRIERS, OBJECT_KINDS, STASH_ROOMS, VEHICLE_PROPS } from './world/fromBank';
+export { bankVehicles, worldFromBank, DEPOSIT_BOX_VALUE, NOT_CARRIERS, OBJECT_KINDS, STASH_ROOMS, VEHICLE_PROPS } from './world/fromBank';
 export { inReach, lacksActions, legalActions, registerAction, whyNot, witnessActOn, witnessOn, type ActionDef } from './rules/actions/act';
 export { besideDoor, DOOR_ACTIONS, doorActionBlocked, doorSides, innerSide, LOCKPICK, lockActions, type DoorAction } from './rules/actions/door';
 export { bodyAway, DRAGGABLE, releaseBody, STASH_KINDS, stashes } from './rules/actions/body';

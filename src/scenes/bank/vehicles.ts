@@ -4,7 +4,7 @@ import type { BankData } from '../../level/bankData';
 import { propBox, propSize } from '../../level/catalog';
 import type { LevelProp } from '../../level/plan';
 import { drawLine, frontRow } from '../../level/space';
-import type { DeepReadonly, Heading, VehicleState } from '../../sim';
+import { bankVehicles, type DeepReadonly, type Heading, type VehicleState } from '../../sim';
 import { EVERYWHERE, footprintPoints, type Baker } from './bake';
 import { DEPTH } from './layers';
 import type { ShownProp } from './props';
@@ -23,15 +23,23 @@ export class Vehicles {
     /** A drive being played: the van at each pose of its path, one shown at a time. */
     private anim: { id: string; frames: Phaser.GameObjects.Image[]; end: string; msPerPose: number; t: number } | null = null;
 
+    /** Where each vehicle was drawn as the bank was built: where the generator parked it, whatever the plan did (M4-07). */
+    private readonly homes: ReadonlyMap<string, VehicleState['pose']>;
+
     /** `built`: each vehicle's images as the bank was drawn, by id. */
     constructor(private readonly baker: Baker, private readonly bank: BankData, built: ReadonlyMap<string, ShownProp>) {
         for (const [id, shown] of built) this.drawn.set(id, shown.images);
+        this.homes = new Map(bankVehicles(bank).map(v => [v.id, v.start]));
     }
 
-    /** Draws each vehicle where it stands now (`start` is where it was built: its own images stay). */
-    sync(vehicles: DeepReadonly<Record<string, VehicleState>>, start: (id: string) => DeepReadonly<VehicleState['pose']> | undefined): void {
+    /**
+     * Draws each vehicle where it stands now: where the bank drew it, its own images stay; elsewhere (driven, or parked
+     * by the plan, and the plan's other vehicles) it is baked afresh. The backup car and the ram truck wear the van's art
+     * until they have their own (M4-04's deferral).
+     */
+    sync(vehicles: DeepReadonly<Record<string, VehicleState>>): void {
         for (const [id, v] of Object.entries(vehicles)) {
-            const home = start(id), key = v.gone ? 'gone' : `${v.pose.x},${v.pose.y},${v.pose.heading}`;
+            const home = this.homes.get(id), key = v.gone ? 'gone' : `${v.pose.x},${v.pose.y},${v.pose.heading}`;
             if ((this.shownAt.get(id) ?? (home ? `${home.x},${home.y},${home.heading}` : '')) === key) continue;
             this.shownAt.set(id, key);
             for (const image of this.drawn.get(id) ?? []) image.destroy();

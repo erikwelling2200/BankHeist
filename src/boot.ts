@@ -11,6 +11,8 @@ import { PropSheetScene } from './scenes/PropSheetScene';
 import { Fullscreen } from './ui/Fullscreen';
 import { installDebugHandle, MemoryStorage, Session, webStorage } from './game';
 import { bankAddress, playPlan, sameAddress, savedHeist, startHeist } from './game/heist';
+import { defaultSetup, planOptions } from './game/plan';
+import { Planner } from './ui/planning/Planner';
 import type { BankData } from './level/bankData';
 import type { PlaySetup } from './scenes/BankScene';
 
@@ -30,11 +32,11 @@ const SCENES = ['bank', 'lobby', 'rooms', 'props', 'officer'];
  * start and autosave one in a random bank that `/` then resumes.
  */
 export const playsTheGame = (params: URLSearchParams): boolean =>
-    !params.has('scene') && !params.has('view') && params.get('bank') !== 'example' && (!params.has('seed') || params.has('play') || params.has('new'));
+    !params.has('scene') && !params.has('view') && !params.has('plan') && params.get('bank') !== 'example' && (!params.has('seed') || params.has('play') || params.has('new'));
 
 /** Replaces the address's query with `params`, a bare flag (`view`, `play`) staying bare rather than `view=`. */
 function replaceQuery(params: URLSearchParams): void {
-    const query = params.toString().replace(/(^|&)(view|play|new)=(?=&|$)/g, '$1$2');
+    const query = params.toString().replace(/(^|&)(view|play|new|plan)=(?=&|$)/g, '$1$2');
     history.replaceState(null, '', `${location.pathname}${query ? `?${query}` : ''}`);
 }
 
@@ -52,6 +54,11 @@ export function startGame(params: URLSearchParams, scene: string): void {
         void preparePlay(params).then(({ bank, setup }) => launch(params, scene, bank, setup));
         return;
     }
+    // `?plan` is the planning screen (§18, M4-07) for the pinned bank, or `?plan&seed=…`; Start begins the heist as planned.
+    if (params.has('plan') && !params.has('scene') && !params.has('view')) {
+        plan(params);
+        return;
+    }
     // An old link to the viewer (`?seed=…` without `play`) opens the viewer, and says so in its address.
     if (!params.has('scene') && !params.has('view') && params.has('seed')) {
         params = new URLSearchParams([['view', ''], ...params]);
@@ -67,7 +74,7 @@ export function startGame(params: URLSearchParams, scene: string): void {
 
 /** Starts Phaser on the scene, with the bank (and play mode's heist) handed over through the registry. */
 function launch(params: URLSearchParams, scene: string, bank: { data: BankData; generated?: GeneratedBank } | undefined, playSetup: PlaySetup | undefined,
-    gallery?: ReturnType<typeof roomGallery>): void {
+    gallery?: ReturnType<typeof roomGallery>, planning = false): Phaser.Game {
     const game = new Phaser.Game({
         type: Phaser.WEBGL,
         parent: 'game',
@@ -84,7 +91,7 @@ function launch(params: URLSearchParams, scene: string, bank: { data: BankData; 
         // `?scene=officer` the police officer's animation preview. `?scene=bank` and `?scene=lobby` are older links to the viewer.
         scene: [{ bank: BankScene, lobby: BankScene, rooms: BankScene, props: PropSheetScene, officer: OfficerScene }[scene] ?? BankScene],
         // `?still` stops what moves by itself (drifting clouds, patrols, dust), so screenshots of a view match pixel for pixel.
-        callbacks: { preBoot: g => g.registry.set('bankData', bank?.data).set('still', params.has('still')).set('play', playSetup) }
+        callbacks: { preBoot: g => g.registry.set('bankData', bank?.data).set('still', params.has('still')).set('play', playSetup).set('planning', planning) }
     });
 
     let panels: { briefing: Briefing; bar: GeneratorBar } | undefined;
@@ -123,7 +130,7 @@ function launch(params: URLSearchParams, scene: string, bank: { data: BankData; 
         }));
     }
 
-    if (bank?.generated && !playSetup) {
+    if (bank?.generated && !playSetup && !planning) {
         showPanels(bank.generated);
         window.addEventListener('popstate', showAddressedBank);
     }
@@ -132,6 +139,42 @@ function launch(params: URLSearchParams, scene: string, bank: { data: BankData; 
 
     new Fullscreen();
     registerSW({ immediate: true });
+    return game;
+}
+
+/**
+ * The planning screen (§18, M4-07): the bank's tactical map with the planner over it. Start begins the heist as planned,
+ * after asking if a heist is saved, and opens the game on it: the saved heist, resumed.
+ */
+function plan(params: URLSearchParams): void {
+    if (!params.has('seed')) {
+        const next = new URLSearchParams(location.search);
+        for (const [k, v] of Object.entries(PLAY_BANK)) next.set(k, v);
+        replaceQuery(next);
+    }
+    const bank = generateAddressed(), generated = bank.generated!;
+    const game = launch(params, 'bank', bank, undefined, undefined, true);
+    const options = planOptions(generated);
+    const map = () => {
+        const scene = game.scene.getScene('bank') as BankScene | null;
+        return scene?.sys.isActive() ? scene : undefined;
+    };
+    const planner = new Planner(generated, options, defaultSetup(options), map, async setup => {
+        const storage = webStorage() ?? new MemoryStorage();
+        const saved = savedHeist(storage);
+        if (saved) {
+            const name = saved.name ? `in ${saved.name}` : 'in another bank';
+            if (!(await askPlayer(`A heist ${name} is saved on this device.`, 'Starting this one overwrites it.', 'Start new', 'Keep planning'))) return;
+        }
+        startHeist(generated, storage, {}, setup);
+        // The game resumes the heist just saved: without a seed for the pinned bank, else with its address.
+        const here = bankAddress(generated);
+        const pinned = here.seed === PLAY_BANK.seed && here.tier === PLAY_BANK.tier && here.archetype === PLAY_BANK.archetype;
+        const keep = [...new URLSearchParams(location.search)].filter(([k]) => !['plan', 'seed', 'tier', 'archetype', 'plot'].includes(k));
+        const query = new URLSearchParams(pinned ? keep : [['play', ''], ...Object.entries(here), ...keep]).toString().replace(/(^|&)(play)=(?=&|$)/g, '$1$2');
+        location.replace(`${location.pathname}${query ? `?${query}` : ''}`);
+    });
+    Object.assign(window, { planner, generated });
 }
 
 /** The addressed bank, its generating timed into the browser's performance timeline (`bank: generate`) for profiling. */

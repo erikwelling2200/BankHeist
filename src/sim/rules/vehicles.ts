@@ -48,6 +48,13 @@ import { vehicleDisabled } from './vehicleDamage';
  * - In stealth a parked vehicle is ignored (§14.4): driving is no illegal act and makes no noise (decision 174).
  */
 
+declare module '../core/state' {
+    interface CrewStart {
+        /** The vehicle they start in (planning, §18.1): in its cab, out of sight. Absent: on foot. */
+        aboard?: string;
+    }
+}
+
 declare module '../core/types' {
     interface Rules {
         /** Tiles of path one Drive covers (§14.4), and with a Wheelman driving. */
@@ -80,14 +87,22 @@ declare module '../core/types' {
 
 registerRuleDefaults({ driveTiles: DRIVE_TILES, wheelmanDriveTiles: WHEELMAN_DRIVE_TILES });
 
-// Named to run before 'knowledge' (inits run by name): what the crew sees at the start goes round the van.
+// Named to run before 'knowledge' (inits run by name): what the crew sees at the start goes round the van. Crew who
+// start aboard (planning, §18.1) sit in its cab, the first of them in crew order at the wheel (decision 321).
 registerStateInit('crewVehicles', (world, state) => {
     state.vehicles = {};
     for (const v of world.vehicles ?? []) state.vehicles[v.id] = { pose: { ...v.start }, driver: null, hold: [], gone: false, hp: VEHICLES[v.type].hp };
+    for (const id of sortedIds(state.vehicles)) {
+        if (!state.crew.some(c => c.aboard === id)) continue;
+        carryAlong(world, state, id);
+        state.vehicles[id]!.driver = state.crew.find(c => canDrive(c, id))?.id ?? null;
+    }
 });
 
-registerCrewInit('aboard', (_world, _start, member) => {
-    member.aboard = null;
+registerCrewInit('aboard', (world, start, member) => {
+    const id = start.aboard ?? null;
+    if (id !== null && !vehicleDef(world, id)) throw new Error(`${member.name} can't start in '${id}': there is no such vehicle`);
+    member.aboard = id;
 });
 
 // Aboard, a crew member acts only through the vehicle: getting out and driving check everything else themselves.

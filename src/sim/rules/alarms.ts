@@ -52,7 +52,7 @@ export const TRAITS = [
 ] as const;
 export type Trait = (typeof TRAITS)[number];
 
-/** A jammer left running (§12.2). */
+/** A jammer left running (§12.2): `crew` set it ('' for one pre-placed in planning, §18.2). */
 export interface Jammer { id: string; pos: Pos; crew: string; turn: number }
 
 declare module '../core/types' {

@@ -262,8 +262,8 @@ describe('the game session', () => {
         ]);
         expect(recap.bank).toEqual({ status: 'quiet', label: 'QUIET: alarm in 2', nextAlarmIn: 2 });
         expect(recap.crew).toEqual([
-            { id: 'jun', name: 'jun', colour: CREW_COLOURS[0], portrait: 'jun', status: 'done', actionsLeft: 0, exposed: false, hp: { now: 8, max: 8 } },
-            { id: 'mara', name: 'mara', colour: CREW_COLOURS[1], portrait: 'mara', status: 'ready', actionsLeft: 1, exposed: false, hp: { now: 8, max: 8 } }
+            { id: 'jun', name: 'jun', colour: CREW_COLOURS[1], portrait: 'jun', status: 'done', actionsLeft: 0, exposed: false, hp: { now: 8, max: 8 } },
+            { id: 'mara', name: 'mara', colour: CREW_COLOURS[0], portrait: 'mara', status: 'ready', actionsLeft: 1, exposed: false, hp: { now: 8, max: 8 } }
         ]);
         expect(recap.threats.map(t => t.countdown)).toEqual([2, 8]);
         session.endTurn();
@@ -380,9 +380,10 @@ describe('the HUD view models', () => {
         const hud = session.hud();
         expect(hud.turn).toBe(1);
         expect(hud.selected).toBe('jun');
-        expect(hud.crew[0]).toEqual({ id: 'jun', name: 'jun', colour: CREW_COLOURS[0], portrait: 'jun', actionsLeft: 1, actionsMax: 2, selected: true, profile: 'clean', exposedTo: [], hp: { now: 8, max: 8 }, carrying: null });
+        expect(hud.crew[0]).toEqual({ id: 'jun', name: 'jun', colour: CREW_COLOURS[1], portrait: 'jun', actionsLeft: 1, actionsMax: 2, selected: true, profile: 'clean', exposedTo: [], hp: { now: 8, max: 8 }, carrying: null });
         expect(hud.crew[1]!.selected).toBe(false);
-        expect(hud.crew[1]!.colour).toBe(CREW_COLOURS[1]);
+        // Each wears their own colour (UI.md "Crew"), whatever their place in the crew's order.
+        expect(hud.crew[1]!.colour).toBe(CREW_COLOURS[0]);
         expect(hud.undoEnabled).toBe(true);
         // The carriers by urgency, then the known guard's next check-in call (dispatch's, every 8 phases: §8.11).
         expect(hud.ledger.map(t => [t.id, t.countdown])).toEqual([['carrier-2', 2], ['carrier-1', 4], ['checkIn:guard', 8]]);

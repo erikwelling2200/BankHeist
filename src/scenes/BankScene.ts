@@ -19,7 +19,8 @@ import { RaisedFloors } from './bank/raised';
 import { PlayMode, type PlayParts } from './bank/sim';
 import { Walls } from './bank/walls';
 import { M1_CREW } from '../game/heist';
-import { CREW_COLOURS } from '../ui/hud/viewModels';
+import { crewColour } from '../ui/hud/viewModels';
+import { rosterMember } from '../game/plan';
 
 /** What the game (`/`) hands the scene through the registry (`play`): the Session and the bank it is played in. */
 export type PlaySetup = Pick<PlayParts, 'session' | 'bank' | 'resumed'> & { /** How long finding or making the heist took (ms). */ setupMs?: number };
@@ -55,6 +56,11 @@ export class BankScene extends Phaser.Scene {
     private still = false;
     /** Play mode (the game, `/`): the bank driven by a Session. */
     private play?: PlayMode;
+    /**
+     * The planning screen (`?plan`, M4-07): the plot on the tactical map at the blueprint's knowledge, nobody moving, the
+     * HTML planner (src/ui/planning) over it.
+     */
+    private planning = false;
     /** The bank with the power out (play mode). */
     private power?: PowerCut;
 
@@ -69,6 +75,7 @@ export class BankScene extends Phaser.Scene {
         forgetLastBank(this.textures);
         this.still = this.registry.get('still') === true;
         const play = this.registry.get('play') as PlaySetup | undefined;
+        this.planning = this.registry.get('planning') === true;
         const { level } = this.bank;
         this.mapWidth = level.tiles[0]!.length * TILE;
         this.mapHeight = level.tiles.length * TILE;
@@ -88,7 +95,7 @@ export class BankScene extends Phaser.Scene {
         this.walls = new Walls(this, level, heights, { front: y => atmosphere.frontTop(y), far: y => atmosphere.farTop(y) });
         const knowledge = (this.knowledge = new Knowledge(this, this.bank.outlines ?? [], heights));
         this.people = new People(this, baker, (x, y) => knowledge.hides(x, y), heights);
-        this.camera = new BankCamera(this, this.mapWidth, this.mapHeight, !play);
+        this.camera = new BankCamera(this, this.mapWidth, this.mapHeight, !play && !this.planning);
 
         const floor = this.timed('floor', () => addFloor(baker, level, props.filter(({ box }) => box.h === 0)));
         this.timed('walls', () => this.walls.build(baker));
@@ -100,7 +107,7 @@ export class BankScene extends Phaser.Scene {
         knowledge.trackProps(shown);
         knowledge.trackRaised(raised);
         this.timed('people', () => this.people.build(this.bank.people, play ? play.session.state.crew.map((c, i) => ({
-            look: M1_CREW.find(m => m.id === c.id)?.look ?? 'crewSol', tx: c.pos.x, ty: c.pos.y, facing: 'back' as const, ring: CREW_COLOURS[i % CREW_COLOURS.length]!
+            look: rosterMember(c.id)?.look ?? M1_CREW.find(m => m.id === c.id)?.look ?? 'crewSol', tx: c.pos.x, ty: c.pos.y, facing: 'back' as const, ring: crewColour(c.id, i)
         })) : []));
         const { shade } = this.timed('light maps', () => baker.addLightMaps(level, occluders, casters));
         this.timed('raised floors', () => raised.build(baker, floor, shade));
@@ -111,6 +118,13 @@ export class BankScene extends Phaser.Scene {
             this.walls.settle();
         });
         if (play?.setupMs !== undefined) this.timings.heist = play.setupMs;
+        if (this.planning) {
+            // What the crew knows before casing (§17.8), the whole plot to plan on.
+            knowledge.show(false);
+            this.camera.toggleMap();
+            this.walls.update(0, this.cameras.main.midPoint.y, this.camera.onMap);
+            this.walls.settle();
+        }
         if (play) this.timed('play', () => {
             // A power cut (§14.6) darkens the rules' building: drawn when the state first has one.
             const world = play.session.world;
@@ -144,7 +158,7 @@ export class BankScene extends Phaser.Scene {
         if (!this.still) {
             this.atmosphere.update(dt);
             // In play mode the state says where people stand: no real-time patrols.
-            if (!this.play) this.people.update(deltaMs);
+            if (!this.play && !this.planning) this.people.update(deltaMs);
         }
         this.play?.update(deltaMs);
         this.camera.update(dt);
@@ -182,6 +196,13 @@ export class BankScene extends Phaser.Scene {
         const cam = this.cameras.main, box = this.game.canvas.getBoundingClientRect();
         const sx = box.width / this.scale.width, sy = box.height / this.scale.height;
         return { x: box.left + ((tx + 0.5) * TILE - cam.worldView.x) * sx, y: box.top + ((ty + 0.5) * TILE - cam.worldView.y) * sy };
+    }
+
+    /** The tile under page point (x, y), in CSS pixels (the planner's taps): the inverse of `tileOnPage`. */
+    tileAtPage(x: number, y: number): { x: number; y: number } {
+        const cam = this.cameras.main, box = this.game.canvas.getBoundingClientRect();
+        const sx = box.width / this.scale.width, sy = box.height / this.scale.height;
+        return { x: Math.floor(((x - box.left) / sx + cam.worldView.x) / TILE), y: Math.floor(((y - box.top) / sy + cam.worldView.y) / TILE) };
     }
 
     /** Moves the camera so the given map pixel is centred; for tests and screenshots. */

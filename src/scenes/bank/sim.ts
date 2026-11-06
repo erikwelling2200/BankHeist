@@ -7,6 +7,7 @@ import {
     actionMenu, AutoRun, HEIST_KEY, noisemakerTiles, rolePortrait, throwTiles, autoBarView, bankView, barkText, cameraName, doorMiddle, nextCamera, moveAlong, moveRange, moveTo, routeViews, stopNeedsAttention, targetsOf, waitMenu, type ActionId, type FloorJob, type MoveRange,
     type PlaybackItem, type PlaybackSpeed, type Session, type SessionChange
 } from '../../game';
+import { bankAddress, type BankAddress } from '../../game/heist';
 import { shownWarnings, warningLines, type EvidenceWarning } from '../../game/evidenceWarning';
 import { aimView, breachMarkers, fireSelector, fortifyMarkers, gadgetMarkers, laserMarkers, policeMarkers, type AimVM, type PoliceMarkerVM } from '../../game/loudUi';
 import { loudView, negotiatorView, posesCovering, type LoudVM } from '../../game/loudBoards';
@@ -21,7 +22,7 @@ import {
 import { mountAutoBar, type AutoBarHandle } from '../../ui/hud/autoBar';
 import { iconUrl, portraitUrl } from '../../ui/hud/icons';
 import { mountHud } from '../../ui/hud/mountHud';
-import { CREW_COLOURS, type HudHandle, type OverlayId } from '../../ui/hud/viewModels';
+import { crewColour, type HudHandle, type OverlayId } from '../../ui/hud/viewModels';
 import type { BankCamera } from './camera';
 import { MapInput } from './input';
 import { Loupe } from './loupe';
@@ -222,6 +223,9 @@ export class PlayMode {
         if (this.auto && !KEEP_RUN_KEYS.has(e.key.length === 1 ? e.key.toLowerCase() : e.key)) this.stopAuto();
     };
 
+    /** The bank's address, for planning the next heist in it. */
+    private readonly address: BankAddress;
+
     constructor(private readonly scene: Phaser.Scene, parts: PlayParts) {
         const { session, bank, people, walls, camera, knowledge } = parts;
         this.session = session;
@@ -232,6 +236,7 @@ export class PlayMode {
         this.vehicles = parts.vehicles;
         this.power = parts.power;
         this.recap = parts.resumed && session.recent.length > 0;
+        this.address = bankAddress(bank);
         this.lastStop = session.ui.autoStop ?? null;
         bank.people.forEach((p, i) => {
             this.sprite.set(p.id, i);
@@ -281,10 +286,12 @@ export class PlayMode {
                 this.negotiatorLater = this.session.state.turn;
                 this.refresh();
             },
-            // A new heist once this one is over (§15.5): the saved one is done with; the page starts afresh.
+            // A new heist once this one is over (§15.5): the saved one is done with; the next is planned first, in the
+            // same bank (§18, M4-07).
             newHeist: () => {
                 this.session.storage.remove(HEIST_KEY);
-                window.location.reload();
+                const still = new URLSearchParams(location.search).has('still') ? '&still' : '';
+                window.location.assign(`${location.pathname}?plan&${new URLSearchParams({ ...this.address })}${still}`);
             }
         });
         this.autoBar = mountAutoBar(document.body, {
@@ -920,7 +927,7 @@ export class PlayMode {
             // Aboard a vehicle they are inside it, out of sight (§14.4).
             this.people.setAway(index, offMap(c));
         }
-        this.vehicles.sync(state.vehicles, id => world.vehicles?.find(v => v.id === id)?.start);
+        this.vehicles.sync(state.vehicles);
         for (const n of state.npcs) {
             const index = this.sprite.get(n.id), m = markers.get(n.id);
             if (index === undefined) continue;
@@ -1581,7 +1588,7 @@ export class PlayMode {
         if (this.busy || this.session.state.phase !== 'crew') return { colour: '', ...layer };
         const intents = this.intents(), member = this.selectedMember();
         if (!member) return { colour: '', intents, ...layer };
-        const colour = CREW_COLOURS[this.session.state.crew.indexOf(member) % CREW_COLOURS.length]!;
+        const colour = crewColour(member.id, this.session.state.crew.indexOf(member));
         // The whole range stays drawn while a tile is previewed or a path dragged (XCOM style): the path goes on top.
         // A long-pressed NPC's cones are the question being asked: the range steps aside for them.
         const range = member.actionsLeft > 0 && !this.coneOf ? this.range(member) : undefined;
@@ -1798,7 +1805,7 @@ export class PlayMode {
             ...(filter ? { coneFilter: true } : {}),
             cameras: this.cameras(),
             flashes: this.liveFlashes(),
-            crewColours: Object.fromEntries(state.crew.map((c, i) => [c.id, CREW_COLOURS[i % CREW_COLOURS.length]!])),
+            crewColours: Object.fromEntries(state.crew.map((c, i) => [c.id, crewColour(c.id, i)])),
             // Breaches announced for the next world phase (M3-09), and the unit acting in a firefight's playback.
             loud: { breaches: breachMarkers(world, state), fortified: fortifyMarkers(world, state), gadgets: gadgetMarkers(world, state), lasers: laserMarkers(state), ...(this.acting ? { acting: this.acting.pos } : {}), tracers: this.liveTracers() },
             // People walking during playback: their plates come back when it is over.

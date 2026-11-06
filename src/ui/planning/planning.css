@@ -1,0 +1,85 @@
+/*
+ * The planning screen (UI.md "Map, planning and campaign", the mockup's Planning board): the HUD's glass panels and type
+ * (hud.css's `.sh` tokens and colour-blind preset) over the tactical map. Crew rail left, assets right, the contract and
+ * what is left to spend along the top, Start bottom right; the map's pins drawn as world UI: hairline outlines, a solid
+ * safe outline for a chosen spot, dashed cream for a spot the vehicle being placed could take.
+ */
+.pl { --rail: 136px; --side: 150px; }
+.pl .sh-ic { width: 22px; height: 22px; }
+.pl-top { left: var(--pl); right: var(--pr); }
+.pl-chip { display: flex; align-items: center; gap: 6px; padding: 0 8px; }
+.pl-bar { width: 2px; height: 18px; background: var(--line); }
+.pl-dollar { color: var(--safe); }
+.pl-star { color: var(--gold); }
+.pl-cash.over .sh-num, .pl-favours.over .pl-star { color: var(--red); }
+.pl-pips { display: flex; gap: 2px; }
+.pl-pip { display: block; width: 7px; height: 7px; border: 1px solid var(--line2); box-sizing: border-box; }
+.pl-pip.on { background: var(--gold); border-color: #000; }
+.pl-favours.over .pl-pip.on { background: var(--red); }
+
+/* The crew rail: portrait, profile, weapon and start; the border in the crew colour. */
+.pl-rail { position: absolute; left: var(--pl); top: calc(var(--pt) + 40px); width: var(--rail); display: flex; flex-direction: column; gap: 5px; }
+.pl-card { position: relative; display: flex; align-items: center; gap: 3px; height: 46px; padding: 0 4px; border-color: var(--c); text-align: left; }
+.pl-card.out { border-style: dashed; border-color: var(--line); }
+.pl-card.out .pl-portrait, .pl-card.out .pl-gear { filter: brightness(0.5) saturate(0.4); }
+.pl-portrait { display: flex; align-items: center; justify-content: center; width: 36px; height: 36px; flex: none; image-rendering: pixelated; border-radius: 1px; }
+.pl-gear { width: 22px; height: 22px; flex: none; }
+.pl-from { position: relative; margin-left: auto; display: flex; align-items: center; }
+.pl-by { position: absolute; right: -2px; bottom: -6px; font-size: 9px; color: var(--dim); }
+.pl-starts { display: flex; align-items: center; justify-content: center; gap: 4px; height: 36px; color: var(--dim); }
+
+/* The assets: price and favour pips; gold once bought. */
+.pl-assets { position: absolute; right: var(--pr); top: calc(var(--pt) + 40px); width: var(--side); display: flex; flex-direction: column; gap: 5px; }
+.pl-asset { display: flex; align-items: center; gap: 5px; height: 40px; padding: 0 6px; text-align: left; }
+.pl-asset:disabled { opacity: 0.45; cursor: default; }
+.pl-asset.on { border-color: var(--gold); box-shadow: inset 0 0 0 1px rgba(242, 201, 76, 0.35); }
+.pl-asset .sh-num { font-size: calc(var(--sh-text) * 17px); }
+.pl-name { flex: 1; min-width: 0; font: 500 calc(var(--sh-text) * 10px)/1.1 var(--sans); letter-spacing: 0; color: var(--dim); overflow: hidden; }
+.pl-fv { display: flex; gap: 2px; flex: none; }
+.pl-fv i { display: block; width: 7px; height: 7px; background: var(--gold); border: 1px solid #000; }
+
+.sh-confirm.pl-start { width: var(--side); }
+.pl-problem { position: absolute; right: var(--pr); bottom: calc(var(--pb) + 64px); max-width: calc(var(--side) + 60px); padding: 5px 8px;
+  border-color: var(--amber); color: var(--amber); font: 500 calc(var(--sh-text) * 12px)/1.25 var(--sans); letter-spacing: 0; text-align: right; }
+.pl-hint { position: absolute; left: 50%; bottom: var(--pb); transform: translateX(-50%); padding: 5px 10px; border-color: var(--cmd);
+  font: 500 calc(var(--sh-text) * 12px)/1.25 var(--sans); letter-spacing: 0; white-space: nowrap; }
+
+/* Pins over the map, placed every frame from the camera. */
+.pl-pins { position: absolute; inset: 0; pointer-events: none; }
+.pl-pins > * { position: absolute; pointer-events: auto; box-sizing: border-box; }
+.sh .pl-spot { border: 2px dashed var(--iv); border-radius: 3px; background: rgba(11, 13, 23, 0.25); }
+.sh .pl-spot.on { border: 2px solid var(--safe); background: color-mix(in srgb, var(--safe) 18%, transparent); }
+.sh .pl-spot.moving { border-color: var(--cmd); }
+.pl-mark { position: absolute; left: 50%; bottom: calc(100% + 4px); transform: translateX(-50%); display: flex; align-items: center; gap: 2px; padding: 2px 4px;
+  background: var(--panel); border: 1px solid var(--safe); border-radius: 5px; white-space: nowrap; }
+.pl-face { display: flex; align-items: center; justify-content: center; width: 18px; height: 18px; image-rendering: pixelated; font-size: 11px; }
+.pl-mark .pl-risk { width: 16px; height: 16px; opacity: 0.8; }
+.pl-pin { display: flex; align-items: center; gap: 2px; padding: 2px; transform: translate(-50%, -50%); background: var(--panel); border: 1px solid var(--gold); border-radius: 5px; }
+.pl-ring { border: 1px solid var(--cmd); border-radius: 50%; pointer-events: none !important; box-shadow: 0 1px 0 #000; }
+
+/* The loadout sheet. */
+.pl-sheet { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); z-index: 2; width: min(400px, calc(100vw - 24px));
+  max-height: calc(100vh - 24px); overflow-y: auto; padding: 10px 12px; background: rgba(11, 13, 23, 0.92); border-color: var(--c); pointer-events: auto; }
+.pl-head { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+.pl-who { display: flex; flex-direction: column; flex: 1; gap: 2px; }
+.pl-title { font-size: calc(var(--sh-text) * 16px); color: var(--c); }
+.pl-fields { display: grid; grid-template-columns: 1fr 1fr; gap: 6px 10px; }
+.pl-field { display: flex; flex-direction: column; gap: 2px; }
+.pl-label { font-size: calc(var(--sh-text) * 11px); color: var(--dim); }
+.pl-select { min-height: 36px; padding: 0 6px; border: 1px solid var(--line2); border-radius: var(--r); background: #141826; color: var(--iv);
+  font: 500 calc(var(--sh-text) * 13px) var(--sans); pointer-events: auto; }
+.pl-buttons { display: flex; justify-content: flex-end; gap: 8px; margin-top: 10px; }
+.pl-button { min-width: 88px; height: 40px; padding: 0 12px !important; border: 1px solid var(--line2) !important; border-radius: var(--r); background: var(--panel); }
+.pl-button:disabled { color: var(--mute); cursor: default; }
+.pl-done { background: var(--iv) !important; color: var(--ink) !important; text-shadow: none !important; }
+
+/* A narrow screen: the rail and the assets drop their names and shrink. */
+@media (max-width: 720px) {
+  .pl { --rail: 118px; --side: 112px; }
+  .pl-name { display: none; }
+  .pl-card { height: 42px; }
+  .pl-portrait { width: 32px; height: 32px; }
+}
+
+/* The fullscreen button keeps clear of the rail: bottom left. */
+body.planning .fullscreen-button { top: auto; bottom: max(8px, env(safe-area-inset-bottom)); left: max(8px, env(safe-area-inset-left)); width: 44px; height: 44px; }

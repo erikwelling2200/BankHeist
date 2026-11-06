@@ -4,7 +4,7 @@ import {
     type CommandRings, type Command, type FortifyAction, type HoldRing, type OutcomeResult, type RamTarget, type ReadonlyWorld, type SimEvent, type State
 } from '../sim';
 import {
-    CREW_COLOURS, OVERLAY_IDS, type ActionVM, type BankStatus, type CommitKind, type ConfirmVM, type HudIcon, type BankStatusVM, type CrewVM, type HudViewModel, type LootVM, MAX_ACTIONS, type OverlayId,
+    crewColour, OVERLAY_IDS, type ActionVM, type BankStatus, type CommitKind, type ConfirmVM, type HudIcon, type BankStatusVM, type CrewVM, type HudViewModel, type LootVM, MAX_ACTIONS, type OverlayId,
     type HeatVM, type OutcomeCrewVM, type OutcomeVM, type RecapEventVM, type RecapVM, type RingsVM, type ThreatVM
 } from '../ui/hud/viewModels';
 import { actionMenu, cameraName, VERBS } from './actions';
@@ -205,9 +205,6 @@ export function bankView(state: State, goPreview = false, world?: ReadonlyWorld)
     return { status, label, nextAlarmIn, ...(r ? { policeEta: r.policeIn, heat } : {}), ...(go ? { go: true } : {}) };
 }
 
-/** Each crew member's colour, from their place in the crew's order. */
-const crewColour = (index: number): string => CREW_COLOURS[index % CREW_COLOURS.length]!;
-
 /** The crew members with a portrait of their own (src/ui/hud/img), by id; the rest show their initial. */
 const PORTRAITS: ReadonlySet<string> = new Set(['mara', 'jun', 'dex', 'sol']);
 /** A crew member's portrait: their own, masked (`-m`) while the mask is on (§6.3). */
@@ -233,7 +230,7 @@ export function crewCards(world: ReadonlyWorld, state: State, selected: string |
         return {
             id: c.id,
             name: c.name,
-            colour: crewColour(i),
+            colour: crewColour(c.id, i),
             ...portraitOf(c),
             actionsLeft: c.actionsLeft,
             // The takeover turn's third action (§9.3).
@@ -490,7 +487,7 @@ export function recapView(world: ReadonlyWorld, state: State, recent: readonly S
         bank: bankView(state, false, world),
         events,
         crew: state.crew.map((c, i) => ({
-            id: c.id, name: c.name, colour: crewColour(i), ...portraitOf(c),
+            id: c.id, name: c.name, colour: crewColour(c.id, i), ...portraitOf(c),
             status: c.actionsLeft > 0 ? 'ready' : 'done',
             actionsLeft: c.actionsLeft,
             exposed: exposedTo(state, c.id).length > 0,
@@ -845,7 +842,7 @@ export function outcomeView(world: ReadonlyWorld, state: State): OutcomeVM | nul
         heat: o.heat,
         crew: order.map(id => {
             const c = everyone.find(x => x.id === id)!, i = Math.max(0, everyone.indexOf(c));
-            return { id, name: c.name, colour: crewColour(i), ...portraitOf(c), fate: fate(id) };
+            return { id, name: c.name, colour: crewColour(id, i), ...portraitOf(c), fate: fate(id) };
         }),
         loot: o.loot.map(id => {
             const name = lootName(world, id).replace(/^the /, '');

@@ -3,6 +3,7 @@ import {
     initialState, reachable, tileAt, vehicleAt, worldFromBank, type CrewStart, type Facing, type Pos, type ReadonlyWorld, type State
 } from '../sim';
 import { seedText } from '../gen/generate';
+import { heistFromSetup, type HeistSetup } from './plan';
 import { HEIST_KEY, Session, type ResumeOptions } from './session';
 import type { SaveStorage } from './storage';
 
@@ -42,10 +43,10 @@ function free(world: ReadonlyWorld, state: State, taken: readonly Pos[], p: Pos)
 /**
  * Where each crew member starts: the free tile nearest the van (by rings round it, row-major within a ring), then each
  * next one the free tile nearest the first that can be walked to from it, beside it rather than behind it, so the crew
- * stands together on open ground.
+ * stands together on open ground. `taken`: tiles others already start on.
  */
-export function crewStarts(world: ReadonlyWorld, origin: Pos, count: number): Pos[] {
-    const npcs = world.people.map(p => p.pos);
+export function crewStarts(world: ReadonlyWorld, origin: Pos, count: number, taken: readonly Pos[] = []): Pos[] {
+    const npcs = [...world.people.map(p => p.pos), ...taken];
     // An empty bank but for the NPCs and the vehicles where they wait.
     const empty = initialState(world, { seed: 0, crew: [] });
     let first: Pos | undefined;
@@ -69,8 +70,12 @@ export function crewStarts(world: ReadonlyWorld, origin: Pos, count: number): Po
     return starts;
 }
 
-/** A new heist's World and State for a generated bank: the crew beside the van, facing the bank (north). */
-export function newHeist(bank: GeneratedBank): { world: ReadonlyWorld; state: State } {
+/**
+ * A new heist's World and State for a generated bank: the plan's (`setup`, §18), or else the M1 crew beside the van,
+ * facing the bank (north).
+ */
+export function newHeist(bank: GeneratedBank, setup?: HeistSetup): { world: ReadonlyWorld; state: State } {
+    if (setup) return heistFromSetup(bank, setup);
     const world = worldFromBank(bank);
     const starts = crewStarts(world, crewOrigin(bank), M1_CREW.length);
     const facing: Facing = 'n';
@@ -104,9 +109,9 @@ export function savedHeist(storage: SaveStorage): { address: BankAddress | null;
     }
 }
 
-/** A new heist in `bank`, replacing any heist saved in `storage`; call it only with the player's consent if there is one. */
-export function startHeist(bank: GeneratedBank, storage: SaveStorage, options: ResumeOptions = {}): Session {
-    const { world, state } = newHeist(bank);
+/** A new heist in `bank` (as planned, with `setup`), replacing any heist saved in `storage`; call it only with the player's consent if there is one. */
+export function startHeist(bank: GeneratedBank, storage: SaveStorage, options: ResumeOptions = {}, setup?: HeistSetup): Session {
+    const { world, state } = newHeist(bank, setup);
     const session = Session.start({ world, state, storage, genVersion: GEN_VERSION, ...options });
     try {
         storage.set(BANK_KEY, JSON.stringify({ address: bankAddress(bank), name: bank.name }));

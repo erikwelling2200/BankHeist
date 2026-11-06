@@ -1533,10 +1533,36 @@ M2 is complete: every package below has landed.
     up again; the ammo bag in the van or a stash drop (§18.2); the suppressor as an attachment fitted or taken off in
     play (it is its own item); the police's own grenade throws through `throwMap` (rules/swat.ts); the jammer's and the ammo bag's
     own prop art (they are world-UI markers); every gadget bought in planning (M4-07).
-- [ ] **M4-07 Planning screen.**
+- [x] **M4-07 Planning screen.** (partial: see Deferred)
   - **Covers:** §18.
   - **Work:** crew and loadouts; starts; vehicle spots; assets with their costs and the favour cap of 8, placed on the map; output a `HeistSetup` that becomes the starting state.
   - **Depends on:** M4-01 to M4-05 for which assets exist.
+  - **Notes (done):** decisions 320–327. `src/game/plan.ts`: the `ROSTER`, slots (`SLOT_ITEMS`), `ASSETS`,
+    `PLANNING_CASH`, `FAVOUR_CAP`; `HeistSetup` (crew with loadout and start, each vehicle's spot, the jammer, the nest);
+    `planOptions` (each vehicle's spots and poses, the nest's tiles), `setupProblems`, `spent`, `jammerSpot`;
+    `heistFromSetup` builds the World with the plan's vehicles (`bankVehicles` is the generator's, rules' and scene's
+    shared start) and the State (crew by or in their vehicle, as `crewStarts` places the M1 crew, or in the nest; the
+    jammer running). `newHeist`/`startHeist` take an optional setup; without one the M1 heist is as before. The rules
+    gained only `CrewStart.aboard` (decision 321); no state field, so the save shape hash is unchanged.
+  - **Screen:** `src/ui/planning/Planner.ts` (HTML over the bank scene's tactical map in its planning mode: no camera
+    buttons, nobody moving, the blueprint's knowledge): the contract strip (target, police in, vault; cash left and
+    favour pips), the crew rail (portrait in the crew colour, profile, weapon, start; a tap opens the loadout sheet with a
+    select per slot and the start, and brings or leaves out), the assets with price and favour pips, the map's pins
+    (each vehicle's spot with who starts there and a police-view eye, the spots the one being moved could take, the nest,
+    the jammer with its radius), Start with the first problem above it. `BankScene.tileAtPage` for its taps; the scene
+    draws a vehicle the plan parked away from the generator's spot, the backup car and the ram truck in the van's art.
+  - **Tests:** `tests/game/plan.test.ts` (the default plan, vehicles at their own spots with drivers, the nest, the
+    jammer, cash, the save and resume); `e2e/planning.spec.ts` plans and starts a heist (`screenshots/planning.png`,
+    `planning-assets.png`, `planned-heist.png`). No visual baseline changed.
+  - **Deferred:** the other §18.2 assets: Blueprints and Guard rota (M5-03), Inside man (M5-02), Stash drop (needs Gear
+    up and a stash to take from), Cut phone line (M5-04's phone line), Tow truck (police arriving by side), pre-placed
+    charges (a remote detonator), staff uniforms (M5-04), the Silent and Beast drills (M6), the Medic bag (shared
+    medkits in the van), the generator and breaker (M4-03); Gear up, and so packing a long gun or armour in planning;
+    the backup car's and ram truck's own art (M4-04's deferral; the car wears the longer van's); the campaign's money,
+    roster and contract crew size (M6-02, M6-03, M6-04) and intel on the planning screen (M5-03); dragging assets onto
+    the map (they are tapped); the shadow the generator's van leaves baked at its spot when the plan parks it elsewhere
+    (as after a drive).
+  - **M4 is complete apart from its partials' deferrals.**
 
 ### M5: Procedural banks (mostly built; these are the gaps)
 
@@ -2772,6 +2798,35 @@ Later milestones: within each milestone, the `∥` notes in §3 apply. UI packag
     Negotiate it holds fire. The laser is told always, wherever the sniper stands; its shot is told as any police shot.
 306. **Snipers keep their posts (M4-05).** They don't move, fall back, breach, free hostages or arrest; a flashbang that
     costs one its phase takes its laser off.
+
+320. **Vehicle spots (M4-07, §18.1, §15.4).** The crew's vehicles wait at the generator's getaway spots (the curb, the
+    alley, a garage, the side road, the lot), one vehicle a spot. At its own spot the van keeps the generator's pose;
+    anywhere else a vehicle takes the pose whose north-west tile is nearest the spot (by rings, then steps) where its
+    whole footprint fits: on the map, drivable, open, on the ground, nobody standing there and no wall across it,
+    lying west, then east, before north or south. A spot nothing fits at isn't offered.
+321. **Starting in a vehicle (M4-07, §18.1 "in the van").** `CrewStart.aboard` seats a crew member in a vehicle's cab
+    from turn 1 (rules/vehicles.ts: the `aboard` crew init, the `crewVehicles` state init seats them and gives the wheel
+    to the first in crew order who can drive): out of sight as anyone aboard (decision 300's `offMap`). "In the van"
+    and "by the van" (on foot beside it, as the M1 crew starts) are both starts.
+322. **Loadouts in the sandbox (M4-07, §7.3).** A primary, a sidearm, armour and two gadgets, any item of the slot, free
+    (the black market and money are M6-03's); zip-ties are fixed (the phone, mask and scanner are no items yet). Nothing
+    starts packed and the duffel isn't offered: there is no Gear up action to take a packed item out (deferred). The
+    roster is §3's four with their traits (Mara Smooth Talker; Jun Steady Hands; Dex Intimidating, Bruiser; Sol
+    Marksman); the plan opens on all four, Mara and Jun by the van, Dex and Sol in it, nothing bought.
+323. **Cash and favours (M4-07, §18.1, §18.2).** The sandbox has $24k for assets (the campaign's money is M6-03's) under
+    the favour cap of 8. The assets are those the rules carry out so far: the ram truck ($8k, 2), the backup car ($6k,
+    1), the sniper nest rental ($6k, 2) and the jammer pre-placed ($5k, 2); all four cost $25k, so one has to go.
+324. **The pre-placed jammer (M4-07, §18.2, §12.2).** On open ground outside the building within 2 tiles (Chebyshev)
+    of it, nobody standing there; it runs from turn 1 as a placed jammer does (`State.jammers`, `crew` '').
+325. **The sniper nest (M4-07, §18.1, §14.5).** Renting it lets a crew member with a long gun start in the bank's nest
+    room (the generator makes one at most): on its free tiles nearest the lobby first, facing the lobby. Giving the
+    rental back, or the long gun, puts them in the van.
+326. **Each crew member's own colour (M4-07, UI.md "Crew").** Mara, Jun, Dex and Sol wear their colours wherever they
+    stand in the crew's order (`crewColour`); anyone else takes the colour of their place.
+327. **Planning in the game's flow (M4-07).** `?plan` (`&seed=…` for another bank) opens the bank's tactical map at the
+    crew's starting knowledge with the planner over it; Start saves the planned heist (asking first if one is saved)
+    and opens the game, which resumes it. The outcome's New heist plans the next one in the same bank. `/` with no
+    heist saved still starts the M1 crew unplanned (`newHeist` without a setup).
 
 ### Critical files for implementation
 

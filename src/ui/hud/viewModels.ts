@@ -115,6 +115,12 @@ export type CrewProfile = 'clean' | 'concealed' | 'armed' | 'heavy' | 'unknown';
 /** The crew colours in rail order (UI.md "Crew"); the view layer assigns them from the crew's order. */
 export const CREW_COLOURS: readonly string[] = ['#60c0ce', '#ce74b8', '#9684e0', '#dac8a2', '#b0c870'];
 
+/** The colour each of UI.md's crew wears whoever else comes along (Mara, Jun, Dex, Sol), as an index into `CREW_COLOURS`. */
+const OWN_COLOUR: Readonly<Record<string, number>> = { mara: 0, jun: 1, dex: 2, sol: 3 };
+
+/** A crew member's colour: their own (UI.md "Crew"), else the one of their place in the crew's order. */
+export const crewColour = (id: string, index: number): string => CREW_COLOURS[Object.hasOwn(OWN_COLOUR, id) ? OWN_COLOUR[id]! : index % CREW_COLOURS.length]!;
+
 export interface CrewVM {
     id: string;
     name: string;

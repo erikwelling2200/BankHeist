@@ -16,7 +16,9 @@ Top-down 2D pixel-art stealth game. Phaser 4 + TypeScript + Vite, shipped as an 
   `?seed=` picks other parcels). Check furnishing changes there first. The stealth HUD (`src/ui/hud/`) is at `/?scene=hud` over a blank
   page with sample view models (`&state=` picks one, `&text=1.3` scales the text, `&cb` the colour-blind palette, `&bare` hides the picker).
 - The default page (`/`) is the game: the pinned M1 bank (`PLAY_BANK` in `src/boot.ts`), or the saved heist's bank,
-  played through the Session; another bank is `?play&seed=…`, and `?new` starts afresh. A bare `?seed=…` (an old link
+  played through the Session; another bank is `?play&seed=…`, and `?new` starts afresh. `?plan` (`&seed=…`) is the
+  planning screen (§18, `src/game/plan.ts`'s `HeistSetup`, the HTML planner in `src/ui/planning/` over the tactical
+  map); Start saves the planned heist and opens the game on it. A bare `?seed=…` (an old link
   from when the viewer was the default page) opens the viewer as `?view&seed=…`, never a heist. Three layers, each only calling the one below:
   - `src/sim/` is the rules engine (implementation plan §2): pure and deterministic, no Phaser, clock or
     `Math.random`. A read-only `World` built once from the bank (`worldFromBank`) and a plain-JSON `State`; every
