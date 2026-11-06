@@ -148,6 +148,8 @@
 .sh-badge.unknown { color: var(--dim); font-size: 14px; }
 .sh-badge.unsure { position: relative; border-color: var(--amber); }
 .sh-badge .sh-dye { position: absolute; right: -5px; bottom: -4px; }
+.sh-badge.transit { position: relative; border-color: var(--amber); }
+.sh-badge .sh-turns { position: absolute; right: -4px; bottom: -5px; font-size: 11px; color: var(--amber); }
 .sh-ammo { font-size: 11px; letter-spacing: 0; color: var(--iv); line-height: 12px; }
 .sh-ammo.last { color: var(--amber); text-decoration: underline; }
 .sh-foot { position: absolute; left: 28px; right: 3px; top: 52px; height: 14px; display: flex; align-items: center; gap: 4px; }

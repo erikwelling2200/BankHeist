@@ -423,6 +423,7 @@ export function mountHud(root: HTMLElement, callbacks: HudCallbacks, options: Hu
             const status = [c.name, PROFILE_NAMES[c.profile], `${c.actionsLeft} of ${c.actionsMax} actions`, c.hp ? `HP ${c.hp.now} of ${c.hp.max}` : 'HP unknown',
                 c.exposedTo.length ? `exposed to ${c.exposedTo.length}` : '', c.carrying === 'van' ? 'in the van' : c.carrying === 'loot' ? 'carrying loot' : '',
                 c.mayBeDyed ? 'some cash may be dyed' : '',
+                c.transit ? `in transit, out in ${c.transit.turns}` : '',
                 c.ammo ? `${c.ammo.mag} rounds, ${c.ammo.spare} magazines${c.ammo.lastMag ? ', last magazine' : ''}` : ''].filter(Boolean).join(', ');
             card.className = `sh-crew${c.selected ? ' sel' : ''}${c.actionsLeft === 0 ? ' spent' : ''}`;
             card.setAttribute('style', `--c: ${c.colour}`);
@@ -435,7 +436,10 @@ export function mountHud(root: HTMLElement, callbacks: HudCallbacks, options: Hu
                     c.carrying ? h(c.mayBeDyed ? 'span.sh-badge.unsure' : 'span.sh-badge', c.mayBeDyed ? { title: 'Some cash may be dyed' } : {}, img(iconUrl(c.carrying === 'van' ? 'car' : 'bag')),
                         c.mayBeDyed ? h('span.sh-dye', {}, '?') : null) : null,
                     h(c.profile === 'unknown' ? 'span.sh-badge.unknown' : 'span.sh-badge', { title: PROFILE_NAMES[c.profile] }, c.profile === 'unknown' ? '?' : img(iconUrl(c.profile))),
-                    c.ammo ? h(c.ammo.lastMag ? 'span.sh-ammo.last' : 'span.sh-ammo', {}, String(c.ammo.mag)) : null),
+                    c.ammo ? h(c.ammo.lastMag ? 'span.sh-ammo.last' : 'span.sh-ammo', {}, String(c.ammo.mag)) : null,
+                    // The transit track (§14.7): the turns until they are out.
+                    c.transit ? h('span.sh-badge.transit', { title: `In transit: out in ${c.transit.turns}` },
+                        img(iconUrl('layers')), h('span.sh-turns', {}, String(c.transit.turns))) : null),
                 portrait(c.portrait, c.name, 'sh-face'), pips,
                 h('span.sh-foot', {}, hpBar(c.hp), c.exposedTo.length ? h('span.sh-exp', {}, img(iconUrl('eye')), String(c.exposedTo.length)) : null),
                 keys.selectCrew[i] ? keycap(capName(keys.selectCrew[i]!)) : null);

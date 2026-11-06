@@ -1,4 +1,5 @@
 import { registerWorldHook, type Ctx } from '../../core/engine';
+import { offMap } from '../../core/transit';
 import { edgeBetween, edgeKey, inBounds, samePos, tileAt } from '../../core/grid';
 import { clonePlain, sortedIds } from '../../core/json';
 import { registerStateCheck } from '../../core/save';
@@ -207,7 +208,7 @@ export function scorch(ctx: Ctx, door: string): void {
 function blastHarm(ctx: Ctx, tiles: readonly Pos[], damage: number, by: string, weapon: string): void {
     const { state } = ctx, on = new Set(tiles.map(tileKey));
     const hit: string[] = [];
-    for (const c of state.crew) if (!c.aboard && on.has(tileKey(c.pos))) hit.push(c.id);
+    for (const c of state.crew) if (!offMap(c) && on.has(tileKey(c.pos))) hit.push(c.id);
     for (const n of state.npcs) if (!ABSENT_STATUSES.has(n.status) && n.status !== 'dead' && n.stashed === null && on.has(tileKey(bodyPos(state, n)))) hit.push(n.id);
     for (const u of state.police.units) if (u.pos && on.has(tileKey(u.pos))) hit.push(u.id);
     for (const target of hit) dealHarm(ctx, { target, by, cause: 'blast', weapon, hits: 1, damage, lethal: true });

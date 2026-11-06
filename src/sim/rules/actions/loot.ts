@@ -1,3 +1,4 @@
+import type { Ctx } from '../../core/engine';
 import { cornerEdges, edgeBetween, edgeKey, inBounds, tileAt } from '../../core/grid';
 import { sortedIds } from '../../core/json';
 import { registerRuleDefaults, registerStateInit } from '../../core/state';
@@ -404,20 +405,25 @@ registerMoveHook('loot', {
     step(ctx, member, path, index, _mode, from) {
         const at = path[index]!, before = index > 0 ? path[index - 1]! : from;
         if (inBuilding(ctx.world, at) || !inBuilding(ctx.world, before)) return;
-        for (const id of lootOf(ctx.state, member.id)) {
-            if (!mayBeDyed(ctx.world, ctx.state, id)) continue;
-            ctx.emit({ type: 'cashOut', crew: member.id, loot: id, at: { x: at.x, y: at.y } });
-            const loot = ctx.state.loot[id]!;
-            if (!loot.dyePack) {
-                loot.inspected = true;
-                continue;
-            }
-            loot.dyePack = false;
-            loot.ruined = true;
-            ctx.emit({ type: 'dyePackBurst', crew: member.id, loot: id, at: { x: at.x, y: at.y } });
-        }
+        cashLeaves(ctx, member, at);
     }
 });
+
+/** A crew member has stepped out of the building onto `at` (a step, or out of an off-map route): every stack they hold settles. */
+export function cashLeaves(ctx: Ctx, member: CrewState, at: Pos): void {
+    for (const id of lootOf(ctx.state, member.id)) {
+        if (!mayBeDyed(ctx.world, ctx.state, id)) continue;
+        ctx.emit({ type: 'cashOut', crew: member.id, loot: id, at: { x: at.x, y: at.y } });
+        const loot = ctx.state.loot[id]!;
+        if (!loot.dyePack) {
+            loot.inspected = true;
+            continue;
+        }
+        loot.dyePack = false;
+        loot.ruined = true;
+        ctx.emit({ type: 'dyePackBurst', crew: member.id, loot: id, at: { x: at.x, y: at.y } });
+    }
+}
 
 // The player isn't told of a dye pack until it is found or bursts: a preview shows neither.
 registerPreviewSecret('dyePackFound');

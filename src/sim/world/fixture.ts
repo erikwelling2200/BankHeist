@@ -1,4 +1,5 @@
 import { edgeBetween, edgeKey } from '../core/grid';
+import type { AccessRoute } from '../core/transit';
 import { clonePlain } from '../core/json';
 import { defaultRules } from '../core/state';
 import { RAISED_HEIGHT } from '../../level/plan';
@@ -66,6 +67,8 @@ export interface FixtureOptions {
     vehicles?: readonly VehicleDef[];
     /** The rooms of the bank's building (a power cut darkens them, §14.6). Absent: the whole map. */
     building?: readonly string[];
+    /** The off-map routes (§14.7, rules/transit.ts). */
+    routes?: readonly AccessRoute[];
 }
 
 const ZONES: Readonly<Record<string, Zone>> = { '.': 'public', s: 'staff', x: 'secure' };
@@ -151,6 +154,7 @@ export function fixtureWorld(map: readonly string[], options: FixtureOptions = {
         ...(options.locks ? { locks: clonePlain([...options.locks]) } : {}),
         ...(options.staging ? { staging: clonePlain([...options.staging]) } : {}),
         ...(options.vehicles ? { vehicles: clonePlain([...options.vehicles]) } : {}),
-        ...(options.building ? { building: [...options.building] } : {})
+        ...(options.building ? { building: [...options.building] } : {}),
+        ...(options.routes ? { routes: clonePlain([...options.routes]) } : {})
     });
 }

@@ -244,7 +244,8 @@ export function crewCards(world: ReadonlyWorld, state: State, selected: string |
             hp: { now: c.wounds.hp, max: world.rules.crewHp },
             selected: c.id === selected,
             carrying: carriedOf(state, c),
-            ...(unsureOf(world, state, c) ? { mayBeDyed: true } : {})
+            ...(unsureOf(world, state, c) ? { mayBeDyed: true } : {}),
+            ...(c.transit ? { transit: { turns: c.transit.left } } : {})
         };
     });
 }
@@ -383,7 +384,8 @@ export function actionsView(world: ReadonlyWorld, state: State, ui: UiState, ext
     if (!member || state.phase !== 'crew') return [];
     const pending = ui.pendingCommand, moving = !pending || pending.type === 'move' || pending.type === 'dash';
     const move = describeCommand(pending?.type === 'dash' ? pending : { type: 'move', crew: member.id, path: [] }, world);
-    const stuck = member.aboard ? `${member.name} is in the van: get out first` : member.actionsLeft === 0 ? 'No actions left' : undefined;
+    const stuck = member.transit ? `${member.name} is in transit: out in ${member.transit.left}`
+        : member.aboard ? `${member.name} is in the van: get out first` : member.actionsLeft === 0 ? 'No actions left' : undefined;
     const out: ActionVM[] = [{ id: 'move', label: move.label, icon: move.icon, cost: move.cost, enabled: !stuck, ...(stuck ? { reason: stuck } : {}), selected: moving }];
     for (const e of actionMenu(world, state, member.id, extras.target)) {
         // Hold, Watch and Brace spend whatever is left (§10.3, §11.8, §6.3), at least 1; a free swap nothing.
@@ -503,6 +505,12 @@ export function recapView(world: ReadonlyWorld, state: State, recent: readonly S
 const lootName = (world: ReadonlyWorld, id: string): string => {
     const o = world.objects.find(x => x.id === id);
     return o?.name ? `the ${o.name.charAt(0).toLowerCase()}${o.name.slice(1)}` : 'the loot';
+};
+
+/** A route as the recap names it, by kind. */
+const routeName = (world: ReadonlyWorld, id: string): string => {
+    const kind = world.routes?.find(r => r.id === id)?.kind;
+    return kind === 'sewer' ? 'sewer' : kind === 'duct' ? 'air duct' : 'roof route';
 };
 
 /** Why a fighter held its fire, as the recap says it. */
@@ -671,6 +679,12 @@ export function describeEvent(world: ReadonlyWorld, state: State, event: SimEven
         case 'smokeCleared': return 'The smoke cleared';
         case 'tableFlipped': return `${name(event.crew)} flipped a table`;
         case 'noisemakerLanded': return `${name(event.crew)} threw a noisemaker`;
+        case 'routeEntered': return `${name(event.crew)} took the ${routeName(world, event.route)}: ${event.escape ? 'away' : 'out'} in ${event.turns}`;
+        case 'routeEscaped': return `${name(event.crew)} got away by the ${routeName(world, event.route)}`;
+        case 'routeLeft': return `${name(event.crew)} came out of the ${routeName(world, event.route)}`;
+        case 'routeTurnedBack': return `The helicopter forced ${name(event.crew)} off the roof`;
+        case 'sniperAimed': return `Sniper laser on ${name(event.target)}`;
+        case 'sniperAimOff': return 'A sniper lost its target';
         case 'ammoBagDropped': return `${name(event.crew)} put an ammo bag down`;
         case 'ammoRefilled': return `${name(event.crew)} took ${event.magazines} magazine${event.magazines === 1 ? '' : 's'} from the ammo bag${event.left ? '' : ': it is empty'}`;
         case 'barricaded': return `${name(event.crew)} barricaded ${edgeName(world, event.edge)}`;

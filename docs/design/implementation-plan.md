@@ -1124,7 +1124,7 @@ M2 is complete: every package below has landed.
       crew throwing flashbangs: every police grenade lands in one world phase and goes off as the next starts, only a
       team's movers (and the Hurt falling back) walk outside a pull back and never the whole team, and the wedges'
       volleys meet only the crew.
-    - **Deferred (M3-06b):** the shield's frontal cover and leading through corridors; snipers' nests and fire (§13.5);
+    - **Deferred (M3-06b):** the shield's frontal cover and leading through corridors; snipers' nests and fire (§13.5; done in M4-05);
       the patrol shotgun and patrol flashbangs from Heat 2 (overwatch camping, a held doorway); gas on barricaded rooms
       (Heat 4) and pushing characters out of their tiles; suppressive fire as cover; wedges on the angles a plan
       depends on beyond the crew's known positions (the doorway to flank by, the loot corridor, the route to the van);
@@ -1279,7 +1279,7 @@ M2 is complete: every package below has landed.
       between poses (it steps pose to pose) and its sun shadow; wedges clipped to what their holder sees (drawn as the
       full sector to their reach); a Watch arc narrower than the gun's widest (the fan's edge dragged); blast tiles
       (the radius is drawn as a circle); officers drawn on the map, ghosts and pings, breach markers and the world
-      phase one unit at a time (the first half's); the sniper laser (with M3-06b's snipers).
+      phase one unit at a time (the first half's); the sniper laser (with M3-06b's snipers; done in M4-05).
 
 ### M4: Sandbox v1
 
@@ -1439,10 +1439,52 @@ M2 is complete: every package below has landed.
     the cut before someone unseen and its preview equal to the ram with nobody there; armour, disabled; bullets on the
     van; police footprints parked clear and blocking; the roadblock's tiles; the backup car as a second way out); every
     ram checked against its preview; `tests/game/getaway.test.ts` (the grid's Ram).
-- [ ] **M4-05 Height, the sniper nest and off-map routes.**
+- [x] **M4-05 Height, the sniper nest and off-map routes.** (partial: see Deferred)
   - **Covers:** §14.5, §14.7.
   - **Work:** the transit track for roof and sewer routes; vents.
   - **∥** M4-01.
+  - **Notes (done):** decisions 300–306.
+    - `src/sim/core/transit.ts` (`World.routes`: `AccessRoute` with its two ends, kind `roof` / `sewer` / `duct` and
+      turns; `CrewState.transit`; `offMap`, which every check that skipped crew aboard a vehicle now uses: sight,
+      perception, occupancy, bullets, blasts, Command's guns, evidence, SWAT targeting) and
+      `src/sim/rules/transit.ts`: `enterRoute { crew, route, escape? }` (1 action, an end in reach, nothing heavier than
+      Light in the hands, no body; the roof and the duct closed while the helicopter is over the plot), seen going in
+      as an action ending there; the `transit.track` devices hook (after the police) takes a phase off and puts them out
+      on the far end (or the free tile nearest it), turns roof and duct travellers back when the helicopter is over;
+      `escape` takes them off the plot instead (`routeEscaped`), out of play as escaped (rules/getaway.ts `leaveOnFoot`,
+      `Escaped.vehicle` null with its `route`, as decision 286's drive off), and a
+      vehicle leaving doesn't end the heist while one is still on the way out. Cash out of the building that way settles
+      its dye pack (`cashLeaves`, factored out of loot.ts's step hook). The actor check `transit` and a crew-phase hook
+      keep them actionless; the `transit` state check refuses saves without the field.
+    - The generator (src/gen/approaches.ts) names its routes and adds the duct from the roof ladder to the server room's
+      vent grille as a route (`OffMapRoute.kind: 'duct'`, 2 turns); `worldFromBank` and fixtures take `routes`.
+    - Police snipers: `src/sim/rules/sniperPosts.ts` (posts outside the building that see its windows, raised first,
+      ranked once per World on the bank as built; a sniper is deployed at the best free one nearest its staging point,
+      rules/police.ts `unload`) and `src/sim/rules/snipers.ts` (`registerKindPlay('sniper', …)`, rules/routine.ts:
+      the laser `PoliceUnit.laser`, `sniperAimed` / `sniperAimOff`, the shot through `fire`/`cleanShot` a phase later at
+      the one lasered if still in long sight, held in Negotiate, a flashbang taking the laser; `sniperLasers` for the
+      view, told always).
+    - Height (§14.7) was already whole (M3-02's raised shooter ignoring ground half cover, railings' half cover, sight
+      over middle-height things from a raised end); a sniper on a raised post gets it through the shot trace.
+  - **Game and UI:** the grid's Up to the roof / Down the manhole / Into the duct (or the way back) and Escape over the
+    roof / by the sewer / by the duct at a route's end in reach (`ROUTE_LABEL`, `ESCAPE_LABEL`), nothing in transit; the
+    rail's transit badge (`CrewVM.transit`: turns left); crew in transit hidden from the map; the laser drawn in
+    the loud layer (`laserMarkers`, loudDraw.ts `drawLaser`; `debugState.play.loud.lasers`); recap lines.
+  - **Setups and tests:** `npm run shot` preset `sniper`; `tests/sim/transit.test.ts` (out at the far end after the
+    route's turns, the nearest free tile, back the other way, Light only, the helicopter closing the roof and forcing
+    back, unseen and unshot while gone, escaping and the outcome, the save and its check), `tests/sim/snipers.test.ts`
+    (posts raised and nearest, the laser a phase before the shot, out of sight loses the shot, Negotiate, a bystander
+    in the line holds fire, the laser told while the sniper is unseen); `e2e/snipers.spec.ts`
+    (`screenshots/sniper.png`). Save shape hash `3b36ab13a46112be` (with M4-04's review fields). No visual baseline changed.
+  - **Deferred:** the crew's own sniper nest bought in planning and its pane (§14.5, M4-07: the nest room is generated
+    and raised; any crew member on it already shoots with the height rule) and the police countering a known nest at
+    Heat 4–5 (SWAT clearing the building); snipers walking to their posts (they appear there a phase after their wave)
+    and moving posts when they see nothing; the laser's preview of the tiles its sniper sees (only the line is drawn);
+    staff reading someone vanishing down a hatch as more than a step ended there; a crowbar for the manhole (§15.4: no
+    such item yet); the helicopter leaving (M3-05's deferral) and so reopening the roof; the transit track's own strip at
+    the screen edge (the rail's badge stands for it) and route ends marked on the map; vents as a crawl through walls
+    between rooms (the generator makes only the duct from the roof); a sewer route in every bank (the roof route is in
+    every one, `tests/generator.test.ts`; under the helicopter a bank without a sewer has only its vehicles).
 - [x] **M4-06 Distractions and gadgets.** (partial: see Deferred)
   - **Covers:** §8.13, §12.2.
   - **Work:** the noisemaker; ringing a desk phone; the jammer; the ammo bag; the reinforcement kit.
@@ -2682,6 +2724,35 @@ Later milestones: within each milestone, the `∥` notes in §3 apply. UI packag
     by the map (`forgetCrew`, as an arrest): no world-phase rule bleeds, kills or arrests them, nobody sees or targets
     them, and they are no crew eyes. Their loot keeps them as its holder; the outcome counts them escaped (dead if they
     died aboard before leaving) with what they and the vehicle carried.
+
+300. **Off-map routes are one transit (M4-05, §14.7).** A route is its two ends and its turns; the crew member goes in
+    from either end (an end in reach, 1 action, the rest of the turn's actions with it) and is off the map until the
+    devices step of the world phase that brings the count to 0, then out on the far end or the free tile nearest it.
+    Entered in turn T's crew phase, a 2-turn route has them acting again in T+2. Off the map they are seen by nobody,
+    stand in nobody's way, are no body for a bullet or blast and see nothing themselves (`offMap`, the same checks as
+    aboard a shut vehicle); going in is seen as an action ending on the tile they stand on.
+301. **Light only, no bodies (M4-05, §14.7).** Loot in the hands (Heavy or Very heavy) and a dragged body or a led
+    hostage can't go; pocketed Light loot goes with them.
+302. **The helicopter closes the roof (M4-05, §14.7).** While it is over the plot (it doesn't leave yet) the roof route
+    and the duct (which starts on the roof) can't be entered, and anyone on either is put back out where they went in
+    at the next world phase's devices step, after the police have come.
+303. **Escaping on foot (M4-05, §15.4 "Escape is always possible").** Any route can be taken off the plot instead of to
+    its far end (`escape`): when its transit is over the crew member is out of play with what they carry and counts as
+    escaped, as those who drive off (decision 286). The heist ends when nobody of the crew is left on the plot (all dead, in
+    custody or away); a vehicle leaving doesn't end it while someone is still on a route out. Cash taken out of the
+    building that way settles its dye pack.
+304. **Sniper posts (M4-05, §13.4, §13.6, §14.7).** Snipers "walk in" to posts: tiles outside the building that see a
+    pane of its outer wall within the DMR's range, raised floor first, then the most panes seen; they appear on the best
+    free one, nearest their staging point among equals, a phase after their wave. Posts are worked out on the bank as
+    built (no door, pane or vehicle as the heist left it), so a save loaded later finds the same ones. No post: they
+    stay by their staging point.
+305. **The laser telegraphs the shot (M4-05, §13.6 "Sniper lines are always visible").** Each world phase a sniper puts
+    its laser on one crew member in its sights (DMR range, halved onto a dark tile, line of sight; masked or known, up,
+    on the map): one leaning out first, then the nearest. The shot comes only in a later world phase, at that crew
+    member, if the sniper still sees them, and only if clean (`cleanShot`): never through a standing non-crew body; in
+    Negotiate it holds fire. The laser is told always, wherever the sniper stands; its shot is told as any police shot.
+306. **Snipers keep their posts (M4-05).** They don't move, fall back, breach, free hostages or arrest; a flashbang that
+    costs one its phase takes its laser off.
 
 ### Critical files for implementation
 

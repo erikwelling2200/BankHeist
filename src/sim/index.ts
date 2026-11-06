@@ -59,7 +59,9 @@ import './rules/profile';
 import './rules/routine';
 import './rules/swat';
 import './rules/shot';
+import './rules/snipers';
 import './rules/suspicion';
+import './rules/transit';
 import './rules/trespass';
 import './rules/vehicles';
 import './rules/keys';
@@ -121,6 +123,10 @@ export {
 export * from './data/movement';
 export * from './data/noise';
 export { darkensAt, failSafeDoors, litNow, lockReleased, powerOn, type PowerState } from './core/power';
+export { inTransit, offMap, type AccessRoute, type RouteKind, type Transit } from './core/transit';
+export { helicopterOver, routeBlocked, routeEndInReach, routeOf } from './rules/transit';
+export { sniperLasers, sniperSees, type KnownLaser, type SniperLaser } from './rules/snipers';
+export { sniperPost, sniperPosts } from './rules/sniperPosts';
 export { generatorAt, generatorOf } from './rules/power';
 export { BLOCKS, buildSightMap, CLEAR, hasLineOfSight, lineOfSight, MID, sightInputs, sightMap, throwMap, type SightMap } from './geo/los';
 export {

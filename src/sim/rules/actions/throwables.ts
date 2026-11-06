@@ -1,4 +1,5 @@
 import { registerWorldHook, type Ctx } from '../../core/engine';
+import { offMap } from '../../core/transit';
 import { inBounds, tileAt } from '../../core/grid';
 import { sortedIds } from '../../core/json';
 import { crewMember, newId, registerStateInit } from '../../core/state';
@@ -183,7 +184,7 @@ function flash(ctx: Ctx, grenade: Grenade, tiles: readonly Pos[]): void {
     }
     for (const member of crewThrew ? [] : state.crew) {
         // Aboard a vehicle the doors are shut on it (decision 174).
-        if (isDown(member) || member.aboard || !inside.has(tileKey(member.pos))) continue;
+        if (isDown(member) || offMap(member) || !inside.has(tileKey(member.pos))) continue;
         if (member.arms.watch) ctx.emit({ type: 'watchEnded', crew: member.id, fired: false });
         member.arms.watch = null;
         member.arms.braced = false;

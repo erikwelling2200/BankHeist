@@ -1,4 +1,5 @@
 import { IllegalCommand, preview, registerCommandHook, registerWorldHook, type CommitResult, type PreviewResult } from '../core/engine';
+import { inTransit } from '../core/transit';
 import { PreviewRollError } from '../core/rng';
 import { facingToward, inBounds } from '../core/grid';
 import { samePlain, sortedIds } from '../core/json';
@@ -601,7 +602,8 @@ export function registerLookout(name: string, look: Lookout): void {
 
 /** The fields of every crew member now, and of whatever else they see through. */
 function crewFields(world: ReadonlyWorld, state: State, sight: SightMap): SightField[] {
-    const out = state.crew.map(c => lookout(world, sight, c));
+    // Nobody in transit looks out (§14.7: they are off the map).
+    const out = state.crew.filter(c => !inTransit(c)).map(c => lookout(world, sight, c));
     for (const name of [...LOOKOUTS.keys()].sort()) out.push(...LOOKOUTS.get(name)!(world, state, sight));
     return out;
 }

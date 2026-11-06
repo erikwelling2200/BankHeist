@@ -137,6 +137,8 @@ export interface CrewVM {
     mayBeDyed?: boolean;
     /** Rounds in the magazine and spare magazines; `lastMag` warns on the last one (§20.3). */
     ammo?: { mag: number; spare: number; lastMag: boolean } | null;
+    /** On an off-map route (§14.7, the transit track): world phases until they are out (or away, on a route off the plot). */
+    transit?: { turns: number } | null;
 }
 
 // ---------------------------------------------------------------------------------------------------------- Actions

@@ -289,6 +289,11 @@ export function worldFromBank(bank: GeneratedBank): ReadonlyWorld {
     const locks = clonePlain(bank.locks);
     // The police staging points (§13.4), as the generator chose them.
     const staging = bank.staging.map(s => ({ id: s.id, name: s.name, pos: { x: s.tx, y: s.ty } }));
+    // The off-map routes (§14.7): the roof, the sewer and the duct, their ends where the generator put the ladder, the
+    // hatch, the manhole, the grate and the vent.
+    const routes = bank.routes.map((r, i) => ({
+        id: `route-${i}`, kind: r.kind, name: r.name, outside: { x: r.outside.tx, y: r.outside.ty }, inside: { x: r.inside.tx, y: r.inside.ty }, transit: r.transit
+    }));
     // The crew's vehicles (§14.4): the van where the generator parked it, its footprint the tiles its box stands in the
     // way on (the 2×4 of §14.4), its heading the way its nose points.
     const vehicles: VehicleDef[] = [];
@@ -302,6 +307,6 @@ export function worldFromBank(bank: GeneratedBank): ReadonlyWorld {
     }
     return freezeWorld({
         width, height, tiles, edges, doors, objects, people, cameras, rules, stashRooms, building, locks, staging, ...(lane.length ? { patrol } : {}),
-        ...(vehicles.length ? { vehicles } : {})
+        ...(vehicles.length ? { vehicles } : {}), ...(routes.length ? { routes } : {})
     });
 }

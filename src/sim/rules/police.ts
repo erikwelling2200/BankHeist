@@ -1,4 +1,5 @@
 import { registerCommandHook, registerWorldHook, type Ctx } from '../core/engine';
+import { offMap } from '../core/transit';
 import { FACING_STEP, inBounds, tileAt } from '../core/grid';
 import { sortedIds } from '../core/json';
 import { newId, registerStateInit } from '../core/state';
@@ -16,6 +17,7 @@ import { addHeat, heatAhead, heatOf, phasesUntilHeat } from './heat';
 import { inGetaway } from './vehicles';
 import { policeFootprint, vehicleAt } from '../geo/drive';
 import { POLICE_VEHICLES, ROADBLOCK_HEAT, ROADBLOCK_REACH } from '../data/vehicles';
+import { sniperPost } from './sniperPosts';
 
 /*
  * The police director (§13.3, §13.4): who comes, in what, where to, and the rhythm they keep once on scene. Police
@@ -38,8 +40,8 @@ import { POLICE_VEHICLES, ROADBLOCK_HEAT, ROADBLOCK_REACH } from '../data/vehicl
  *   it. Patrol officers come 2 to a **perimeter car**, which parks and stays: at most 2 per staging point (a wreck frees
  *   its slot, M3-08). The rest come in **transport vans** of 4: a SWAT van carries a team (a shield and three, or the
  *   heavy pair and two), a police van the others; vans unload in the next phase and drive off in the one after.
- *   **Snipers** walk in on foot (§13.4), two to a team, and are at their staging point a phase after their wave like
- *   everyone else (their raised positions are M3-06's). The **helicopter** comes at Heat 4 and hovers over the plot. Where each goes is fixed by the state, not rolled: a car to the point with the most free
+ *   **Snipers** walk in on foot (§13.4), two to a team, and are at their posts a phase after their wave like everyone
+ *   else: the best free tiles outside the building that see its windows, raised first (rules/sniperPosts.ts). The **helicopter** comes at Heat 4 and hovers over the plot. Where each goes is fixed by the state, not rolled: a car to the point with the most free
  *   slots, a van to the point with the fewest cars and vans of its wave, ties in the generator's order (the vans on
  *   the street now don't count: they leave before the next wave, so the forecast holds). `planWave` is the one function
  *   for the wave sent and for the HUD's "Heat 3 in 2: SWAT van, the alley mouth" (`nextWave`).
@@ -460,7 +462,7 @@ export function nextWave(world: ReadonlyWorld, state: DeepReadonly<State>): Next
 export function exitTile(world: ReadonlyWorld, state: State, from: DeepReadonly<Pos>): Pos | null {
     const taken = new Set<number>();
     const put = (p: DeepReadonly<Pos>): void => void taken.add(p.y * world.width + p.x);
-    for (const c of state.crew) if (!c.aboard) put(c.pos);
+    for (const c of state.crew) if (!offMap(c)) put(c.pos);
     for (const n of state.npcs) if (!ABSENT_STATUSES.has(n.status)) put(n.pos);
     for (const u of state.police.units) if (u.pos) put(u.pos);
     const free = (p: Pos): boolean => inBounds(world, p) && !taken.has(p.y * world.width + p.x) && !tileAt(world, p)!.blocksMove && vehicleAt(world, state, p) === undefined;
@@ -494,7 +496,9 @@ function unload(ctx: Ctx, turn: number): boolean {
     for (const unit of p.units) {
         if (unit.pos !== null || unit.arrived >= turn) continue;
         const from = unit.vehicle !== null ? p.vehicles.find(v => v.id === unit.vehicle)?.pos : world.staging?.find(s => s.id === unit.staging)?.pos;
-        const tile = from ? exitTile(world, state, from) : null;
+        // A sniper walked in to a post that sees the bank's windows (decision 304), else it stays by its staging point.
+        const post = unit.kind === 'sniper' && from ? sniperPost(world, state, from) : null;
+        const tile = post ?? (from ? exitTile(world, state, from) : null);
         if (!tile) continue;
         ctx.emit({ type: 'policeDeployed', unit: unit.id, kind: unit.kind, vehicle: unit.vehicle, pos: { ...tile } });
         unit.vehicle = null;

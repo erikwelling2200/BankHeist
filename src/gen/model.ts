@@ -140,7 +140,10 @@ export interface Approach {
 
 /** An off-map route (§14.7): a pair of access points and the turns spent in transit. */
 export interface OffMapRoute {
-    kind: 'roof' | 'sewer';
+    /** The roof (down a hatch or the skylight), the sewer, or the air duct from the roof into the server room's vent. */
+    kind: 'roof' | 'sewer' | 'duct';
+    /** The approach's name ("Roof route, down the hatch in the alarm closet"). */
+    name: string;
     outside: { tx: number; ty: number };
     inside: { tx: number; ty: number };
     transit: number;

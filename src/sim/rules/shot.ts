@@ -1,4 +1,5 @@
 import { IllegalCommand, registerCommandHook, registerWorldHook, type Ctx } from '../core/engine';
+import { offMap } from '../core/transit';
 import { edgeBetween, edgeKey, inBounds, samePos, tileAt } from '../core/grid';
 import { clonePlain } from '../core/json';
 import { edgeNow, newId, registerCrewInit, registerNpcInit, registerRuleDefaults, registerStateInit } from '../core/state';
@@ -206,7 +207,7 @@ export function shotBodies(world: ReadonlyWorld, state: DeepReadonly<State>, sho
     };
     for (const c of state.crew) {
         // Aboard a vehicle with its doors shut nobody can be shot (§14.4).
-        if (c.id === shooter || c.aboard) continue;
+        if (c.id === shooter || offMap(c)) continue;
         const pos = hitboxOf(state, { kind: 'crew', crew: c });
         const body: Body = { id: c.id, pos: { x: pos.x, y: pos.y }, standing: true, shield: false, armour: armourOf(world, state, c.id), precise: false };
         if (c.leaning) body.lean = { x: c.leaning.corner.x, y: c.leaning.corner.y };

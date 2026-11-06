@@ -3,7 +3,7 @@ import { actionMenu } from './actions';
 import {
     blastsInOrder, isCharge, lootOn, scorchTiles, tileVisibility, type ChargeId,
     COMBAT_SIGHT, isKnownNow, negotiatorCalling, offerEffect, releasable, tradeable, drivePlan, footprint, isDown, OFFICER_STATS, poseKey, seenWedges, THROWABLES, vehicleDef, vehicleReach, weaponDef,
-    type Command, type KnownView, type Pose, type Pos, type ReadonlyWorld, type State
+    type Command, type KnownView, type Pose, type Pos, type ReadonlyWorld, type State, offMap
 } from '../sim';
 
 /*
@@ -168,7 +168,7 @@ export function driveView(world: ReadonlyWorld, state: State, cmd: Extract<Comma
     const tiles = new Map<string, Pos>();
     for (const node of reach.nodes.values()) for (const t of footprint(def, node.pose)) if (inPlot(t)) tiles.set(`${t.x},${t.y}`, t);
     const plan = drivePlan(world, state, cmd);
-    const onFoot = state.crew.filter(c => c.aboard === null && !isDown(c)).map(c => ({ ...c.pos }));
+    const onFoot = state.crew.filter(c => !offMap(c) && !isDown(c)).map(c => ({ ...c.pos }));
     const chosen = footprint(def, cmd.to).filter(inPlot);
     if (typeof plan === 'string') return { reach: [...tiles.values()], chosen, heading: cmd.to.heading, swept: [], path: [], off: false, onFoot, refusal: plan };
     const path = [reach.from, ...plan.poses].map(p => poseMiddle(world, cmd.vehicle, p));

@@ -95,7 +95,7 @@ export interface OfficerStats { hp: number; armour: number; weapon: WeaponId | n
 
 /**
  * §12.3 by kind. A patrol officer carries a pistol (the table's "or shotgun" waits for kit by unit, M3-06); the shield's
- * frontal shield and the snipers' raised positions are M3-06's.
+ * frontal shield is M3-06's; snipers keep posts of their own (rules/sniperPosts.ts, M4-05).
  */
 export const OFFICER_STATS: Readonly<Record<PoliceKind, OfficerStats>> = {
     patrol: { hp: 6, armour: 1, weapon: 'pistol' },
@@ -108,7 +108,7 @@ export const OFFICER_STATS: Readonly<Record<PoliceKind, OfficerStats>> = {
 
 /**
  * The kinds that fight (§13.6): by the simple routine, or a SWAT van's team by its team play (rules/swat.ts); snipers
- * wait for their nests.
+ * by their own play from their posts (rules/snipers.ts).
  */
 export const ROUTINE_KINDS: ReadonlySet<PoliceKind> = new Set<PoliceKind>(['patrol', 'swat', 'swatShield', 'heavy']);
 

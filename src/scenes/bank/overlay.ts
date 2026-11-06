@@ -260,13 +260,14 @@ export class WorldOverlay {
     }
 
     /** The path shown, for tests. */
-    get state(): { safeFloor: FloorTileVM[]; floorDim: boolean; pathSafety: PathVM | null; explain: ExplainVM | null; found: { pos: Pos; level: string }[]; badges: number; hearers: number; cones: number; cameras: number; cameraCones: number; flashes: number; colourBlind: boolean; path: Pos[]; reach: number; dashReach: number; range: { walk: Pos[]; run: Pos[] }; dash: boolean; noise: number; witnesses: number; intents: number; loot: Pos[]; throwArc: { from: Pos; to: Pos; caught: boolean } | null; throwRange: Pos[]; rings: { command: number; panic: number; outcomes: { id: string; glyph: string; count?: number | string }[] } | null; holds: number; aim: { bullets: number; bodies: { id: string; kind: string; ifBroken: boolean; shield: string | null }[] } | null; breaches: string[]; fortified: string[]; gadgets: { kind: string; at: Pos; uses?: number }[]; boards: LoudVM | null } {
+    get state(): { safeFloor: FloorTileVM[]; floorDim: boolean; pathSafety: PathVM | null; explain: ExplainVM | null; found: { pos: Pos; level: string }[]; badges: number; hearers: number; cones: number; cameras: number; cameraCones: number; flashes: number; colourBlind: boolean; path: Pos[]; reach: number; dashReach: number; range: { walk: Pos[]; run: Pos[] }; dash: boolean; noise: number; witnesses: number; intents: number; loot: Pos[]; throwArc: { from: Pos; to: Pos; caught: boolean } | null; throwRange: Pos[]; rings: { command: number; panic: number; outcomes: { id: string; glyph: string; count?: number | string }[] } | null; holds: number; aim: { bullets: number; bodies: { id: string; kind: string; ifBroken: boolean; shield: string | null }[] } | null; breaches: string[]; fortified: string[]; gadgets: { kind: string; at: Pos; uses?: number }[]; lasers: { from: Pos; to: Pos; target: string }[]; boards: LoudVM | null } {
         const c = this.content;
         return {
             aim: c?.loud?.aim ? { bullets: c.loud.aim.arcs.length, bodies: c.loud.aim.bodies.map(b => ({ id: b.id, kind: b.kind, ifBroken: b.ifBroken, shield: b.shield?.state ?? null })) } : null,
             breaches: c?.loud?.breaches?.map(b => b.door) ?? [],
             fortified: c?.loud?.fortified?.map(w => w.edge) ?? [],
             gadgets: c?.loud?.gadgets?.map(g => ({ kind: g.kind, at: g.at, ...(g.uses !== undefined ? { uses: g.uses } : {}) })) ?? [],
+            lasers: c?.loud?.lasers?.map(l => ({ from: { ...l.from }, to: { ...l.to }, target: l.target })) ?? [],
             safeFloor: c?.safeFloor ?? [], floorDim: !!c?.floorDim, pathSafety: c?.pathSafety ?? null, explain: c?.explain ?? null,
             found: (c?.found ?? []).map(w => ({ pos: w.pos, level: w.level })),
             badges: c?.badges?.length ?? 0, hearers: c?.hearers?.length ?? 0, colourBlind: !!c?.colourBlind,

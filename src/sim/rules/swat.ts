@@ -1,4 +1,5 @@
 import { registerCommandHook, registerWorldHook, type Ctx, type WorldPhase } from '../core/engine';
+import { offMap } from '../core/transit';
 import { inBounds, samePos, tileAt } from '../core/grid';
 import { sortedIds } from '../core/json';
 import { newId } from '../core/state';
@@ -171,7 +172,7 @@ const liveWedges = (state: State): { unit: PoliceUnit; watch: PoliceWatch }[] =>
  */
 export function tripWedges(world: ReadonlyWorld, state: State, member: DeepReadonly<CrewState>, tile: DeepReadonly<Pos>): void {
     // Aboard a vehicle with its doors shut, nobody sees or shoots them (as `inSight`).
-    if (state.phase !== 'crew' || isDown(member) || member.aboard) return;
+    if (state.phase !== 'crew' || isDown(member) || offMap(member)) return;
     if (!member.loadout.masked && !Object.hasOwn(state.police.known, member.id)) return;
     let sight: SightMap | undefined;
     for (const { unit, watch } of liveWedges(state)) {
@@ -212,7 +213,7 @@ function crossing<T>(member: CrewState, at: Pos, ask: () => T): T {
 function volley(ctx: Ctx, phase: WorldPhase, unit: PoliceUnit, watch: PoliceWatch): void {
     const { world, state } = ctx, trip = watch.tripped!, weapon = OFFICER_STATS[unit.kind].weapon;
     const member = state.crew.find(c => c.id === trip.crew);
-    if (!member || isDown(member) || member.aboard || !weapon) return;
+    if (!member || isDown(member) || offMap(member) || !weapon) return;
     // Firing is acting: a crew Watch on the officer fires first.
     if (!react(ctx, phase, police(unit))) return;
     const w = weaponDef(weapon), aim = watch.arc <= WATCH_NARROW ? 1 : WATCH_AIM;

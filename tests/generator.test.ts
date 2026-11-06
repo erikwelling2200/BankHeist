@@ -129,7 +129,7 @@ describe('a generated bank', { timeout: HEAVY }, () => {
             expect(b.approaches.length).toBeGreaterThanOrEqual(4);
             expect(new Set(b.approaches.map(a => a.category)).size).toBe(3);
             expect(b.routes.some(r => r.kind === 'roof')).toBe(true);
-            for (const r of b.routes) expect(r.transit).toBe(r.kind === 'roof' ? 2 : 3);
+            for (const r of b.routes) expect(r.transit).toBe(r.kind === 'sewer' ? 3 : 2);
         }
     });
 

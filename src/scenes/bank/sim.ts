@@ -8,7 +8,7 @@ import {
     type PlaybackItem, type PlaybackSpeed, type Session, type SessionChange
 } from '../../game';
 import { shownWarnings, warningLines, type EvidenceWarning } from '../../game/evidenceWarning';
-import { aimView, breachMarkers, fireSelector, fortifyMarkers, gadgetMarkers, policeMarkers, type AimVM, type PoliceMarkerVM } from '../../game/loudUi';
+import { aimView, breachMarkers, fireSelector, fortifyMarkers, gadgetMarkers, laserMarkers, policeMarkers, type AimVM, type PoliceMarkerVM } from '../../game/loudUi';
 import { loudView, negotiatorView, posesCovering, type LoudVM } from '../../game/loudBoards';
 import type { GeneratedBank } from '../../gen/model';
 import { TILE } from '../../level/constants';
@@ -16,7 +16,7 @@ import { headingOf } from '../../art/bank/people';
 import type { PersonPose } from '../../level/plan';
 import {
     COMBAT_STATUSES, crewPicture, edgeBetween, edgeKey, dashRefusal, IllegalCommand, knownDoorStatus, knownView, lootWeight, planRoute, powerOn, throwPlan, VISIBILITY, routeBreak, soundRing, type ActionPreview,
-    type AutoStop, type Command, type CrewState, type KnownView, type MarkerKind, type PathSafety, type State, type TileVisibility, type Facing, type Pos, type SimEvent
+    type AutoStop, type Command, type CrewState, type KnownView, type MarkerKind, type PathSafety, type State, type TileVisibility, type Facing, type Pos, type SimEvent, offMap
 } from '../../sim';
 import { mountAutoBar, type AutoBarHandle } from '../../ui/hud/autoBar';
 import { iconUrl, portraitUrl } from '../../ui/hud/icons';
@@ -358,7 +358,7 @@ export class PlayMode {
             loud: {
                 officers: this.officersShown.map(m => ({ id: m.id, live: m.live, pos: m.pos, shown: this.people.shown(this.officerSprite.get(m.id) ?? -1) })),
                 acting: this.acting, queue: this.acting ? this.actors?.order ?? [] : [], tracers: this.tracers.length,
-                aim: this.overlay.state.aim, breaches: this.overlay.state.breaches, fortified: this.overlay.state.fortified, gadgets: this.overlay.state.gadgets
+                aim: this.overlay.state.aim, breaches: this.overlay.state.breaches, fortified: this.overlay.state.fortified, gadgets: this.overlay.state.gadgets, lasers: this.overlay.state.lasers
             },
             /** Auto-advance (§6.5): running, the last stop, the routes and how they split into turns. */
             auto: {
@@ -918,7 +918,7 @@ export class PlayMode {
             if (index === undefined) continue;
             place(index, c.pos, c.facing);
             // Aboard a vehicle they are inside it, out of sight (§14.4).
-            this.people.setAway(index, c.aboard !== null);
+            this.people.setAway(index, offMap(c));
         }
         this.vehicles.sync(state.vehicles, id => world.vehicles?.find(v => v.id === id)?.start);
         for (const n of state.npcs) {
@@ -978,7 +978,7 @@ export class PlayMode {
             on.add(m.id);
             if (m.live) this.officerGhost.delete(index);
             else this.officerGhost.add(index);
-            const near = [...state.crew].filter(c => c.aboard === null).sort((a, b) => Math.hypot(a.pos.x - m.pos.x, a.pos.y - m.pos.y) - Math.hypot(b.pos.x - m.pos.x, b.pos.y - m.pos.y))[0];
+            const near = [...state.crew].filter(c => !offMap(c)).sort((a, b) => Math.hypot(a.pos.x - m.pos.x, a.pos.y - m.pos.y) - Math.hypot(b.pos.x - m.pos.x, b.pos.y - m.pos.y))[0];
             const now = this.people.at(index), [x, y] = centre(m.pos);
             const facing = near ? headingOf(near.pos.x - m.pos.x, near.pos.y - m.pos.y, now.facing) : now.facing;
             if (now.x !== x || now.y !== y || now.facing !== facing) this.people.move(index, x, y, facing);
@@ -1800,7 +1800,7 @@ export class PlayMode {
             flashes: this.liveFlashes(),
             crewColours: Object.fromEntries(state.crew.map((c, i) => [c.id, CREW_COLOURS[i % CREW_COLOURS.length]!])),
             // Breaches announced for the next world phase (M3-09), and the unit acting in a firefight's playback.
-            loud: { breaches: breachMarkers(world, state), fortified: fortifyMarkers(world, state), gadgets: gadgetMarkers(world, state), ...(this.acting ? { acting: this.acting.pos } : {}), tracers: this.liveTracers() },
+            loud: { breaches: breachMarkers(world, state), fortified: fortifyMarkers(world, state), gadgets: gadgetMarkers(world, state), lasers: laserMarkers(state), ...(this.acting ? { acting: this.acting.pos } : {}), tracers: this.liveTracers() },
             // People walking during playback: their plates come back when it is over.
             ...(busy ? {} : {
                 badges: npcBadges(world, state, view).filter(b => !state.npcs.some(n => n.id === b.id) || shown(b.id)),

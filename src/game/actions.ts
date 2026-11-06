@@ -1,7 +1,7 @@
 import {
     besideDoor, COMBAT_COMMANDS, FACING_STEP, crewPicture, negotiatorCalling, offerEffect, releasable, tradeable, withDoubtedShut, doorStatus, DRAGGABLE, draggedBy, goBlocked, HACKING_KIT, inHands, inReach, interactionVerbs, isKnownNow, JAMMER, officerSeen, legalActions, LOCKPICK, lockActions, LOOP_FROM, lootWeight,
     pocketed, preview, IllegalCommand, reachesObject, STASH_KINDS, throwTargets, tieIneligible, tileVisibility, whyNot, driveBudget, driveMap, driveReach, exitTiles, poseKey, ramPlan, vehicleBeside,
-    vehicleDef, edgesAround, fortificationOf, fortifyBlocked, isWindow, noisemakersLeft, noisemakerTargets, type FortifyAction, type Command, type DriveNode, type Pose, type Pos, type ReadonlyWorld, type State
+    vehicleDef, edgesAround, fortificationOf, fortifyBlocked, isWindow, noisemakersLeft, noisemakerTargets, routeEndInReach, type FortifyAction, type RouteKind, type Command, type DriveNode, type Pose, type Pos, type ReadonlyWorld, type State
 } from '../sim';
 import type { HudIcon as HudIconName } from '../ui/hud/viewModels';
 
@@ -30,6 +30,8 @@ import type { HudIcon as HudIconName } from '../ui/hud/viewModels';
  * - Loop feed (§7.2, §8.12): at the CCTV desk or a server rack, for a camera the crew knows of: the tapped one, else
  *   the first it can loop; tapping the entry again cycles through them (the scene's `nextCamera`).
  * - Jammer (§12.2): while the member carries one.
+ * - Off-map routes (§14.7, M4-05): Up to the roof, Down the manhole, Into the duct (or the way back) at a route's end in
+ *   reach, and Escape by it off the plot (§15.4); nothing at all while in transit.
  * - Noisemaker (§8.13, M4-06): with the count left, thrown as far as it goes ahead of them (`noisemakerTiles`); a tap on
  *   another tile it reaches while it is previewed moves it. Ammo bag (§11.11): put down once loud, Refill from one in reach.
  * - Loot (§15.1, M2-04): Take the loot in reach nobody has (the tapped one, else the first); with loot in the hands, Put
@@ -55,6 +57,14 @@ import type { HudIcon as HudIconName } from '../ui/hud/viewModels';
  *   once loud, after Command and Hold (before Mask up and GO). Each only where the rules allow it with the doors the
  *   crew can't vouch for shut, so no offer tells how such a door stands.
  */
+
+/** What the grid calls going into a route, by kind: from the outside end, from the inside one. */
+const ROUTE_LABEL: Readonly<Record<RouteKind, readonly [string, string]>> = {
+    roof: ['Up to the roof', 'Up through the hatch'], sewer: ['Down the manhole', 'Down the grate'], duct: ['Into the duct', 'Into the vent']
+};
+
+/** What the grid calls leaving the plot by a route (§15.4). */
+const ESCAPE_LABEL: Readonly<Record<RouteKind, string>> = { roof: 'Escape over the roof', sewer: 'Escape by the sewer', duct: 'Escape by the duct' };
 
 /** What the grid calls each wall charge. */
 const CHARGE_NAME: Readonly<Record<string, string>> = { breachCharge: 'Breach charge', shapedCharge: 'Shaped charge' };
@@ -226,6 +236,7 @@ function vehicleRefusal(world: ReadonlyWorld, state: State, command: Command): s
 export function actionMenu(world: ReadonlyWorld, state: State, crewId: string, target?: string | null): ActionEntry[] {
     const member = state.crew.find(c => c.id === crewId);
     if (!member) return [];
+    if (member.transit) return [];
     if (member.aboard) return vehicleMenu(world, state, crewId, member.aboard);
     const targets = targetsOf(world, state, crewId), out: ActionEntry[] = [];
     const add = (id: string, label: string, icon: HudIconName, command: Command, on?: string) => {
@@ -323,6 +334,15 @@ export function actionMenu(world: ReadonlyWorld, state: State, crewId: string, t
     if (desk && camera) add('loop', 'Loop feed', 'hack', { type: 'loopFeed', crew: crewId, object: desk, camera }, camera);
 
     if (member.loadout.items.includes(JAMMER)) add('jammer', 'Jammer', 'radio', { type: 'placeJammer', crew: crewId });
+    // Off-map routes (§14.7, M4-05): the route whose end is in reach, offered even when closed (the helicopter, loot too
+    // heavy) so the long press says why.
+    for (const route of world.routes ?? []) {
+        const inward = routeEndInReach(world, state, member, route);
+        if (inward === null) continue;
+        add(`route:${route.id}`, ROUTE_LABEL[route.kind][inward ? 0 : 1], 'layers', { type: 'enterRoute', crew: crewId, route: route.id });
+        // Leaving the plot by it (§15.4): the on-foot way out when the van can't go.
+        add(`escape:${route.id}`, ESCAPE_LABEL[route.kind], 'run', { type: 'enterRoute', crew: crewId, route: route.id, escape: true });
+    }
     // The noisemaker (§8.13, M4-06): as far as it goes ahead of them to start with; while it is previewed a tap on any
     // tile it reaches throws it there (the scene).
     if (noisemakersLeft(member) > 0) {

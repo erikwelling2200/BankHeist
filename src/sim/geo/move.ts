@@ -1,4 +1,5 @@
 import { cornerEdges, edgeBetween, edgeKey, FACING_STEP, FACINGS, inBounds, tileAt } from '../core/grid';
+import { offMap } from '../core/transit';
 import { edgeNow, registerRuleDefaults } from '../core/state';
 import { lockReleased } from '../core/power';
 import type { ClimbSide, CrewState, DeepReadonly, DoorDef, DoorStatus, EdgeProps, NpcStatus, Pos, ReadonlyWorld, State, Tile } from '../core/types';
@@ -81,7 +82,7 @@ export function occupancy(world: ReadonlyWorld, state: State, options: MoveOptio
         if (occupant === 'blocking' || !out.has(i)) out.set(i, occupant);
     };
     // Crew aboard a vehicle sit on its footprint, which nobody enters anyway.
-    for (const c of state.crew) if (c.id !== options.mover && !c.aboard) put(c.pos, moverIsNpc || moverIsPolice ? 'blocking' : 'passable');
+    for (const c of state.crew) if (c.id !== options.mover && !offMap(c)) put(c.pos, moverIsNpc || moverIsPolice ? 'blocking' : 'passable');
     for (const n of state.npcs) if (n.id !== options.mover && !ABSENT_STATUSES.has(n.status)) put(n.pos, !moverIsNpc && !LYING_STATUSES.has(n.status) ? 'blocking' : 'passable');
     // Police officers out on scene (rules/police.ts) stand in everyone's way.
     for (const u of state.police?.units ?? []) if (u.pos && u.id !== options.mover) put(u.pos, 'blocking');

@@ -1,4 +1,5 @@
 import { registerWorldHook, type Ctx, type WorldPhase } from '../core/engine';
+import { offMap } from '../core/transit';
 import { facingToward, samePos } from '../core/grid';
 import { sortedIds } from '../core/json';
 import { edgeNow, registerRuleDefaults } from '../core/state';
@@ -173,7 +174,7 @@ export function seesTile(world: ReadonlyWorld, state: State, from: Pos, to: Pos)
 export function inSight(world: ReadonlyWorld, state: State, f: Fighter): CrewState[] {
     const eyes = [posOf(f), ...leanOptions(world, state, f.id).map(l => l.at)];
     // Aboard a vehicle with its doors shut nobody sees or shoots them (§14.4, M3-08).
-    return state.crew.filter(c => !c.wounds.dead && !c.aboard && marked(state, f, c) && eyes.some(e => seesTile(world, state, e, hitbox(c))));
+    return state.crew.filter(c => !c.wounds.dead && !offMap(c) && marked(state, f, c) && eyes.some(e => seesTile(world, state, e, hitbox(c))));
 }
 
 /** Writes what a fighter sees into what its side knows: the police's shared picture, or a guard's own. */
@@ -462,7 +463,7 @@ export function react(ctx: Ctx, phase: WorldPhase, f: Fighter): boolean {
 }
 
 /** Fires a fighter's shot, if it is still clean as it stands: the lean, the facing, the noise, the bullets, the harm. */
-function fire(ctx: Ctx, phase: WorldPhase, f: Fighter, shot: Shot): boolean {
+export function fire(ctx: Ctx, phase: WorldPhase, f: Fighter, shot: Shot): boolean {
     const { world, state } = ctx;
     if (shotRefusal(world, state, shot)) return false;
     const origin = shot.lean ?? posOf(f);
@@ -623,6 +624,15 @@ export function registerTeamPlay(play: TeamPlay): void {
     teamPlay = play;
 }
 
+/** Officers of a kind with a play of their own (snipers, rules/snipers.ts), in place of the routine. */
+const KIND_PLAYS = new Map<PoliceUnit['kind'], TeamPlay>();
+
+/** Plugs a kind's own play into the combat step: officers of that kind act by it (after a flashbang's lost phase). */
+export function registerKindPlay(kind: PoliceUnit['kind'], play: TeamPlay): void {
+    if (KIND_PLAYS.has(kind)) throw new Error(`A play for ${kind} is already registered`);
+    KIND_PLAYS.set(kind, play);
+}
+
 function officerActs(ctx: Ctx, phase: WorldPhase, unit: PoliceUnit): void {
     const { world, state } = ctx, f: Fighter = { kind: 'police', id: unit.id, unit };
     // Caught by a flashbang (§11.10): it loses the phase, and a breach it announced is called off.
@@ -633,6 +643,8 @@ function officerActs(ctx: Ctx, phase: WorldPhase, unit: PoliceUnit): void {
         }
         return;
     }
+    const own = KIND_PLAYS.get(unit.kind);
+    if (own) return own(ctx, phase, unit);
     if (unit.team !== null && teamPlay && ROUTINE_KINDS.has(unit.kind)) return teamPlay(ctx, phase, unit);
     // A breach announced last world phase is carried out as shown.
     if (dueBreach(ctx, phase, unit) !== null) return;

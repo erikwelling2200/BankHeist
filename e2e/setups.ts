@@ -652,6 +652,26 @@ export const GADGETS_SETUP = `(() => { ${PAGE_HELPERS}
     return { state: st, info: { at: m.pos, bag } };
 })()`;
 
+/**
+ * The bank loud with Mara in the thick of it and a police sniper six tiles off with its laser on her (M4-05), and Jun
+ * gone up the roof route (in transit, on the rail's transit track).
+ */
+export const SNIPER_SETUP = `(() => { ${PAGE_HELPERS}
+    const found = ${LOUD_SETUP};
+    if (!found || !w.routes?.length) return null;
+    const st = found.state, m = st.crew[0], j = st.crew[1];
+    let post = null;
+    for (const dx of [6, -6, 5, -5, 7, -7]) for (const dy of [0, 2, -2]) if (!post && free(st, { x: m.pos.x + dx, y: m.pos.y + dy })) post = { x: m.pos.x + dx, y: m.pos.y + dy };
+    if (!post) return null;
+    st.police.units.push({ id: 'police-e2e', kind: 'sniper', vehicle: null, staging: null, arrived: 0, pos: post, hp: 6, leaning: null, suppressed: null, moved: null,
+        team: null, watch: null, flashbangs: 0, surprised: null, laser: { target: m.id, at: { ...m.pos }, turn: st.turn - 1 } });
+    const route = w.routes[0];
+    j.pos = { ...route.outside };
+    j.transit = { route: route.id, inward: true, left: route.transit, from: { ...route.outside }, escape: false };
+    j.actionsLeft = 0;
+    return { state: st, info: { at: m.pos, post, crew: j.id, target: m.id } };
+})()`;
+
 export const SETUPS: Record<string, Setup> = {
     'charge-preview': {
         about: 'Mara beside a plaster wall with her Breach charge previewed: the far side it hits outlined, a cross on any loot it would destroy, its fuse',
@@ -705,6 +725,15 @@ export const SETUPS: Record<string, Setup> = {
         then: async page => {
             await selectMara(page);
             await page.locator('.sh-actions button[data-action="noisemaker"]').click();
+            await lookAtMara(page);
+            await page.waitForTimeout(400);
+        }
+    },
+    'sniper': {
+        about: 'the bank loud, a police sniper with its laser on Mara (M4-05), Jun gone up the roof route: the transit badge on his rail card',
+        script: SNIPER_SETUP,
+        then: async page => {
+            await selectMara(page);
             await lookAtMara(page);
             await page.waitForTimeout(400);
         }

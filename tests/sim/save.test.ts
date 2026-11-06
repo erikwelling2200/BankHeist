@@ -78,7 +78,7 @@ describe('saving', () => {
  * NpcStatusMap, CarrierKindMap or adds a field must also fill it in below, or a change of shape goes unnoticed.
  */
 const SHAPE_HASHES: Record<number, string> = {
-    1: '2a158b4985ad16e9'
+    1: '3b36ab13a46112be'
 };
 
 /** Paths whose objects are records by id, not structs. */
@@ -210,6 +210,9 @@ describe('the save format', () => {
                 id: 'police-6', kind: 'patrol', vehicle: null, staging: null, arrived: 3, pos: { x: 1, y: 1 }, hp: 4, leaning: { at: { x: 1, y: 0 }, corner: { x: 1, y: 1 } },
                 suppressed: { turn: 4, by: 'jun', from: { x: 1, y: 1 }, reacted: true }, moved: 4, team: 'van-4',
                 watch: { at: { x: 3, y: 1 }, arc: 45, turn: 4, tripped: { crew: 'jun', at: { x: 2, y: 1 } } }, flashbangs: 1, surprised: 4
+            }, {
+                id: 'police-8', kind: 'sniper', vehicle: null, staging: 'street-west', arrived: 3, pos: { x: 2, y: 0 }, hp: 6, leaning: null, suppressed: null, moved: null,
+                team: null, watch: null, flashbangs: 0, surprised: null, laser: { target: 'jun', at: { x: 1, y: 1 }, turn: 4 }
             }],
             vehicles: [
                 { id: 'van-4', kind: 'van', label: 'SWAT van', staging: 'street-west', pos: { x: 0, y: 2 }, arrived: 4, status: 'arriving', hp: 30 },
@@ -226,6 +229,8 @@ describe('the save format', () => {
         };
         full.vehicles = { van: { pose: { x: 1, y: 1, heading: 'w' }, driver: 'jun', hold: ['cash'], gone: false, hp: 24 } };
         full.crew[0]!.aboard = 'van';
+        for (const c of full.crew) c.transit = { route: 'roof', inward: true, left: 1, from: { x: 0, y: 0 }, escape: false };
+        full.escaped = [{ crew: JSON.parse(JSON.stringify(full.crew[1]!)), vehicle: 'van', turn: 3 }, { crew: JSON.parse(JSON.stringify(full.crew[1]!)), vehicle: null, route: 'route-0', turn: 4 }];
         full.outcome = {
             result: 'partial', turn: 9, vehicle: 'van', escaped: ['jun'], arrested: ['mara'], dead: [], loot: ['cash'], value: 5000, ruined: 0, target: 75000, heat: 2
         };
@@ -241,6 +246,7 @@ describe('the save format', () => {
                 staging: [{ id: 'street-west', name: 'Main street, west end', pos: { x: 0, y: 2 } }],
                 vehicles: [{ id: 'van', type: 'van', name: 'Crew van', width: 2, length: 4, start: { x: 1, y: 1, heading: 'w' } }],
                 building: ['lobby'],
+                routes: [{ id: 'route-0', kind: 'roof', name: 'Roof route', outside: { x: 0, y: 2 }, inside: { x: 1, y: 1 }, transit: 2 }],
                 locks: [{
                     id: 'vault', name: 'Vault', target: 'd', room: 'lobby', holders: ['guard'], timeLock: { from: 3, until: 5 },
                     social: { kind: 'code', parts: ['whole'], text: 'code' }, technical: { kind: 'drill', phases: 3, noise: 6, sensors: ['seismic'], text: 'drill' },

@@ -85,8 +85,9 @@ export function placeWays(ctx: Ctx): Ways {
     if (ladder) {
         for (const inside of [hatch, hatchTarget].filter((p): p is P => !!p)) {
             const isSkylight = inside === hatch;
-            add('covert', isSkylight ? 'Roof route, down through the skylight' : `Roof route, down the hatch in the ${roomAt(inside).name.toLowerCase()}`, ladder, inside);
-            routes.push({ kind: 'roof', outside: { tx: ladder.x, ty: ladder.y }, inside: { tx: inside.x, ty: inside.y }, transit: 2 });
+            const name = isSkylight ? 'Roof route, down through the skylight' : `Roof route, down the hatch in the ${roomAt(inside).name.toLowerCase()}`;
+            add('covert', name, ladder, inside);
+            routes.push({ kind: 'roof', name, outside: { tx: ladder.x, ty: ladder.y }, inside: { tx: inside.x, ty: inside.y }, transit: 2 });
         }
     }
     // The sewer: a manhole in the road in front of the bank, a grate in a utility room.
@@ -98,15 +99,21 @@ export function placeWays(ctx: Ctx): Ways {
     }
     if (manhole) for (const g of grates) {
         if (!furnish.try({ kind: 'floorGrate', tx: g.tx, ty: g.ty }, roomAt({ x: g.tx, y: g.ty }))) continue;
-        add('covert', `Sewer, up through the grate in the ${roomAt({ x: g.tx, y: g.ty }).name.toLowerCase()}`, manhole, { x: g.tx, y: g.ty });
-        routes.push({ kind: 'sewer', outside: { tx: manhole.x, ty: manhole.y }, inside: { tx: g.tx, ty: g.ty }, transit: 3 });
+        const name = `Sewer, up through the grate in the ${roomAt({ x: g.tx, y: g.ty }).name.toLowerCase()}`;
+        add('covert', name, manhole, { x: g.tx, y: g.ty });
+        routes.push({ kind: 'sewer', name, outside: { tx: manhole.x, ty: manhole.y }, inside: { tx: g.tx, ty: g.ty }, transit: 3 });
         break;
     }
     // An air duct from the roof into the server room.
     if (ladder) for (const v of furnished.vents) {
         if (!furnish.try({ kind: 'ventGrille', tx: v.tx, ty: v.ty } as LevelProp)) continue;
         const inside = ctx.nav.tilesOf(roomAt({ x: v.tx, y: v.ty }))[0];
-        if (inside) add('covert', 'Air duct from the roof into the server room', ladder, inside);
+        if (inside) {
+            const name = 'Air duct from the roof into the server room';
+            add('covert', name, ladder, inside);
+            // The duct runs from the roof (§14.7): out of the vent, the crew member comes out on the grille's tile or nearest it.
+            routes.push({ kind: 'duct', name, outside: { tx: ladder.x, ty: ladder.y }, inside: { tx: v.tx, ty: v.ty }, transit: 2 });
+        }
         break;
     }
 

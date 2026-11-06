@@ -1,6 +1,6 @@
 import {
     crewBudget, DASH_ACTIONS, MOVE_ACTIONS, pathTo, planMoveOptions, reachable, reachAt, validatePath, type Command, type Pos, type Reach, type ReadonlyWorld,
-    type State
+    type State, offMap
 } from '../sim';
 
 /*
@@ -31,7 +31,7 @@ export interface MoveRange {
  */
 export function moveRange(world: ReadonlyWorld, picture: State, member: Member, canDash: boolean): MoveRange {
     // Aboard a vehicle nobody walks (§14.4): they get out first.
-    const afoot = !member.aboard;
+    const afoot = !offMap(member);
     const move = afoot && member.actionsLeft >= MOVE_ACTIONS ? crewBudget(world, member, 'move') : null;
     const dash = afoot && canDash && member.actionsLeft >= DASH_ACTIONS ? crewBudget(world, member, 'dash') : null;
     const reach = reachable(world, picture, member.pos, Math.max(move ?? 0, dash ?? 0), planMoveOptions(world, picture, member));

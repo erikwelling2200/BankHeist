@@ -1,4 +1,4 @@
-import type { AimBodyVM, AimVM, BreachVM, FortifyVM, GadgetVM, ShieldVM } from '../../game/loudUi';
+import type { AimBodyVM, AimVM, BreachVM, FortifyVM, GadgetVM, LaserVM, ShieldVM } from '../../game/loudUi';
 import type { Signal } from '../../game/worldUi';
 import type { Pos } from '../../sim';
 
@@ -17,6 +17,8 @@ import type { Pos } from '../../sim';
  * - **The acting unit** of a world phase in a firefight: red corner brackets round its tile.
  * - **Fortifications** (M4-02, drawn in stealth too): a barricade as crossed planks over the wall segment with a pip
  *   per hit point left, blinds as slats along a window, the crew's reinforcement as a riveted steel bar.
+ * - **Sniper lasers** (M4-05, §13.6): a thin red line from the sniper's post to the head on the tile it is on, a glint at
+ *   the scope and a dot where it lands; shown wherever the sniper is.
  * - **Gadgets** (M4-06, drawn in stealth too): a running jammer as a small mast with its radius as a dashed cream
  *   circle (the carriers it pauses lie inside), an ammo bag as a bag with a pip per refill left.
  */
@@ -28,6 +30,8 @@ export interface LoudContent {
     fortified?: FortifyVM[];
     /** The crew's jammers and ammo bags on the floor. */
     gadgets?: GadgetVM[];
+    /** Police snipers' lasers (M4-05): always shown. */
+    lasers?: LaserVM[];
     /** The unit acting now in a world phase's playback: bracketed in red. */
     acting?: Pos;
     /** Shots just fired in playback: a tracer from the shooter to where they aimed, red for the police and NPCs, the crew's in cream. */
@@ -86,6 +90,7 @@ export function drawLoud(ctx: CanvasRenderingContext2D, c: LoudContent, f: Frame
     for (const g of c.gadgets ?? []) drawGadget(ctx, g, f);
     if (c.aim) drawAim(ctx, c.aim, f);
     for (const b of c.breaches ?? []) drawBreach(ctx, b, f);
+    for (const l of c.lasers ?? []) drawLaser(ctx, l, f);
     if (c.acting) drawActing(ctx, c.acting, f, f.pal.red);
     for (const t of c.tracers ?? []) {
         const [x0, y0] = f.mid(t.from), [x1, y1] = f.mid(t.to);
@@ -353,4 +358,18 @@ function drawActing(ctx: CanvasRenderingContext2D, p: Pos, f: Frame, red: string
         ctx.moveTo(r, b - k + dy); ctx.lineTo(r, b + dy); ctx.lineTo(r - k, b + dy);
         ctx.moveTo(l + k, b + dy); ctx.lineTo(l, b + dy); ctx.lineTo(l, b - k + dy);
     });
+}
+
+/** A sniper's laser (see the header): post to the lasered tile, at head height. */
+function drawLaser(ctx: CanvasRenderingContext2D, l: LaserVM, f: Frame): void {
+    const [x0, y0] = f.mid(l.from), [x1, y1] = f.mid(l.to), head = HEAD / 2;
+    inked(ctx, f.pal.red, 1, dy => {
+        ctx.moveTo(x0, y0 - head + dy);
+        ctx.lineTo(x1, y1 - head + dy);
+    });
+    // The scope's glint and the dot.
+    ctx.fillStyle = CREAM;
+    ctx.fillRect(Math.round(x0) - 2, Math.round(y0 - head) - 2, 4, 4);
+    ctx.fillStyle = f.pal.red;
+    ctx.fillRect(Math.round(x1) - 2, Math.round(y1 - head) - 2, 4, 4);
 }

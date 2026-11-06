@@ -1,5 +1,5 @@
 import {
-    attackPlan, crewPicture, fortifiedEdges, weaponDef, crewShotPreview, officerMarkers, suppressPlan, type Command, type CoverView, type Pos, type ReadonlyWorld, type ShotPreview, type State
+    attackPlan, crewPicture, fortifiedEdges, weaponDef, crewShotPreview, officerMarkers, sniperLasers, suppressPlan, type Command, type CoverView, type Pos, type ReadonlyWorld, type ShotPreview, type State
 } from '../sim';
 import { doorMiddle } from './actions';
 
@@ -164,6 +164,15 @@ export function gadgetMarkers(world: ReadonlyWorld, state: State): GadgetVM[] {
         ...(state.ammoBags ?? []).map(b => ({ kind: 'ammoBag' as const, at: { x: b.at.x, y: b.at.y }, uses: b.uses }))
     ];
 }
+
+/**
+ * A police sniper's laser (§13.6 "Sniper lines are always visible (scope glint and laser), even when the sniper is beyond
+ * the crew's sight"; M4-05): from its post to the tile it is on, the shot coming next world phase at whoever it is on
+ * if the sniper still sees them. Told whether or not the crew sees the sniper.
+ */
+export interface LaserVM { from: Pos; to: Pos; target: string }
+
+export const laserMarkers = (state: State): LaserVM[] => sniperLasers(state).map(l => ({ from: l.from, to: l.at, target: l.target }));
 
 /**
  * The fire selector of an attack (§11.1, UI.md "Shot cones": 1 round up to the weapon's Bullets, as many as are loaded):
