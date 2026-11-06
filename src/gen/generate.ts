@@ -2,7 +2,7 @@ import { bankDoors, bankFront, counterGate, defaultWalls, placeBank, railings, s
 import { buildFeatures } from './features';
 import { Furnisher } from './furnish';
 import { layoutBank } from './layout';
-import { ARCHETYPES, PLOTS, TIERS, type Archetype, type GeneratedBank, type GenRoom, type Headline, type PlotKind, type Tier } from './model';
+import { ARCHETYPES, PLOTS, TIERS, type Archetype, type Compass, type GeneratedBank, type GenCamera, type GenRoom, type Headline, type PlotKind, type Tier } from './model';
 import { finishNeighbour, placeNeighbour, type Neighbour } from './neighbours';
 import { composePlot, type Plot } from './plot';
 import { Rng, seedOf } from './rng';
@@ -17,6 +17,7 @@ import { populate } from './population';
 import { planRoutines } from './routines';
 import { placeCameras, planGuards, trafficTiles } from './security';
 import { RELAX_ORDER, RULES, validate, type Rule } from './validate';
+import { cameraObserver, fieldOn, initialState, sightMap, worldFromBank } from '../sim';
 
 export interface GenerateOptions { layout: number; population: number; tier?: Tier; archetype?: Archetype; plot?: PlotKind }
 
@@ -157,23 +158,37 @@ function finishBank(shell: Shell, rng: Rng, people: Rng, spec: TierSpec, opts: G
     const nav = new Nav(site, grids);
     const tall = (x: number, y: number) => grids.tall[y * site.width + x] === 1;
     const traffic = trafficTiles(site, nav, bank);
-    const cameras = placeCameras(site, furnish, nav, furnished.cameraSlots, traffic, rng.fork('cameras').int(...spec.cameras), rng.fork('camera-pick'), tall);
+    const named = rng.fork('name'), name = `${named.pick(BANK_NAMES)} ${named.pick(BANK_KINDS)}, ${named.pick(STREETS)}`;
+    const out = (rest: Pick<GeneratedBank, 'people' | 'cameras' | 'locks' | 'timeline' | 'opportunities' | 'intel'>): GeneratedBank => ({
+        seed: { layout: opts.layout, population: opts.population },
+        name, tier, archetype, plot: shell.plotKind, headlines, vaultClass, timeLock, dualControl: spec.dualControl, policeEta: spec.policeEta, dyePacks: spec.dyePacks,
+        level: site.level(), rooms: site.rooms, doors: site.doors, props: site.props, people: rest.people, cameras: rest.cameras, locks: rest.locks,
+        approaches: ways.approaches, routes: ways.routes, getaways: ways.getaways, exits: ways.exits, staging: ways.staging,
+        neighbours: shell.neighbours.map(n => n.slot.kind), timeline: rest.timeline, opportunities: rest.opportunities, intel: rest.intel,
+        stations: furnished.stations, alarms: furnished.alarms, loot: furnished.loot, grates: furnished.grates, vents: furnished.vents,
+        hatches: furnished.hatches, monitors: spec.monitors, stories: furnished.stories, validation: { results: [], relaxed: [], attempts: 0, metrics: [] }
+    });
+    // The cameras are hung by what the rules' cameras will see (M5-01): the bank's World with nobody in it yet and a
+    // camera in every slot.
+    const slots: GenCamera[] = furnished.cameraSlots.map((c, i) => ({ id: `slot-${i}`, tx: c.tx, ty: c.ty, facing: c.facing as GenCamera['facing'], panning: false, room: c.room }));
+    const bare = worldFromBank(out({ people: [], cameras: slots, locks: [], timeline: [], opportunities: [], intel: [] }));
+    const empty = initialState(bare, { seed: 0, crew: [] }), sight = sightMap(bare, empty);
+    const seen = (i: number, facing?: Compass) => {
+        const camera = cameraObserver(bare, empty, `slot-${i}`)!;
+        return fieldOn(sight, facing ? { ...camera, facing } : camera).tiles;
+    };
+    const cameras = placeCameras(site, furnish, furnished.cameraSlots, seen, traffic, rng.fork('cameras').int(...spec.cameras), rng.fork('camera-pick'));
     const guards = planGuards(nav, bank, furnish, rng.fork('guards'), rng.fork('guard-count').int(...spec.guards), spec.chief, { x: shell.frontDoorX, y: plot.lot.y + plot.lot.h - 1 });
     const softDepositWall = shell.neighbours.some(n => n.party && n.soft && n.slot.kind === 'cafe' && bank.some(r => r.type === 'depositBoxes' && site.sharedEdges(n.party!, r).length));
     const pop = populate({ rng: people, tier, headlines, bank, neighbours: shell.neighbours, furnished, guards, nav, furnish, timeLock, ductIn: ways.approaches.some(a => a.name.startsWith('Air duct')), vaultOpens: archetype === 'threeKeys' ? 'threeKeys' : spec.dualControl ? 'dualControl' : 'code', softDepositWall, sidewalkY: plot.sidewalkY, width: site.width });
     planRoutines({ nav, furnish, bank, furnished, people: pop.people, timeline: pop.timeline, opportunities: pop.opportunities, rng: people.fork('routines') });
     const locks = keyGraph({ archetype, vaultClass, timeLock, dualControl: spec.dualControl, rooms: bank, doors: site.doors, people: pop.people, timeline: pop.timeline });
-    const results = validate({ site, nav, bank, doors: site.doors, approaches: ways.approaches, routes: ways.routes, cameras, guards, furnished, getaways: ways.getaways, exits: ways.exits, traffic, tall });
-    const metrics = roomMetrics(nav, bank, furnish.boxes, tall);
-    const named = rng.fork('name');
-    return {
-        seed: { layout: opts.layout, population: opts.population },
-        name: `${named.pick(BANK_NAMES)} ${named.pick(BANK_KINDS)}, ${named.pick(STREETS)}`,
-        tier, archetype, plot: shell.plotKind, headlines, vaultClass, timeLock, dualControl: spec.dualControl, policeEta: spec.policeEta, dyePacks: spec.dyePacks,
-        level: site.level(), rooms: site.rooms, doors: site.doors, props: site.props, people: pop.people, cameras, locks,
-        approaches: ways.approaches, routes: ways.routes, getaways: ways.getaways, exits: ways.exits, staging: ways.staging,
-        neighbours: shell.neighbours.map(n => n.slot.kind), timeline: pop.timeline, opportunities: pop.opportunities, intel: pop.intel,
-        stations: furnished.stations, alarms: furnished.alarms, loot: furnished.loot, grates: furnished.grates, vents: furnished.vents,
-        hatches: furnished.hatches, monitors: spec.monitors, stories: furnished.stories, validation: { results, relaxed: [], attempts: 0, metrics }
-    };
+    const generated = out({ people: pop.people, cameras, locks, timeline: pop.timeline, opportunities: pop.opportunities, intel: pop.intel });
+    generated.validation.metrics = roomMetrics(nav, bank, furnish.boxes, tall);
+    // Checked on the rules' own World of the bank, as the game will build it (M5-01).
+    generated.validation.results = validate({
+        site, nav, bank, doors: site.doors, approaches: ways.approaches, routes: ways.routes, cameras, guards, furnished, getaways: ways.getaways,
+        exits: ways.exits, traffic, world: worldFromBank(generated)
+    });
+    return generated;
 }

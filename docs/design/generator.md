@@ -27,8 +27,8 @@ one stage doesn't reshuffle the others.
 | 4. Key graph | `keys.ts` | Every hard lock (vault, mantrap, CCTV door, counting-room door, alarm panel) gets a social, a technical and a violent key (§15.2), with the people who hold the social one. Each key is data the rules play (`src/sim/rules/keys.ts`): whose cards open the door, the code's parts, the drill's phases and sensors, thermite's phases, and the vault's time-lock window from the timeline. |
 | 5. Fill | `parcels.ts`, `groups.ts`, `activities.ts`, `stories.ts`, `furnish.ts` | Furnishing by activity (Interiors, steps 3 and 4). Every room type has three styles, each a program of functional groups whose number follows the room's floor area, placed by scored candidates after the walks between the room's doors are kept free; then a story pass. A parcel also places its room's fixed pieces and records stations (where staff and customers stand, with their roles), alarm buttons, camera slots, loot, and the spots for roof hatches, floor grates and vents (kept free of groups). Loot goes on the tile the parcel names when a tile it is reached from can be walked to from the room's doors, else on the nearest tile of the room that has one (furniture before bare floor); one of those tiles then has to stay reachable from the doors while the rest of the room is furnished (`RoomPlan.mustAny`), so later groups and stories can't box it in. The teller counter runs along the edge the teller line shares with the lobby, and its gate is the one opening through it. `Furnisher` accepts a prop only if it fits between the walls, touches nothing in 3D, keeps the tiles in front of doors (and the walks, the clearance and the stations) free, and hangs dressing on a solid wall or stands a second-tier prop on a top at its height; a group goes in whole or not at all (`mark`, `rollback`). |
 | Ways in | `approaches.ts` | At least four approaches from three categories (§17.5), their markers placed in the world. **Social**: the front door, the staff door. **Covert**: the roof route from a ladder or the scaffolding to a hatch or the skylight, the sewer from a manhole to a floor grate, an air duct. **Forced**: ramming the glass front, the shutter, a soft wall from next door. Plus the getaway spots, plot exits and police staging. |
-| 6. Population and schedule | `security.ts`, `population.ts`, `routines.ts` | Cameras go in the parcels' slots, each covering a tile people must cross. Guards get a lobby post with a short loop, patrol routes through staff and secure rooms, and the security chief at HQ. Then, from the **population seed**: staff at their stations, the crowd for the time of day, hidden traits (`PersonTraits`, data the rules read: off-duty cops, a hero, a teller in debt; the dye pack is the drawer's own, `parcels.ts`), the day's timeline (§16.3) and each person's schedule, and 3–5 opportunities (§17.6) with how they are found. `routines.ts` then types each schedule for the rules (`GenPerson.routine`: an `Activity`, the tile to stand on or the route to walk, a label; run by `src/sim/rules/npc`), adding the customers' comings and goings, the IT technician's visit and the closing sweep's route from a `routines` stream of its own; an event that would clash with an earlier one of the same person waits until they are free (with its timeline entry). |
-| 7. Validate | `validate.ts`, `nav.ts`, `metrics.ts` | The nine checks of §17.7 on a navigation grid. After every ten failed rolls one rule is relaxed, in the fixed order of `RELAX_ORDER`. A relaxed rule is still checked; it no longer rejects the bank, and the briefing names it only when this bank actually breaks it. The report also carries the room metrics (`validation.metrics`, Interiors step 5). |
+| 6. Population and schedule | `security.ts`, `population.ts`, `routines.ts` | Cameras go in the parcels' slots, each covering a tile people must cross as the rules' cameras see it (the bank's World with nobody in it yet and a camera in every slot); one pans only when its pan covers such a tile too. Guards get a lobby post with a short loop, patrol routes through staff and secure rooms, and the security chief at HQ. Then, from the **population seed**: staff at their stations, the crowd for the time of day, hidden traits (`PersonTraits`, data the rules read: off-duty cops, a hero, a teller in debt; the dye pack is the drawer's own, `parcels.ts`), the day's timeline (§16.3) and each person's schedule, and 3–5 opportunities (§17.6) with how they are found. `routines.ts` then types each schedule for the rules (`GenPerson.routine`: an `Activity`, the tile to stand on or the route to walk, a label; run by `src/sim/rules/npc`), adding the customers' comings and goings, the IT technician's visit and the closing sweep's route from a `routines` stream of its own; an event that would clash with an earlier one of the same person waits until they are free (with its timeline entry). |
+| 7. Validate | `validate.ts`, `nav.ts`, `metrics.ts` | The checks of §17.7, on a navigation grid and, for what is seen, on the rules' own World of the bank (`worldFromBank`, M5-01). After every ten failed rolls one rule is relaxed, in the fixed order of `RELAX_ORDER`. A relaxed rule is still checked; it no longer rejects the bank, and the briefing names it only when this bank actually breaks it. The report also carries the room metrics (`validation.metrics`, Interiors step 5). |
 | 8. Present | `src/ui/Briefing.ts`, `BankScene.showKnowledge` | The briefing panel and the blueprint layer: staff and secure rooms shown as `?` outlines that follow their shapes. Lamps hang on a grid in each of a room's rectangles (`roomLamps`), so none hangs over a neighbour. |
 
 ### The rooms
@@ -67,19 +67,28 @@ others are rolled from what the bank can have:
 
 ## The checks (§17.7)
 
-All are checked on the grid: walls stop movement and sight, doors pass whatever their lock (the keys exist), glass and
+Most are checked on the grid: walls stop movement and sight, doors pass whatever their lock (the keys exist), glass and
 railings pass sight, full-height furniture blocks sight, and no step climbs more than a third of a storey without
-stairs.
+stairs. What is *seen* (the Clean route, the guards' overlap, the cameras) is the rules' own vision (`src/sim/geo`, M5-01:
+§8.3's arcs and ranges, darkness halving them, cameras blind on an unlit tile, the corner rule) on the World the game
+builds from the bank (`worldFromBank`), on turn 1: everyone where they start, the doors as they start.
 
 - **Every approach reaches the vault**: from each approach's inside end. Also at least four approaches, from three
   categories, with one covert way that reaches the CCTV room or the alarm closet.
-- **Clean-profile route**: from the lobby to the CCTV room or the alarm closet. It may not use a vault door, and may
-  not enter a secure room before the one it ends in.
+- **Clean-profile route**: from the lobby to the CCTV room or the alarm closet, a chain of Moves each of which the safe
+  floor (`safeFloor`, §8.8) shows green for a Clean crew member on turn 1. The walker knows the whole bank, so the floor
+  judges the truth, and holds the keys to every lock on the way but the vault door's and the mantrap's; every Move is
+  judged on the same turn-1 state (nobody moves between them). The search first walks out from the goal over the
+  tiles that draw no reaction (`assessEnd`): no such way from the lobby, no route; then it cuts the shortest such way
+  into the longest Moves the path under the finger (`pathSafety`) shows green, and where that stalls tries floors best
+  first along the quiet tiles, 20 at most (decision 342).
 - **Loops**: at least two door-disjoint ways from the Public rooms to the Secure ones (a max-flow over doors), and every
   zone connected at least twice.
-- **Guard overlap**: at most three guards see any one tile, counting each guard's 8-tile, 140° cone from their post
-  and from every corner of their route.
-- **Useful cameras**: each camera's 7-tile, 70° cone covers a door's threshold or a corridor tile.
+- **Guard overlap**: at most three guards see any one tile with the rules' calm eyes (Core 6 tiles over 90°, Peripheral
+  8 over 140°), from their post facing as posted and from every tile of their route out and back, facing the way they
+  walk.
+- **Useful cameras**: each camera, as the rules have it look (both facings of a panning one, 7 tiles over 70°, blind
+  in the dark), sees a door's threshold or a corridor tile.
 - **Alarms and exits**: every alarm station is reachable from the lobby, and every lobby tile is within 28 steps of a
   public exit.
 - **Getaways**: every getaway spot drives (by road, alley, garage or site) to at least two plot exits.

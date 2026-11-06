@@ -1,5 +1,4 @@
 import type { PersonFacing } from '../level/plan';
-import type { Facing } from '../level/space';
 import type { Furnisher } from './furnish';
 import type { Compass, GenCamera, GenRoom } from './model';
 import type { Nav, P } from './nav';
@@ -12,31 +11,6 @@ import type { Site } from './site';
  * cross; guard posts and patrol routes. Guards patrol the staff and secure rooms; the lobby guard keeps a post by the
  * doors with a short loop; the security chief (HQ) roams.
  */
-
-export const CAMERA_RANGE = 7;
-export const CAMERA_HALF_ANGLE = (70 / 2) * (Math.PI / 180);
-export const GUARD_RANGE = 8;
-export const GUARD_HALF_ANGLE = (140 / 2) * (Math.PI / 180);
-
-const ANGLE: Record<Facing, number> = { east: 0, south: Math.PI / 2, west: Math.PI, north: -Math.PI / 2 };
-
-/** The tiles an observer at `from` facing `facing` sees within `range` and `half` either side (§8.3). */
-export function cone(nav: Nav, from: P, facing: Facing, range: number, half: number, tall: (x: number, y: number) => boolean): P[] {
-    const out: P[] = [];
-    for (let y = from.y - range; y <= from.y + range; y++) for (let x = from.x - range; x <= from.x + range; x++) {
-        if (!nav.site.inside(x, y) || nav.site.owner[y]![x]! < 0) continue;
-        const dx = x - from.x, dy = y - from.y;
-        if (dx * dx + dy * dy > range * range) continue;
-        if (dx || dy) {
-            let d = Math.atan2(dy, dx) - ANGLE[facing];
-            while (d > Math.PI) d -= Math.PI * 2;
-            while (d < -Math.PI) d += Math.PI * 2;
-            if (Math.abs(d) > half) continue;
-        }
-        if (nav.sees(from, { x, y }, tall)) out.push({ x, y });
-    }
-    return out;
-}
 
 /**
  * Tiles someone has to cross (§17.7): both sides of every door, the corridors, the counter gate and the lobby's
@@ -61,14 +35,18 @@ export const PAN: Readonly<Record<GenCamera['facing'], [Compass, Compass]>> = { 
 
 /**
  * Hangs `count` cameras: each in a free slot, covering traffic tiles no camera covers yet, highest-priority rooms
- * first. Panning cameras alternate between two facings (§8.3); here a third pan.
+ * first. `sight` gives the tiles the camera in a slot (by index) would see, as the rules' cameras do (M5-01), facing as
+ * hung or, given one, the other way. Panning cameras alternate between two facings (§8.3); here a third pan, when its
+ * pan covers traffic too.
  */
-export function placeCameras(site: Site, furnish: Furnisher, nav: Nav, slots: CameraSlot[], traffic: Set<string>, count: number, rng: Rng, tall: (x: number, y: number) => boolean): GenCamera[] {
+export function placeCameras(
+    site: Site, furnish: Furnisher, slots: CameraSlot[], sight: (slot: number, facing?: Compass) => readonly P[], traffic: Set<string>, count: number, rng: Rng
+): GenCamera[] {
     const cameras: GenCamera[] = [], covered = new Set<string>();
-    const ranked = slots.map(s => {
+    const crossed = (tiles: readonly P[]) => tiles.map(t => `${t.x},${t.y}`).filter(k => traffic.has(k));
+    const ranked = slots.map((s, i) => {
         const room = site.rooms.find(r => r.id === s.room)!;
-        const sees = cone(nav, { x: s.tx, y: s.ty }, s.facing, CAMERA_RANGE, CAMERA_HALF_ANGLE, tall).map(t => `${t.x},${t.y}`).filter(k => traffic.has(k));
-        return { s, sees, rank: CAMERA_PRIORITY.indexOf(room.type) < 0 ? CAMERA_PRIORITY.length : CAMERA_PRIORITY.indexOf(room.type) };
+        return { s, i, sees: crossed(sight(i)), rank: CAMERA_PRIORITY.indexOf(room.type) < 0 ? CAMERA_PRIORITY.length : CAMERA_PRIORITY.indexOf(room.type) };
     }).filter(c => c.sees.length);
     while (cameras.length < count) {
         const best = ranked.filter(c => !cameras.some(k => k.tx === c.s.tx && k.ty === c.s.ty))
@@ -76,9 +54,11 @@ export function placeCameras(site: Site, furnish: Furnisher, nav: Nav, slots: Ca
             .sort((a, b) => b.gain - a.gain)[0];
         if (!best) break;
         if (furnish.try(best.s.prop)) {
-            const facing = best.s.facing as GenCamera['facing'], panning = rng.chance(0.33);
+            const facing = best.s.facing as GenCamera['facing'], pans = crossed(PAN[facing].flatMap(f => sight(best.i, f)));
+            // A pan turns it off its own facing: only one that still covers traffic pans.
+            const panning = rng.chance(0.33) && pans.length > 0;
             cameras.push({ id: `camera-${cameras.length}`, tx: best.s.tx, ty: best.s.ty, facing, panning, room: best.s.room, ...(panning ? { pan: PAN[facing] } : {}) });
-            for (const k of best.sees) covered.add(k);
+            for (const k of panning ? pans : best.sees) covered.add(k);
         }
         ranked.splice(ranked.indexOf(ranked.find(c => c.s === best.s)!), 1);
     }

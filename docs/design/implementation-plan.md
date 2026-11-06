@@ -1576,14 +1576,20 @@ M2 is complete: every package below has landed.
 | Key graph (text only) | Structured keys: M2-05 (done) |
 | Population and schedule (text activities) | Typed activities: M1-06 (done) |
 | Traits (strings) | Typed traits: M2-02 |
-| Validation §17.7, with its own vision constants | M5-01 |
+| Validation §17.7 on the rules' vision | none (M5-01 done) |
 | Opportunities (text) | M5-02 |
 | Knowledge layers (blueprint outlines, rendering only) | M1-10 for in-heist casing, then M5-03 |
 | Furnished data not exported | M1-02 |
 
-- [ ] **M5-01 Validation on the rules' own vision.**
+- [x] **M5-01 Validation on the rules' own vision.**
   - **Work:** `validate.ts`'s guard-overlap, useful-camera and Clean-route checks call `src/sim/geo`. The Clean route must be a path the safe floor shows green for a Clean crew member on turn 1.
   - **Accept:** the sweep passes; any change in the number of banks rejected is reviewed.
+  - **Notes (done):** decisions 340–343. `finishBank` builds the bank, then `validate` gets its World (`worldFromBank`)
+    and checks sight on its turn-1 state: the guards with the calm profile (`fieldOn`), the cameras through
+    `cameraObserver` (both pan facings), the Clean route through `pathSafety` and `safeFloor` (`cleanRoute`).
+    `placeCameras` ranks its slots by the same sight, on a bare World of the bank (nobody in it, a camera in every
+    slot); the generator's own `cone` and its constants are gone. The sweep (224 banks) still passes with no relaxed
+    rule; the review is in decision 343.
 - [ ] **M5-02 Opportunities as mechanics.**
   - **Covers:** §17.6.
   - **Work:** discovery triggers (eavesdropping within 2 tiles for 1 turn, document objects, intel); effects wired in (the keycard in the drawer, the propped fire door, the bribe, the IT tech's card, the vault code note); the Intel journal UI with Full, Minimal or Off guidance.
@@ -1632,7 +1638,7 @@ Later milestones: within each milestone, the `∥` notes in §3 apply. UI packag
 ## 5. Risks
 
 - **Preview drift.** Keep one function per rule. The property test is the gate for every package from M1-09 on.
-- **The generator and the rules disagreeing about sight.** M1-02 shares the tile properties and M5-01 moves validation onto the rules' vision.
+- **The generator and the rules disagreeing about sight.** M1-02 shares the tile properties and M5-01 moved validation onto the rules' vision.
 - **Saves breaking when the generator changes.** Store the world in the save (decision Q22).
 - **Overlay speed.** The safe floor over about 300 reachable tiles must take under 16 ms on a phone. Precompute each NPC's sight for this phase and its committed path once per state change.
   - The overlay calls the shared assess functions (§2.2) directly for each tile and never runs `preview()` per tile: a preview copies and checks the whole state. `preview()` is for the command the player tapped and for the oracle's sample.
@@ -2850,6 +2856,41 @@ Later milestones: within each milestone, the `∥` notes in §3 apply. UI packag
     start that isn't one (`aboard` a boolean, the nest with nothing else), `nest` not a boolean, a vehicle type that
     doesn't exist, a jammer off the grid, and no van (no getaway). `setupProblems` reports it first, so the game sends
     such an address back to planning.
+
+340. **Validation sees with the rules (M5-01, §17.7).** The checks of what is seen run on the World the game builds from
+    the bank (`worldFromBank`) in its state on turn 1 (`initialState`: everyone where they start, the doors as they
+    start), through `src/sim/geo`: §8.3's arcs and ranges, darkness halving them, cameras blind on an unlit tile, the
+    corner rule. Guard overlap counts the calm profile (Core 6 over 90°, Peripheral 8 over 140°) from each guard's
+    post, facing as posted, and from every tile of its route out and back, facing the way it walks; a camera is useful
+    when `cameraObserver` sees a traffic tile in either of its facings (both pans of a panning one).
+341. **Cameras are hung by the same sight (M5-01).** `placeCameras` ranks its slots by what the rules' camera in each
+    would see, on a bare World of the bank (nobody in it yet, a camera in every slot), so it never hangs one the check
+    then finds pointless. A camera pans (the 1-in-3 roll is kept) only when its pan also covers a traffic tile: the pans
+    turn it 45° off its own facing, so a pan could leave it covering nothing. The generator's own `cone` and its range
+    and angle constants are gone.
+342. **The Clean route is green on the turn-1 safe floor (M5-01, §17.7, §8.8).** From the lobby to the CCTV room or the
+    alarm closet, a chain of Moves each green for a Clean crew member (nothing on them) on turn 1, all judged on the
+    same turn-1 state (nobody moves between them: the route is there at the start, not after waiting for a patrol;
+    a scripted walk over many turns is M5-05's bot). The route is the bank's, not a crew's: the walker knows the whole
+    bank (every tile seen, every NPC and camera, the feeds), so the floor judges the truth, not the turn-1 picture (where
+    every staff room is still an outline, grey). It holds the key graph's keys to every lock on the way but the vault
+    door's and the mantrap's (§15.2: the keys exist), so a locked door is opened, not picked: picking one in the lobby
+    is an illegal act every customer sees. Secure rooms on the way are no longer barred as such: the rules decide
+    (staff and enforcers who see a Clean stranger there Expose them). The search: the tiles nobody reacts to now
+    (`assessEnd`, which green needs on every tile passed or ended on), walked out from the goal with `stepCost`; no
+    such way from the lobby, no route; else the shortest such way in the longest Moves `pathSafety` shows green, and
+    where that stalls, `safeFloor` best first along the quiet tiles, 20 floors at most.
+343. **What the rules' vision changed in the sweep (M5-01 review).** The sweep still builds all 224 banks with no
+    relaxed rule, at 1.52 attempts a bank instead of 1.15 (117 rolls rejected instead of 34). The new rejections are
+    almost all the Clean route (82 rolls): the rules see far more than the old door-graph check did (tellers facing the
+    counter gate, clerks in the staff offices, the operator in the CCTV room, the chief on the teller line in an HQ),
+    so a roll whose every way in is watched on turn 1 is drawn again. By tier: small 22→44, city 6→29, HQ 6→44
+    (most in city fortress: 12 rerolls for its 16 banks, from 1); guard overlap rejects one roll, the cameras none
+    (they are hung by the same sight, decision 341). The pinned M1 bank `31-2` is unchanged, and so is any bank whose
+    first roll passed and whose cameras were placed alike; others change where a different roll wins or a camera is
+    hung or panned differently. Each roll costs about 10% more (the bare World, the World, the route); with the
+    rerolls a bank takes about a third longer. The bank cache's key follows the generator's imports, so it now covers
+    `src/sim` too: a change to the rules builds the test banks afresh (tests/bankCache.test.ts).
 
 ### Critical files for implementation
 
