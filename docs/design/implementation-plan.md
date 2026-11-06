@@ -1424,13 +1424,14 @@ M2 is complete: every package below has landed.
     rams into fences and railings (they stop it dead), into teller glass; breakable street dressing smashed (§20.9);
     police reacting to the van (ramming it, blocking its path on purpose rather than parking at the exits); the side
     door opened to shoot from; reviving or carrying a downed ally aboard. **Depends on
-    M4-05:** a van disabled by bullets or blasts (its own ram can't, decision 281) leaves the crew the on-foot exits
+    M4-05:** a van disabled by bullets or blasts (its own ram is refused first, decision 281) leaves the crew the on-foot exits
     (§15.4 "escape is always possible").
   - **Review (done):** decisions 281, 282 and 283 amended, 286 added: those who got away are out of play
-    (`State.escaped`, `crewEscaped`); a ram never disables its own vehicle and always clears its lane (a police car with no
-    room is pushed off the street); seen people never cut a ram and are hit wherever they stand; the dead and stashed
-    aren't hit; the ram stopping short of the breach recorded. Tests: escaped crew through 20 world phases, the 1 HP
-    floor, bodies spared, someone seen on undrivable ground, unseen people beyond a breached wall (preview against
+    (`State.escaped`, `crewEscaped`); a ram that would disable the crew's last drivable vehicle is refused (any other takes
+    its full damage) and rams always clear a lane (a boxed-in police car is shunted ahead, pushed off the street only when
+    that fails too); seen people never cut a ram and are hit wherever they stand; the dead and stashed
+    aren't hit; the ram stopping short of the breach recorded. Tests: escaped crew through 20 world phases, the last-way-out
+    refusal and a spare vehicle rammed to 0, the shunt ahead, bodies spared, someone seen on undrivable ground, unseen people beyond a breached wall (preview against
     commit), a boxed-in car pushed clear.
   - **Tests:** `tests/sim/vehicles.test.ts` (a Soft frontage rammed: the gap, the run, who across it is hit, the damage,
     the noise; a door and its barricade; the extra segment's side and a Reinforced wall stopping it; the Wheelman and the
@@ -2647,10 +2648,13 @@ Later milestones: within each milestone, the `∥` notes in §3 apply. UI packag
     living in the impact area takes 6, lethal: the tiles across the gap, else the row, plus where a shoved car slid to.
     The dead and stashed bodies are no one to hit (as a blast). A police vehicle rammed is slid sideways the least that
     clears the lane, its right first, onto drivable tiles with no vehicle or roadblock and no wall crossed. With no room
-    either side it is pushed clear off the street (out of play, any officers aboard get out at its staging point), so a
-    ram always clears its lane (§15.4). The rammer takes 10, halved (rounded down) with a Wheelman and again in the ram
-    truck, **and never below 1 HP:** its own ram never disables it, so ramming can't strand the crew (§15.4 "escape is
-    always possible"). Bullets and blasts can still disable a vehicle; then the on-foot exits (M4-05) are the way out.
+    either side it is shunted ahead along the lane on the same terms, as far as it goes up to 3 tiles (so the next ram
+    has its run-up); shunted past the plot's edge, or with no room at all, it is pushed clear off the street (out of
+    play, any officers aboard get out at its staging point), so rams always clear a lane (§15.4). The rammer takes 10,
+    halved (rounded down) with a Wheelman and again in the ram truck, in full. **A ram that would take the crew's last
+    drivable vehicle to 0 is refused** ("it is the crew's last way out"), so ramming can't strand the crew (§15.4
+    "escape is always possible"); a vehicle with another that can still drive may be rammed to a standstill. Bullets and
+    blasts can still disable a vehicle; then the on-foot exits (M4-05) are the way out.
     The `vehicleRam` noise (16) at its nose, and the bank goes Loud. With nothing within reach (open street, the plot's
     edge) it is refused: that is a Drive.
 282. **Ramming on what the crew knows (M4-04, as decision 192).** The ram is planned on the crew's picture. Someone

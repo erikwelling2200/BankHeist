@@ -32,8 +32,9 @@ import { isDown } from './wounds';
  * - **someone** standing or lying in the row ahead (one the crew knows of): hit.
  * - **a police car, van, wreck or the roadblock**: rammed, and shoved aside (`shoveSpot`) where there is room: a police
  *   vehicle slid sideways the least that takes it out of the vehicle's lane, its right first; roadblock pieces in the
- *   row are knocked away. A police vehicle with no room either side is pushed clear off the street (out of play; any
- *   officers still aboard get out at its staging point): a ram always clears its lane (decision 281).
+ *   row are knocked away. A police vehicle with no room either side is shunted ahead along the lane (up to 3 tiles, so
+ *   the next ram has its run-up); one shunted off the plot, or with no room at all, is pushed clear off the street (out
+ *   of play; any officers still aboard get out at its staging point): rams always clear a lane (decision 281).
  * - **another crew vehicle**: rammed, not moved.
  * - **anything harder** (a tile that isn't Drivable or is blocked, a wall along the row, the map's north or south
  *   edge): stops it dead.
@@ -143,9 +144,10 @@ function selfDamage(world: ReadonlyWorld, vehicle: string, driver: DeepReadonly<
 /**
  * Where a rammed police vehicle is shoved (see the header): its footprint slid sideways the least that takes it out of
  * the lane (`across`, the lane's span across the ram), its right first, onto tiles a vehicle can stand on with nothing
- * there (no crew or other police vehicle, no roadblock), no wall crossed on the way. Null with no room either side.
+ * there (no crew or other police vehicle, no roadblock), no wall crossed on the way; else shunted ahead along the lane
+ * (`f`) on the same terms. Null when it goes off the plot that way, or has no room at all: it is pushed off the street.
  */
-function shoveSpot(world: ReadonlyWorld, state: State, id: string, r: Pos, across: readonly [number, number], gone: ReadonlySet<string>): Pos | null {
+function shoveSpot(world: ReadonlyWorld, state: State, id: string, r: Pos, f: Pos, across: readonly [number, number], gone: ReadonlySet<string>): Pos | null {
     const v = state.police.vehicles.find(p => p.id === id)!, fp = policeFootprint(v);
     const others = new Set<string>([
         ...state.police.vehicles.filter(p => p.id !== id).flatMap(p => policeFootprint(p).map(tileKey)),
@@ -162,6 +164,18 @@ function shoveSpot(world: ReadonlyWorld, state: State, id: string, r: Pos, acros
         for (let k = 1; k <= d && !walled; k++) walled = fp.some(t => blocks(world, state, add(t, r, side * (k - 1)), add(t, r, side * k)));
         if (walled) continue;
         return add(v.pos, r, side * d);
+    }
+    // No room either side: shunted ahead along the lane, as far as it goes up to the run-up plus one (so the next ram
+    // has its run-up). Shunted past the plot's west or east edge it has left the plot: null, as with no room at all.
+    for (let d = RAM_RUN_UP + 1; d >= 1; d--) {
+        let ok = true;
+        for (let k = 1; k <= d && ok; k++) {
+            const to = fp.map(t => add(t, f, k));
+            if (to.some(t => t.x < 0 || t.x >= world.width)) return null;
+            ok = !to.some(t => hardTile(world, t) || vehicleAt(world, state, t) !== undefined || others.has(tileKey(t)))
+                && !fp.some(t => blocks(world, state, add(t, f, k - 1), add(t, f, k)));
+        }
+        if (ok) return add(v.pos, f, d);
     }
     return null;
 }
@@ -198,9 +212,14 @@ export function ramPlan(world: ReadonlyWorld, state: State, cmd: RamCmd, mode: '
             const run = k - 1;
             if (run < RAM_RUN_UP) return `The ${name} needs ${RAM_RUN_UP} clear tiles of run-up`;
             const area = extra.area ?? row;
+            // Never the crew's last way out (decision 281): a ram that would disable it, with no other crew vehicle
+            // able to drive, is refused; any other ram takes its full damage.
+            const own = selfDamage(world, cmd.vehicle, member);
+            const spare = (world.vehicles ?? []).some(d => d.id !== cmd.vehicle && !state.vehicles[d.id]?.gone && (state.vehicles[d.id]?.hp ?? 0) > 0);
+            if (own >= v.hp && !spare) return `The ${name} can't take another ram: it is the crew's last way out (${v.hp} HP left)`;
             return {
                 run, poses, steps, into, row, segments: [], opens: false, gap: [], area, people: peopleOn(world, state, area, mode === 'known'), rammed: [], shoved: [],
-                pieces: [], self: Math.min(selfDamage(world, cmd.vehicle, member), Math.max(0, v.hp - 1)), ...extra
+                pieces: [], self: own, ...extra
             };
         };
         // A wall across its front.
@@ -234,7 +253,7 @@ export function ramPlan(world: ReadonlyWorld, state: State, cmd: RamCmd, mode: '
         const hitPieces = row.filter(t => pieces.has(tileKey(t))).sort(rowMajor);
         if (copsHit.length || hitPieces.length) {
             const gone = new Set(hitPieces.map(tileKey)), shoved: { vehicle: string; to: Pos | null }[] = [];
-            for (const id of copsHit) shoved.push({ vehicle: id, to: shoveSpot(world, state, id, r, across, gone) });
+            for (const id of copsHit) shoved.push({ vehicle: id, to: shoveSpot(world, state, id, r, f, across, gone) });
             const moved = shoved.flatMap(s => (s.to ? policeFootprint({ kind: state.police.vehicles.find(p => p.id === s.vehicle)!.kind, pos: s.to }) : []));
             const area = [...new Map([...row, ...moved].map(t => [tileKey(t), t])).values()].sort(rowMajor);
             return plan('police', { rammed: copsHit, shoved, pieces: hitPieces, area });

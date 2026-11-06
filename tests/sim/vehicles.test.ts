@@ -114,13 +114,21 @@ describe('ramming a wall (§14.4)', () => {
         expect(run(truck.world, s, RAM).state.vehicles.van!.hp).toBe(38);
     });
 
-    it('never disables the van with its own ram: it is left at 1 HP at least (decision 281)', () => {
+    it('refuses a ram that would disable the crew\'s last way out, and lets a spare vehicle take its full damage (decision 281)', () => {
         const { world, state } = front();
         const s = clonePlain(atTheWheel(world, state));
-        s.vehicles.van!.hp = 4;
-        const done = run(world, s, RAM);
-        expect(done.state.vehicles.van!.hp).toBe(1);
-        expect(of(done.events, 'vehicleDisabled')).toEqual([]);
+        s.vehicles.van!.hp = 10;
+        expect(ramPlan(world, s, RAM)).toMatch(/last way out/);
+        expect(() => step(world, s, RAM)).toThrow(/last way out/);
+        s.vehicles.van!.hp = 11;
+        expect(run(world, s, RAM).state.vehicles.van!.hp).toBe(1);
+        // With the backup car still able to drive, the van may be rammed to a standstill.
+        const two = front({ vehicles: [vehicle('van', 'van', { x: 10, y: 7, heading: 'n' }), vehicle('car', 'car', { x: 16, y: 7, heading: 'n' })] });
+        const t = clonePlain(atTheWheel(two.world, two.state));
+        t.vehicles.van!.hp = 10;
+        const done = run(two.world, t, RAM);
+        expect(done.state.vehicles.van!.hp).toBe(0);
+        expect(of(done.events, 'vehicleDisabled')).toHaveLength(1);
     });
 
     it('hits the living across the breach, not the dead nor the stashed', () => {
@@ -184,22 +192,29 @@ describe('ramming what stands in the street', () => {
         expect(ramPlan(world, done.state, RAM)).toMatch(/Nothing to ram/);
     });
 
-    it('wrecks a police car at 0, still shoved aside; a car with no room is pushed off the street, its officers out at staging', () => {
+    it('wrecks a police car at 0, still shoved aside; boxed in, it is shunted ahead, or off the street when that fails too', () => {
         const { world, state } = street();
         const s = clonePlain(state);
         s.police.vehicles.push(car('car-90', P(9, 6), 8));
         const done = run(world, s, RAM);
         expect(of(done.events, 'policeWrecked')).toHaveLength(1);
         expect(done.state.police.vehicles[0]).toMatchObject({ status: 'wreck', hp: 0, pos: P(9, 4) });
-        // Boxed in north and south by two more: no room to shove it aside, so it is pushed clear and the lane is open.
+        // Boxed in north and south by two more: no room to shove it aside, so it is shunted 3 tiles ahead.
+        const ahead = clonePlain(state);
+        ahead.police.vehicles.push(car('car-90', P(9, 6)), car('car-91', P(9, 4)), car('car-92', P(9, 8)));
+        const c = run(world, ahead, RAM);
+        expect(of(c.events, 'vehicleShoved')).toEqual([{ type: 'vehicleShoved', vehicle: 'car-90', from: P(9, 6), to: P(6, 6) }]);
+        expect(ramPlan(world, c.state, RAM)).toMatchObject({ into: 'police', run: 3 });
+        // Shunted past the plot's west edge: pushed clear off the street, the lane open, its officers out at staging.
         const boxed = clonePlain(state);
-        boxed.police.vehicles.push({ ...car('car-90', P(9, 6)), staging: 'west' }, car('car-91', P(9, 4)), car('car-92', P(9, 8)));
+        boxed.vehicles.van!.pose = { x: 8, y: 6, heading: 'w' };
+        boxed.police.vehicles.push({ ...car('car-90', P(1, 6)), staging: 'west' }, car('car-91', P(1, 4)), car('car-92', P(1, 8)));
         boxed.police.units.push({ id: 'police-1', kind: 'patrol', vehicle: 'car-90', staging: 'west', arrived: 0, pos: null, hp: 6, leaning: null, suppressed: null, moved: null, team: null, watch: null, flashbangs: 0, surprised: null });
         const b = run(world, boxed, RAM);
-        expect(of(b.events, 'vehicleShoved')).toEqual([{ type: 'vehicleShoved', vehicle: 'car-90', from: P(9, 6), to: null }]);
+        expect(of(b.events, 'vehicleShoved')).toEqual([{ type: 'vehicleShoved', vehicle: 'car-90', from: P(1, 6), to: null }]);
         expect(b.state.police.vehicles.map(v => v.id)).toEqual(['car-91', 'car-92']);
         expect(b.state.police.units[0]!.vehicle).toBeNull();
-        expect(driveMap(world, b.state, 'van').tile(P(10, 7))).toBe('clear');
+        expect(driveMap(world, b.state, 'van').tile(P(2, 7))).toBe('clear');
     });
 
     it('knocks roadblock pieces in its lane away', () => {
