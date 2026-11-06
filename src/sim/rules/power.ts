@@ -22,7 +22,11 @@ import { registerEvidenceSource } from './evidence';
  * - **Lights out** is minor evidence bank-wide (`lightsOut`, `Evidence.everywhere`): every staff member and guard in
  *   the building notices it in the next world phase, seen or not, and one (a guard first, `pickInvestigator`) walks to
  *   the breaker to look, which the intent arrow shows; the others look its way. Each outage is its own (named by
- *   `PowerState.outSince`).
+ *   `PowerState.lastOut`, which is recorded as the lights go out and kept): it is evidence while it lasts and in the
+ *   world phase of the turn it began, so cutting and restoring the power in one crew phase is noticed all the same.
+ * - **Witnessed before the dark** (decision 247): the cut is judged as the crew member reaches for the breaker, before
+ *   the lights and cameras go (`InteractionVerb.witnessBefore`). Cutting, restoring and disabling can't be undone: they
+ *   change the whole bank.
  *
  * Nothing here rolls a die, so a preview is the outcome.
  */
@@ -37,8 +41,8 @@ declare module '../core/types' {
         generatorDisabled: { crew: string; object: string };
         /** The backup generator started: the power is back. */
         generatorStarted: { object: string };
-        /** The lights went out (§14.6): `generatorAt` is the turn the generator starts, as its crew phase begins, or null when none will. */
-        powerOut: { generatorAt: number | null };
+        /** The lights went out (§14.6). When the generator starts isn't told: the crew may not know there is one. */
+        powerOut: Record<never, never>;
         /** The power is back. */
         powerBack: Record<never, never>;
     }
@@ -65,14 +69,15 @@ function rewire(ctx: Ctx, change: (power: State['power']) => void): void {
     change(state.power);
     const now = powerOn(state);
     if (was === now) return;
-    state.power.outSince = now ? null : state.turn;
-    ctx.emit(now ? { type: 'powerBack' } : { type: 'powerOut', generatorAt: generatorAt(ctx.world, state) });
+    if (!now) state.power.lastOut = state.turn;
+    ctx.emit(now ? { type: 'powerBack' } : { type: 'powerOut' });
 }
 
 registerInteraction('breakerPanel', {
     cut: {
         cost: () => 1,
         illegal: 'hack',
+        witnessBefore: true,
         whyNot: (_world, state) => (state.power.breaker ? undefined : 'The mains are off already'),
         run(ctx, member, object) {
             ctx.emit({ type: 'breakerCut', crew: member.id, object: object.id });
@@ -100,6 +105,7 @@ registerInteraction('generator', {
     disable: {
         cost: () => 1,
         illegal: 'hack',
+        witnessBefore: true,
         whyNot: (_world, state) => (state.power.generator === 'disabled' ? 'The generator is disabled already' : undefined),
         run(ctx, member, object) {
             ctx.emit({ type: 'generatorDisabled', crew: member.id, object: object.id });
@@ -120,19 +126,22 @@ registerWorldHook('crewPhase', 'power.generator', ctx => {
     });
 }, { order: -10 });
 
-// Lights out (§8.13): minor evidence everyone in the building notices, at the breaker, while the power is out.
+// Lights out (§8.13): minor evidence everyone in the building notices, at the breaker, while the power is out and in
+// the world phase of the turn it went out, even if it is back on by then.
 registerEvidenceSource('power', (world, state) => {
-    if (powerOn(state) || state.power.outSince === null) return [];
+    const last = state.power.lastOut;
+    if (last === null || (powerOn(state) && last !== state.turn)) return [];
     const breaker = world.objects.find(o => o.kind === 'breakerPanel');
     if (!breaker) return [];
-    return [{ id: `lightsOut:${state.power.outSince}`, kind: 'lightsOut', tiles: [{ ...breaker.pos }], everywhere: true }];
+    return [{ id: `lightsOut:${last}`, kind: 'lightsOut', tiles: [{ ...breaker.pos }], everywhere: true }];
 });
 
+// The whole bank changes with the power: none of it is taken back.
 registerEvents({
-    breakerCut: { undoBlocking: false },
-    breakerReset: { undoBlocking: false },
-    generatorDisabled: { undoBlocking: false },
-    generatorStarted: { undoBlocking: false },
-    powerOut: { undoBlocking: false },
-    powerBack: { undoBlocking: false }
+    breakerCut: { undoBlocking: true },
+    breakerReset: { undoBlocking: true },
+    generatorDisabled: { undoBlocking: true },
+    generatorStarted: { undoBlocking: true },
+    powerOut: { undoBlocking: true },
+    powerBack: { undoBlocking: true }
 });

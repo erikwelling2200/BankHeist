@@ -26,6 +26,8 @@ export interface InteractionVerb {
     cost(world: ReadonlyWorld, state: State, member: DeepReadonly<CrewState>, object: DeepReadonly<WorldObject>): number;
     /** The illegal act it is (hacking, taking loot), if any. */
     illegal?: IllegalAct;
+    /** Its witnesses are judged before it runs: it changes what anyone could see (cutting the power). */
+    witnessBefore?: boolean;
     /** Why it can't be done now (no kit, already disabled), or undefined. */
     whyNot?(world: ReadonlyWorld, state: State, member: DeepReadonly<CrewState>, object: DeepReadonly<WorldObject>): string | undefined;
     /** Does it (after the checks and the spend). */
@@ -88,7 +90,7 @@ registerAction('interact', {
     },
     illegal(world, _state, cmd) {
         const found = lookup(world, cmd.object, cmd.verb) as { def: InteractionVerb };
-        return found.def.illegal ? { act: found.def.illegal } : undefined;
+        return found.def.illegal ? { act: found.def.illegal, ...(found.def.witnessBefore ? { before: true } : {}) } : undefined;
     },
     run(ctx, member, cmd) {
         const found = lookup(ctx.world, cmd.object, cmd.verb) as { object: DeepReadonly<WorldObject>; def: InteractionVerb };

@@ -26,8 +26,11 @@ export interface PowerState {
     generator: 'standby' | 'running' | 'disabled';
     /** The turn the breaker was cut, in that turn's crew phase; null while it is on. */
     cutAt: number | null;
-    /** The turn the lights went out this time (the outage's evidence is named by it); null while powered. */
-    outSince: number | null;
+    /**
+     * The turn the lights last went out, kept once they are back (null before the first outage): an outage is lights-out
+     * evidence while it lasts and in the world phase of the turn it began, however short (rules/power.ts).
+     */
+    lastOut: number | null;
 }
 
 declare module './types' {
@@ -43,7 +46,7 @@ declare module './types' {
 registerRuleDefaults({ generatorPhases: 3 });
 
 registerStateInit('power', (_world, state) => {
-    state.power = { breaker: true, generator: 'standby', cutAt: null, outSince: null };
+    state.power = { breaker: true, generator: 'standby', cutAt: null, lastOut: null };
 });
 
 /** Whether the building has power: the breaker on, or the generator running. A state from before power is powered. */

@@ -587,7 +587,7 @@ export function describeEvent(world: ReadonlyWorld, state: State, event: SimEven
         case 'breakerReset': return `${name(event.crew)} turned the power back on`;
         case 'generatorDisabled': return `${name(event.crew)} disabled the generator`;
         case 'generatorStarted': return 'The backup generator started';
-        case 'powerOut': return event.generatorAt === null ? 'Lights out: no generator will start' : `Lights out: the generator starts on turn ${event.generatorAt}`;
+        case 'powerOut': return 'Lights out';
         case 'powerBack': return 'The lights are back on';
         case 'drillTaken': return `${name(event.crew)} took the drill back`;
         case 'sensorsCut': return `${name(event.crew)} cut the vault’s sensors`;

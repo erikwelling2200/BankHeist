@@ -44,7 +44,7 @@ export interface ActionDef<K extends CommandType> {
      * The illegal act it is (§8.4), if any, and the tiles it is seen on (default: the crew member's): anyone who sees
      * any of them witnesses it (a knockout is seen on the attacker's tile and the victim's).
      */
-    illegal?: (world: ReadonlyWorld, state: State, cmd: DeepReadonly<CommandOf<K>>) => { act: IllegalAct; tiles?: Pos[] } | undefined;
+    illegal?: (world: ReadonlyWorld, state: State, cmd: DeepReadonly<CommandOf<K>>) => { act: IllegalAct; tiles?: Pos[]; before?: boolean } | undefined;
     /** Does it (after the check and the spend). */
     run(ctx: Ctx, member: CrewState, cmd: CommandOf<K>): void;
     /**
@@ -77,8 +77,11 @@ export function registerAction<K extends CommandType>(type: K, def: ActionDef<K>
         const illegal = def.illegal?.(ctx.world, ctx.state, cmd as DeepReadonly<CommandOf<K>>);
         const cost = def.cost(ctx.world, ctx.state, cmd as DeepReadonly<CommandOf<K>>);
         spendActions(member, cost);
+        // An act that changes what anyone sees (`before`: the power cut) is judged on the world it began in.
+        const seenBefore = illegal?.before ? witnessOn(ctx.world, ctx.state, member.id, illegal.act, illegal.tiles ?? [member.pos]) : undefined;
         def.run(ctx, member, cmd);
-        if (illegal) witnessActOn(ctx, member.id, illegal.act, illegal.tiles ?? [member.pos]);
+        if (seenBefore) applySightings(ctx, seenBefore);
+        else if (illegal) witnessActOn(ctx, member.id, illegal.act, illegal.tiles ?? [member.pos]);
         // Anyone its noise sent to look turns now, after the act was witnessed, and sees.
         const turned = turnLookers(ctx);
         // An action that spent nothing (waiting with none left) ends nothing in view.

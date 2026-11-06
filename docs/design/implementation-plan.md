@@ -1358,26 +1358,29 @@ M2 is complete: every package below has landed.
 - [x] **M4-03 Power grid and darkness.** (partial: see Deferred)
   - **Covers:** §8.13, §14.6.
   - **Work:** the breaker and generator; Lit; maglocks; the console going dark; a dim-lighting variant for the art (decision Q10).
-  - **Notes (done):** decisions 240–246. `src/sim/core/power.ts` (`State.power`, `powerOn`, `litNow`, `darkensAt`,
+  - **Notes (done):** decisions 240–247. `src/sim/core/power.ts` (`State.power`, `powerOn`, `litNow`, `darkensAt`,
     `failSafeDoors`, `lockReleased`, `rules.generatorPhases`) and `src/sim/rules/power.ts` (the `breakerPanel`'s `cut`
     and `reset`, the `generator`'s `disable`, the `power.generator` crew-phase hook, the `power` evidence source;
-    events `breakerCut`, `breakerReset`, `generatorDisabled`, `generatorStarted`, `powerOut { generatorAt }`,
+    events `breakerCut`, `breakerReset`, `generatorDisabled`, `generatorStarted`, `powerOut`,
     `powerBack`). Read by geo/los.ts (the sight map's `lit`), geo/cones.ts (`cameraObserver`), geo/move.ts
     (`doorStatus`), rules/keys.ts (`vaultShut`), rules/cameras.ts (panning), rules/knowledge.ts (unknown watchers, the
     cameras' status), rules/routine.ts (`seesTile`), rules/evidence.ts (`Evidence.everywhere`) and door.ts (locking, the
     looped reader). `World.building` moved into core/types.ts; fixtures take `building`.
   - **Game and scene:** the grid's Cut power, Restore power and Disable generator (VERBS), recap lines for every event
-    ("Lights out: the generator starts on turn N"); `PowerCut` (scenes/bank/power.ts) draws the dark, synced from the
+    ("Lights out"); `PowerCut` (scenes/bank/power.ts) draws the dark, synced from the
     state and the `powerOut`/`powerBack` events; `debugState.powerOut` and `timings['power cut']`.
   - **Setups and tests:** `npm run shot` preset `power-out`; `tests/sim/power.test.ts` (the cut, three dark world phases
-    and the generator, reset, disabling before and while it runs, no generator, the illegal act seen, sight halved,
-    combat sight halved, cameras off and still, maglocks fail safe and secure, the dark console, lights out noticed by
+    and the generator, reset, disabling before and while it runs, no generator, the illegal act seen beyond half range
+    in the light it was done in, a cut restored in the same crew phase still noticed, sight halved,
+    combat sight halved (in a cut and in an unlit room), cameras off and still, maglocks fail safe (the crew's move and
+    an NPC without a card through it) and secure, the dark console, lights out noticed by
     staff and guards in the building and not by civilians or anyone outside, a guard sent to the breaker, the save and
     its check, the grid and recap; previews equal commits); `e2e/power.spec.ts` (`screenshots/power-on.png`,
     `power-out.png`: cut from the grid, drawn in under 500 ms, people relit darker, restored). Save shape hash
-    `f5d8006409c38678` (with M4-01's and M4-02's review fields); the `power` state check refuses saves from before. No visual baseline changed.
+    `c8e8c40712338aa8` (with M4-01's and M4-02's review fields and M4-06's); the `power` state check refuses saves from before.
+    No visual baseline changed.
   - **Deferred:** a guard resetting the breaker when he reaches it (he only looks for now) and staff reading a cut as
-    more than minor; a HUD chip for the power and the generator's countdown (the recap line names the turn); the grid
+    more than minor; a HUD chip for the power (and the generator's countdown, once the crew can know of the generator); the grid
     offers the first object in reach, so beside both panels the breaker needs tapping; the manager's PC, card readers
     on Secure doors and the phones needing power; cutting the phone line (§9.1); SWAT's wedges (`wedgeReach`) and
     police aim not halved in the dark (their sight is); raised floors, debris, gaps' rubble and the walls' doorways
@@ -2504,7 +2507,8 @@ Later milestones: within each milestone, the `∥` notes in §3 apply. UI packag
     it): powered while the mains breaker is on or the generator runs. `interact … cut` at the `breakerPanel` (1 action,
     the illegal act 'hack', no noise) cuts the mains; the generator starts by itself as the crew phase
     `cutAt + rules.generatorPhases` (3) begins (`power.generator`, a crew-phase hook), so the dark lasts three world
-    phases and the crew phases between; `powerOut.generatorAt` names that turn. `interact … disable` at the `generator`
+    phases and the crew phases between. The recap says only "Lights out": when (or whether) a generator starts isn't
+    told, since the crew may not know of one. `interact … disable` at the `generator`
     (1 action, 'hack') disables it for good: the next cut lasts, a running one stops. `interact … reset` (1 action, not
     illegal) turns the mains back on and stands the generator by. A bank without a generator has no backup. Nothing
     rolls a die.
@@ -2522,10 +2526,13 @@ Later milestones: within each milestone, the `∥` notes in §3 apply. UI packag
     (a cut is plain to see). They aren't `cameraDown` evidence: lights out is the evidence.
 244. **The console goes dark (M4-03, §15.2).** `vaultShut` refuses with the power out ("The console is dark"), so no
     code (the crew's or a coerced key-holder's) and no Three Keys card; the sensors' wiring can still be cut.
-245. **Lights out (M4-03, §8.13).** Minor evidence bank-wide: `lightsOut:<outSince>` at the breaker, with
+245. **Lights out (M4-03, §8.13).** Minor evidence bank-wide: `lightsOut:<lastOut>` at the breaker, with
     `Evidence.everywhere`, is noticed by every staff member and guard in the building in the next world phase, seen or
     not; the investigator (a guard first, `pickInvestigator`) walks to the breaker, which the intent shows, and the
-    others look its way. Each outage is its own; the power back, it is forgotten.
+    others look its way. Each outage is its own. `PowerState.lastOut` records the turn the lights went out as they do,
+    and is kept: the evidence lasts while the power is out and through the world phase of the turn it went out, so a
+    cut restored in the same crew phase is noticed all the same (its free phase of dark cameras and open maglocks costs
+    the evidence); once the power is back after that, it is forgotten.
 246. **The dark drawn (M4-03, decision Q10).** Not a rebake (floor, walls, props and people take about 0.6 s at load):
     `PowerCut` (scenes/bank/power.ts) works out what the powered lamps (`bankLamps`' `electric`: ceiling lamps and the
     props' lights, not the exit signs on their battery) gave with the bake's own formula for a floor facing up, and
@@ -2533,6 +2540,13 @@ Later milestones: within each milestone, the `∥` notes in §3 apply. UI packag
     segment for where it stands, people relit without the lamps (`Baker.off`), powered glows put out; all under a cool
     emergency cast. Made the first time the power goes out (`debugState.timings['power cut']`, about 70 ms on the dev
     server here) and kept; with the power on nothing is drawn differently.
+247. **Seen before the dark, and for good (M4-03 review).** Cutting the power (and disabling the generator) is
+    witnessed on the world it began in (`InteractionVerb.witnessBefore`, the action's `illegal.before`: judged before
+    `run`, applied after), so a teller or camera beyond half range of the breaker still sees it. Cutting, restoring and
+    disabling, and the power going out or coming back, block undo: they change the whole bank. Combat sight
+    (`seesTile`) is halved onto every unlit tile, a room without lamps as much as a power cut (§8.3 "Darkness (power
+    cut, unlit rooms) halves all vision ranges", §14.6 "police included"), so M3's police and fighters see half as far
+    into a dark room; tested in `tests/sim/power.test.ts`.
 
 260. **The noisemaker sounds as it lands (M4-06, §8.13, §12.2).** Thrown (1 action, hands free, up to 6 tiles
     Euclidean to a tile the thrower sees, as a grenade) it makes its quiet noise of 3 at once, in the crew phase: no
