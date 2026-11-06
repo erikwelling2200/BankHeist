@@ -180,7 +180,7 @@ describe('off-map routes (§14.7)', () => {
         expect(tackleTarget(w2, s2, s2.npcs[0]!)).toBeUndefined();
     });
 
-    it('come out in the room of the far end, never through a wall or a door, and wait while someone stands there (review)', () => {
+    it('come out in the room of the far end, never through a wall or a door, past anyone standing at the end (review)', () => {
         const rooms = OPEN.map(() => 'aaaaaaaaaaaaabbb');
         const walls = [0, 1, 2, 3, 4].map(y => ({ between: [P(12, y), P(13, y)] as [Pos, Pos], material: 'reinforced' as const }));
         const { world, state } = setup({ rooms, walls });
@@ -193,13 +193,25 @@ describe('off-map routes (§14.7)', () => {
         for (let y = 0; y < 5; y++) for (let x = 13; x < 16; x++) full.crew.push({ ...clonePlain(full.crew[1]!), id: `x${x}${y}`, pos: P(x, y) });
         expect(routeExit(world, full, 'jun', ROOF.inside)).toBeNull();
 
+        // Someone standing on the hatch moves them on to the next tile; a body lying there doesn't.
         const person: PersonDef = { id: 'ann', name: 'ann', role: 'customer', observer: 'civilian', pos: P(14, 2), facing: 's', schedule: [{ from: 1, activity: 'wait', label: 'waiting', room: '', at: P(14, 2), facing: 's' }] };
         const held = setup({ rooms, walls, people: [person] });
         s = commit(held.world, held.state, enter()).state;
         s = commit(held.world, s, endTurn).state;
+        const lying = clonePlain(s);
         const r = commit(held.world, s, endTurn);
-        expect(of(r.events, 'routeHeld')).toEqual([{ type: 'routeHeld', crew: 'jun', route: 'roof' }]);
-        expect(jun(r.state).transit).toMatchObject({ left: 0 });
+        const out = of(r.events, 'routeLeft')[0]!.at;
+        expect(out).not.toEqual(P(14, 2));
+        expect(out.x).toBeGreaterThanOrEqual(13);
+        lying.npcs[0]!.status = 'unconscious';
+        expect(of(commit(held.world, lying, endTurn).events, 'routeLeft')[0]!.at).toEqual(P(14, 2));
+        // Turned back by the helicopter onto a tile someone stands on: moved on as well, never held.
+        const back = setup({ rooms, walls, people: [{ ...person, pos: P(1, 2), schedule: [{ ...person.schedule[0]!, at: P(1, 2) }] }] });
+        const gone = commit(back.world, back.state, enter()).state;
+        gone.police.vehicles.push({ id: 'h', kind: 'helicopter', label: 'Helicopter', staging: null, pos: P(8, 2), arrived: 0, status: 'parked', hp: 10 });
+        const t = commit(back.world, gone, endTurn);
+        expect(of(t.events, 'routeTurnedBack')[0]!.at).not.toEqual(P(1, 2));
+        expect(of(t.events, 'routeHeld')).toEqual([]);
     });
 
     it('settle a dye pack on the way out of the building, by either kind of leaving (review)', () => {

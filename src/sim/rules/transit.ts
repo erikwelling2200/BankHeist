@@ -4,7 +4,7 @@ import { crewMember, registerActorCheck, registerCrewInit } from '../core/state'
 import type { AccessRoute, Transit } from '../core/transit';
 import type { CrewState, DeepReadonly, Pos, ReadonlyWorld, State } from '../core/types';
 import { FACING_STEP, inBounds, tileAt } from '../core/grid';
-import { doorBetween, stepCost } from '../geo/move';
+import { doorBetween, LYING_STATUSES, stepCost } from '../geo/move';
 import { offMap } from '../core/transit';
 import { registerEvents } from '../core/undo';
 import { inReach, lacksActions, registerAction } from './actions/act';
@@ -28,11 +28,11 @@ import { dropTargets } from './wounds';
  * - **The transit track**: each world phase's devices step takes one off what is left (`Transit.left`, the route's
  *   `transit`: the roof and the duct 2, the sewer 3), after the police have come (so a helicopter that arrives now is
  *   already over the roof); at 0 they come out at the far end (`routeExit`): its access point, else the nearest tile
- *   of the same room reachable from it without a door, with nothing standing on it and no crew member there. The tile is
- *   chosen on what the crew knows for sure (the room, the furniture, the crew); if someone else stands on it when they
- *   come out, they wait in transit a phase longer (`routeHeld`). Whether and where they come out is a preview secret
- *   (the world phase can't be shown on the truth), and coming out is an action ending there: whoever sees the tile sees
- *   them (`perceiveEnd`). Out by the start of the next crew phase, the turns in transit are the route's. Coming out of
+ *   of the same room reachable from it without a door, with nothing standing on it and no crew member there. Someone
+ *   standing on that tile (not a body lying there) only moves them on to the next one, which they then see from where
+ *   they come out; with the whole room taken they wait in transit a phase (`routeHeld`). Whether and where they come
+ *   out is a preview secret (the world phase can't be shown on the truth), and coming out is an action ending there:
+ *   whoever sees the tile sees them (`perceiveEnd`). Out by the start of the next crew phase, the turns in transit are the route's. Coming out of
  *   the building that way with cash settles its dye pack as a step out does (`cashLeaves`, §15.1).
  * - **No coming straight back** (decision 300): in the crew phase right after coming out (`CrewState.cameOut`) a crew
  *   member can't go into a route again, so nobody stays off the map through every world phase.
@@ -58,7 +58,7 @@ declare module '../core/types' {
         routeLeft: { crew: string; route: string; at: Pos; inward: boolean };
         /** A crew member leaving by a route is off the plot: escaped (§15.4). */
         routeEscaped: { crew: string; route: string };
-        /** A crew member due out found someone standing where they come out: still in transit, out next phase. */
+        /** A crew member due out found every tile of the room they come out into taken: still in transit, out next phase. */
         routeHeld: { crew: string; route: string };
         /** The helicopter forced a crew member on the roof back to where they went in (§14.7). */
         routeTurnedBack: { crew: string; route: string; at: Pos };
@@ -143,13 +143,16 @@ registerAction('enterRoute', {
  * other crew member on the map there; by rings of steps, in the order of the steps. Pure, and on what the crew knows:
  * NPCs and officers aren't asked. Null when there is none.
  */
-export function routeExit(world: ReadonlyWorld, state: DeepReadonly<State>, crewId: string, end: DeepReadonly<Pos>): Pos | null {
+export function routeExit(
+    world: ReadonlyWorld, state: DeepReadonly<State>, crewId: string, end: DeepReadonly<Pos>, taken: (p: DeepReadonly<Pos>) => boolean = () => false
+): Pos | null {
     const room = tileAt(world, end)?.room ?? null;
     const crewAt = new Set(state.crew.filter(c => c.id !== crewId && !offMap(c)).map(c => c.pos.y * world.width + c.pos.x));
-    const free = (p: Pos): boolean => {
+    const floor = (p: Pos): boolean => {
         const t = tileAt(world, p);
         return !!t && !t.blocksMove && !t.tall && !crewAt.has(p.y * world.width + p.x);
     };
+    const free = (p: Pos): boolean => floor(p) && !taken(p);
     const start = { x: end.x, y: end.y };
     if (free(start)) return start;
     const seen = new Set<number>([start.y * world.width + start.x]), queue: Pos[] = [start];
@@ -162,7 +165,7 @@ export function routeExit(world: ReadonlyWorld, state: DeepReadonly<State>, crew
             // From a blocked end tile (a ladder, a grate under a desk) out onto the floor; otherwise as people step.
             const orthogonal = d.x === 0 || d.y === 0;
             if (orthogonal && doorBetween(world, at, next)) continue;
-            if (!(i === 0 && !free(start) && orthogonal) && stepCost(world, state as State, at, next) === undefined) continue;
+            if (!(i === 0 && !floor(start) && orthogonal) && stepCost(world, state as State, at, next) === undefined) continue;
             seen.add(k);
             if (free(next)) return next;
             queue.push(next);
@@ -171,19 +174,20 @@ export function routeExit(world: ReadonlyWorld, state: DeepReadonly<State>, crew
     return null;
 }
 
-/** Whether a person not of the crew stands on `p` now (an NPC present, an officer out). */
+/** Whether a person not of the crew stands on `p` now (an NPC up and present, an officer out); a body lying there doesn't. */
 function someoneOn(state: DeepReadonly<State>, p: DeepReadonly<Pos>): boolean {
-    return state.npcs.some(n => n.status !== 'away' && n.stashed === null && n.pos.x === p.x && n.pos.y === p.y)
+    return state.npcs.some(n => n.status !== 'away' && n.stashed === null && !LYING_STATUSES.has(n.status) && n.pos.x === p.x && n.pos.y === p.y)
         || state.police.units.some(u => !!u.pos && u.pos.x === p.x && u.pos.y === p.y);
 }
 
 /**
- * Puts a crew member in transit back on the map at `end` (`routeExit`), seen as an action ending there: where, or null
- * when they can't come out this phase (no tile, or someone standing on it).
+ * Puts a crew member in transit back on the map at `end`, seen as an action ending there: the tile `routeExit` picks,
+ * passing over any with someone standing on it (a body lying there is no bar), so whoever stands at a hatch only moves
+ * them along, as they would see on coming out. Null only when the room has no such tile left.
  */
 function comeOut(ctx: Ctx, member: CrewState, end: DeepReadonly<Pos>): Pos | null {
-    const { world, state } = ctx, at = routeExit(world, state, member.id, end);
-    if (!at || someoneOn(state, at)) return null;
+    const { world, state } = ctx, at = routeExit(world, state, member.id, end, p => someoneOn(state, p));
+    if (!at) return null;
     const was = member.transit!.from;
     member.pos = { x: at.x, y: at.y };
     member.transit = null;

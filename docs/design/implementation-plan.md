@@ -1482,8 +1482,9 @@ M2 is complete: every package below has landed.
     roadblock, police parking, tackles, the panic and patrol-car eyes, the CCTV desk, doors swinging shut, NPC walks,
     knockouts, leans, loud noises heard, steady hands at the drill); no route again in the crew phase right after
     coming out (`CrewState.cameOut`); coming out (`routeExit`) is onto the end or the nearest tile of its room reachable
-    without a door, chosen on the crew and the furniture alone, waits a phase while someone stands there
-    (`routeHeld`), is seen as an action ending there, and is a preview secret; the heist's end is one rule after every
+    without a door, passing over a tile someone stands on (a body lying there is no bar; re-review: never held by a
+    person, so nobody hidden keeps them off the map nor betrays themselves by it; held a phase only with the whole room
+    taken, `routeHeld`), is seen as an action ending there, and is a preview secret; the heist's end (now also in §15.4 and decision 177) is one rule after every
     command (rules/getaway.ts `heistOver`): nobody but the dead left, or after a drive off nobody up behind, or those
     behind with no crew vehicle and no route off the plot (they are arrested), never while someone is on a route out;
     the outcome's `vehicle` is the last that drove off. A sewer route the crew can reach is a §17.7 rule never relaxed
@@ -2474,8 +2475,10 @@ Later milestones: within each milestone, the `∥` notes in §3 apply. UI packag
     $150k for a city branch (§3), $200k for a headquarters.
 176. **Greed counts the getaway (M3-08, §13.3).** A bag is secured once it has been in a crew vehicle (in the hold, or
     carried by someone aboard), not when it leaves the building: "secured" is what the crew has got away with so far.
-177. **The end (M3-08, §15.4, §15.5).** The crew's one vehicle leaving ends the heist: those aboard escape with what they
-    carry and the hold; everyone else alive is arrested, the dead stay dead. Every crew member dead or in custody after
+177. **The end (M3-08, §15.4, §15.5; widened by decisions 284 and 303).** A crew vehicle leaving takes those aboard away
+    with what they carry and the hold. The heist then ends (rules/getaway.ts `heistOver`) when nobody up is left
+    behind, or those left behind have no way out: no crew vehicle that can drive and no route off the plot on foot
+    (decision 303); they are arrested, the dead stay dead. Never while someone is on a route out. Every crew member dead or in custody after
     any command is a Failure; a crew all down is played on until each is arrested or has bled out (§15.5 counts them
     out already, but the debrief then tells which, and nobody up can change it). Success needs the target in value (not ruined) and someone away; below it, Partial.
     The payout is the value that left until shares and style (M6). Once over, no command is given, End Turn included.
@@ -2771,7 +2774,7 @@ Later milestones: within each milestone, the `∥` notes in §3 apply. UI packag
     stand in nobody's way, are no body for a bullet or blast and see nothing themselves (`offMap`, the same checks as
     aboard a shut vehicle), nor a teammate anyone can hand anything to; going in and coming out are each seen as an
     action ending on that tile. They come out onto the far end or the nearest tile of its room reachable without a door
-    (chosen on the crew and the furniture, so nothing hidden decides it), a phase later while someone stands there, and
+    (the next such tile past anyone standing there, a body lying there no bar), and
     can't go into a route again in the crew phase they come out into: nobody is off the map through every world phase.
 301. **Light only, no bodies (M4-05, §14.7).** Loot in the hands (Heavy or Very heavy) and a dragged body or a led
     hostage can't go; pocketed Light loot goes with them.

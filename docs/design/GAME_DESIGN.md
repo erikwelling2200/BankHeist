@@ -1528,10 +1528,10 @@ dark, so no codes either.
   decision: a curb spot is close to the door but in police view; the back garage is farther but safer.
 - **Boarding:** adjacent, 1 action. Loot can be thrown in.
 - **Leaving:** the driver drives the vehicle off a plot edge (§14.4). Roadblocks (Heat 5) and police cars in the way
-  must be driven around or rammed aside. **Crew left behind are
-  arrested.**
-- **Other exits** (when the plot has them): a sewer manhole (crowbar, Light loot only), a neighbour's garage with the
-  backup car, or the roof route out (blocked by the helicopter at Heat 4+) (§14.7).
+  must be driven around or rammed aside. Crew left behind play on while they still have a way out (another crew
+  vehicle that can drive, or a route off the plot on foot); **crew left behind with no way out are arrested.**
+- **Other exits:** a sewer manhole (every bank has one; crowbar, Light loot only), a neighbour's garage with the backup
+  car, or the roof route out (blocked by the helicopter at Heat 4+) (§14.7).
 - **Escape is always possible.** Leaving with less loot is a partial success, never a failure screen.
 
 ### 15.5 Outcome
