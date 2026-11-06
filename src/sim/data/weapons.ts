@@ -175,9 +175,10 @@ export const isThrowable = (id: string): id is ThrowableId => Object.hasOwn(THRO
 
 /**
  * The noisemaker (§8.13, §12.2 "Noisemaker ×3"): how many come in a kit item and how far one is thrown (Euclidean, tiles,
- * as the grenades). Its sound is `NOISES.noisemaker` (quiet, 3) at the landing tile, made as it lands (decision 260).
+ * as the grenades). Its sound is `NOISES.noisemaker` (quiet, 3) at the landing tile, made as it lands (decision 260);
+ * whoever sees the throw in a quiet bank gains `pips` suspicion (decision 267).
  */
-export const NOISEMAKER = { item: 'noisemaker', count: 3, range: 6 } as const;
+export const NOISEMAKER = { item: 'noisemaker', count: 3, range: 6, pips: 1 } as const;
 
 /** The ammo bag (§11.11, §12.2): its kit item and the refills it holds (decision 262). */
 export const AMMO_BAG = { item: 'ammoBag', uses: 4 } as const;

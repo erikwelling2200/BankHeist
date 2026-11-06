@@ -6,8 +6,10 @@ import type { CrewState, DeepReadonly, Pos, ReadonlyWorld, State } from '../../c
 import { registerEvents } from '../../core/undo';
 import { AMMO_BAG, NOISEMAKER, SPARE_MAGS, SPARES_OF } from '../../data/weapons';
 import { vehicleAt } from '../../geo/drive';
-import { lineOfSight, sightMap, type SightMap } from '../../geo/los';
+import { lineOfSight, sightMap, throwMap, type SightMap } from '../../geo/los';
+import { npcObserver, seesOn } from '../../geo/cones';
 import { makeNoise } from '../../geo/sound';
+import { addSuspicion, isEyesDown } from '../suspicion';
 import { inReach, lacksActions, registerAction } from './act';
 
 /*
@@ -18,9 +20,10 @@ import { inReach, lacksActions, registerAction } from './act';
  *   (`Arms.throwables.noisemaker`, the last one takes the item off). It sounds **as it lands**: a quiet noise of 3 at
  *   the landing tile (decision 260), heard as any quiet noise is (§8.9, rules/evidence.ts `hearing`): the hearers turn
  *   to it at once and the nearest of the right role is sent to look, its walk telegraphed in this crew phase; it goes
- *   back once it stands beside the spot (decision 261). Clean and no illegal act: anyone who sees the thrower sees a
- *   customer, but those who turn to the noise see what is there. Legal in stealth: nothing lies through a world phase,
- *   so the preview (its ring and ears) is the whole outcome.
+ *   back once it stands beside the spot (decision 261). Not through glass or a shut door (geo/los.ts `throwMap`).
+ *   Clean and no illegal act, but while the bank is quiet everyone who sees the thrower gains `NOISEMAKER.pips` (1)
+ *   suspicion of them (decision 267), and those who turn to the noise see what is there. Legal in stealth: nothing lies
+ *   through a world phase, so the preview (its ring, ears and pips) is the whole outcome.
  * - **The ammo bag** (§11.11, §12.2): `dropAmmoBag { crew }` puts it down on the crew member's tile (1 action, hands
  *   free, once the bank is Loud, decision 262; `State.ammoBags`), and `refillAmmo { crew, bag }` (1 action, in reach of
  *   it) tops up the spare magazines of every gun the crew member carries to what they started with, one of its
@@ -100,7 +103,9 @@ export function noisemakerBlocked(world: ReadonlyWorld, state: State, cmd: Noise
     const dx = cmd.to.x - member.pos.x, dy = cmd.to.y - member.pos.y, range = NOISEMAKER.range;
     if (!inBounds(world, cmd.to) || (!dx && !dy) || dx * dx + dy * dy > range * range) return 'A noisemaker can\'t be thrown there';
     if (tileAt(world, cmd.to)!.tall) return 'Something stands there to the ceiling';
-    return lineOfSight(sight, member.pos, cmd.to) ? undefined : `${member.name} can't see where it would land`;
+    if (!lineOfSight(sight, member.pos, cmd.to)) return `${member.name} can't see where it would land`;
+    // Through no glass or shut door, though they see through it (los.ts `throwMap`).
+    return lineOfSight(throwMap(world, state), member.pos, cmd.to) ? undefined : 'Glass or a door is in the way';
 }
 
 /** The tiles a crew member could throw a noisemaker to now, row by row (on `state`: the UI passes its doubted doors shut). */
@@ -124,8 +129,18 @@ registerAction('throwNoisemaker', {
         const left = noisemakersLeft(member) - 1, at = { x: cmd.to.x, y: cmd.to.y };
         if (left > 0) member.arms.throwables[NOISEMAKER.item] = left;
         else {
+            // Every kit item of them goes with the last one (two kits are six throws, one count).
             delete member.arms.throwables[NOISEMAKER.item];
-            dropItem(member, NOISEMAKER.item);
+            member.loadout.items = member.loadout.items.filter(id => id !== NOISEMAKER.item);
+            member.loadout.packed = member.loadout.packed.filter(id => id !== NOISEMAKER.item);
+        }
+        // Seen throwing something in a quiet bank: a little odd (decision 267), judged before anyone turns to the noise.
+        if (!ctx.state.bank.loud && !ctx.state.bank.alarm) {
+            const sight = sightMap(ctx.world, ctx.state);
+            for (const npc of ctx.state.npcs) {
+                const observer = isEyesDown(npc) ? null : npcObserver(ctx.world, npc);
+                if (observer && seesOn(sight, observer, member.pos)) addSuspicion(ctx, npc, member.id, NOISEMAKER.pips, ['noisemaker'], member.pos);
+            }
         }
         ctx.emit({ type: 'noisemakerLanded', crew: member.id, at, left });
         makeNoise(ctx, 'noisemaker', at, `noisemaker ${member.id}`);

@@ -139,8 +139,8 @@ const QUIET: readonly Partial<CrewStart>[] = [{}, {}, { uniform: 'staff' }];
 function crewFor(rng: Rng, n: number, pick: () => Pos, stealth = false): CrewStart[] {
     return Array.from({ length: n }, (_, i) => {
         const loadout = rng.pick(stealth ? QUIET : LOADOUTS), gadget = rng.chance(0.5) ? ['hackingKit'] : rng.chance(0.15) ? ['jammer'] : [];
-        // The noisemaker (M4-06): the third crew member's in the sample, drawing on no die.
-        if (!stealth && i === 2) gadget.push('noisemaker');
+        // The noisemaker (M4-06): the third crew member's, in the sample and the quiet long games, drawing on no die.
+        if (i === 2) gadget.push('noisemaker');
         return { id: `c${i}`, pos: pick(), ...loadout, items: [...(loadout.items ?? []), ...gadget], ...(rng.chance(0.2) ? { traits: [rng.pick(['steadyHands', 'smoothTalker'])] } : {}) };
     });
 }

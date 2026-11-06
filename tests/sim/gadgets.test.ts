@@ -95,6 +95,40 @@ describe('the noisemaker (§8.13)', () => {
         expect(legalActions(world, state, 'jun')).toContainEqual(throwTo(P(2, 7)));
     });
 
+    it('goes over a railing but never through intact glass or a shut door, though the thrower sees through them; nor does a grenade', () => {
+        const wall = (material: 'glass' | 'rail') => [0, 1, 2, 3, 4, 5, 6, 7].map(y => ({ between: [P(3, y), P(4, y)] as [Pos, Pos], material }));
+        const glass = setup([], [{ id: 'jun', pos: P(1, 2), items: ['noisemaker', 'flashbang'] }], { walls: wall('glass') });
+        expect(whyNot(glass.world, glass.state, throwTo(P(2, 2)))).toBeUndefined();
+        expect(whyNot(glass.world, glass.state, throwTo(P(5, 2)))).toMatch(/Glass or a door is in the way/);
+        expect(legalActions(glass.world, glass.state, 'jun').some(c => c.type === 'throwNoisemaker' && c.to.x > 3)).toBe(false);
+        const loud = clonePlain(glass.state);
+        loud.bank.loud = true;
+        expect(whyNot(glass.world, loud, { type: 'throwGrenade', crew: 'jun', item: 'flashbang', to: P(5, 2) })).toMatch(/Glass or a door is in the way/);
+        expect(whyNot(glass.world, loud, { type: 'throwGrenade', crew: 'jun', item: 'flashbang', to: P(2, 3) })).toBeUndefined();
+        const rail = setup([], [{ id: 'jun', pos: P(1, 2), items: ['noisemaker'] }], { walls: wall('rail') });
+        expect(whyNot(rail.world, rail.state, throwTo(P(5, 2)))).toBeUndefined();
+    });
+
+    it('seen thrown in a quiet bank, it costs a pip with whoever saw it', () => {
+        const { world, state } = setup([person('clerk', 'clerk', 'staff', P(6, 2), 'w')], [{ id: 'jun', pos: P(2, 2), items: ['noisemaker'] }]);
+        const done = act(world, state, throwTo(P(2, 7)));
+        expect(of(done.events, 'suspicionRaised')).toEqual([expect.objectContaining({ npc: 'clerk', crew: 'jun', added: 1, why: ['noisemaker'] })]);
+        const loud = clonePlain(state);
+        loud.bank.loud = true;
+        expect(of(step(world, loud, throwTo(P(2, 7))).events, 'suspicionRaised').filter(e => e.why.includes('noisemaker'))).toEqual([]);
+    });
+
+    it('two kits are six throws, and the sixth takes both items off', () => {
+        const { world, state } = setup([], [{ id: 'jun', pos: P(0, 2), items: ['noisemaker', 'noisemaker'] }]);
+        expect(state.crew[0]!.arms.throwables.noisemaker).toBe(6);
+        let s = state;
+        for (let i = 0; i < 6; i++) {
+            s = step(world, s, throwTo(P(3, 2))).state;
+            if (s.crew[0]!.actionsLeft === 0) s = step(world, s, endTurn).state;
+        }
+        expect(s.crew[0]!.loadout.items).toEqual([]);
+    });
+
     it('the last one takes the item off', () => {
         const { world, state } = setup([], [{ id: 'jun', pos: P(0, 2), items: ['noisemaker', 'pistol'] }]);
         let s = state;

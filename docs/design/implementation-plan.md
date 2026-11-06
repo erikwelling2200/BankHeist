@@ -1438,12 +1438,15 @@ M2 is complete: every package below has landed.
 - [x] **M4-06 Distractions and gadgets.** (partial: see Deferred)
   - **Covers:** §8.13, §12.2.
   - **Work:** the noisemaker; ringing a desk phone; the jammer; the ammo bag; the reinforcement kit.
-  - **Notes (done):** decisions 260–266. `src/sim/rules/actions/gadgets.ts`:
+  - **Notes (done):** decisions 260–267. `src/sim/rules/actions/gadgets.ts`:
     - `throwNoisemaker { crew, to }`: 1 action, hands free, up to `NOISEMAKER.range` 6 (Euclidean) to a tile the thrower
       sees that isn't full height, in stealth too; `NOISEMAKER.count` 3 per kit item in `Arms.throwables.noisemaker`
       (rules/arms.ts), the last taking the item off. It sounds as it lands (`noisemakerLanded`, then the quiet
       `noisemaker` noise of 3 at the landing tile): the hearers react as to any quiet noise (rules/evidence.ts), so the
       preview's ring and ears are the outcome. `noisemakerTargets` / `noisemakerBlocked`; every target is a candidate.
+      Throws (the noisemaker and the crew's grenades) fly through `throwMap` (geo/los.ts): sight's map with every edge
+      that stops a body but a railing or fence, so never through intact glass or a shut door. Seen thrown in a quiet
+      bank it costs 1 pip with each NPC who sees the thrower (decision 267); the last one takes every kit item off.
     - The ammo bag: `dropAmmoBag { crew }` (1 action, hands free, Loud only, on their tile; `State.ammoBags`,
       `rules.ammoBagUses` 4) and `refillAmmo { crew, bag }` (1 action, in reach: every gun's spares back to its start,
       `refillMagazines`; the last use leaves nothing). The `gadgets` state check refuses saves without `ammoBags`.
@@ -1457,7 +1460,7 @@ M2 is complete: every package below has landed.
     an ammo bag with a pip per refill left, in stealth too (`gadgetMarkers`, loudDraw.ts `drawGadget`;
     `debugState.play.loud.gadgets`); barks and recap lines.
   - **Setups and tests:** `npm run shot` presets `noisemaker`, `gadgets`; `tests/sim/gadgets.test.ts` (the lure: ring,
-    ears, the guard sent and walking at once, back once beside the spot; refusals; the last noisemaker; the grid and
+    ears, the guard sent and walking at once, back once beside the spot; refusals; glass and a railing, for grenades too; the pip when seen; two kits; the last noisemaker; the grid and
     `legalActions`; the ammo bag Loud only, refills, reach, the last use, the save; reinforcement kits coming off; the
     suppressed SMG's quiet shot); `e2e/gadgets.spec.ts` (`screenshots/noisemaker.png`, `gadgets.png`). Save shape hash
     `7af157e58b930bf7` (with M4-03's fields). No visual baseline changed (nothing new shows at the start).
@@ -1465,7 +1468,7 @@ M2 is complete: every package below has landed.
     hacking kit's remote ring and the owner's walk to answer); a phone-alarm noisemaker set to go off later (a fuse in
     stealth would change a world phase the safe floor doesn't judge, decision 101); picking the jammer or an ammo bag
     up again; the ammo bag in the van or a stash drop (§18.2); the suppressor as an attachment fitted or taken off in
-    play (it is its own item); the NPCs reading a noisemaker seen thrown as suspicious; the jammer's and the ammo bag's
+    play (it is its own item); the police's own grenade throws through `throwMap` (rules/swat.ts); the jammer's and the ammo bag's
     own prop art (they are world-UI markers); every gadget bought in planning (M4-07).
 - [ ] **M4-07 Planning screen.**
   - **Covers:** §18.
@@ -2615,6 +2618,11 @@ Later milestones: within each milestone, the `∥` notes in §3 apply. UI packag
 266. **No desk phones yet (M4-06, §8.13).** Ringing a desk phone needs the phones and their owners, props the
     generator doesn't place (M5-04); without them there is no desk to ring, so it waits for them rather than guessing
     owners from the schedule.
+267. **A throw seen is a little odd (M4-06 review, §8.5).** Throwing a noisemaker isn't one of §8.4's illegal acts (a
+    coin is Clean, and `!` would make every lure a giveaway), but while the bank is quiet each NPC who sees the thrower
+    gains 1 pip of them (`NOISEMAKER.pips`), as fortifying costs `FLIP_PIPS`, judged before anyone turns to the noise;
+    cameras register only `!`, so none. Throws stop at what stops a body (`throwMap`): glass, a shut door; a railing or
+    a fence doesn't.
 280. **Vehicle hit points (M4-04, §14.4).** Every vehicle with a body has the hit points and armour of §14.4's table
     (`VEHICLES`, `POLICE_VEHICLES`). Each bullet that stops on a crew vehicle (full cover) and each blast whose tiles
     reach its footprint deals its damage less the armour; a ram deals a flat 10 to the vehicle rammed and to the rammer.

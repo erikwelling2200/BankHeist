@@ -6,7 +6,7 @@ import type { ClimbSide, CrewState, DeepReadonly, Pos, ReadonlyWorld, State } fr
 import { registerEvents } from '../../core/undo';
 import { FLIP_PIPS, isThrowable, SMOKE_PHASES, THROWABLES, type ThrowableId } from '../../data/weapons';
 import { npcObserver, seesOn } from '../../geo/cones';
-import { lineOfSight, sightMap, type SightMap } from '../../geo/los';
+import { lineOfSight, sightMap, throwMap, type SightMap } from '../../geo/los';
 import { ABSENT_STATUSES } from '../../geo/move';
 import { tileKey } from '../../geo/shot';
 import { makeNoise } from '../../geo/sound';
@@ -103,7 +103,9 @@ export function throwBlocked(world: ReadonlyWorld, state: State, cmd: ThrowCmd, 
     const dx = cmd.to.x - member.pos.x, dy = cmd.to.y - member.pos.y, range = THROWABLES[cmd.item].range;
     if (!inBounds(world, cmd.to) || (!dx && !dy) || dx * dx + dy * dy > range * range) return `A ${cmd.item} can't be thrown there`;
     if (tileAt(world, cmd.to)!.tall) return 'Something stands there to the ceiling';
-    return lineOfSight(sight, member.pos, cmd.to) ? undefined : `${member.name} can't see where it would land`;
+    if (!lineOfSight(sight, member.pos, cmd.to)) return `${member.name} can't see where it would land`;
+    // Through no glass or shut door, though they see through it (los.ts `throwMap`).
+    return lineOfSight(throwMap(world, state), member.pos, cmd.to) ? undefined : 'Glass or a door is in the way';
 }
 
 /** The tiles a crew member could throw a grenade of `item` to now, row by row. */

@@ -122,7 +122,7 @@ export * from './data/movement';
 export * from './data/noise';
 export { darkensAt, failSafeDoors, litNow, lockReleased, powerOn, type PowerState } from './core/power';
 export { generatorAt, generatorOf } from './rules/power';
-export { BLOCKS, buildSightMap, CLEAR, hasLineOfSight, lineOfSight, MID, sightInputs, sightMap, type SightMap } from './geo/los';
+export { BLOCKS, buildSightMap, CLEAR, hasLineOfSight, lineOfSight, MID, sightInputs, sightMap, throwMap, type SightMap } from './geo/los';
 export {
     ARC_TAN, bandAt, bandOf, BLIND_STATUSES, cameraObserver, crewObserver, fieldOn,
     inArc, npcObserver, profilesOf, rangeOn, sees, seenTiles, seesOn, visionProfiles,

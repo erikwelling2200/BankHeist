@@ -212,6 +212,32 @@ export function lineOfSight(m: SightMap, a: Pos, b: Pos): boolean {
     return true;
 }
 
+/**
+ * The map a thrown thing flies through (§11.10, §8.13; M4-06 review): sight's, with every edge that stops a body as
+ * well, so a grenade or a noisemaker goes over a railing or a fence but never through intact glass (a window, a glass
+ * door or partition, the teller glass) or a shut door, though the thrower sees through it. Cached with the sight map
+ * it is built on.
+ */
+const THROW_MAPS = new WeakMap<SightMap, SightMap>();
+
+export function throwMap(world: ReadonlyWorld, state: State): SightMap {
+    const sight = sightMap(world, state), hit = THROW_MAPS.get(sight);
+    if (hit) return hit;
+    const { width, height } = sight;
+    const northSouth = sight.northSouth.slice(), eastWest = sight.eastWest.slice();
+    for (const key of sortedIds(world.edges)) {
+        const e = world.edges[key]!, now = edgeNow(world, state, key);
+        // Over the low things a body can't pass but a throw clears.
+        if (!now?.blocksMove || now.material === 'rail' || now.material === 'fence') continue;
+        if (e.run === 'northSouth') {
+            if (e.tx >= 0 && e.tx <= width && e.ty >= 0 && e.ty < height) northSouth[e.ty * (width + 1) + e.tx] = BLOCKS;
+        } else if (e.tx >= 0 && e.tx < width && e.ty >= 0 && e.ty <= height) eastWest[e.ty * width + e.tx] = BLOCKS;
+    }
+    const map = { ...sight, northSouth, eastWest };
+    THROW_MAPS.set(sight, map);
+    return map;
+}
+
 /** Line of sight in a world and state, for a one-off question; for many, take `sightMap` once and use `lineOfSight`. */
 export function hasLineOfSight(world: ReadonlyWorld, state: State, a: Pos, b: Pos): boolean {
     if (!inBounds(world, a) || !inBounds(world, b)) return false;
