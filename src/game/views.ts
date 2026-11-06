@@ -1,7 +1,7 @@
 import {
     CARRIERS, commandPreview, doorSides, crewLoot, crewLook, DASH_ACTIONS, hasWeaponInHand, heatOf, holdPreview, isKnownNow, knownCarriers, lootOf, markerKind, mayBeDyed, MODE_LABELS, nextWave,
     fortificationOf, isWindow, policeModeView, POLICE_LABELS, steadyHand, walkingToAlarm, MOVE_ACTIONS, nextDriveBy, type CarrierChanges, type CarrierPreview,
-    type CommandRings, type Command, type FortifyAction, type HoldRing, type OutcomeResult, type ReadonlyWorld, type SimEvent, type State
+    type CommandRings, type Command, type FortifyAction, type HoldRing, type OutcomeResult, type RamTarget, type ReadonlyWorld, type SimEvent, type State
 } from '../sim';
 import {
     CREW_COLOURS, OVERLAY_IDS, type ActionVM, type BankStatus, type CommitKind, type ConfirmVM, type HudIcon, type BankStatusVM, type CrewVM, type HudViewModel, type LootVM, MAX_ACTIONS, type OverlayId,
@@ -354,6 +354,7 @@ function describeCommand(cmd: Command, world?: ReadonlyWorld): { label: string; 
         case 'getOut': return { label: 'Get out', icon: 'car', cost: 1 };
         case 'stow': return { label: 'Load the van', icon: 'bag', cost: 1 };
         case 'drive': return { label: 'Drive', icon: 'car', cost: 1 };
+        case 'ram': return { label: 'Ram', icon: 'car', cost: 1 };
         default: return { label: cmd.type, icon: 'interact', cost: 1 };
     }
 }
@@ -693,9 +694,28 @@ export function describeEvent(world: ReadonlyWorld, state: State, event: SimEven
         case 'driverChanged': return event.driver ? `${name(event.driver)} took the wheel` : 'Nobody is at the wheel';
         case 'driven': return event.off ? `${name(event.crew)} drove off the plot` : `${name(event.crew)} drove the van ${event.cost} tiles`;
         case 'heistEnded': return OUTCOME_TITLES[event.result];
+        case 'rammed': return RAM_TEXT[event.into](name(event.crew));
+        case 'vehicleShoved': return 'A police car was shoved aside';
+        case 'roadblockCleared': return 'The roadblock was knocked aside';
+        case 'roadblockSet': return 'The police set up a roadblock';
+        case 'vehicleDamaged': return event.police ? `A police vehicle took ${event.damage} damage` : `${vehicleName(world, event.vehicle)} took ${event.damage} damage: ${event.hp} HP`;
+        case 'vehicleDisabled': return `${vehicleName(world, event.vehicle)} is disabled`;
+        case 'policeWrecked': return 'A police vehicle is wrecked';
         default: return event.type;
     }
 }
+
+/** A ram, as the log says it, by what it drove into. */
+const RAM_TEXT: Readonly<Record<RamTarget, (who: string) => string>> = {
+    wall: who => `${who} rammed through the wall`,
+    person: who => `${who} rammed someone`,
+    police: who => `${who} rammed the police`,
+    vehicle: who => `${who} rammed a vehicle`,
+    hard: who => `${who} crashed into something solid`
+};
+
+/** A crew vehicle's name for the log ('The crew van'). */
+const vehicleName = (world: ReadonlyWorld, id: string): string => `The ${(world.vehicles?.find(v => v.id === id)?.name ?? 'vehicle').toLowerCase()}`;
 
 /** What a lapsed command rolled (§10.5), as the log says it. */
 const LAPSE_TEXT: Readonly<Record<string, string>> = {

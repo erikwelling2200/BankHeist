@@ -78,7 +78,7 @@ describe('saving', () => {
  * NpcStatusMap, CarrierKindMap or adds a field must also fill it in below, or a change of shape goes unnoticed.
  */
 const SHAPE_HASHES: Record<number, string> = {
-    1: 'c8e8c40712338aa8'
+    1: 'f9d3f243f85683b4'
 };
 
 /** Paths whose objects are records by id, not structs. */
@@ -212,18 +212,19 @@ describe('the save format', () => {
                 watch: { at: { x: 3, y: 1 }, arc: 45, turn: 4, tripped: { crew: 'jun', at: { x: 2, y: 1 } } }, flashbangs: 1, surprised: 4
             }],
             vehicles: [
-                { id: 'van-4', kind: 'van', label: 'SWAT van', staging: 'street-west', pos: { x: 0, y: 2 }, arrived: 4, status: 'arriving' },
-                { id: 'helicopter-7', kind: 'helicopter', label: 'Helicopter', staging: null, pos: { x: 4, y: 1 }, arrived: 5, status: 'parked' }
+                { id: 'van-4', kind: 'van', label: 'SWAT van', staging: 'street-west', pos: { x: 0, y: 2 }, arrived: 4, status: 'arriving', hp: 30 },
+                { id: 'helicopter-7', kind: 'helicopter', label: 'Helicopter', staging: null, pos: { x: 4, y: 1 }, arrived: 5, status: 'parked', hp: 0 }
             ],
             mode: { kind: 'negotiate', left: 2, since: { turn: 4, phase: 'world' }, after: 'contain' }, sent: 2, refills: 0, secured: ['cash'],
             known: { jun: { tile: { x: 1, y: 1 }, turn: 4, down: false }, mara: { tile: null, turn: 5, down: false } }, breaches: [{ door: 'staffDoor', unit: 'police-6', turn: 4 }],
-            teams: { 'van-4': { focus: 'jun', planned: 4, movers: ['police-6'], pulling: false, lost: 4, stack: [{ unit: 'police-6', door: 'staffDoor', turn: 4 }] } }
+            teams: { 'van-4': { focus: 'jun', planned: 4, movers: ['police-6'], pulling: false, lost: 4, stack: [{ unit: 'police-6', door: 'staffDoor', turn: 4 }] } },
+            roadblock: [{ x: 0, y: 3 }]
         };
         full.negotiation = {
             answered: 4, stalled: true, returns: [{ crew: 'jun', npc: 'teller', at: { x: 0, y: 2 } }],
             reports: [{ npc: 'teller', turn: 4, seen: [{ crew: 'jun', tile: { x: 1, y: 1 }, turn: 3 }] }]
         };
-        full.vehicles = { van: { pose: { x: 1, y: 1, heading: 'w' }, driver: 'jun', hold: ['cash'], gone: false } };
+        full.vehicles = { van: { pose: { x: 1, y: 1, heading: 'w' }, driver: 'jun', hold: ['cash'], gone: false, hp: 24 } };
         full.crew[0]!.aboard = 'van';
         full.outcome = {
             result: 'partial', turn: 9, vehicle: 'van', escaped: ['jun'], arrested: ['mara'], dead: [], loot: ['cash'], value: 5000, ruined: 0, target: 75000, heat: 2

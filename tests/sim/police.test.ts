@@ -222,7 +222,7 @@ describe('the force', () => {
         const bag = (id: string, pos: Pos): WorldObject => ({ id, kind: 'loot', pos, facing: 's', loot: { value: 10000, weight: 'heavy' } });
         const { world, state } = setup([], { objects: [bag('a', P(1, 1)), bag('b', P(2, 1)), { id: 'c', kind: 'loot', pos: P(3, 1), facing: 's', loot: { value: 500, weight: 'light' } }] });
         const s = clonePlain(state);
-        s.vehicles = { van: { pose: { x: 6, y: 4, heading: 'w' }, driver: null, hold: [], gone: false } };
+        s.vehicles = { van: { pose: { x: 6, y: 4, heading: 'w' }, driver: null, hold: [], gone: false, hp: 30 } };
         expect(bagsSecured(world, s)).toBe(0);
         // Out of the building isn't secured; in the hold is (M3-08, decision 176).
         s.loot.a = { ...s.loot.a!, taken: true, pos: P(1, 5) };

@@ -12,6 +12,7 @@ import { ABSENT_STATUSES } from '../../geo/move';
 import { tileKey } from '../../geo/shot';
 import { makeNoise } from '../../geo/sound';
 import { dealHarm } from '../damage';
+import { blastVehicles } from '../vehicleDamage';
 import { registerEvidenceSource, type Evidence } from '../evidence';
 import { bodyPos } from '../place';
 import { dropField, edgeSides } from '../fortify';
@@ -210,6 +211,7 @@ function blastHarm(ctx: Ctx, tiles: readonly Pos[], damage: number, by: string, 
     for (const n of state.npcs) if (!ABSENT_STATUSES.has(n.status) && n.status !== 'dead' && n.stashed === null && on.has(tileKey(bodyPos(state, n)))) hit.push(n.id);
     for (const u of state.police.units) if (u.pos && on.has(tileKey(u.pos))) hit.push(u.id);
     for (const target of hit) dealHarm(ctx, { target, by, cause: 'blast', weapon, hits: 1, damage, lethal: true });
+    blastVehicles(ctx, tiles, damage);
 }
 
 function goLoud(ctx: Ctx, cause: string): void {
@@ -287,20 +289,28 @@ registerAction('placeCharge', {
 });
 
 /**
- * What a blast does to the fabric of the bank, without its harm or its noise: the segment opened (what the crew
- * fortified there goes with it, M4-02: a barricade, blinds, the reinforcing), the loot ruined, the debris.
+ * Opens a wall segment (a charge's blast, a vehicle's ram, rules/ram.ts): a door there is breached (what the crew
+ * fortified on its segments goes with it, M4-02: a barricade, blinds, the reinforcing), any other segment gets a gap.
+ * Returns the door breached, or null.
  */
-function openUp(world: ReadonlyWorld, state: State, charge: DeepReadonly<Charge>, blast: ChargeBlast): void {
-    const segments = blast.door ? sortedIds(world.edges).filter(k => world.edges[k]!.door === blast.door) : [charge.edge];
+export function openSegment(world: ReadonlyWorld, state: State, edge: EdgeKey): string | null {
+    const door = world.edges[edge]!.door ?? null;
+    const segments = door ? sortedIds(world.edges).filter(k => world.edges[k]!.door === door) : [edge];
     for (const key of segments) {
         if (state.edges[key]?.reinforced) dropField(state, key, 'reinforced', 'material', 'barredFrom');
         if (Object.hasOwn(state.edges, key)) dropField(state, key, 'barricade', 'blinds');
     }
-    if (blast.door) state.doors[blast.door] = { ...state.doors[blast.door], status: 'breached' };
+    if (door) state.doors[door] = { ...state.doors[door], status: 'breached' };
     else {
-        const was = Object.hasOwn(state.edges, charge.edge) ? state.edges[charge.edge]! : {};
-        state.edges[charge.edge] = { ...was, blocksMove: false, blocksSight: false, blocksSound: false, midHeight: false, gap: true };
+        const was = Object.hasOwn(state.edges, edge) ? state.edges[edge]! : {};
+        state.edges[edge] = { ...was, blocksMove: false, blocksSight: false, blocksSound: false, midHeight: false, gap: true };
     }
+    return door;
+}
+
+/** What a blast does to the fabric of the bank, without its harm or its noise: the segment opened, the loot ruined, the debris. */
+function openUp(world: ReadonlyWorld, state: State, charge: DeepReadonly<Charge>, blast: ChargeBlast): void {
+    openSegment(world, state, charge.edge);
     for (const id of blast.loot) state.loot[id]!.ruined = true;
     if (blast.debris) state.debris.push({ ...blast.debris });
 }

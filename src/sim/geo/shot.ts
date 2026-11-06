@@ -174,7 +174,8 @@ export interface CoverHit {
 export type ShotStep =
     | { kind: 'wall'; edge: EdgeKey; material: Material; effect: 'shattered' | 'passed' | 'slowed' | 'stopped'; damage: number; broke?: true }
     | { kind: 'body'; id: string; effect: 'hit' | 'through' | 'blocked'; damage: number; knockout?: true; cover?: CoverHit }
-    | { kind: 'object'; tile: Pos }
+    /** It stopped on something full height (a crew vehicle takes `damage`, the bullet's left, rules/vehicleDamage.ts). */
+    | { kind: 'object'; tile: Pos; damage: number }
     | { kind: 'corner'; at: Pos };
 
 export type BulletStop = 'body' | 'cover' | 'wall' | 'object' | 'corner' | 'range' | 'map' | 'unknown';
@@ -448,7 +449,7 @@ export function traceBullet(scene: ShotScene, fabric: Fabric, offset: number, co
         x = nx;
         y = ny;
         if (stopsAt(y * width + x)) {
-            steps.push({ kind: 'object', tile: { x, y } });
+            steps.push({ kind: 'object', tile: { x, y }, damage: bullet.knockout ? 0 : damage });
             return done('object');
         }
     }

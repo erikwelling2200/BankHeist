@@ -1,6 +1,6 @@
 import {
     besideDoor, COMBAT_COMMANDS, FACING_STEP, crewPicture, negotiatorCalling, offerEffect, releasable, tradeable, withDoubtedShut, doorStatus, DRAGGABLE, draggedBy, goBlocked, HACKING_KIT, inHands, inReach, interactionVerbs, isKnownNow, JAMMER, officerSeen, legalActions, LOCKPICK, lockActions, LOOP_FROM, lootWeight,
-    pocketed, preview, IllegalCommand, reachesObject, STASH_KINDS, throwTargets, tieIneligible, tileVisibility, whyNot, driveBudget, driveMap, driveReach, exitTiles, poseKey, vehicleBeside,
+    pocketed, preview, IllegalCommand, reachesObject, STASH_KINDS, throwTargets, tieIneligible, tileVisibility, whyNot, driveBudget, driveMap, driveReach, exitTiles, poseKey, ramPlan, vehicleBeside,
     vehicleDef, edgesAround, fortificationOf, fortifyBlocked, isWindow, noisemakersLeft, noisemakerTargets, type FortifyAction, type Command, type DriveNode, type Pose, type Pos, type ReadonlyWorld, type State
 } from '../sim';
 import type { HudIcon as HudIconName } from '../ui/hud/viewModels';
@@ -189,7 +189,10 @@ export function getawayDrive(world: ReadonlyWorld, state: State, vehicle: string
     return near && edge(near.pose) < edge(v.pose) ? { to: near.pose, off: false, tilesLeft: null } : null;
 }
 
-/** A crew member aboard a vehicle: drive it toward the plot's edge (the driver), and get out. */
+/**
+ * A crew member aboard a vehicle: drive it toward the plot's edge (the driver), ram what is ahead of it (when something
+ * is within one Drive: refused while the run-up is too short), and get out.
+ */
 function vehicleMenu(world: ReadonlyWorld, state: State, crewId: string, vehicle: string): ActionEntry[] {
     const out: ActionEntry[] = [];
     const add = (id: string, label: string, command: Command, refusal?: string) => {
@@ -200,6 +203,8 @@ function vehicleMenu(world: ReadonlyWorld, state: State, crewId: string, vehicle
     if (v.driver === crewId) {
         if (drive) add('drive', drive.off ? 'Drive off' : drive.tilesLeft === null ? 'Drive' : `Drive (${drive.tilesLeft} to go)`, { type: 'drive', crew: crewId, vehicle, to: drive.to });
         else add('drive', 'Drive off', { type: 'drive', crew: crewId, vehicle, to: { ...v.pose } }, 'No way off the plot from here');
+        const ram = ramPlan(world, state, { crew: crewId, vehicle });
+        if (typeof ram !== 'string' || /run-up/.test(ram)) add('ram', 'Ram', { type: 'ram', crew: crewId, vehicle });
     }
     const exit = exitTiles(world, state, crewId)[0];
     add('getOut', 'Get out', { type: 'getOut', crew: crewId, to: exit ?? { x: -1, y: -1 } }, exit ? undefined : 'Every door is blocked');
@@ -519,8 +524,9 @@ const handsFreeOf = (member: State['crew'][number]): boolean => member.loadout.c
 /** Whether `menu` agrees with the sim's `legalActions`: every enabled entry is one of them (for tests). */
 export function menuIsLegal(world: ReadonlyWorld, state: State, crewId: string, menu: readonly ActionEntry[]): boolean {
     const legal = new Set(legalActions(world, state, crewId).map(c => JSON.stringify(c)));
-    // Driving and getting out aren't registered actions: their own check is the preview.
-    return menu.every(e => !!e.reason || legal.has(JSON.stringify(e.command)) || ((e.command.type === 'drive' || e.command.type === 'getOut') && !vehicleRefusal(world, state, e.command)));
+    // Driving, ramming and getting out aren't registered actions: their own check is the preview.
+    const vehicle = new Set(['drive', 'ram', 'getOut']);
+    return menu.every(e => !!e.reason || legal.has(JSON.stringify(e.command)) || (vehicle.has(e.command.type) && !vehicleRefusal(world, state, e.command)));
 }
 
 /** The tile a door stands on the edge of, as the middle of that edge in tile units (for taps and markers). */

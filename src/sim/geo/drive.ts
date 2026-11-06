@@ -1,5 +1,5 @@
 import type { DeepReadonly, Pos, ReadonlyWorld, State } from '../core/types';
-import { DRIFT_TILES, TURN_RADIUS, TURN_SCALE, TURN_STEPS, TURN_TILES, type VehicleType } from '../data/vehicles';
+import { DRIFT_TILES, POLICE_VEHICLES, TURN_RADIUS, TURN_SCALE, TURN_STEPS, TURN_TILES, type VehicleType } from '../data/vehicles';
 
 /*
  * Where a vehicle can drive (§14.4): its footprint on the grid, the manoeuvres one Drive is made of and every pose it
@@ -50,6 +50,8 @@ export interface VehicleState {
     hold: string[];
     /** It drove off the plot (§15.4). */
     gone: boolean;
+    /** Hit points left (§14.4, `VEHICLES`): at 0 it is disabled, where it stands, as full cover (decision 280). */
+    hp: number;
 }
 
 declare module '../core/types' {
@@ -115,6 +117,15 @@ export function vehicleAt(world: ReadonlyWorld, state: DeepReadonly<State>, p: D
         if (p.x >= v.pose.x && p.x < v.pose.x + w && p.y >= v.pose.y && p.y < v.pose.y + l) return def.id;
     }
     return undefined;
+}
+
+/**
+ * The tiles a police vehicle stands on (decision 283): a car's 2×3 or a van's 2×4 lying along the street (west to
+ * east) from its `pos`, the north-west tile; none for the helicopter, or a vehicle of a kind without a footprint.
+ */
+export function policeFootprint(v: DeepReadonly<{ kind: string; pos: Pos }>): Pos[] {
+    const spec = (POLICE_VEHICLES as Readonly<Record<string, { width: number; length: number }>>)[v.kind];
+    return spec ? footprint(spec, { x: v.pos.x, y: v.pos.y, heading: 'e' }) : [];
 }
 
 /** One tile forward along a heading, and one to its right. */

@@ -136,7 +136,7 @@ describe('the bullet trace', () => {
 
     it('stops at full-height objects, and at middle-height ones unless an end is raised', () => {
         const { world, state } = setup(['..T....', '.......', '.......'], { jun: P(0, 0), midHeight: [P(2, 2)], people: [person('a', P(5, 0)), person('b', P(5, 2))] });
-        expect(traceShot(world, state, shot(P(5, 0)), straight(2)).bullets[0]!.steps).toEqual([{ kind: 'object', tile: P(2, 0) }]);
+        expect(traceShot(world, state, shot(P(5, 0)), straight(2)).bullets[0]!.steps).toMatchObject([{ kind: 'object', tile: P(2, 0) }]);
         state.crew[0]!.pos = P(0, 2);
         expect(traceShot(world, state, shot(P(5, 2)), straight(2)).bullets[0]!.stop).toBe('object');
     });

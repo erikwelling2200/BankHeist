@@ -14,7 +14,8 @@ import { lootWeight } from './hands';
 import type { Lean } from './shot';
 import { addHeat, heatAhead, heatOf, phasesUntilHeat } from './heat';
 import { inGetaway } from './vehicles';
-import { vehicleAt } from '../geo/drive';
+import { policeFootprint, vehicleAt } from '../geo/drive';
+import { POLICE_VEHICLES, ROADBLOCK_HEAT, ROADBLOCK_REACH } from '../data/vehicles';
 
 /*
  * The police director (§13.3, §13.4): who comes, in what, where to, and the rhythm they keep once on scene. Police
@@ -76,8 +77,13 @@ export interface PoliceVehicle {
     pos: Pos;
     /** The turn whose world phase it arrived in; its units get out in the next. */
     arrived: number;
-    /** Arriving (the siren marker), its units out (a van then drives off), or parked for good (a car, the helicopter). */
-    status: 'arriving' | 'unloaded' | 'parked';
+    /**
+     * Arriving (the siren marker), its units out (a van then drives off), parked for good (a car, the helicopter), or a
+     * wreck at 0 hit points (rules/vehicleDamage.ts): it stays, in the way, and frees its staging slot.
+     */
+    status: 'arriving' | 'unloaded' | 'parked' | 'wreck';
+    /** Hit points left (§14.4, `POLICE_VEHICLES`); the helicopter's are never touched. */
+    hp: number;
 }
 
 /** One police officer (§13.3). */
@@ -162,6 +168,8 @@ export interface PoliceState {
     breaches: Breach[];
     /** The SWAT teams on the force, by team id (the van that brought them; rules/swat.ts). */
     teams: Record<string, SwatTeam>;
+    /** The Heat 5 roadblock's pieces (§15.4, decision 285), a tile each, in the way of every drive until rammed aside. */
+    roadblock: Pos[];
 }
 
 declare module '../core/types' {
@@ -183,6 +191,8 @@ declare module '../core/types' {
         policeHit: { unit: string };
         /** A transport van drove off. */
         vehicleLeft: { vehicle: string };
+        /** The Heat 5 roadblock went up across the street at a staging point (decision 285). */
+        roadblockSet: { staging: string; tiles: Pos[] };
         /** The director's next mode, for `phases` world phases (§13.4). */
         policeMode: { mode: PoliceMode; phases: number; level: number };
         /** A police officer is off the force: killed or otherwise out (M3-03, M3-05). */
@@ -194,7 +204,7 @@ declare module '../core/types' {
 export type WaveReason = 'arrival' | 'level' | 'refill';
 
 registerStateInit('police', (_world, state) => {
-    state.police = { units: [], vehicles: [], mode: null, sent: 0, refills: 0, secured: [], known: {}, breaches: [], teams: {} };
+    state.police = { units: [], vehicles: [], mode: null, sent: 0, refills: 0, secured: [], known: {}, breaches: [], teams: {}, roadblock: [] };
 });
 
 // ---------------------------------------------------------------------------------------------------------- The force
@@ -272,7 +282,7 @@ export function planWave(world: ReadonlyWorld, state: DeepReadonly<State>, level
     }
     // Only the cars that stay count: a van on the street now is gone before the wave it is weighed for.
     for (const v of state.police.vehicles) {
-        if (v.kind !== 'car' || v.staging === null || !vehicles.has(v.staging)) continue;
+        if (v.kind !== 'car' || v.status === 'wreck' || v.staging === null || !vehicles.has(v.staging)) continue;
         vehicles.set(v.staging, vehicles.get(v.staging)! + 1);
         cars.set(v.staging, cars.get(v.staging)! + 1);
     }
@@ -315,27 +325,75 @@ export function newUnit(state: State, kind: PoliceKind, vehicle: string | null, 
 export const newTeam = (): SwatTeam => ({ focus: null, planned: -1, movers: [], pulling: false, lost: null, stack: [] });
 
 /**
- * Where a police vehicle stops at its staging point (decision 193): the point itself, else the nearest tile to it (by
- * rings, row-major within a ring) on the map a vehicle can stand on: drivable, nothing blocking it, no crew vehicle and
- * nobody (crew, NPC, officer) there, so it never parks inside the crew's van or on someone. The point itself when
- * there is none.
+ * Where a police vehicle stops at its staging point (decisions 193, 283): the north-west tile of the spot nearest the
+ * point (by rings round the spot that holds the point as near its middle as the map allows, row-major within a ring)
+ * where its whole footprint, lying along the street, stands on the map on tiles a vehicle can stand on: drivable,
+ * nothing blocking it, no crew vehicle, no other police vehicle or roadblock and nobody (crew, NPC, officer) there, so
+ * it never parks inside the crew's van or on someone. The helicopter (no footprint) and a vehicle with no such spot take
+ * the point itself.
  */
-function parkingSpot(world: ReadonlyWorld, state: State, at: DeepReadonly<Pos>): Pos {
+function parkingSpot(world: ReadonlyWorld, state: State, at: DeepReadonly<Pos>, kind: VehicleKind): Pos {
     const people = new Set<string>([
         ...state.crew.map(c => `${c.pos.x},${c.pos.y}`),
         ...state.npcs.filter(n => !ABSENT_STATUSES.has(n.status)).map(n => `${n.pos.x},${n.pos.y}`),
-        ...state.police.units.flatMap(u => (u.pos ? [`${u.pos.x},${u.pos.y}`] : []))
+        ...state.police.units.flatMap(u => (u.pos ? [`${u.pos.x},${u.pos.y}`] : [])),
+        ...state.police.vehicles.flatMap(v => policeFootprint(v).map(t => `${t.x},${t.y}`)),
+        ...state.police.roadblock.map(t => `${t.x},${t.y}`)
     ]);
     const ok = (p: Pos): boolean => {
         const tile = tileAt(world, p);
         return !!tile && !!tile.drivable && !tile.blocksMove && vehicleAt(world, state, p) === undefined && !people.has(`${p.x},${p.y}`);
     };
+    const spec = (POLICE_VEHICLES as Readonly<Record<string, { width: number; length: number }>>)[kind];
+    if (!spec) return { x: at.x, y: at.y };
+    // The spot lies along the street (`policeFootprint`): `length` across x, `width` down y.
+    const fits = (x: number, y: number): boolean => policeFootprint({ kind, pos: { x, y } }).every(ok);
+    const cx = Math.max(0, Math.min(world.width - spec.length, at.x - Math.floor(spec.length / 2)));
+    const cy = Math.max(0, Math.min(world.height - spec.width, at.y - Math.floor(spec.width / 2)));
     for (let r = 0; r < Math.max(world.width, world.height); r++) {
-        for (let y = at.y - r; y <= at.y + r; y++) for (let x = at.x - r; x <= at.x + r; x++) {
-            if (Math.max(Math.abs(x - at.x), Math.abs(y - at.y)) === r && ok({ x, y })) return { x, y };
+        for (let y = cy - r; y <= cy + r; y++) for (let x = cx - r; x <= cx + r; x++) {
+            if (Math.max(Math.abs(x - cx), Math.abs(y - cy)) === r && fits(x, y)) return { x, y };
         }
     }
     return { x: at.x, y: at.y };
+}
+
+/**
+ * The Heat 5 roadblock (§15.4, decision 285): at every staging point, a piece on each drivable tile of the point's
+ * column that runs unbroken through it, at most `ROADBLOCK_REACH` each way, but where a crew vehicle, a police vehicle
+ * or anyone stands. Pure: the pieces it would set now.
+ */
+export function roadblockTiles(world: ReadonlyWorld, state: DeepReadonly<State>, at: DeepReadonly<Pos>): Pos[] {
+    const taken = new Set<string>([
+        ...state.crew.filter(c => !c.aboard).map(c => `${c.pos.x},${c.pos.y}`),
+        ...state.npcs.filter(n => !ABSENT_STATUSES.has(n.status)).map(n => `${n.pos.x},${n.pos.y}`),
+        ...state.police.units.flatMap(u => (u.pos ? [`${u.pos.x},${u.pos.y}`] : [])),
+        ...state.police.vehicles.flatMap(v => policeFootprint(v).map(t => `${t.x},${t.y}`)),
+        ...state.police.roadblock.map(t => `${t.x},${t.y}`)
+    ]);
+    const out: Pos[] = [];
+    const drivable = (y: number): boolean => !!tileAt(world, { x: at.x, y })?.drivable;
+    if (!drivable(at.y)) return out;
+    for (const dir of [-1, 1]) {
+        for (let k = dir === -1 ? 0 : 1; k <= ROADBLOCK_REACH; k++) {
+            const y = at.y + dir * k;
+            if (!drivable(y)) break;
+            const p = { x: at.x, y };
+            if (!taken.has(`${p.x},${p.y}`) && vehicleAt(world, state, p) === undefined) out.push(p);
+        }
+    }
+    return out.sort((a, b) => a.y - b.y || a.x - b.x);
+}
+
+/** Sets the roadblock at every staging point (once: see `roadblockTiles`). */
+function setRoadblock(ctx: Ctx): void {
+    const { world, state } = ctx;
+    for (const point of world.staging ?? []) {
+        const tiles = roadblockTiles(world, state, point.pos);
+        if (!tiles.length) continue;
+        state.police.roadblock.push(...tiles.map(t => ({ ...t })));
+        ctx.emit({ type: 'roadblockSet', staging: point.id, tiles });
+    }
 }
 
 /** Sends a wave (see `planWave`): its vehicles arrive now with their units aboard. */
@@ -350,7 +408,8 @@ function sendWave(ctx: Ctx, level: number, reason: WaveReason): void {
         }
         const vehicle: PoliceVehicle = {
             id: newId(state, plan.kind), kind: plan.kind, label: plan.label, staging: plan.staging?.id ?? null,
-            pos: plan.staging ? parkingSpot(world, state, plan.staging.pos) : overPlot(world), arrived: state.turn, status: 'arriving'
+            pos: plan.staging ? parkingSpot(world, state, plan.staging.pos, plan.kind) : overPlot(world), arrived: state.turn, status: 'arriving',
+            hp: (POLICE_VEHICLES as Readonly<Record<string, { hp: number }>>)[plan.kind]?.hp ?? 0
         };
         state.police.vehicles.push(vehicle);
         // A SWAT van brings a team (§13.6), named after it.
@@ -362,6 +421,8 @@ function sendWave(ctx: Ctx, level: number, reason: WaveReason): void {
             units: plan.units.length, level, reason
         });
     }
+    // Heat 5's own wave puts the roadblock up (decision 285); refills past it don't.
+    if (level >= ROADBLOCK_HEAT && reason !== 'refill') setRoadblock(ctx);
 }
 
 /** What the next heat step brings and when (§13.1 "Heat 3 in 2 turns: SWAT van, rear lot"), once the police are on their way. */
@@ -589,6 +650,8 @@ registerStateCheck('police', raw => {
     for (const key of ['units', 'vehicles', 'secured', 'breaches'] as const) if (!Array.isArray(p[key])) return `no police ${key} (saved by an older build)`;
     if (!p.known || typeof p.known !== 'object' || Array.isArray(p.known)) return 'no police knowledge (saved by an older build)';
     if (!p.teams || typeof p.teams !== 'object' || Array.isArray(p.teams)) return 'no SWAT teams (saved by an older build)';
+    for (const v of p.vehicles!) if (typeof v.hp !== 'number') return `police vehicle ${v.id} has no hit points (saved by an older build)`;
+    if (!Array.isArray(p.roadblock)) return 'no roadblock (saved by an older build)';
     for (const u of p.units!) {
         for (const key of ['hp', 'leaning', 'suppressed', 'moved', 'team', 'watch', 'flashbangs', 'surprised'] as const) if (!Object.hasOwn(u, key)) return `police unit ${u.id} has no ${key} (saved by an older build)`;
     }
@@ -599,6 +662,7 @@ registerEvents({
     policeArriving: { undoBlocking: true },
     policeDeployed: { undoBlocking: true },
     vehicleLeft: { undoBlocking: true },
+    roadblockSet: { undoBlocking: true },
     policeMode: { undoBlocking: true },
     policeDown: { undoBlocking: true },
     policeOnFoot: { undoBlocking: true },

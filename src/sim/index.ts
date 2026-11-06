@@ -41,6 +41,7 @@ import './rules/doors';
 import './rules/evidence';
 import './rules/fortify';
 import './rules/getaway';
+import './rules/ram';
 import './rules/heat';
 import './rules/knowledge';
 import './rules/negotiation';
@@ -236,7 +237,7 @@ export { attackCone } from './preview/attack';
 export * from './data/police';
 export { addHeat, heatAhead, heatNow, heatOf, phasesUntilHeat, releaseBlocked, releaseHeat, releaseRelief, type HeatLevel, type HeatState } from './rules/heat';
 export {
-    bagsSecured, greedPercent, hostagesHeld, modeAfter, modePhases, newTeam, newUnit, nextWave, planWave, policeDown, policeHit, policeModeView, strength,
+    bagsSecured, greedPercent, hostagesHeld, modeAfter, modePhases, newTeam, newUnit, nextWave, planWave, policeDown, policeHit, policeModeView, roadblockTiles, strength,
     type Breach, type NextWave, type PoliceSighting, type PoliceWatch, type SwatTeam, type PlannedVehicle, type PoliceModeView, type PoliceState, type PoliceUnit, type PoliceVehicle, type StagingPoint, type ArrivalKind, type VehicleKind, type WaveReason
 } from './rules/police';
 export { cleanShot } from './rules/routine';
@@ -245,11 +246,13 @@ export {
     negotiatorCalling, offerEffect, releasable, releaseExit, tradeable, type NegotiationOffer, type NegotiationState, type OfferEffect, type PoliceReport
 } from './rules/negotiation';
 export {
-    cabTile, doorTiles, drivePath, driveReach, footprint, forwardOf, HEADINGS, manoeuvre, MANOEUVRES, poseKey, rightOf, vehicleAt, type DriveMap, type DriveNode,
+    cabTile, doorTiles, drivePath, driveReach, footprint, forwardOf, HEADINGS, manoeuvre, MANOEUVRES, policeFootprint, poseKey, rightOf, vehicleAt, type DriveMap, type DriveNode,
     type DrivePath, type DriveReach, type DriveTile, type Heading, type Manoeuvre, type Pose, type Swept, type VehicleDef, type VehicleSize, type VehicleState
 } from './geo/drive';
 export {
     aboard, driveBudget, driveCut, driveMap, drivePlan, exitTiles, registerLeaveHook, holdOf, holdValue, inGetaway, vehicleBeside, vehicleDef, vehicleDoors, vehicleReach
 } from './rules/vehicles';
 export { crewOut, outcomeNow, type HeistOutcome, type OutcomeResult } from './rules/getaway';
+export { ramPlan, type RamPlan, type RamTarget } from './rules/ram';
+export { blastVehicles, damageVehicle, vehicleDisabled, vehiclesOn } from './rules/vehicleDamage';
 export * from './data/vehicles';

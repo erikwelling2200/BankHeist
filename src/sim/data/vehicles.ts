@@ -4,15 +4,50 @@
  * (driving, boarding, the hold) and rules/getaway.ts (leaving the plot and the outcome).
  */
 
-/** What the rules know of a kind of vehicle: its footprint across and along it, in tiles (§14.4). */
-export interface VehicleSpec { name: string; width: number; length: number }
+/**
+ * What the rules know of a kind of vehicle (§14.4): its footprint across and along it, in tiles, its hit points and
+ * the armour taken off every hit (bullets, blasts) before it counts.
+ */
+export interface VehicleSpec { name: string; width: number; length: number; hp: number; armour: number }
 
-/** The crew's vehicles (§14.4). Only the van in M3; the ram truck and the backup car are planning assets (M4). */
+/**
+ * The crew's vehicles (§14.4): the van, always; the ram truck and the backup car are planning assets (M4-07 places
+ * them, decision 284).
+ */
 export const VEHICLES = {
-    van: { name: 'Crew van', width: 2, length: 4 }
+    van: { name: 'Crew van', width: 2, length: 4, hp: 30, armour: 2 },
+    ramTruck: { name: 'Ram truck', width: 2, length: 4, hp: 40, armour: 3 },
+    car: { name: 'Backup car', width: 2, length: 3, hp: 20, armour: 1 }
 } as const satisfies Record<string, VehicleSpec>;
 
 export type VehicleType = keyof typeof VEHICLES;
+
+/**
+ * The police's vehicles on the street (§14.4, §13.4), by their kind: they park lying along the street (decision 283).
+ * The helicopter has no footprint: it hovers.
+ */
+export const POLICE_VEHICLES = {
+    car: { name: 'Police car', width: 2, length: 3, hp: 20, armour: 1 },
+    van: { name: 'Police van', width: 2, length: 4, hp: 30, armour: 2 }
+} as const satisfies Record<string, VehicleSpec>;
+
+/**
+ * Ramming (§14.4, decision 281): the clear tiles of run-up it needs in front, the damage it deals to everyone in the
+ * impact area or in its way, what the ramming vehicle takes (halved, rounded down, with a Wheelman driving and again in
+ * the ram truck, built for it, decision 284) and what a vehicle rammed takes; the segments a gap opens beyond the
+ * vehicle's width.
+ */
+export const RAM_RUN_UP = 2;
+export const RAM_DAMAGE = 6;
+export const RAM_SELF_DAMAGE = 10;
+export const RAM_HIT_DAMAGE = 10;
+export const RAM_EXTRA_SEGMENTS = 1;
+/** The materials a ram opens a gap in (§14.2: Glass and Soft, doors and rolling shutters included). */
+export const RAM_OPENS: readonly string[] = ['glass', 'soft'];
+
+/** The Heat 5 roadblock (§15.4, decision 285): at each staging point, across the drivable tiles of its column this far each way. */
+export const ROADBLOCK_REACH = 3;
+export const ROADBLOCK_HEAT = 5;
 
 /** Tiles of path one Drive (1 action) covers (§14.4), and with a Wheelman driving. */
 export const DRIVE_TILES = 8;

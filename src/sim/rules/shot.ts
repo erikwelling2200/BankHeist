@@ -12,6 +12,7 @@ import {
 } from '../geo/shot';
 import { hasTrait } from './alarms';
 import { draggedBy } from './place';
+import { damageVehicle, vehiclesOn } from './vehicleDamage';
 
 /*
  * Shots (GAME_DESIGN §11.2–11.7, §12.1, §12.3; implementation plan M3-01, decisions 85–92): who an attack can hit, how
@@ -445,6 +446,20 @@ function applyFabric(world: ReadonlyWorld, state: State, scene: ShotScene, fabri
 }
 
 /**
+ * The vehicles a shot's bullets stopped on (full cover, geo/shot.ts) take each bullet's damage left, less their armour,
+ * hit by hit, in bullet order (decision 280).
+ */
+function shotVehicles(ctx: Ctx, trace: ShotTrace): void {
+    const hits = new Map<string, number[]>();
+    for (const b of trace.bullets) {
+        const last = b.steps[b.steps.length - 1];
+        if (b.stop !== 'object' || last?.kind !== 'object' || last.damage <= 0) continue;
+        for (const id of vehiclesOn(ctx.world, ctx.state, [last.tile]).filter(v => Object.hasOwn(ctx.state.vehicles, v))) hits.set(id, [...(hits.get(id) ?? []), last.damage]);
+    }
+    for (const [id, damages] of hits) damageVehicle(ctx, id, damages, 'shot');
+}
+
+/**
  * Fires an attack for real: rolls each bullet's point and, where a hit meets cover, the cover roll (stream 'combat'),
  * plays them through `traceShot`'s trace, writes what broke into the state, keeps the rolls in `State.shots` and emits
  * `shotFired`. Returns the outcome; the hits' damage is for the caller to apply (M3-03). All checks come before the
@@ -469,5 +484,6 @@ export function resolveShot(ctx: Ctx, shot: Shot): ShotTrace {
     state.shots.push(record);
     if (state.shots.length > SHOT_WINDOW) state.shots.splice(0, state.shots.length - SHOT_WINDOW);
     ctx.emit({ type: 'shotFired', shot: record.id, shooter: shot.shooter, weapon: shot.weapon, origin: trace.origin, bullets: clonePlain(trace.bullets), hits: clonePlain(trace.hits) });
+    shotVehicles(ctx, trace);
     return trace;
 }

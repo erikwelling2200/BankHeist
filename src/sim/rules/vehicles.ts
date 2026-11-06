@@ -4,9 +4,9 @@ import { clonePlain, sortedIds } from '../core/json';
 import { actorRefusal, crewMember, edgeNow, registerActorCheck, registerCrewInit, registerRuleDefaults, registerStateInit, spendActions } from '../core/state';
 import type { CrewState, DeepReadonly, Pos, ReadonlyWorld, State } from '../core/types';
 import { registerEvents } from '../core/undo';
-import { DRIVE_TILES, WHEELMAN_DRIVE_TILES } from '../data/vehicles';
+import { DRIVE_TILES, VEHICLES, WHEELMAN_DRIVE_TILES } from '../data/vehicles';
 import {
-    cabTile, doorTiles, drivePath, driveReach, footprint, poseKey, vehicleAt, type DriveMap, type DrivePath, type DriveReach, type DriveTile, type Pose, type VehicleDef
+    cabTile, doorTiles, drivePath, driveReach, footprint, policeFootprint, poseKey, vehicleAt, type DriveMap, type DrivePath, type DriveReach, type DriveTile, type Pose, type VehicleDef
 } from '../geo/drive';
 import { ABSENT_STATUSES, occupancy } from '../geo/move';
 import { inHands, syncHands } from './hands';
@@ -15,6 +15,7 @@ import { lacksActions, registerAction } from './actions/act';
 import { hasTrait } from './alarms';
 import { markerKind, officerSeen, registerCertainView, registerPreviewSecret } from './knowledge';
 import { dropTargets, isDown } from './wounds';
+import { vehicleDisabled } from './vehicleDamage';
 
 /*
  * The crew's vehicles (§14.4, §15.4): the van waits at its getaway spot from the start (`World.vehicles`, the
@@ -81,7 +82,7 @@ registerRuleDefaults({ driveTiles: DRIVE_TILES, wheelmanDriveTiles: WHEELMAN_DRI
 // Named to run before 'knowledge' (inits run by name): what the crew sees at the start goes round the van.
 registerStateInit('crewVehicles', (world, state) => {
     state.vehicles = {};
-    for (const v of world.vehicles ?? []) state.vehicles[v.id] = { pose: { ...v.start }, driver: null, hold: [], gone: false };
+    for (const v of world.vehicles ?? []) state.vehicles[v.id] = { pose: { ...v.start }, driver: null, hold: [], gone: false, hp: VEHICLES[v.type].hp };
 });
 
 registerCrewInit('aboard', (_world, _start, member) => {
@@ -92,7 +93,7 @@ registerCrewInit('aboard', (_world, _start, member) => {
 registerActorCheck('aboard', member => (member.aboard !== null ? `${member.name} is in a vehicle: get out first` : undefined));
 
 /** Why a crew member can't act at all, the vehicle they sit in aside (for getting out and driving). */
-const refusalAboard = (member: DeepReadonly<CrewState>): string | undefined => actorRefusal({ ...member, aboard: null } as DeepReadonly<CrewState>);
+export const refusalAboard = (member: DeepReadonly<CrewState>): string | undefined => actorRefusal({ ...member, aboard: null } as DeepReadonly<CrewState>);
 
 // ---------------------------------------------------------------------------------------------------------- Lookups
 
@@ -131,7 +132,7 @@ function seatOf(world: ReadonlyWorld, def: DeepReadonly<VehicleDef>, pose: DeepR
  * Puts the crew aboard and the hold where the vehicle stands: in the cab, facing the way it points, so they look out
  * of the cab's windows and nowhere else (decision 190).
  */
-function carryAlong(world: ReadonlyWorld, state: State, id: string): void {
+export function carryAlong(world: ReadonlyWorld, state: State, id: string): void {
     const v = state.vehicles[id]!, at = seatOf(world, vehicleDef(world, id)!, v.pose);
     for (const c of state.crew) {
         if (c.aboard !== id) continue;
@@ -142,7 +143,7 @@ function carryAlong(world: ReadonlyWorld, state: State, id: string): void {
 }
 
 /** Who can take a vehicle's wheel: aboard it and up (not down or dead). */
-const canDrive = (member: DeepReadonly<CrewState> | undefined, id: string): boolean => !!member && member.aboard === id && !isDown(member);
+export const canDrive = (member: DeepReadonly<CrewState> | undefined, id: string): boolean => !!member && member.aboard === id && !isDown(member);
 
 /**
  * The driver's seat after any command (decision 191): kept by its holder while they can drive, else taken by the first
@@ -219,6 +220,7 @@ export function exitTiles(world: ReadonlyWorld, state: State, crewId: string): P
     const id = member?.aboard;
     if (!member || !id) return [];
     const def = vehicleDef(world, id)!, v = state.vehicles[id]!;
+    if (v.gone) return [];
     const people = occupancy(world, state, { mover: member.id });
     return doorTiles(def, v.pose).filter(t => {
         const tile = tileAt(world, t);
@@ -297,7 +299,9 @@ export function driveMap(world: ReadonlyWorld, state: State, id: string, mode: '
     for (const c of state.crew) if (c.aboard === null) put(c.pos);
     for (const n of state.npcs) if (!ABSENT_STATUSES.has(n.status) && sees(n.id)) put(n.pos);
     for (const u of state.police?.units ?? []) if (u.pos && (mode === 'truth' || officerSeen(world, state, u.id))) put(u.pos);
-    for (const pv of state.police?.vehicles ?? []) if (pv.kind !== 'helicopter') put(pv.pos);
+    // Police cars and vans (wrecks too) on their whole footprint, and the Heat 5 roadblock (decisions 283, 285).
+    for (const pv of state.police?.vehicles ?? []) for (const t of policeFootprint(pv)) put(t);
+    for (const t of state.police?.roadblock ?? []) put(t);
     const edge = (y: number, x: number): boolean => !!world.tiles[y * width + x]!.drivable;
     return {
         tile(p): DriveTile {
@@ -318,7 +322,7 @@ export const driveBudget = (world: ReadonlyWorld, member: DeepReadonly<CrewState
 export function vehicleReach(world: ReadonlyWorld, state: State, id: string): DriveReach | null {
     const def = vehicleDef(world, id), v = state.vehicles[id];
     const driver = state.crew.find(c => c.id === v?.driver);
-    if (!def || !v || v.gone || !driver || !canDrive(driver, id)) return null;
+    if (!def || !v || v.gone || v.hp <= 0 || !driver || !canDrive(driver, id)) return null;
     return driveReach(def, v.pose, driveBudget(world, driver), driveMap(world, state, id));
 }
 
@@ -332,6 +336,7 @@ export function drivePlan(world: ReadonlyWorld, state: State, cmd: DeepReadonly<
     if (!def || !v) return `There is no vehicle called '${cmd.vehicle}'`;
     if (v.gone) return `The ${def.name.toLowerCase()} has gone`;
     if (member.aboard !== cmd.vehicle || v.driver !== member.id || isDown(member)) return `${member.name} isn't in the driver's seat`;
+    if (vehicleDisabled(state, cmd.vehicle)) return `The ${def.name.toLowerCase()} is disabled`;
     if (poseKey(cmd.to) === poseKey(v.pose)) return 'The vehicle is there already';
     const path = drivePath(vehicleReach(world, state, cmd.vehicle)!, cmd.to);
     return path ?? `The ${def.name.toLowerCase()} can't get there with one drive`;
@@ -386,21 +391,17 @@ registerCommand('drive', (ctx, cmd) => {
     if (off) for (const name of [...LEAVE_HOOKS.keys()].sort()) LEAVE_HOOKS.get(name)!(ctx, cmd.vehicle);
 });
 
-// Someone the crew didn't see in the way is found by driving into them: a preview can't tell (decision 192). The
-// player's preview (`previewCertain`) drives it as if they weren't there: everyone unknown on the plan's sweep is set
-// aside (an NPC away, an officer off the map) for the preview and put back after, so it is the very preview of the same
-// drive with nobody there: its events, the van's pose, its undo.
-registerPreviewSecret('driveCut');
-registerCertainView('drive', (world, state, cmd) => {
-    if (cmd.type !== 'drive') return undefined;
-    const plan = drivePlan(world, state, cmd);
-    if (typeof plan === 'string') return undefined;
-    const truth = driveMap(world, state, cmd.vehicle, 'truth'), known = driveMap(world, state, cmd.vehicle);
-    const hidden = new Set(plan.steps.flat().filter(t => truth.tile(t) === 'blocked' && known.tile(t) !== 'blocked').map(t => `${t.x},${t.y}`));
-    if (!hidden.size) return undefined;
-    const on = (p: DeepReadonly<Pos> | null): boolean => !!p && hidden.has(`${p.x},${p.y}`);
-    const npcs = state.npcs.filter(n => !ABSENT_STATUSES.has(n.status) && on(n.pos)).map(n => n.id);
-    const units = (state.police?.units ?? []).filter(u => on(u.pos)).map(u => u.id);
+/**
+ * Everyone on `tiles` the crew doesn't know of (an NPC whose marker isn't live, an officer it doesn't see) set aside on
+ * a copy of the state (an NPC away, an officer off the map), and how to put them back in a previewed state: the
+ * `CertainView` of a drive or a ram (rules/ram.ts) whose outcome would meet them. Undefined when there is nobody.
+ */
+export function asideUnknown(world: ReadonlyWorld, state: State, tiles: readonly DeepReadonly<Pos>[]): { state: State; restore(previewed: State): void } | undefined {
+    const at = new Set(tiles.map(t => `${t.x},${t.y}`));
+    const on = (p: DeepReadonly<Pos> | null): boolean => !!p && at.has(`${p.x},${p.y}`);
+    const npcs = state.npcs.filter(n => !ABSENT_STATUSES.has(n.status) && on(n.pos) && markerKind(world, state, n.id) !== 'live').map(n => n.id);
+    const units = (state.police?.units ?? []).filter(u => on(u.pos) && !officerSeen(world, state, u.id)).map(u => u.id);
+    if (!npcs.length && !units.length) return undefined;
     const aside = clonePlain(state);
     for (const n of aside.npcs) if (npcs.includes(n.id)) n.status = 'away';
     for (const u of aside.police.units) if (units.includes(u.id)) u.pos = null;
@@ -414,6 +415,17 @@ registerCertainView('drive', (world, state, cmd) => {
             }
         }
     };
+}
+
+// Someone the crew didn't see in the way is found by driving into them: a preview can't tell (decision 192). The
+// player's preview (`previewCertain`) drives it as if they weren't there: everyone unknown on the plan's sweep is set
+// aside (an NPC away, an officer off the map) for the preview and put back after, so it is the very preview of the same
+// drive with nobody there: its events, the van's pose, its undo.
+registerPreviewSecret('driveCut');
+registerCertainView('drive', (world, state, cmd) => {
+    if (cmd.type !== 'drive') return undefined;
+    const plan = drivePlan(world, state, cmd);
+    return typeof plan === 'string' ? undefined : asideUnknown(world, state, plan.steps.flat());
 });
 
 /** Every loot id in a vehicle's hold, sorted (for views). */
