@@ -1,7 +1,7 @@
 import type { NegotiatorOfferVM, NegotiatorVM } from '../ui/hud/viewModels';
 import { actionMenu } from './actions';
 import {
-    chargeBlast, isCharge, lootOn, scorchTiles, tileVisibility, type ChargeId,
+    blastsInOrder, isCharge, lootOn, scorchTiles, tileVisibility, type ChargeId,
     COMBAT_SIGHT, isKnownNow, negotiatorCalling, offerEffect, releasable, tradeable, drivePlan, footprint, isDown, OFFICER_STATS, poseKey, seenWedges, THROWABLES, vehicleDef, vehicleReach, weaponDef,
     type Command, type KnownView, type Pose, type Pos, type ReadonlyWorld, type State
 } from '../sim';
@@ -141,15 +141,14 @@ export function chargeViews(world: ReadonlyWorld, state: State, pending: Command
         const e = world.edges[edge]!;
         return e.run === 'eastWest' ? { x: e.tx + 0.5, y: e.ty } : { x: e.tx, y: e.ty + 0.5 };
     };
-    const wall = (kind: ChargeId, edge: string, from: Pos, fuse: number, preview: boolean): ChargeVM => {
-        const blast = chargeBlast(world, state, kind, edge, from);
-        return { kind, at: middle(edge), tiles: blast.tiles.filter(shown), loot: lootAt(blast.loot), fuse, ...(preview ? { preview: true } : {}) };
-    };
-    const out: ChargeVM[] = (state.charges ?? []).map(c => wall(c.kind, c.edge, c.from, Math.max(1, c.turn - state.turn + 1), false));
-    if (pending?.type === 'placeCharge' && isCharge(pending.item) && world.edges[pending.edge]) {
-        const m = state.crew.find(c => c.id === pending.crew);
-        if (m) out.push(wall(pending.item, pending.edge, m.pos, 1, true));
-    }
+    // Every charge lying, and the one previewed after them, as the fuses step plays them: in turn (decision 208).
+    const m = pending?.type === 'placeCharge' && isCharge(pending.item) && world.edges[pending.edge] ? state.crew.find(c => c.id === pending.crew) : undefined;
+    const extra = m && pending?.type === 'placeCharge'
+        ? { id: 'preview', kind: pending.item as ChargeId, by: m.id, edge: pending.edge, from: { ...m.pos }, turn: state.turn } : undefined;
+    const out: ChargeVM[] = blastsInOrder(world, state, extra).map(({ charge, blast }) => ({
+        kind: charge.kind, at: middle(charge.edge), tiles: blast.tiles.filter(shown), loot: lootAt(blast.loot),
+        fuse: Math.max(1, charge.turn - state.turn + 1), ...(charge === extra ? { preview: true } : {})
+    }));
     const burning = (state.devices ?? []).filter(d => d.kind === 'thermite' && d.done < d.needed && world.doors[d.at]);
     const scorch = (door: string, at: Pos, fuse: number, preview: boolean): ChargeVM =>
         ({ kind: 'thermite', at: { x: at.x + 0.5, y: at.y + 0.5 }, tiles: [], loot: lootAt(lootOn(state, scorchTiles(world, state, door))), fuse, ...(preview ? { preview: true } : {}) });

@@ -536,7 +536,8 @@ export const BESIDE_DOOR = `(() => { ${PAGE_HELPERS}
 
 /**
  * Mara beside a wall a charge opens (M4-01): a plaster wall for a breach charge, else a concrete or brick one for a
- * shaped charge, with free floor both sides, inside the building, preferring one with loot lying within a tile of it
+ * shaped charge, with free floor both sides, inside the building, the far side known for a breach charge (preferred for
+ * a shaped one), preferring one with loot lying within a tile of it
  * (the preview's crosses); she carries both charges. `info` names the segment and the charge.
  */
 export const BESIDE_WALL = (material: 'soft' | 'reinforced') => `(() => { ${PAGE_HELPERS}
@@ -550,11 +551,14 @@ export const BESIDE_WALL = (material: 'soft' | 'reinforced') => `(() => { ${PAGE
         if (!free(base, a) || !free(base, b)) continue;
         const ta = w.tiles[a.y * w.width + a.x], tb = w.tiles[b.y * w.width + b.x];
         const inside = r => !!r && (!w.building || w.building.includes(r));
-        if (!inside(ta.room) || !inside(tb.room) || ta.raised || tb.raised) continue;
-        // Public floor both sides is on the blueprint, so the preview shows its far side; nobody near, so nobody sees.
+        if (!inside(ta.room) || !inside(tb.room) || ta.raised || tb.raised || ta.halfCover || tb.halfCover || ta.tall || tb.tall) continue;
+        // Both sides known (not hidden), so the preview shows its far side (for a shaped charge only preferred: the
+        // blast shows the far side through the gap); nobody near, so nobody sees.
+        const known = sim.visibility(a, base) !== 'hidden' && sim.visibility(b, base) !== 'hidden';
+        if (!known && '${material}' === 'soft') continue;
         const open = ta.zone === 'public' && tb.zone === 'public' ? 1 : 0;
         const near = base.npcs.filter(n => n.status !== 'away' && Math.abs(n.pos.x - a.x) + Math.abs(n.pos.y - a.y) < 7).length;
-        options.push({ key, a, b, score: open * 8 + (e.run === 'eastWest' ? 6 : 0) + lootNear(a, b) * 3 - near });
+        options.push({ key, a, b, score: (known ? 20 : 0) + open * 8 + (e.run === 'eastWest' ? 6 : 0) + lootNear(a, b) * 3 - near });
     }
     options.sort((p, q) => q.score - p.score);
     for (const o of options) {
@@ -572,17 +576,39 @@ export const BESIDE_WALL = (material: 'soft' | 'reinforced') => `(() => { ${PAGE
 })()`;
 
 /** Mara's charge set on the wall, then the turn ended: the gap, and the shaped charge's debris. */
-const blowWall = async (page: Page, info: { edge: string; item: string; at: { x: number; y: number }; far: { x: number; y: number } }): Promise<void> => {
+type Wall = { edge: string; item: string; at: { x: number; y: number }; far: { x: number; y: number } };
+
+/** Mara walks to a tile two or more from the gap on her side (back from it, else along the wall), so she covers neither it nor the debris. */
+export const stepAside = async (page: Page, info: Wall): Promise<void> => {
+    await page.evaluate(i => {
+        const sim = (window as any).sim, dx = i.at.x - i.far.x, dy = i.at.y - i.far.y;
+        const tries = [2, 3, 1].map(k => ({ x: i.at.x + dx * k, y: i.at.y + dy * k }))
+            .concat([2, -2, 3, -3].map(k => ({ x: i.at.x + dy * k, y: i.at.y + dx * k })));
+        for (const to of tries) {
+            const path = sim.path('mara', to);
+            if (path?.length) return sim.commit({ type: 'move', crew: 'mara', path });
+        }
+    }, info);
+    await page.waitForFunction(() => !(window as any).game.scene.getScene('bank').debugState.play?.playing);
+};
+
+export const blowWall = async (page: Page, info: Wall): Promise<void> => {
     await page.evaluate(i => {
         const sim = (window as any).sim;
         sim.commit({ type: 'placeCharge', crew: 'mara', item: i.item, edge: i.edge });
         sim.commit({ type: 'endTurn' });
     }, info);
     await page.waitForFunction(() => !(window as any).game.scene.getScene('bank').debugState.play?.playing);
-    // Looking from a few tiles south of it, so the wall stands full height.
-    await lookAt(page, { x: info.at.x, y: Math.max(info.at.y, info.far.y) + 3 });
+    await stepAside(page, info);
+    // Looking from two tiles south of the wall, so it stands near full height with both sides in frame; the world
+    // overlay (the blast's sound ping sits on the gap) and the HUD hidden: the picture is of the art.
+    await lookAt(page, { x: (info.at.x + info.far.x) / 2, y: Math.max(info.at.y, info.far.y) + 2 });
+    await page.addStyleTag({ content: HIDE_FOR_ART });
     await page.waitForTimeout(800);
 };
+
+/** The world overlay and the HUD, hidden for a picture of the bank's art alone. */
+export const HIDE_FOR_ART = '.world-overlay, .sh, .play-speed, .play-toast, .camera-controls, .fullscreen-button { display: none !important; }';
 
 export const SETUPS: Record<string, Setup> = {
     'charge-preview': {

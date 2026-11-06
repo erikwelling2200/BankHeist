@@ -1,5 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
-import { BESIDE_WALL } from './setups';
+import { BESIDE_WALL, blowWall, HIDE_FOR_ART, stepAside } from './setups';
 
 /*
  * M4-01 in the page: a breach charge previewed beside a wall (the loud board's charge with its fuse), set, and gone off
@@ -8,6 +8,7 @@ import { BESIDE_WALL } from './setups';
  */
 
 interface Pos { x: number; y: number }
+interface Wall { edge: string; item: string; at: Pos; far: Pos }
 
 const scene = (page: Page) => page.evaluate(() => (window as any).game.scene.getScene('bank').debugState);
 const idle = (page: Page) => expect.poll(async () => (await scene(page)).play.playing, { timeout: 15000 }).toBe(false);
@@ -30,11 +31,14 @@ async function open<T>(page: Page, script: string): Promise<{ info: T; errors: s
 }
 
 test('charges: a breach charge previewed, set and gone off, the gap walked through (M4-01)', async ({ page }) => {
-    const { info, errors } = await open<{ edge: string; item: string; at: Pos; far: Pos }>(page, BESIDE_WALL('soft'));
+    const { info, errors } = await open<Wall>(page, BESIDE_WALL('soft'));
     await page.locator('.sh-rail .sh-crew').nth(0).click();
     await page.locator(`.sh-actions button[data-action="charge:${info.item}"]`).click();
     await expect.poll(async () => (await scene(page)).play.boards?.charges?.length ?? 0).toBe(1);
-    expect((await scene(page)).play.boards.charges[0]).toMatchObject({ kind: 'breachCharge', fuse: 1, preview: true });
+    const shown = (await scene(page)).play.boards.charges[0];
+    expect(shown).toMatchObject({ kind: 'breachCharge', fuse: 1, preview: true });
+    // The far side is known, so it is drawn.
+    expect(shown.tiles.length).toBeGreaterThan(0);
     await lookAt(page, info.at);
     await page.waitForTimeout(300);
     await page.screenshot({ path: 'screenshots/charge-preview.png' });
@@ -47,29 +51,25 @@ test('charges: a breach charge previewed, set and gone off, the gap walked throu
     const state = await page.evaluate(() => (window as any).sim.state);
     expect(state.edges[info.edge]).toMatchObject({ gap: true, blocksMove: false });
     expect(state.bank.loud).toBe(true);
-    // Through the gap.
     await page.evaluate(i => (window as any).sim.commit({ type: 'move', crew: 'mara', path: [i.far] }), info);
     await idle(page);
     expect(await page.evaluate(() => (window as any).sim.state.crew[0].pos)).toEqual(info.far);
-    await lookAt(page, { x: info.at.x, y: Math.max(info.at.y, info.far.y) + 3 });
+    // And away from the gap, so the picture shows it.
+    await stepAside(page, info);
+    await idle(page);
+    await lookAt(page, { x: (info.at.x + info.far.x) / 2, y: Math.max(info.at.y, info.far.y) + 2 });
+    await page.addStyleTag({ content: HIDE_FOR_ART });
     await page.waitForTimeout(600);
     await page.screenshot({ path: 'screenshots/wall-gap.png' });
     expect(errors).toEqual([]);
 });
 
 test('charges: a shaped charge through a reinforced wall leaves debris (M4-01)', async ({ page }) => {
-    const { info, errors } = await open<{ edge: string; item: string; at: Pos; far: Pos }>(page, BESIDE_WALL('reinforced'));
-    await page.evaluate(i => {
-        const sim = (window as any).sim;
-        sim.commit({ type: 'placeCharge', crew: 'mara', item: i.item, edge: i.edge });
-        sim.commit({ type: 'endTurn' });
-    }, info);
-    await idle(page);
+    const { info, errors } = await open<Wall>(page, BESIDE_WALL('reinforced'));
+    await blowWall(page, info);
     const state = await page.evaluate(() => (window as any).sim.state);
     expect(state.edges[info.edge]).toMatchObject({ gap: true });
-    expect(state.debris.length).toBeLessThanOrEqual(1);
-    await lookAt(page, { x: info.at.x, y: Math.max(info.at.y, info.far.y) + 3 });
-    await page.waitForTimeout(600);
+    expect(state.debris).toEqual([info.far]);
     await page.screenshot({ path: 'screenshots/wall-debris.png' });
     expect(errors).toEqual([]);
 });

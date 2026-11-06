@@ -144,6 +144,8 @@ export function fortifyBlocked(world: ReadonlyWorld, state: State, member: DeepR
     if (!built) return 'There is no wall there';
     if (!besideEdge(world, edge, member.pos)) return `${member.name} isn't beside it`;
     const now = edgeNow(world, state, edge)!, mine = fortificationOf(state, edge);
+    // A gap blown through it (M4-01) is a hole: nothing to barricade, reinforce or hang blinds on.
+    if (now.gap) return 'There is a hole blown through it';
     const handsFull = member.dragging !== null || member.loadout.carrying !== null;
     const door = built.door ? world.doors[built.door] : undefined;
     if (door && (action === 'barricade' || action === 'clear' || action === 'reinforce') && underBreach(state, door.id)) return 'The police are breaking in here';

@@ -1,4 +1,5 @@
 import {
+    tileVisibility, type TileVisibility,
     newUnit, type PoliceKind, type PoliceUnit,
     attackCone, type ShotPreview, effectOf, safeFloor, type ActionPreview, type AutoStop, type CommandRings, type Effect, type SimEvent, type WaitOption, type WaitTarget, type Explanation, type FloorBand, type PathSafety, type SafeFloor, crewBudget, planMoveOptions, crewPicture, isKnownNow, pathTo, whyNot, reachable, updateKnowledge, type Command, type CommitResult, type Pos, type PreviewResult, type ReadonlyWorld, type State
 } from '../sim';
@@ -69,6 +70,8 @@ export interface SimHandle {
     whyNot(cmd: Command, state?: State): string | undefined;
     /** Whether the crew knows where NPC `id` is now (§8.15) in `state` (the current one by default). */
     knows(id: string, state?: State): boolean;
+    /** How the crew sees tile `p` in `state` (the current one by default): hidden, seen or stale (decision 44). */
+    visibility(p: Pos, state?: State): TileVisibility;
     /** The evidence the crew knows of and what the coming world phase does about it, in `state` (the current one by default). */
     found(state?: State): EvidenceWarning[];
     /**
@@ -109,6 +112,7 @@ export function installDebugHandle(session: Session, target: { sim?: SimHandle }
         cone: cmd => attackCone(session.world, session.state, cmd),
         whyNot: (cmd, state = session.state) => whyNot(session.world, state, cmd),
         knows: (id, state = session.state) => isKnownNow(session.world, state, id),
+        visibility: (p, state = session.state) => tileVisibility(session.world, state, p),
         found: (state = session.state) => evidenceWarnings(session.world, state),
         waitOptions: () => waitMenu(session).map(({ target, label }) => ({ target, label })),
         waitFor: target => {

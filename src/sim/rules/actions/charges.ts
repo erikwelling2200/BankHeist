@@ -1,11 +1,12 @@
 import { registerWorldHook, type Ctx } from '../../core/engine';
 import { edgeBetween, edgeKey, inBounds, samePos, tileAt } from '../../core/grid';
-import { sortedIds } from '../../core/json';
+import { clonePlain, sortedIds } from '../../core/json';
 import { registerStateCheck } from '../../core/save';
 import { edgeNow, newId, registerCrewInit, registerStateInit } from '../../core/state';
 import type { CrewState, DeepReadonly, EdgeKey, Pos, ReadonlyWorld, State } from '../../core/types';
 import { registerEvents } from '../../core/undo';
 import { CHARGES, isCharge, TRIPWIRE, type ChargeId } from '../../data/weapons';
+import { vehicleAt } from '../../geo/drive';
 import { sightMap } from '../../geo/los';
 import { ABSENT_STATUSES } from '../../geo/move';
 import { tileKey } from '../../geo/shot';
@@ -19,7 +20,7 @@ import { lacksActions, registerAction } from './act';
 import { blastTiles } from './throwables';
 
 /*
- * Charges, gaps and explosions (GAME_DESIGN §12.2, §14.2; implementation plan M4-01, decisions 200–207).
+ * Charges, gaps and explosions (GAME_DESIGN §12.2, §14.2; implementation plan M4-01, decisions 200–208).
  *
  * - **Wall charges** (`placeCharge { crew, item, edge }`): a breach charge (Glass and Soft walls and doors) or a shaped
  *   charge (Reinforced too, and teller glass), 1 action, hands free, from a tile beside the segment, on a segment its
@@ -39,9 +40,11 @@ import { blastTiles } from './throwables';
  *   - a loud noise where it stood (14; a shaped charge 18), and the bank goes Loud.
  * - **Tripwires** (`placeTripwire { crew, at }`): a combat tool like grenades (decision 101), placed only once the bank
  *   is Loud, 1 action, hands free, on the crew member's tile or one next to it they could step to; the illegal act
- *   'plantCharge'. It goes off when an NPC or an officer steps onto its tile (rules/steps.ts: a passive walk stops there
- *   and it goes off once they all have moved; a fighter sets it off as it steps): 6 damage, lethal, to everyone within its
+ *   'plantCharge'. It goes off as an NPC or an officer steps onto its tile (rules/steps.ts), at that moment, in
+ *   the passive walks as in a fighter's (one entering the map onto it too): 6 damage, lethal, to everyone within its
  *   radius of 1 the tile sees (as a grenade's blast), the crew included, and a loud noise of 14.
+ * - **Several charges** lying go off in the order they were set, each on the bank as the ones before left it; the
+ *   overlay plays them so too (`blastsInOrder`, decision 208).
  * - **Thermite** at the vault door (rules/vault.ts) scorches the loot within one tile of the door every world phase it
  *   burns (`scorchTiles`, `scorch`), as its preview shows.
  */
@@ -167,7 +170,8 @@ export function chargeBlast(world: ReadonlyWorld, state: State, kind: ChargeId, 
     const door = world.edges[edge]!.door ?? null;
     const tiles = strip(world, state, edge, far), around = [...strip(world, state, edge, near), ...tiles];
     const t = inBounds(world, far) ? tileAt(world, far)! : undefined;
-    const covered = !t || t.blocksMove || t.tall || t.halfCover || state.debris.some(p => samePos(p, far)) || state.flipped.some(f => samePos(f.at, far));
+    const covered = !t || t.blocksMove || t.tall || t.halfCover || state.debris.some(p => samePos(p, far)) || state.flipped.some(f => samePos(f.at, far))
+        || vehicleAt(world, state, far) !== undefined;
     return { door, tiles, loot: lootOn(state, around), debris: CHARGES[kind].debris && !door && !covered ? { ...far } : null };
 }
 
@@ -282,14 +286,14 @@ registerAction('placeCharge', {
     }
 });
 
-/** A wall charge going off (see the header). */
-function blow(ctx: Ctx, charge: Charge): void {
-    const { world, state } = ctx, def = CHARGES[charge.kind];
-    const blast = chargeBlast(world, state, charge.kind, charge.edge, charge.from);
-    // What the crew fortified there goes with it (M4-02): a barricade, blinds, a reinforced door's bar.
+/**
+ * What a blast does to the fabric of the bank, without its harm or its noise: the segment opened (what the crew
+ * fortified there goes with it, M4-02: a barricade, blinds, the reinforcing), the loot ruined, the debris.
+ */
+function openUp(world: ReadonlyWorld, state: State, charge: DeepReadonly<Charge>, blast: ChargeBlast): void {
     const segments = blast.door ? sortedIds(world.edges).filter(k => world.edges[k]!.door === blast.door) : [charge.edge];
     for (const key of segments) {
-        if (state.edges[key]?.reinforced && blast.door) dropField(state, key, 'reinforced', 'material', 'barredFrom');
+        if (state.edges[key]?.reinforced) dropField(state, key, 'reinforced', 'material', 'barredFrom');
         if (Object.hasOwn(state.edges, key)) dropField(state, key, 'barricade', 'blinds');
     }
     if (blast.door) state.doors[blast.door] = { ...state.doors[blast.door], status: 'breached' };
@@ -297,13 +301,37 @@ function blow(ctx: Ctx, charge: Charge): void {
         const was = Object.hasOwn(state.edges, charge.edge) ? state.edges[charge.edge]! : {};
         state.edges[charge.edge] = { ...was, blocksMove: false, blocksSight: false, blocksSound: false, midHeight: false, gap: true };
     }
+    for (const id of blast.loot) state.loot[id]!.ruined = true;
+    if (blast.debris) state.debris.push({ ...blast.debris });
+}
+
+/**
+ * The charges lying (and `extra`, a charge previewed, set after them), each as it would go off in the next world
+ * phase's fuses step: one after another in the order they were set, each on the bank as the ones before left it
+ * (decision 208). What the overlay draws; the fuse plays the same order with the same function.
+ */
+export function blastsInOrder(world: ReadonlyWorld, state: State, extra?: DeepReadonly<Charge>): { charge: DeepReadonly<Charge>; blast: ChargeBlast }[] {
+    const lying: DeepReadonly<Charge>[] = [...state.charges, ...(extra ? [extra] : [])];
+    if (!lying.length) return [];
+    const copy = clonePlain(state), out: { charge: DeepReadonly<Charge>; blast: ChargeBlast }[] = [];
+    for (const charge of lying) {
+        const blast = chargeBlast(world, copy, charge.kind, charge.edge, charge.from);
+        openUp(world, copy, charge, blast);
+        out.push({ charge, blast });
+    }
+    return out;
+}
+
+/** A wall charge going off (see the header). */
+function blow(ctx: Ctx, charge: Charge): void {
+    const { world, state } = ctx, def = CHARGES[charge.kind];
+    const blast = chargeBlast(world, state, charge.kind, charge.edge, charge.from);
+    const lost = blast.loot.map(id => ({ id, at: { ...state.loot[id]!.pos } }));
+    openUp(world, state, charge, blast);
     ctx.emit({ type: 'chargeWentOff', charge: charge.id, kind: charge.kind, by: charge.by, edge: charge.edge, door: blast.door, tiles: blast.tiles.map(p => ({ ...p })) });
     blastHarm(ctx, blast.tiles, def.damage, charge.by, charge.kind);
-    destroyLoot(ctx, blast.loot, 'blast');
-    if (blast.debris) {
-        state.debris.push(blast.debris);
-        ctx.emit({ type: 'debrisFell', at: { ...blast.debris } });
-    }
+    for (const l of lost) ctx.emit({ type: 'lootDestroyed', loot: l.id, at: l.at, cause: 'blast' });
+    if (blast.debris) ctx.emit({ type: 'debrisFell', at: { ...blast.debris } });
     makeNoise(ctx, charge.kind, charge.from, `${charge.kind} ${charge.by}`, undefined, charge.by);
     goLoud(ctx, `${charge.kind} ${charge.by}`);
 }

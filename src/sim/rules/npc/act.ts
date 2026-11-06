@@ -134,26 +134,31 @@ function walk(ctx: Ctx, phase: WorldPhase): void {
     // Judged before anyone is moved, like the overlay: on where the walks end.
     const effects = actionEffects(state, phase.intents, walking, endOf, crewAt);
     const byId = new Map(state.npcs.map(n => [n.id, n]));
-    const tripped: { npc: string; at: Pos }[] = [];
+    // Walkers a tripwire took down (M4-01): their walks, frisks and tellings end there.
+    const cut = new Set<string>();
+    const down = (id: string): boolean => byId.get(id)!.status === 'dead' || byId.get(id)!.status === 'unconscious';
     for (const w of walks) {
         const npc = byId.get(w.npc)!, intent = phase.intents[w.npc]!;
+        // Felled by a tripwire before its turn to walk: it lies where it stood.
+        if (!w.entered && down(npc.id)) { cut.add(npc.id); continue; }
         if (w.entered) {
             const at = w.steps[0];
             if (!at) continue;
             npc.pos = { x: at.x, y: at.y };
             npc.status = npc.alerted ? 'alerted' : 'calm';
             ctx.emit({ type: 'npcEntered', npc: npc.id, at: { x: at.x, y: at.y } });
+            if (stopsWalk(state, at)) {
+                steppedOn(ctx, npc.id, at);
+                if (down(npc.id)) cut.add(npc.id);
+            }
             continue;
         }
-        const from = { x: npc.pos.x, y: npc.pos.y };
-        let prev: Pos = from, steps = w.steps;
-        // A walk that steps onto a tripwire stops there; it goes off once every walker has moved (M4-01).
-        const wire = steps.findIndex(p => stopsWalk(state, p));
-        if (wire >= 0) {
-            steps = steps.slice(0, wire + 1);
-            tripped.push({ npc: npc.id, at: steps[wire]! });
-        }
-        for (const p of steps) {
+        let from = { x: npc.pos.x, y: npc.pos.y }, prev: Pos = from, walked: Pos[] = [];
+        // A tripwire goes off as the walker steps on it (M4-01), with everyone else where they are at that moment: the
+        // walk goes on only if it is still standing (nobody else stops on its tile: the walks never end on one tile, and
+        // anyone it fells lies down, which no walk is stopped by).
+        let stopped = false;
+        for (const p of w.steps) {
             const door = Math.abs(p.x - prev.x) + Math.abs(p.y - prev.y) === 1 ? doorBetween(world, prev, p) : undefined;
             if (door) {
                 const status = doorStatus(world, state, door.id);
@@ -165,9 +170,20 @@ function walk(ctx: Ctx, phase: WorldPhase): void {
             npc.facing = facingToward(prev, p) ?? npc.facing;
             npc.pos = { x: p.x, y: p.y };
             prev = p;
+            walked.push({ x: p.x, y: p.y });
+            if (!stopsWalk(state, p)) continue;
+            ctx.emit({ type: 'npcWalked', npc: npc.id, from, path: walked });
+            from = { x: p.x, y: p.y };
+            walked = [];
+            steppedOn(ctx, npc.id, p);
+            if (down(npc.id)) {
+                stopped = true;
+                cut.add(npc.id);
+                break;
+            }
         }
-        if (steps.length) ctx.emit({ type: 'npcWalked', npc: npc.id, from, path: steps.map(p => ({ x: p.x, y: p.y })) });
-        if (wire >= 0) continue;
+        if (walked.length) ctx.emit({ type: 'npcWalked', npc: npc.id, from, path: walked });
+        if (stopped) continue;
         if (!w.complete) {
             const next = w.stop?.next ?? intent.path[w.steps.length]!;
             npc.facing = facingToward(npc.pos, next) ?? npc.facing;
@@ -182,9 +198,7 @@ function walk(ctx: Ctx, phase: WorldPhase): void {
             ctx.emit({ type: 'npcLeft', npc: npc.id, at: { x: npc.pos.x, y: npc.pos.y } });
         }
     }
-    for (const t of tripped) steppedOn(ctx, t.npc, t.at);
-    // A walk cut short by a tripwire doesn't get where its frisk or its telling was judged.
-    const cut = new Set(tripped.map(t => t.npc));
+    // A walker a tripwire took down doesn't get where its frisk or its telling was judged.
     for (const e of effects) {
         const npc = byId.get(e.npc)!, member = state.crew.find(c => c.id === e.crew);
         if (!member || cut.has(e.npc) || cut.has(e.by)) continue;

@@ -1660,6 +1660,11 @@ export function projectEvents(world: ReadonlyWorld, state: State, events: readon
         if (typeof fields.door === 'string' && !(typeof fields.by === 'string' && crewIds.has(fields.by)) && !seesDoor(fields.door)) continue;
         // Loot a blast or thermite destroyed where the crew has never looked isn't told (M4-01).
         if (e.type === 'lootDestroyed' && tileVisibility(world, base, e.at) === 'hidden') continue;
+        // A blast's tiles only where the crew has a picture of the floor: the layout of a hidden room isn't told.
+        if (e.type === 'chargeWentOff' || e.type === 'tripwireWentOff') {
+            out.push({ ...e, tiles: e.tiles.filter(p => tileVisibility(world, base, p) !== 'hidden').map(p => ({ ...p })) });
+            continue;
+        }
         if (e.type === 'heard') {
             const npcs = e.npcs.filter(known);
             if (npcs.length) out.push({ ...e, npcs });

@@ -1,8 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import {
-    chargeBlast, commit, coverAgainst, edgeNow, fixtureWorld, initialState, lineOfSight, legalActions, preview, scorchTiles, shotFabric, shotMap, sightMap, stepCost, whyNot,
+    blastsInOrder, chargeBlast, commit, footprint, coverAgainst, edgeNow, fixtureWorld, initialState, lineOfSight, legalActions, preview, scorchTiles, shotFabric, shotMap, sightMap, stepCost, whyNot,
     type Command, type FixtureOptions, type PersonDef, type Pos, type ReadonlyWorld, type SimEvent, type State, type WorldObject
 } from '../../src/sim';
+import type { KeyLock } from '../../src/gen/model';
 
 /*
  * Charges, gaps and explosions (M4-01, GAME_DESIGN §12.2, §14.2): breach and shaped charges on walls and doors, the gap
@@ -129,9 +130,46 @@ describe('wall charges', () => {
         expect(whyNot(world, set, place('shapedCharge', 'northSouth 4 0'))).toMatch(/no shapedCharge/);
     });
 
-    it('preview the placing as the commit does it', () => {
-        const { world, state } = setup(MAP, { walls: wall('soft'), jun: P(3, 1) });
-        expect(preview(world, state, place()).events).toEqual(commit(world, state, place()).events);
+    it('show their blast in the end-of-turn preview exactly as it happens', () => {
+        const { world, state } = setup(MAP, { walls: wall('soft'), jun: P(3, 1), people: [person('cust', P(4, 2))], objects: [loot('bag', P(4, 0))] });
+        const set = commit(world, state, place()).state;
+        const shown = preview(world, set, { type: 'endTurn' }), done = commit(world, set, { type: 'endTurn' });
+        expect(shown.pending).toBeUndefined();
+        const blast = (events: readonly SimEvent[]) => events.filter(e => ['chargeWentOff', 'harmed', 'lootDestroyed', 'wentLoud'].includes(e.type));
+        expect(blast(shown.events)).toEqual(blast(done.events));
+        expect(types(blast(done.events))).toEqual(['chargeWentOff', 'harmed', 'lootDestroyed', 'wentLoud']);
+    });
+
+    it('two going off together play in the order set, each on what the one before left: as blastsInOrder shows', () => {
+        // Two charges on neighbouring segments, a bag between their strips: the first destroys it, the second finds nothing.
+        const { world, state } = setup(MAP, { walls: wall('soft'), jun: P(3, 1), objects: [loot('bag', P(4, 1))] });
+        state.crew[0]!.charges.breachCharge = 2;
+        const one = commit(world, state, place()).state;
+        one.crew[0]!.actionsLeft = 2;
+        one.crew[0]!.pos = P(3, 2);
+        const two = commit(world, one, place('breachCharge', 'northSouth 4 2')).state;
+        const shown = blastsInOrder(world, two);
+        expect(shown.map(s => s.blast.loot)).toEqual([['bag'], []]);
+        // On its own, the second would destroy it too: only the combined order says which.
+        expect(chargeBlast(world, two, 'breachCharge', 'northSouth 4 2', P(3, 2)).loot).toEqual(['bag']);
+        const off = commit(world, two, { type: 'endTurn' });
+        expect(off.events.filter(e => e.type === 'lootDestroyed')).toHaveLength(1);
+        expect(off.events.filter(e => e.type === 'chargeWentOff').map(e => e.type === 'chargeWentOff' && e.edge)).toEqual(shown.map(s => s.charge.edge));
+    });
+
+    it('leave a gap nobody fortifies, and a blown reinforced wall is reinforced no more', () => {
+        const { world, state } = setup(MAP, { walls: wall('soft'), jun: P(3, 1), items: ['shapedCharge', 'reinforcementKit'] });
+        state.edges[EDGE] = { material: 'reinforced', reinforced: true };
+        const off = commit(world, commit(world, state, place('shapedCharge')).state, { type: 'endTurn' }).state;
+        expect(off.edges[EDGE]!.reinforced).toBeUndefined();
+        expect(edgeNow(world, off, EDGE)!.material).toBe('soft');
+        expect(whyNot(world, off, { type: 'fortify', crew: 'jun', edge: EDGE, action: 'reinforce' })).toMatch(/hole/);
+    });
+
+    it('leave no debris under a vehicle', () => {
+        const { world, state } = setup(MAP, { walls: wall('reinforced'), jun: P(3, 1), drivable: true, vehicles: [{ id: 'van', type: 'van', name: 'Van', width: 2, length: 4, start: { x: 4, y: 1, heading: 'n' } }] });
+        expect(footprint(world.vehicles![0]!, state.vehicles.van!.pose)).toContainEqual(P(4, 1));
+        expect(chargeBlast(world, state, 'shapedCharge', EDGE, P(3, 1)).debris).toBeNull();
     });
 });
 
@@ -156,9 +194,39 @@ describe('tripwires', () => {
     });
 });
 
+describe('tripwires and walkers', () => {
+    it('go off under the first walker; a second crossing after walks on, and nobody ends on another\'s tile', () => {
+        const { world, state } = setup(MAP, { jun: P(0, 0), people: [person('a', P(4, 3)), person('b', P(6, 3))] });
+        state.bank.loud = true;
+        const laid = commit(world, state, { type: 'placeTripwire', crew: 'jun', at: P(1, 1) }).state;
+        laid.crew[0]!.pos = P(7, 0);
+        laid.npcs[0]!.intent = { path: [P(3, 2), P(2, 1), P(1, 1), P(1, 0)] };
+        laid.npcs[1]!.intent = { path: [P(5, 2), P(4, 2), P(3, 2), P(2, 2), P(1, 1), P(0, 1)] };
+        const off = commit(world, laid, { type: 'endTurn' });
+        expect(off.events.filter(e => e.type === 'tripwireWentOff')).toHaveLength(1);
+        const at = (id: string) => off.state.npcs.find(n => n.id === id)!;
+        expect(at('a').status).toBe('dead');
+        expect(at('a').pos).toEqual(P(1, 1));
+        expect(at('b').pos).not.toEqual(at('a').pos);
+    });
+});
+
 describe('thermite', () => {
     it('scorches the loot within a tile of the vault door each phase it burns', () => {
-        const { world, state } = setup(MAP, { walls: wall('vault', 'vault'), jun: P(3, 1) });
-        expect(scorchTiles(world, state, 'vault')).toEqual([P(3, 0), P(4, 0), P(3, 1), P(4, 1), P(3, 2), P(4, 2)]);
+        const lock: KeyLock = {
+            id: 'vault', name: 'Vault', target: 'vaultDoor', room: 'v', holders: [],
+            social: { kind: 'code', parts: ['whole'], text: 'code' }, technical: { kind: 'drill', phases: 3, noise: 6, sensors: [], text: 'drill' },
+            violent: { kind: 'thermite', phases: 2, noise: 6, text: 'thermite' }
+        };
+        const walls = [0, 1, 2, 3].map(y => ({ between: [P(3, y), P(4, y)] as [Pos, Pos], material: 'vault' as const, ...(y === 1 ? { door: { id: 'vaultDoor', lock: 'vault' as const, start: 'locked' as const } } : {}) }));
+        const { world, state } = setup(MAP, {
+            walls, jun: P(3, 1), items: ['thermite'], locks: [lock], rooms: ['aaaavvvv', 'aaaavvvv', 'aaaavvvv', 'aaaavvvv'],
+            objects: [loot('near', P(4, 2)), loot('away', P(6, 1))]
+        });
+        expect(scorchTiles(world, state, 'vaultDoor')).toEqual([P(3, 0), P(4, 0), P(3, 1), P(4, 1), P(3, 2), P(4, 2)]);
+        const set = commit(world, state, { type: 'thermite', crew: 'jun', door: 'vaultDoor' }).state;
+        const burnt = commit(world, set, { type: 'endTurn' });
+        expect(burnt.events.filter(e => e.type === 'lootDestroyed')).toEqual([{ type: 'lootDestroyed', loot: 'near', at: P(4, 2), cause: 'thermite' }]);
+        expect(burnt.state.loot.away!.ruined).toBe(false);
     });
 });
