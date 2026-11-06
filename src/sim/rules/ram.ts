@@ -14,6 +14,7 @@ import { lacksActions } from './actions/act';
 import { dealHarm } from './damage';
 import { markerKind, officerSeen, registerCertainView } from './knowledge';
 import { damageVehicle } from './vehicleDamage';
+import { bodyPos } from './place';
 import { asideUnknown, canDrive, carryAlong, driveBudget, refusalAboard, vehicleDef } from './vehicles';
 import { isDown } from './wounds';
 
@@ -31,7 +32,8 @@ import { isDown } from './wounds';
  * - **someone** standing or lying in the row ahead (one the crew knows of): hit.
  * - **a police car, van, wreck or the roadblock**: rammed, and shoved aside (`shoveSpot`) where there is room: a police
  *   vehicle slid sideways the least that takes it out of the vehicle's lane, its right first; roadblock pieces in the
- *   row are knocked away. A police vehicle with no room stays where it is (it is still rammed).
+ *   row are knocked away. A police vehicle with no room either side is pushed clear off the street (out of play; any
+ *   officers still aboard get out at its staging point): a ram always clears its lane (decision 281).
  * - **another crew vehicle**: rammed, not moved.
  * - **anything harder** (a tile that isn't Drivable or is blocked, a wall along the row, the map's north or south
  *   edge): stops it dead.
@@ -73,8 +75,8 @@ export interface RamPlan {
     people: string[];
     /** The vehicles rammed (police ones, then crew ones), by id. */
     rammed: string[];
-    /** Police vehicles shoved aside, and their new north-west tile. */
-    shoved: { vehicle: string; to: Pos }[];
+    /** Police vehicles shoved aside, and their new north-west tile (null: pushed clear off the street). */
+    shoved: { vehicle: string; to: Pos | null }[];
     /** Roadblock pieces knocked away. */
     pieces: Pos[];
     /** What the ramming vehicle takes. */
@@ -89,8 +91,8 @@ declare module '../core/types' {
     interface EventMap {
         /** A vehicle rammed something (`RamPlan`): the gap it opened and the doors breached, the area hit. */
         rammed: { crew: string; vehicle: string; into: RamTarget; at: Pose; row: Pos[]; gap: EdgeKey[]; doors: string[]; area: Pos[]; rammed: string[] };
-        /** A police vehicle was shoved aside by a ram. */
-        vehicleShoved: { vehicle: string; from: Pos; to: Pos };
+        /** A police vehicle was shoved aside by a ram (`to` null: pushed clear off the street). */
+        vehicleShoved: { vehicle: string; from: Pos; to: Pos | null };
         /** Pieces of the roadblock knocked away by a ram. */
         roadblockCleared: { tiles: Pos[] };
     }
@@ -103,8 +105,12 @@ const rowMajor = (a: Pos, b: Pos): number => a.y - b.y || a.x - b.x;
 /** Who stands or lies on `p`: crew on foot, NPCs on the map, officers out; `known` only those the crew knows of. */
 function peopleOn(world: ReadonlyWorld, state: State, tiles: readonly Pos[], known: boolean): string[] {
     const on = new Set(tiles.map(tileKey)), out: string[] = [];
-    for (const c of state.crew) if (c.aboard === null && on.has(tileKey(c.pos))) out.push(c.id);
-    for (const n of state.npcs) if (!ABSENT_STATUSES.has(n.status) && on.has(tileKey(n.pos)) && (!known || markerKind(world, state, n.id) === 'live')) out.push(n.id);
+    for (const c of state.crew) if (c.aboard === null && !c.wounds.dead && on.has(tileKey(c.pos))) out.push(c.id);
+    // The living only, where their body lies (as a blast, rules/actions/charges.ts): the dead and the stashed are no one to hit.
+    for (const n of state.npcs) {
+        if (ABSENT_STATUSES.has(n.status) || n.status === 'dead' || n.stashed !== null || !on.has(tileKey(bodyPos(state, n)))) continue;
+        if (!known || markerKind(world, state, n.id) === 'live') out.push(n.id);
+    }
     for (const u of state.police.units) if (u.pos && on.has(tileKey(u.pos)) && (!known || officerSeen(world, state, u.id))) out.push(u.id);
     return out;
 }
@@ -194,7 +200,7 @@ export function ramPlan(world: ReadonlyWorld, state: State, cmd: RamCmd, mode: '
             const area = extra.area ?? row;
             return {
                 run, poses, steps, into, row, segments: [], opens: false, gap: [], area, people: peopleOn(world, state, area, mode === 'known'), rammed: [], shoved: [],
-                pieces: [], self: selfDamage(world, cmd.vehicle, member), ...extra
+                pieces: [], self: Math.min(selfDamage(world, cmd.vehicle, member), Math.max(0, v.hp - 1)), ...extra
             };
         };
         // A wall across its front.
@@ -219,19 +225,17 @@ export function ramPlan(world: ReadonlyWorld, state: State, cmd: RamCmd, mode: '
             return plan('wall', { segments: segments.sort(), opens: true, gap: gap.sort(), area: across2 });
         }
         const sideWall = row.some((t, i) => i > 0 && blocks(world, state, row[i - 1]!, t));
-        if (row.some(t => hardTile(world, t)) || sideWall) return plan('hard');
+        // Someone it can see in the row is hit, whatever they stand on.
         if (peopleOn(world, state, row, mode === 'known').length) return plan('person');
+        if (row.some(t => hardTile(world, t)) || sideWall) return plan('hard');
         const crewHit = row.map(t => vehicleAt(world, state, t)).filter((id, i, all): id is string => !!id && id !== cmd.vehicle && all.indexOf(id) === i);
         if (crewHit.length) return plan('vehicle', { rammed: crewHit });
         const copsHit = [...new Set(row.flatMap(t => police.get(tileKey(t)) ?? []))];
         const hitPieces = row.filter(t => pieces.has(tileKey(t))).sort(rowMajor);
         if (copsHit.length || hitPieces.length) {
-            const gone = new Set(hitPieces.map(tileKey)), shoved: { vehicle: string; to: Pos }[] = [];
-            for (const id of copsHit) {
-                const to = shoveSpot(world, state, id, r, across, gone);
-                if (to) shoved.push({ vehicle: id, to });
-            }
-            const moved = shoved.flatMap(s => policeFootprint({ kind: state.police.vehicles.find(p => p.id === s.vehicle)!.kind, pos: s.to }));
+            const gone = new Set(hitPieces.map(tileKey)), shoved: { vehicle: string; to: Pos | null }[] = [];
+            for (const id of copsHit) shoved.push({ vehicle: id, to: shoveSpot(world, state, id, r, across, gone) });
+            const moved = shoved.flatMap(s => (s.to ? policeFootprint({ kind: state.police.vehicles.find(p => p.id === s.vehicle)!.kind, pos: s.to }) : []));
             const area = [...new Map([...row, ...moved].map(t => [tileKey(t), t])).values()].sort(rowMajor);
             return plan('police', { rammed: copsHit, shoved, pieces: hitPieces, area });
         }
@@ -249,9 +253,14 @@ export function ramPlan(world: ReadonlyWorld, state: State, cmd: RamCmd, mode: '
 function ramCut(world: ReadonlyWorld, state: State, plan: RamPlan): { steps: number; by: string | null; at: Pos | null } {
     // Beyond a wall, or in the row of someone it drives into, everyone is hit: elsewhere anyone found was unseen.
     const check = [...plan.steps, ...(plan.into === 'wall' || plan.into === 'person' || !plan.area.length ? [] : [plan.row])];
+    // Only someone the crew didn't see cuts it: those it sees were in the plan.
+    const unseen = (t: Pos): string[] => {
+        const known = new Set(peopleOn(world, state, [t], true));
+        return peopleOn(world, state, [t], false).filter(id => !known.has(id));
+    };
     for (let i = 0; i < check.length; i++) {
-        const hit = check[i]!.find(t => peopleOn(world, state, [t], false).length > 0);
-        if (hit) return { steps: Math.min(i, plan.steps.length), by: peopleOn(world, state, [hit], false)[0] ?? null, at: { ...hit } };
+        const hit = check[i]!.find(t => unseen(t).length > 0);
+        if (hit) return { steps: Math.min(i, plan.steps.length), by: unseen(hit)[0] ?? null, at: { ...hit } };
     }
     return { steps: plan.steps.length, by: null, at: null };
 }
@@ -288,6 +297,7 @@ registerCommand('ram', (ctx, cmd) => {
         if (door && !doors.includes(door)) doors.push(door);
     }
     for (const s of plan.shoved) {
+        if (!s.to) continue;
         const pv = state.police.vehicles.find(p => p.id === s.vehicle)!, was = { ...pv.pos };
         pv.pos = { ...s.to };
         ctx.emit({ type: 'vehicleShoved', vehicle: s.vehicle, from: was, to: { ...s.to } });
@@ -305,6 +315,15 @@ registerCommand('ram', (ctx, cmd) => {
     for (const target of peopleOn(world, state, plan.area, false)) dealHarm(ctx, { target, by: member.id, cause: 'ram', weapon: 'vehicleRam', hits: 1, damage: RAM_DAMAGE, lethal: true });
     for (const id of plan.rammed) damageVehicle(ctx, id, { ram: RAM_HIT_DAMAGE }, 'ram');
     damageVehicle(ctx, cmd.vehicle, { ram: plan.self }, 'ram');
+    // A police vehicle with no room to be shoved aside is pushed clear off the street; its officers still aboard get
+    // out at its staging point.
+    for (const s of plan.shoved) {
+        if (s.to) continue;
+        const i = state.police.vehicles.findIndex(p => p.id === s.vehicle), pv = state.police.vehicles[i]!;
+        state.police.vehicles.splice(i, 1);
+        for (const u of state.police.units) if (u.vehicle === pv.id && u.pos === null) u.vehicle = null;
+        ctx.emit({ type: 'vehicleShoved', vehicle: pv.id, from: { ...pv.pos }, to: null });
+    }
     makeNoise(ctx, 'vehicleRam', frontRow(vehicleDef(world, cmd.vehicle)!, v.pose).filter(t => inBounds(world, t)), `ram ${member.id}`, undefined, member.id);
     goLoud(ctx, `ram ${member.id}`);
 });

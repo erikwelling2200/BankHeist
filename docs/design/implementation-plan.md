@@ -1414,7 +1414,7 @@ M2 is complete: every package below has landed.
     - **Game:** the grid's Ram for the driver (shown with something to ram within reach; refused without the run-up);
       recap lines for the new events.
     - **State:** `VehicleState.hp`, `PoliceVehicle.hp` and `'wreck'`, `PoliceState.roadblock`; the `vehicleDamage` and
-      `police` state checks refuse saves from before. Save shape hash `f9d3f243f85683b4` (with M4-03's and M4-06's fields).
+      `police` and `escaped` state checks refuse saves from before. Save shape hash `2a158b4985ad16e9` (with M4-03's and M4-06's fields).
   - **Deferred:** the planning screen placing the ram truck and the backup car (M4-07; nothing generates them yet), and
     their art in four facings (`van.ts` is the model); police cars, wrecks, the roadblock and a disabled van drawn in
     the bank (the rules have them; the scene draws only the crew's van, and M3-09's driving overlay is still to come),
@@ -1423,8 +1423,15 @@ M2 is complete: every package below has landed.
     stays: it goes round them; only a ram hits); driving into a rammed gap (the building's floor isn't Drivable);
     rams into fences and railings (they stop it dead), into teller glass; breakable street dressing smashed (§20.9);
     police reacting to the van (ramming it, blocking its path on purpose rather than parking at the exits); the side
-    door opened to shoot from; reviving or carrying a downed ally aboard; a crew member who escaped downed still bleeds
-    out in the world phases while the heist goes on; the on-foot escape when every vehicle is disabled.
+    door opened to shoot from; reviving or carrying a downed ally aboard. **Depends on
+    M4-05:** a van disabled by bullets or blasts (its own ram can't, decision 281) leaves the crew the on-foot exits
+    (§15.4 "escape is always possible").
+  - **Review (done):** decisions 281, 282 and 283 amended, 286 added: those who got away are out of play
+    (`State.escaped`, `crewEscaped`); a ram never disables its own vehicle and always clears its lane (a police car with no
+    room is pushed off the street); seen people never cut a ram and are hit wherever they stand; the dead and stashed
+    aren't hit; the ram stopping short of the breach recorded. Tests: escaped crew through 20 world phases, the 1 HP
+    floor, bodies spared, someone seen on undrivable ground, unseen people beyond a breached wall (preview against
+    commit), a boxed-in car pushed clear.
   - **Tests:** `tests/sim/vehicles.test.ts` (a Soft frontage rammed: the gap, the run, who across it is hit, the damage,
     the noise; a door and its barricade; the extra segment's side and a Reinforced wall stopping it; the Wheelman and the
     ram truck; run-up and nothing to ram; a police car shoved, wrecked, boxed in; the roadblock; someone seen in the way;
@@ -2632,24 +2639,32 @@ Later milestones: within each milestone, the `∥` notes in §3 apply. UI packag
 281. **The ram (M4-04, §14.4, §14.2).** Straight ahead, up to the driver's Drive tiles, after at least 2 clear tiles of
     run-up; a row ahead is clear as a Drive's tile is. It drives into, in this order: a wall across its front (all Glass or
     Soft: a gap of its width plus the next segment along on its right, else its left, if that one is Glass or Soft and
-    shut; a door among them is breached; else it stops dead); someone in the row; another crew vehicle; a police vehicle,
-    wreck or roadblock piece; a tile it can't drive on. It stops the tile before, its nose in the breach (it plugs the gap
-    as full cover, the extra segment the way through). Everyone in the impact area (the tiles across the gap, else the
-    row, plus where a shoved car slid to) takes 6, lethal. A police vehicle rammed is slid sideways the least that
-    clears the lane, its right first, onto drivable tiles with no vehicle or roadblock and no wall crossed; with no room
-    it stays. The rammer takes 10, halved (rounded down) with a Wheelman and again in the ram truck. The `vehicleRam`
-    noise (16) at its nose, and the bank goes Loud. With nothing within reach (open street, the plot's edge) it is
-    refused: that is a Drive.
+    shut; a door among them is breached; else it stops dead); someone living it can see in the row (on any tile); a tile
+    it can't drive on; another crew vehicle; a police vehicle, wreck or roadblock piece. It stops the tile before.
+    **Departing from §14.4's "ends up in the breach":** its nose stops against the gap on the street side, not in it. The
+    building's floor isn't Drivable, so a vehicle standing on it could never reverse out (a drive sweeps the tiles it
+    starts on); against the gap it still plugs the breach as full cover, the extra segment the way through. Everyone
+    living in the impact area takes 6, lethal: the tiles across the gap, else the row, plus where a shoved car slid to.
+    The dead and stashed bodies are no one to hit (as a blast). A police vehicle rammed is slid sideways the least that
+    clears the lane, its right first, onto drivable tiles with no vehicle or roadblock and no wall crossed. With no room
+    either side it is pushed clear off the street (out of play, any officers aboard get out at its staging point), so a
+    ram always clears its lane (§15.4). The rammer takes 10, halved (rounded down) with a Wheelman and again in the ram
+    truck, **and never below 1 HP:** its own ram never disables it, so ramming can't strand the crew (§15.4 "escape is
+    always possible"). Bullets and blasts can still disable a vehicle; then the on-foot exits (M4-05) are the way out.
+    The `vehicleRam` noise (16) at its nose, and the bank goes Loud. With nothing within reach (open street, the plot's
+    edge) it is refused: that is a Drive.
 282. **Ramming on what the crew knows (M4-04, as decision 192).** The ram is planned on the crew's picture. Someone
     unseen in the run-up, or in the row ahead of anything but a wall or a person, cuts it before them (`driveCut`):
-    nothing is rammed, the action is spent. Those beyond a breached wall, and on a shoved car's new tiles, are hit
+    nothing is rammed, the action is spent. Someone the crew sees never cuts it: they are in the plan (`RamPlan.people`). Those beyond a breached wall, and on a shoved car's new tiles, are hit
     whoever they are. The player's preview sets everyone unknown on any tile the ram touches aside (`asideUnknown`, also
     the drive's), so it is exactly the ram with nobody there; the commit then tells of whoever it hit.
 283. **Police vehicles on the street (M4-04, §13.4, §15.4).** A police car (2×3) or van (2×4) stands on a footprint
     lying along the street from its `pos` (the north-west tile), parked at the spot nearest its staging point where the
     whole of it fits (decision 193's rule, the footprint for the tile). The staging points are the plot's exits, so the
     perimeter cars block the getaway there: driven round or rammed aside. They block drives only; as cover and on foot
-    they stay as before (deferred).
+    they stay as before (deferred). They block drives before they are drawn in the bank (deferred): their coming is
+    announced by the heat strip's forecast (`nextWave`, "SWAT van, the alley mouth") and the recap's arrival lines, the
+    roadblock by its recap line (`roadblockSet`), and a drive's refusal or the grid's "No way off the plot from here".
 284. **The ram truck and the backup car (M4-04, §14.4, §15.4).** Data and rules now, placed by planning (M4-07). The ram
     truck is a van-sized vehicle that takes half a ram's damage. With more than one crew vehicle, one leaving takes its
     crew away and the heist goes on while someone up is left on the plot with a crew vehicle that can still drive; it ends
@@ -2658,6 +2673,11 @@ Later milestones: within each milestone, the `∥` notes in §3 apply. UI packag
 285. **The Heat 5 roadblock (M4-04, §15.4).** As the Heat 5 wave is sent (not a refill), each staging point gets a
     roadblock: a piece on each drivable tile of the point's column running unbroken through it, at most 3 each way, but
     where a vehicle or anyone stands. Pieces block drives and are knocked away by a ram through them.
+286. **Those who got away are out of play (M4-04 review, §15.4).** As a vehicle leaves the plot, everyone aboard moves
+    from `State.crew` to `State.escaped` (as they were then, the vehicle and the turn; `crewEscaped`) and is forgotten
+    by the map (`forgetCrew`, as an arrest): no world-phase rule bleeds, kills or arrests them, nobody sees or targets
+    them, and they are no crew eyes. Their loot keeps them as its holder; the outcome counts them escaped (dead if they
+    died aboard before leaving) with what they and the vehicle carried.
 
 ### Critical files for implementation
 

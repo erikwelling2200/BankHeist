@@ -510,6 +510,7 @@ const HOLD_WHY: Readonly<Record<string, string>> = { range: 'out of range', sigh
 
 export function describeEvent(world: ReadonlyWorld, state: State, event: SimEvent): string {
     const name = (id: string): string => state.crew.find(c => c.id === id)?.name ?? state.custody.find(c => c.crew.id === id)?.crew.name
+        ?? state.escaped.find(e => e.crew.id === id)?.crew.name
         ?? world.people.find(p => p.id === id)?.name ?? id;
     // A fighter: an NPC by name, a police officer by kind.
     const who = (id: string): string => {
@@ -694,8 +695,9 @@ export function describeEvent(world: ReadonlyWorld, state: State, event: SimEven
         case 'driverChanged': return event.driver ? `${name(event.driver)} took the wheel` : 'Nobody is at the wheel';
         case 'driven': return event.off ? `${name(event.crew)} drove off the plot` : `${name(event.crew)} drove the van ${event.cost} tiles`;
         case 'heistEnded': return OUTCOME_TITLES[event.result];
+        case 'crewEscaped': return `${event.crew.map(name).join(' and ')} got away`;
         case 'rammed': return RAM_TEXT[event.into](name(event.crew));
-        case 'vehicleShoved': return 'A police car was shoved aside';
+        case 'vehicleShoved': return event.to ? 'A police vehicle was shoved aside' : 'A police vehicle was pushed off the street';
         case 'roadblockCleared': return 'The roadblock was knocked aside';
         case 'roadblockSet': return 'The police set up a roadblock';
         case 'vehicleDamaged': return event.police ? `A police vehicle took ${event.damage} damage` : `${vehicleName(world, event.vehicle)} took ${event.damage} damage: ${event.hp} HP`;
@@ -813,7 +815,7 @@ export const OUTCOME_TITLES: Readonly<Record<OutcomeResult, string>> = { success
 export function outcomeView(world: ReadonlyWorld, state: State): OutcomeVM | null {
     const o = state.outcome;
     if (!o) return null;
-    const everyone = [...state.crew, ...state.custody.map(c => c.crew)];
+    const everyone = [...state.crew, ...state.escaped.map(e => e.crew), ...state.custody.map(c => c.crew)];
     const fate = (id: string): OutcomeCrewVM['fate'] => (o.escaped.includes(id) ? 'escaped' : o.dead.includes(id) ? 'dead' : 'arrested');
     const order = [...o.escaped, ...o.arrested, ...o.dead];
     return {

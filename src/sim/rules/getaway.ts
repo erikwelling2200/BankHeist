@@ -1,18 +1,20 @@
 import { registerCommandGate, registerCommandHook, type Ctx } from '../core/engine';
 import { sortedIds } from '../core/json';
 import { registerRuleDefaults, registerStateInit } from '../core/state';
-import type { DeepReadonly, ReadonlyWorld, State } from '../core/types';
+import { registerStateCheck } from '../core/save';
+import type { CrewState, DeepReadonly, ReadonlyWorld, State } from '../core/types';
 import { registerEvents } from '../core/undo';
 import { lootObject } from './hands';
 import { heatOf } from './heat';
 import { registerLeaveHook } from './vehicles';
-import { isDown } from './wounds';
+import { forgetCrew, isDown } from './wounds';
 
 /*
  * Leaving the plot and how the heist ends (§15.4, §15.5).
  *
  * - **Leaving.** The driver drives the vehicle off a plot edge (rules/vehicles.ts): everyone aboard escapes with what
- *   they carry and what is in the hold. With one crew vehicle that ends the heist (decision 177): crew left behind are
+ *   they carry and what is in the hold, and are out of play from then on (`State.escaped`, decision 286: no rule on
+ *   the map sees, bleeds, arrests or counts them). With one crew vehicle that ends the heist (decision 177): crew left behind are
  *   arrested, alive or down, and the dead stay dead. With a second (the backup car, decision 284) the heist goes on while
  *   someone is still up on the plot and a crew vehicle that can drive (not disabled) is still there; it ends when the
  *   last such vehicle leaves or nobody up is left behind.
@@ -29,6 +31,9 @@ import { isDown } from './wounds';
  */
 
 export type OutcomeResult = 'success' | 'partial' | 'failure';
+
+/** A crew member who left the plot (decision 286): as they were, the vehicle they left in and the turn. */
+export interface Escaped { crew: CrewState; vehicle: string; turn: number }
 
 /** How the heist ended (§15.5): the debrief's data. */
 export interface HeistOutcome {
@@ -56,6 +61,11 @@ declare module '../core/types' {
     interface State {
         /** How the heist ended, or null while it goes on (§15.5). */
         outcome: HeistOutcome | null;
+        /**
+         * The crew who have left the plot in a vehicle (decision 286): out of play, as they were when they left, in the
+         * order they left. Their loot keeps them as its holder.
+         */
+        escaped: Escaped[];
     }
     interface Rules {
         /** The loot that must leave in the getaway for a Success (§15.1, §15.5): the contract's target. */
@@ -64,6 +74,8 @@ declare module '../core/types' {
     interface EventMap {
         /** The heist is over (§15.5): the outcome is in `State.outcome`. */
         heistEnded: { result: OutcomeResult; value: number; target: number; escaped: string[] };
+        /** Crew members left the plot aboard `vehicle`: out of play from now on (decision 286). */
+        crewEscaped: { vehicle: string; crew: string[] };
     }
 }
 
@@ -71,15 +83,16 @@ registerRuleDefaults({ contractTarget: 0 });
 
 registerStateInit('outcome', (_world, state) => {
     state.outcome = null;
+    state.escaped = [];
 });
+
+// A save from before M4-04 has no escaped crew.
+registerStateCheck('escaped', raw => (Array.isArray((raw as { escaped?: unknown }).escaped) ? undefined : 'no escaped crew (a save from before M4-04)'));
 
 const valueOf = (world: ReadonlyWorld, id: string): number => lootObject(world, id).loot.value;
 
 /** The crew vehicles that have left the plot (with `also`, one leaving now). */
 const goneVehicles = (state: DeepReadonly<State>, also: string | null): string[] => sortedIds(state.vehicles).filter(id => state.vehicles[id]!.gone || id === also);
-
-/** Whether a crew member is away: aboard a vehicle that has left the plot. */
-const isAway = (state: DeepReadonly<State>, c: DeepReadonly<{ aboard: string | null }>): boolean => c.aboard !== null && !!state.vehicles[c.aboard]?.gone;
 
 /**
  * The heist's outcome were it to end now, with the crew aboard every vehicle that has left and aboard `vehicle` away
@@ -88,10 +101,10 @@ const isAway = (state: DeepReadonly<State>, c: DeepReadonly<{ aboard: string | n
 export function outcomeNow(world: ReadonlyWorld, state: DeepReadonly<State>, vehicle: string | null): HeistOutcome {
     // Everyone aboard leaves with the vehicle, and what they carry with them; the dead among them count only as dead.
     const left = goneVehicles(state, vehicle);
-    const aboard = state.crew.filter(c => c.aboard !== null && left.includes(c.aboard));
+    const aboard = [...state.escaped.map(e => e.crew), ...state.crew.filter(c => c.aboard !== null && left.includes(c.aboard))];
     const escaped = aboard.filter(c => !c.wounds.dead).map(c => c.id);
     const away = new Set<string>([...aboard.map(c => c.id), ...left]);
-    const dead = state.crew.filter(c => c.wounds.dead).map(c => c.id);
+    const dead = [...state.crew, ...state.escaped.map(e => e.crew)].filter(c => c.wounds.dead).map(c => c.id);
     const arrested = [...state.crew.filter(c => !away.has(c.id) && !c.wounds.dead).map(c => c.id), ...state.custody.map(c => c.crew.id)];
     const loot: string[] = [];
     let value = 0, ruined = 0;
@@ -120,7 +133,15 @@ function end(ctx: Ctx, vehicle: string | null): void {
 registerLeaveHook('getaway', (ctx, vehicle) => {
     const { state } = ctx;
     state.vehicles[vehicle]!.gone = true;
-    const behind = state.crew.some(c => !isAway(state, c) && !isDown(c));
+    // Everyone aboard is out of play from now on (decision 286): off the crew, forgotten by every rule on the map.
+    const leaving = state.crew.filter(c => c.aboard === vehicle);
+    for (const member of leaving) {
+        state.crew.splice(state.crew.indexOf(member), 1);
+        state.escaped.push({ crew: member, vehicle, turn: state.turn });
+        forgetCrew(state, member.id);
+    }
+    if (leaving.length) ctx.emit({ type: 'crewEscaped', vehicle, crew: leaving.map(c => c.id) });
+    const behind = state.crew.some(c => !isDown(c));
     const ride = sortedIds(state.vehicles).some(id => !state.vehicles[id]!.gone && state.vehicles[id]!.hp > 0);
     if (!behind || !ride) end(ctx, vehicle);
 });
@@ -130,7 +151,8 @@ registerLeaveHook('getaway', (ctx, vehicle) => {
  * is still played out, arrested or bled out within a few world phases, so the debrief tells which (decision 177). A
  * heist with no crew at all (a test of the world alone) never fails.
  */
-export const crewOut = (state: DeepReadonly<State>): boolean => (state.crew.length > 0 || state.custody.length > 0) && state.crew.every(c => c.wounds.dead || isAway(state, c));
+export const crewOut = (state: DeepReadonly<State>): boolean =>
+    (state.crew.length > 0 || state.custody.length > 0 || state.escaped.length > 0) && state.crew.every(c => c.wounds.dead);
 
 // After every command (the world phase too): a crew that is all out has failed.
 registerCommandHook('getaway.failure', ctx => {
@@ -140,5 +162,6 @@ registerCommandHook('getaway.failure', ctx => {
 registerCommandGate('getaway', (_world, state) => (state.outcome ? 'The heist is over' : undefined));
 
 registerEvents({
-    heistEnded: { undoBlocking: true }
+    heistEnded: { undoBlocking: true },
+    crewEscaped: { undoBlocking: true }
 });

@@ -114,6 +114,40 @@ describe('ramming a wall (§14.4)', () => {
         expect(run(truck.world, s, RAM).state.vehicles.van!.hp).toBe(38);
     });
 
+    it('never disables the van with its own ram: it is left at 1 HP at least (decision 281)', () => {
+        const { world, state } = front();
+        const s = clonePlain(atTheWheel(world, state));
+        s.vehicles.van!.hp = 4;
+        const done = run(world, s, RAM);
+        expect(done.state.vehicles.van!.hp).toBe(1);
+        expect(of(done.events, 'vehicleDisabled')).toEqual([]);
+    });
+
+    it('hits the living across the breach, not the dead nor the stashed', () => {
+        const { world, state } = front({ people: [npc('teller', P(10, 3)), npc('body', P(11, 3))] });
+        const s = clonePlain(atTheWheel(world, state));
+        s.npcs.find(n => n.id === 'body')!.status = 'dead';
+        expect(of(run(world, s, RAM).events, 'harmed').map(h => h.target)).toEqual(['teller']);
+    });
+
+    it('previews the ram with whoever is unseen beyond the wall set aside, and the commit hits them', () => {
+        const make = (inside: boolean) => {
+            const { world, state } = front({ people: inside ? [npc('teller', P(11, 3))] : [] });
+            const s = clonePlain(atTheWheel(world, state));
+            if (inside) delete s.knowledge.npcs.teller;
+            return { world, state: s };
+        };
+        const a = make(true), b = make(false);
+        const pa = previewCertain(a.world, a.state, RAM), pb = previewCertain(b.world, b.state, RAM);
+        expect(projectPreviewEvents(a.world, a.state, pa)).toEqual(projectPreviewEvents(b.world, b.state, pb));
+        expect(pa.state.vehicles).toEqual(pb.state.vehicles);
+        expect(pa.state.npcs).toEqual(a.state.npcs);
+        const done = step(a.world, a.state, RAM);
+        expect(of(done.events, 'driveCut')).toEqual([]);
+        expect(of(done.events, 'harmed').map(h => [h.target, h.damage])).toEqual([['teller', 6]]);
+        expect(done.state.vehicles.van!.pose).toEqual(pb.state.vehicles.van!.pose);
+    });
+
     it('needs 2 clear tiles of run-up and something to ram within one Drive', () => {
         const { world, state } = front({ vehicles: [vehicle('van', 'van', { x: 10, y: 5, heading: 'n' })], crew: [{ id: 'mara', pos: P(12, 6) }] });
         const s = atTheWheel(world, state);
@@ -150,19 +184,22 @@ describe('ramming what stands in the street', () => {
         expect(ramPlan(world, done.state, RAM)).toMatch(/Nothing to ram/);
     });
 
-    it('wrecks a police car at 0, still shoved aside; a car with no room stays put', () => {
+    it('wrecks a police car at 0, still shoved aside; a car with no room is pushed off the street, its officers out at staging', () => {
         const { world, state } = street();
         const s = clonePlain(state);
         s.police.vehicles.push(car('car-90', P(9, 6), 8));
         const done = run(world, s, RAM);
         expect(of(done.events, 'policeWrecked')).toHaveLength(1);
         expect(done.state.police.vehicles[0]).toMatchObject({ status: 'wreck', hp: 0, pos: P(9, 4) });
-        // Boxed in north and south by two more: no room to shove it, it stays and still takes the hit.
+        // Boxed in north and south by two more: no room to shove it aside, so it is pushed clear and the lane is open.
         const boxed = clonePlain(state);
-        boxed.police.vehicles.push(car('car-90', P(9, 6)), car('car-91', P(9, 4)), car('car-92', P(9, 8)));
+        boxed.police.vehicles.push({ ...car('car-90', P(9, 6)), staging: 'west' }, car('car-91', P(9, 4)), car('car-92', P(9, 8)));
+        boxed.police.units.push({ id: 'police-1', kind: 'patrol', vehicle: 'car-90', staging: 'west', arrived: 0, pos: null, hp: 6, leaning: null, suppressed: null, moved: null, team: null, watch: null, flashbangs: 0, surprised: null });
         const b = run(world, boxed, RAM);
-        expect(of(b.events, 'vehicleShoved')).toEqual([]);
-        expect(b.state.police.vehicles[0]).toMatchObject({ pos: P(9, 6), hp: 10 });
+        expect(of(b.events, 'vehicleShoved')).toEqual([{ type: 'vehicleShoved', vehicle: 'car-90', from: P(9, 6), to: null }]);
+        expect(b.state.police.vehicles.map(v => v.id)).toEqual(['car-91', 'car-92']);
+        expect(b.state.police.units[0]!.vehicle).toBeNull();
+        expect(driveMap(world, b.state, 'van').tile(P(10, 7))).toBe('clear');
     });
 
     it('knocks roadblock pieces in its lane away', () => {
@@ -172,6 +209,19 @@ describe('ramming what stands in the street', () => {
         const done = run(world, s, RAM);
         expect(of(done.events, 'roadblockCleared')).toEqual([{ type: 'roadblockCleared', tiles: [P(8, 6), P(8, 7)] }]);
         expect(done.state.police.roadblock).toEqual([P(8, 4), P(8, 5), P(8, 8)]);
+    });
+
+    it('hits someone it can see standing where it can\'t drive, never cut by them', () => {
+        const map = Array.from({ length: 12 }, () => '.'.repeat(24));
+        const drivable = map.map((_, y) => (y >= 4 ? 'd'.repeat(24).split('').map((c, x) => (x === 10 && y === 7 ? '.' : c)).join('') : '.'.repeat(24)));
+        const world = fixtureWorld(map, { drivable, vehicles: [vehicle('van', 'van', { x: 14, y: 6, heading: 'w' })] });
+        let s = scouted(world, initialState(world, { seed: 5, crew: [{ id: 'mara', name: 'mara', pos: P(15, 5) }, { id: 'jun', name: 'jun', pos: P(10, 7) }] }));
+        s = atTheWheel(world, s);
+        const plan = ramPlan(world, s, RAM);
+        expect(plan).toMatchObject({ into: 'person', people: ['jun'] });
+        const done = run(world, s, RAM);
+        expect(of(done.events, 'driveCut')).toEqual([]);
+        expect(of(done.events, 'harmed').map(h => h.target)).toEqual(['jun']);
     });
 
     it('hits someone it can see in its way and stops before them', () => {
@@ -301,6 +351,23 @@ describe('the backup car: a second way out (decision 284)', () => {
         s.vehicles.car!.hp = 0;
         const done = run(world, s, { type: 'drive', crew: 'mara', vehicle: 'van', to: offPose(world, s, 'van') });
         expect(done.state.outcome).toMatchObject({ escaped: ['mara'], arrested: ['jun'], vehicle: 'van' });
+    });
+
+    it('takes those who left out of play: nobody bleeds, dies or is arrested off the plot (decision 286)', () => {
+        const { world, state } = twoRides();
+        const s = clonePlain(state);
+        // Mara leaves hurt at 1 HP, bleeding; Jun stays on the plot in the car.
+        s.crew[0]!.wounds = { ...s.crew[0]!.wounds, hp: 1 };
+        let after = run(world, s, { type: 'drive', crew: 'mara', vehicle: 'van', to: offPose(world, s, 'van') });
+        expect(of(after.events, 'crewEscaped')).toEqual([{ type: 'crewEscaped', vehicle: 'van', crew: ['mara'] }]);
+        expect(after.state.crew.map(c => c.id)).toEqual(['jun']);
+        expect(after.state.escaped.map(e => [e.crew.id, e.vehicle, e.crew.wounds.hp])).toEqual([['mara', 'van', 1]]);
+        let t = after.state;
+        for (let i = 0; i < 20; i++) t = step(world, t, { type: 'endTurn' }).state;
+        expect(t.escaped[0]!.crew.wounds).toMatchObject({ hp: 1, dead: false, downed: null });
+        expect(t.custody).toEqual([]);
+        after = run(world, t, { type: 'drive', crew: 'jun', vehicle: 'car', to: offPose(world, t, 'car') });
+        expect(after.state.outcome).toMatchObject({ escaped: ['mara', 'jun'], dead: [], arrested: [] });
     });
 
     it('ends once everyone left behind is dead, with those away escaped', () => {

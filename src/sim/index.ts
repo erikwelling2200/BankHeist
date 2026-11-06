@@ -252,7 +252,7 @@ export {
 export {
     aboard, driveBudget, driveCut, driveMap, drivePlan, exitTiles, registerLeaveHook, holdOf, holdValue, inGetaway, vehicleBeside, vehicleDef, vehicleDoors, vehicleReach
 } from './rules/vehicles';
-export { crewOut, outcomeNow, type HeistOutcome, type OutcomeResult } from './rules/getaway';
+export { crewOut, outcomeNow, type Escaped, type HeistOutcome, type OutcomeResult } from './rules/getaway';
 export { ramPlan, type RamPlan, type RamTarget } from './rules/ram';
 export { blastVehicles, damageVehicle, vehicleDisabled, vehiclesOn } from './rules/vehicleDamage';
 export * from './data/vehicles';
