@@ -12,9 +12,9 @@ import { Fullscreen } from './ui/Fullscreen';
 import { installDebugHandle, MemoryStorage, Session, webStorage, type SaveStorage } from './game';
 import { ADDRESS_KEYS, bankAddress, playPlan, sameAddress, savedHeist, startHeist, type CampaignTag } from './game/heist';
 import { offered, type Campaign, type IntelAsset } from './campaign';
-import { bankPrint, loadIntel } from './game/intel';
+import { loadIntel } from './game/intel';
 import {
-    buyCampaignIntel, campaignAct, campaignIntel, campaignJob, campaignKeeper, campaignPurse, contractAddress, contractBankRefusal, dropCampaignHeist, heistUnfinished,
+    buyCampaignIntel, campaignIntel, campaignKeeper, campaignPurse, contractAddress, contractBankRefusal, dropCampaignHeist, heistUnfinished, startContractHeist,
     loadCampaign, untaggedKeeper
 } from './game/campaign';
 import { defaultSetup, fitArmoury, planOptions, setupFromAddress, type HeistSetup } from './game/plan';
@@ -274,7 +274,9 @@ async function preparePlay(params: URLSearchParams): Promise<{ bank: ReturnType<
         if (campaign) {
             // The day is spent, and saved, before the heist starts: leaving it after a turn has still cost the day.
             // Its assets are paid and its gear taken as it starts (M6-03): the plan was checked against the campaign's purse.
-            const done = campaignAct(storage, { kind: 'heist', bank: bankPrint(planOptions(generated).world), contract: contract!.id, ...campaignJob(planned, contract!.stakes) });
+            // Checked again against the campaign as saved now: another tab may have taken the contract or put its chain on
+            // guard while the dialog was up (`startContractHeist`).
+            const done = startContractHeist(storage, contract!.id, generated, planOptions(generated).world, planned);
             // Refused, or stopped: the heist it abandoned landed the Raid (decision 446). The campaign shows it.
             if ('refused' in done || done.events.some(e => e.type === 'stopped')) {
                 // Stopped, the heist it abandoned is over: it isn't played on from `/`.

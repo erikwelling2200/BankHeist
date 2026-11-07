@@ -6,7 +6,7 @@ import {
     deserialiseCampaign, dropCampaignHeist, gearKept, heistUnfinished, loadCampaign, saveCampaign, serialiseCampaign, untaggedKeeper
 } from '../../src/game/campaign';
 import { BANK_KEY, GEN_VERSION, savedHeist, startHeist, type CampaignTag } from '../../src/game/heist';
-import { bankPrint, intelKey } from '../../src/game/intel';
+import { campaignPrint, intelKey } from '../../src/game/intel';
 import { defaultSetup, fitArmoury, gearOf, heistFromSetup, planOptions, setupFromAddress, setupProblems, type HeistSetup } from '../../src/game/plan';
 import { HEIST_KEY, MemoryStorage, Session } from '../../src/game';
 import { intelOf, SaveFormatError } from '../../src/sim';
@@ -19,7 +19,7 @@ import { cachedBank } from '../bankCache';
 
 const bank = cachedBank({ layout: 31, population: 2, tier: 'small', archetype: 'twoWing' });
 const options = planOptions(bank);
-const print = bankPrint(options.world);
+const print = campaignPrint(options.world);
 
 /** A campaign heist as the game starts one: the day spent and saved first, then the heist tagged with it. */
 function campaignHeist(storage: MemoryStorage, change: (s: HeistSetup) => void = () => {}): { session: Session; tag: CampaignTag } {

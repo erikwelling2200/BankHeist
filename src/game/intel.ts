@@ -31,6 +31,23 @@ export function bankPrint(world: ReadonlyWorld): string {
     return print;
 }
 
+const CAMPAIGN_PRINTS = new WeakMap<ReadonlyWorld, string>();
+
+/**
+ * What identifies a contract's bank in the campaign (decision 506): its print without the police's arrival time
+ * (`rules.policeEta`). A chain's security steps (§19.3 chain escalation) change nothing else in the bank, so what the
+ * crew learned or bought of a branch stays theirs when its chain goes on guard (decision 485).
+ */
+export function campaignPrint(world: ReadonlyWorld): string {
+    let print = CAMPAIGN_PRINTS.get(world);
+    if (print === undefined) {
+        const { policeEta: _eta, ...rules } = world.rules;
+        print = hashOf({ ...Object.fromEntries(Object.entries(world).filter(([k]) => k !== 'vehicles' && k !== 'intel')), rules });
+        CAMPAIGN_PRINTS.set(world, print);
+    }
+    return print;
+}
+
 const HOWS: readonly FoundHow[] = ['overheard', 'read', 'intel'];
 
 /**

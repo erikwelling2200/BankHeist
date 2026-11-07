@@ -7,7 +7,7 @@ import { intelOf, isItem, ITEMS, SaveFormatError, stableJson, type DeepReadonly,
 import { bankAddress, sameAddress, savedHeist, type BankAddress, type CampaignTag } from './heist';
 import { ASSETS, FAVOUR_CAP, gearOf, spent, type HeistSetup, type Purse } from './plan';
 import { Session, type IntelKeeper } from './session';
-import { bankPrint, intelProblem, mergeIntel } from './intel';
+import { campaignPrint, intelProblem, mergeIntel } from './intel';
 import type { SaveStorage } from './storage';
 
 /*
@@ -189,12 +189,13 @@ export function saveCampaign(storage: SaveStorage, campaign: DeepReadonly<Campai
 
 /**
  * Does `cmd` to the saved campaign and saves the result: the new campaign and what happened, or why not (no campaign,
- * refused, or it couldn't be saved: then nothing happened, so no day is ever spent unsaved).
+ * refused, or it couldn't be saved: then nothing happened, so no day is ever spent unsaved). `guard` checks the campaign as
+ * it is saved now, before the rules do (another tab may have changed it since the page read it).
  */
-export function campaignAct(storage: SaveStorage, cmd: CampaignCommand): { campaign: Campaign; events: CampaignEvent[] } | { refused: string } {
+export function campaignAct(storage: SaveStorage, cmd: CampaignCommand, guard?: (campaign: Campaign) => string | undefined): { campaign: Campaign; events: CampaignEvent[] } | { refused: string } {
     const campaign = loadCampaign(storage);
     if (!campaign) return { refused: 'No campaign' };
-    const refused = campaignRefusal(campaign, cmd);
+    const refused = guard?.(campaign) ?? campaignRefusal(campaign, cmd);
     if (refused) return { refused };
     const done = commitCampaign(campaign, cmd);
     return saveCampaign(storage, done.campaign) ? done : { refused: "The campaign couldn't be saved" };
@@ -202,7 +203,7 @@ export function campaignAct(storage: SaveStorage, cmd: CampaignCommand): { campa
 
 /** What the campaign's crew knows of this bank today (§17.8 aged by days, decision 442): its records merged, each read as this bank's. */
 export function campaignIntel(campaign: DeepReadonly<Campaign>, world: ReadonlyWorld): Intel {
-    return knownIntel(campaign as Campaign, bankPrint(world)).filter(i => intelProblem(i, world) === undefined).reduce<Intel>((a, b) => mergeIntel(a, b, world), {});
+    return knownIntel(campaign as Campaign, campaignPrint(world)).filter(i => intelProblem(i, world) === undefined).reduce<Intel>((a, b) => mergeIntel(a, b, world), {});
 }
 
 /**
@@ -210,7 +211,7 @@ export function campaignIntel(campaign: DeepReadonly<Campaign>, world: ReadonlyW
  * today left under the cap (§18.1), and the armoury's gear.
  */
 export function campaignPurse(campaign: DeepReadonly<Campaign>, world: ReadonlyWorld): Purse {
-    return { cash: campaign.money.clean, favours: FAVOUR_CAP - favoursToday(campaign, bankPrint(world)), armoury: { ...campaign.armoury } };
+    return { cash: campaign.money.clean, favours: FAVOUR_CAP - favoursToday(campaign, campaignPrint(world)), armoury: { ...campaign.armoury } };
 }
 
 /** What a plan takes on as the campaign's heist (§19.4): its crew, their gear, its contract's stakes, and its assets' cost. */
@@ -232,7 +233,7 @@ export function contractAddress(contract: DeepReadonly<Contract>): BankAddress {
  * and saved at once, known from then on, so reloading the planning page neither forgets nor charges it again.
  */
 export function buyCampaignIntel(storage: SaveStorage, world: ReadonlyWorld, asset: IntelAsset): ReturnType<typeof campaignAct> {
-    return campaignAct(storage, { kind: 'buyIntel', bank: bankPrint(world), asset, cost: ASSETS[asset].cost, favours: ASSETS[asset].favours });
+    return campaignAct(storage, { kind: 'buyIntel', bank: campaignPrint(world), asset, cost: ASSETS[asset].cost, favours: ASSETS[asset].favours });
 }
 
 /** A heist's take as the campaign counts it: the loot's value that left, in whole dollars, never negative. */
@@ -276,7 +277,7 @@ export function campaignKeeper(storage: SaveStorage, tag: CampaignTag): IntelKee
     return (world, state) => {
         const campaign = loadCampaign(storage);
         if (!campaign) return lastCampaignError === null ? 'drop' : undefined;
-        const bank = bankPrint(world);
+        const bank = campaignPrint(world);
         if (campaign.seed !== tag.seed || campaign.visit?.day !== tag.day || campaign.visit.bank !== bank) return 'drop';
         // Its result is in already (it ended, or was abandoned into the Raid): it learns nothing more for the campaign.
         if (campaign.visit.result) return 'drop';
@@ -302,14 +303,14 @@ export function campaignKeeper(storage: SaveStorage, tag: CampaignTag): IntelKee
 export function untaggedKeeper(storage: SaveStorage): IntelKeeper {
     return world => {
         const campaign = loadCampaign(storage);
-        return campaign && heistUnfinished(campaign) && campaign.visit!.bank === bankPrint(world) ? undefined : 'device';
+        return campaign && heistUnfinished(campaign) && campaign.visit!.bank === campaignPrint(world) ? undefined : 'device';
     };
 }
 
 /** Why the campaign day's heist on the offered contract can't start in a bank, or undefined. */
 export function campaignHeistRefusal(campaign: Campaign | null, world: ReadonlyWorld, contract: string): string | undefined {
     if (!campaign) return 'No campaign';
-    return campaignRefusal(campaign, { kind: 'heist', bank: bankPrint(world), contract });
+    return campaignRefusal(campaign, { kind: 'heist', bank: campaignPrint(world), contract });
 }
 
 /**
@@ -323,6 +324,17 @@ export function contractBankRefusal(campaign: Campaign | null, contract: string 
     if (!offer) return 'Not on offer';
     if (!sameAddress(contractAddress(offer), bankAddress(bank))) return "Not the contract's bank";
     return campaignHeistRefusal(campaign, world, offer.id);
+}
+
+/**
+ * Spends the day on an offered contract's heist in `bank` as planned (Start on `?plan&campaign`, decisions 481, 504):
+ * checked against the campaign as saved at that moment, not as the page loaded it, so a contract whose chain another tab
+ * put on guard since (its bank is no longer the one built) or that another tab took is refused (the M6-02 review).
+ */
+export function startContractHeist(storage: SaveStorage, contract: string, bank: GeneratedBank, world: ReadonlyWorld, setup: HeistSetup): ReturnType<typeof campaignAct> {
+    const now = loadCampaign(storage), offer = now ? offered(now, contract) : undefined;
+    if (!offer) return { refused: now ? 'Not on offer' : 'No campaign' };
+    return campaignAct(storage, { kind: 'heist', bank: campaignPrint(world), contract, ...campaignJob(setup, offer.stakes) }, c => contractBankRefusal(c, contract, bank, world));
 }
 
 /** Whether the campaign's day was spent on a heist that hasn't ended: the next day action abandons it (decision 443). */

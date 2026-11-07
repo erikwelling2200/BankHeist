@@ -155,7 +155,7 @@ describe('side objectives (§19.5)', () => {
         expect(step(d, { kind: 'heistOver', day: 1, result: 'success', take: 0, objectives: [] }).advantages).toEqual([]);
     });
 
-    it('are offered at most twice, never while one is on the board, never once had', () => {
+    it('are never offered while one is on the board or once had, and counted as offered', () => {
         for (const seed of [1, 2, 3, 4]) {
             let c = newCampaign(seed);
             const seen: Record<string, number> = {};
@@ -177,7 +177,38 @@ describe('side objectives (§19.5)', () => {
                 } else c = layLow(c);
             }
             expect(c.objectiveOffers).toEqual(seen);
-            for (const n of Object.values(seen)) expect(n).toBeLessThanOrEqual(OBJECTIVE_OFFERS);
         }
+    });
+
+    it('missed twice (let expire or left in the bank), one is never offered a third time', () => {
+        // Every objective is missed: the offers holding one are let expire, or taken and the objective left behind.
+        // Over a whole campaign there are more offers with an objective than the kinds' two chances each, so the cap bites.
+        let capped = 0;
+        for (const seed of [1, 2, 3, 4, 5, 6]) {
+            let c = newCampaign(seed);
+            const offers: Record<string, string[]> = {};
+            const posted = new Set<string>();
+            let missedByHeist = false;
+            for (let i = 0; i < 30 && c.phase === 'open'; i++) {
+                for (const k of c.contracts) {
+                    if (!k.objective || posted.has(k.id)) continue;
+                    posted.add(k.id);
+                    (offers[k.objective] ??= []).push(k.id);
+                    // Never a third offer of the same objective.
+                    expect(offers[k.objective]!.length).toBeLessThanOrEqual(OBJECTIVE_OFFERS);
+                }
+                const holds = c.contracts.find(k => k.objective);
+                if (holds && !missedByHeist && c.squeeze < 30) {
+                    // Taken once, and the objective left in the bank: missed.
+                    missedByHeist = true;
+                    c = step(c, { kind: 'heist', bank: 'b', contract: holds.id });
+                    c = step(c, { kind: 'heistOver', day: c.day - 1, result: 'success', take: 0, objectives: [] });
+                } else c = layLow(c);
+            }
+            expect(c.advantages).toEqual([]);
+            capped += Object.values(offers).filter(ids => ids.length === OBJECTIVE_OFFERS).length;
+        }
+        // The cap was reached (and so tested) more than once.
+        expect(capped).toBeGreaterThan(2);
     });
 });

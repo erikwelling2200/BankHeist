@@ -13,22 +13,7 @@ import { exampleBank, type BankData } from './level/bankData';
 export function bankFromAddress(): { data: BankData; generated?: GeneratedBank } {
     const params = new URLSearchParams(location.search);
     if (params.get('bank') === 'example') return { data: exampleBank() };
-    const seed = parseSeed(params.get('seed') ?? `${Math.floor(Math.random() * 1e6)}-${Math.floor(Math.random() * 1e3)}`);
-    const pins = {
-        tier: (params.get('tier') ?? undefined) as GeneratedBank['tier'] | undefined,
-        archetype: (params.get('archetype') ?? undefined) as GeneratedBank['archetype'] | undefined,
-        plot: (params.get('plot') ?? undefined) as GeneratedBank['plot'] | undefined
-    };
-    const terms = contractTerms(params);
-    let generated: GeneratedBank;
-    try {
-        generated = generateBank({ ...seed, ...pins, ...terms });
-    } catch (e) {
-        // Picks that can't go together (typed into the address by hand): drop the tier and roll it to fit.
-        console.warn(`${(e as Error).message}; rolling the tier instead`);
-        params.delete('tier');
-        generated = generateBank({ ...seed, ...pins, ...terms, tier: undefined });
-    }
+    const generated = generateFromParams(params);
     params.set('seed', seedText(generated.seed));
     // A bare flag (`?view`) stays bare rather than turning into `view=`.
     history.replaceState(null, '', `${location.pathname}?${params.toString().replace(/(^|&)(view|play|new|plan)=(?=&|$)/g, '$1$2')}`);
@@ -36,6 +21,45 @@ export function bankFromAddress(): { data: BankData; generated?: GeneratedBank }
     const focus = { tx: lobby.x + Math.floor(lobby.w / 2), ty: lobby.y };
     const outlines = generated.rooms.filter(r => r.known === 'outline').map(r => ({ x: r.x, y: r.y, w: r.w, h: r.h, name: r.name, parts: r.parts }));
     return { data: { level: generated.level, rooms: generated.rooms, props: generated.props, people: generated.people, focus, outlines }, generated };
+}
+
+/**
+ * The bank the address's picks name (`seed`, `tier`, `archetype`, `plot` and a contract's terms), taking out of `params`
+ * whatever had to be dropped to build one; throws when even that fails. `generate` is the generator (a test's stand-in).
+ */
+export function generateFromParams(params: URLSearchParams, generate: (options: GenerateOptions) => GeneratedBank = generateBank): GeneratedBank {
+    const seed = parseSeed(params.get('seed') ?? `${Math.floor(Math.random() * 1e6)}-${Math.floor(Math.random() * 1e3)}`);
+    const pins = {
+        tier: (params.get('tier') ?? undefined) as GeneratedBank['tier'] | undefined,
+        archetype: (params.get('archetype') ?? undefined) as GeneratedBank['archetype'] | undefined,
+        plot: (params.get('plot') ?? undefined) as GeneratedBank['plot'] | undefined
+    };
+    const terms = contractTerms(params);
+    // Picks that can't go together (typed into the address by hand): drop the tier and roll it to fit. Outside the
+    // campaign a side objective the bank has no place for (blackmail in a bank without a manager's desk) is dropped
+    // too: the viewer and the sandbox show the bank without it. A contract's bank (`&campaign`) keeps its terms
+    // whatever happens, so it is that bank or none (decision 504).
+    const sandbox = !params.has('campaign');
+    const { objectives: _objectives, ...bare } = terms;
+    const tries: { drop: ('tier' | 'objectives')[]; options: GenerateOptions }[] = [
+        { drop: [], options: { ...seed, ...pins, ...terms } },
+        ...(sandbox && terms.objectives ? [{ drop: ['objectives' as const], options: { ...seed, ...pins, ...bare } }] : []),
+        { drop: ['tier'], options: { ...seed, ...pins, ...terms, tier: undefined } },
+        ...(sandbox && terms.objectives ? [{ drop: ['tier' as const, 'objectives' as const], options: { ...seed, ...pins, ...bare, tier: undefined } }] : [])
+    ];
+    let generated: GeneratedBank | undefined, error: unknown;
+    for (const { drop, options } of tries) {
+        try {
+            generated = generate(options);
+            for (const k of drop) params.delete(k);
+            break;
+        } catch (e) {
+            error = e;
+            console.warn(`${(e as Error).message}; trying again with fewer picks`);
+        }
+    }
+    if (!generated) throw error;
+    return generated;
 }
 
 /**

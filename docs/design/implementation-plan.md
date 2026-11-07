@@ -1738,8 +1738,8 @@ M2 is complete: every package below has landed.
     decision 175; the bonus is on top); crew size by stakes (§19.3's 2–5, with the roster, M6-04); the courier van side
     objective (the armoured car's, §16.3) and the "Leak a false tip" side job; showing the contract (bonus, side
     objective) on the planning screen and the debrief, and the side objective's finale advantage itself (M7); casing a
-    contract's bank (M6-07: intel is per bank print, so a branch whose chain escalates or that holds an objective is
-    another print, decision 506); security steps other than the police ETA; offers on the city map (M6-06); the
+    contract's bank (M6-07: the campaign's intel is per `campaignPrint`, so a branch that holds an objective is
+    another print, while one whose chain escalates is not, decision 506); security steps other than the police ETA; offers on the city map (M6-06); the
     armoured-car event of the Work above (its couriers, their armour-2 escort and staff opening the vault in the
     window, decision 77) and with it the courier van side objective: not started here.
 - [x] **M6-03** Money, laundering, the fence, crew shares, the black market and contacts (§19.4). **∥** M6-02. (partial: see Deferred)
@@ -3466,14 +3466,24 @@ Later milestones: within each milestone, the `∥` notes in §3 apply. UI packag
     missed or let expire). The address carries it (`objectives=`), so the generator places it and a resumed heist is
     the same bank. At the end the keeper sends the objectives among the loot that left (`objectivesOut`); only the
     contract's own counts, once, whatever the result, into `Campaign.advantages` (the finale's, M7).
-506. **A contract's bank is its own print (M6-02).** Intel stays per bank print (decision 442): a branch with a
-    security step or a side objective is another World, so what was learned of it before doesn't carry over. Today only
-    a heist learns, a taken contract never comes back, and a new offer's seed is drawn from a million, so little is
-    lost yet; casing (M6-07) will have to key intel by the contract's bank instead.
+506. **A contract's bank is its own print, but for the police (M6-02; M6-02 review).** The campaign keys what it knows
+    of a bank by `campaignPrint`: the World as the generator built it (as `bankPrint`) without `rules.policeEta`. A
+    chain's security step changes only the police's arrival, so a branch whose chain goes on guard is the same bank to
+    the crew: intel learned or bought of it stays (decision 485: bought intel stays paid). A side objective is part of
+    the contract for its whole life, so a bank with one is still another print than without; the sandbox's intel on
+    this device stays keyed by `bankPrint`. Today only a heist learns, a taken contract never comes back, and a new
+    offer's seed is drawn from a million, so little else is lost; casing (M6-07) may key intel by the contract's bank.
 507. **Contract exploits checked (M6-02).** The address can't pick the bank, its terms or the stakes (refused on both
     pages, and by the rules for the stakes); reloading the planning page keeps the offer; Start takes it, so reloading,
     abandoning or a second tab can't play it twice; the board is drawn from the seed and the day only. A new campaign
     draws a new board, losing the old campaign.
+508. **The M6-02 review's minor findings (M6-04).** Start on `?plan&campaign` checks the contract's bank again against
+    the campaign as saved at that moment (`startContractHeist`: `campaignAct` takes a `guard`), not as the page loaded
+    it before the "a heist is saved" dialog, so a second tab that put the chain on guard or took the offer meanwhile
+    sends the player back to the campaign with nothing spent. The address's bank (`generateFromParams` in
+    src/bankSource.ts) drops, outside the campaign, a side objective the bank has no place for (blackmail with no
+    manager's desk) as it drops a tier that can't fit; a contract's bank (`&campaign`) is built with all its terms or
+    not at all, as before. The side-objective cap is tested by missing objectives until each has had its two offers.
 
 ### Critical files for implementation
 

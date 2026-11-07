@@ -1,6 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import { commitCampaign, FIRST_CONTRACT, newCampaign, type Contract } from '../../src/campaign';
-import { campaignProblem, contractAddress, contractBankRefusal, objectivesOut } from '../../src/game/campaign';
+import { commitCampaign, escalateChain, FIRST_CONTRACT, newCampaign, type Contract } from '../../src/campaign';
+import {
+    buyCampaignIntel, campaignIntel, campaignProblem, contractAddress, contractBankRefusal, loadCampaign, objectivesOut, saveCampaign, startContractHeist
+} from '../../src/game/campaign';
+import { bankPrint, campaignPrint } from '../../src/game/intel';
 import { bankAddress, sameAddress, savedHeist, BANK_KEY } from '../../src/game/heist';
 import { heistFromSetup, defaultSetup, planOptions } from '../../src/game/plan';
 import { HEIST_KEY, MemoryStorage } from '../../src/game';
@@ -104,5 +107,56 @@ describe('a campaign heist starts only in an offered contract\'s bank', () => {
         expect(broken(v => { v.advantages = ['blueprints', 'blueprints']; })).toBe('the advantages are not side objectives');
         expect(broken(v => { v.objectiveOffers = { blueprints: 3 }; })).toBe('the side objectives offered are no counts');
         expect(broken(v => { v.hits = { Nowhere: 1 }; })).toBe('the heists per chain are no counts');
+    });
+});
+
+describe('Start checks the campaign as saved then (the M6-02 review)', () => {
+    const setup = () => defaultSetup(planOptions(first));
+
+    it("refuses when another tab put the contract's chain on guard since the page loaded", () => {
+        const storage = new MemoryStorage();
+        saveCampaign(storage, newCampaign(1));
+        // Another tab: a heist on another Granite Savings branch puts this offer a security step up.
+        const other = loadCampaign(storage)!;
+        escalateChain(other, FIRST_CONTRACT.chain);
+        saveCampaign(storage, other);
+        const done = startContractHeist(storage, FIRST_CONTRACT.id, first, planOptions(first).world, setup());
+        expect(done).toEqual({ refused: "Not the contract's bank" });
+        // Nothing was spent.
+        expect(loadCampaign(storage)!.day).toBe(1);
+    });
+
+    it('refuses a contract another tab took, and starts one still offered in its own bank', () => {
+        const storage = new MemoryStorage();
+        saveCampaign(storage, commitCampaign(newCampaign(1), { kind: 'heist', bank: 'b', contract: FIRST_CONTRACT.id }).campaign);
+        expect(startContractHeist(storage, FIRST_CONTRACT.id, first, planOptions(first).world, setup())).toEqual({ refused: 'Not on offer' });
+        saveCampaign(storage, newCampaign(1));
+        const done = startContractHeist(storage, FIRST_CONTRACT.id, first, planOptions(first).world, setup());
+        expect('refused' in done).toBe(false);
+        expect(loadCampaign(storage)!.visit!.contract!.id).toBe(FIRST_CONTRACT.id);
+    });
+});
+
+describe('intel bought for a contract survives its chain going on guard (decision 485)', () => {
+    it("keys the campaign's intel by the bank without the police's arrival time", () => {
+        const guarded = cachedBank(optionsOf({ ...FIRST_CONTRACT, escalation: 1 } as Contract));
+        const before = planOptions(first).world, after = planOptions(guarded).world;
+        expect(after.rules.policeEta).toBeLessThan(before.rules.policeEta);
+        expect(bankPrint(after)).not.toBe(bankPrint(before));
+        expect(campaignPrint(after)).toBe(campaignPrint(before));
+        // A bank with another layout is still another print.
+        expect(campaignPrint(planOptions(cachedBank({ layout: 32, population: 2, tier: 'small', archetype: 'twoWing' })).world)).not.toBe(campaignPrint(before));
+
+        const storage = new MemoryStorage();
+        saveCampaign(storage, newCampaign(1));
+        expect('refused' in buyCampaignIntel(storage, before, 'blueprints')).toBe(false);
+        // Another branch of the chain is hit: the offer goes a step up, and its bank is the guarded one.
+        const c = loadCampaign(storage)!;
+        escalateChain(c, FIRST_CONTRACT.chain);
+        expect(c.contracts[0]!.escalation).toBe(1);
+        expect(campaignIntel(c, after).blueprints).toBe(true);
+        // Paid once: buying it again is refused.
+        saveCampaign(storage, c);
+        expect(buyCampaignIntel(storage, after, 'blueprints')).toEqual({ refused: 'Known already' });
     });
 });
