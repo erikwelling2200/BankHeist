@@ -3000,15 +3000,19 @@ Later milestones: within each milestone, the `∥` notes in §3 apply. UI packag
 342. **The Clean route is green on the safe floor and walks (M5-01, §17.7, §8.8; review).** From the lobby to the CCTV
     room or the alarm closet, a Clean crew member (nothing on them) walks through the rules (`commit`) from turn 1:
     each Move the longest the path under the finger (`pathSafety`) shows green on the bank as it stands then, two a
-    turn, every turn's end played, the world phase after the last Move too. It counts only if nobody Exposes or
-    challenges the walker, no camera sees them, no alarm starts and no Move is refused or cut short. Where nothing down
+    turn, every turn's end played, the world phase after the last Move too. It counts only if nothing auto-advance
+    stops on happens (`UNSAFE_EVENTS`: a suspicion pip, an exposure, a challenge, a camera sighting, an alarm), nobody is
+    put on edge, and no Move is refused or cut short (`SPOTTED`; `walksUnseen` plays a found route again, and
+    tests/validate.test.ts has a guard who turns to watch the corridor on turn 2 reject it). Where nothing down
     its way is green, the walker does what a player would: it **waits** (ends the turn where it stands) if the safe
     floor (`safeFloor`) shows staying green, or else steps aside to the green tile nearest the goal; at most 6 turns
     in a row without a Move down the way (`ROUTE_WAITS`) and 20 turns in all (`ROUTE_TURNS`). The route is the bank's,
     not a crew's: the walker knows the whole bank (every tile seen, every NPC and camera, the feeds), so the floor
     judges the truth, not the turn-1 picture (where every staff room is still an outline, grey). It holds everyone's
     card (§15.2: the keys exist), so a locked door is opened with its key, not picked (picking one in the lobby is an
-    illegal act every customer sees); the vault and the mantrap stay off its way. Its way is the shortest over the
+    illegal act every customer sees). That is about as lenient as letting it pick every lock unseen: a real crew has
+    to come by those cards (or pick, or hack) first, so the route promises a way past the eyes, not past the locks. The
+    vault and the mantrap stay off its way. Its way is the shortest over the
     tiles nobody reacts to on turn 1 (`assessEnd`, walked out from the goal with `stepCost`), counting a panning
     camera's both facings and judging the goal's own tiles with its doors open (a camera that looks through the
     closet's door when it opens). Without such a way from the lobby the roll is drawn again at once, before any walk:

@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 import { describe, expect, it } from 'vitest';
 import { generateBank } from '../src/gen/generate';
 import type { GeneratedBank, GenPerson } from '../src/gen/model';
-import { cleanRoute, pointlessCameras } from '../src/gen/validate';
+import { cleanRoute, pointlessCameras, walksUnseen } from '../src/gen/validate';
 import { initialState, tileAt, worldFromBank, type Pos } from '../src/sim';
 
 /*
@@ -62,6 +62,33 @@ describe('the checks of sight (§17.7, M5-01)', { timeout: 120000 }, () => {
         }
         const watched = { ...play, people: [...play.people, ...guards] };
         expect(cleanRoute(worldFromBank(watched), watched.rooms, watched.doors)).toBeNull();
+    });
+
+    it('rejects a route a guard comes to watch after turn 1: the walk is judged as it is played, not on turn 1', () => {
+        const world = worldFromBank(play), route = cleanRoute(world, play.rooms, play.doors)!;
+        expect(walksUnseen(world, route.from, route.moves)).toBe(true);
+        // A guard at the far end of the alarm closet's corridor, facing the wall on turn 1, who turns to watch the
+        // corridor from turn `from` on: the corridor is as quiet on turn 1 as without him.
+        const end = route.moves.flat().at(-1)!, post = { x: 47, y: 11 };
+        expect(play.rooms.find(r => r.id === tileAt(world, end)?.room)?.type).toBe('alarmCloset');
+        expect(tileAt(world, post)?.room).toBe(tileAt(world, { x: end.x, y: end.y + 1 })?.room);
+        const guarded = (from: number) => {
+            const room = tileAt(world, post)!.room!, at = { tx: post.x, ty: post.y };
+            const guard = {
+                id: 'watch-0', role: 'patrolGuard', name: 'Guard', look: 'guard', observer: 'enforcer', tx: post.x, ty: post.y, facing: 'front', schedule: [], traits: {},
+                routine: [{ from: 1, activity: 'post', label: 'post', room, at, facing: 'e' }, { from, activity: 'post', label: 'post', room, at, facing: 'w' }]
+            } as GenPerson;
+            const bank = { ...play, people: [...play.people, guard] };
+            return { bank, world: worldFromBank(bank) };
+        };
+        // Turning only long after the walk, he changes nothing.
+        const late = guarded(99);
+        expect(walksUnseen(late.world, route.from, route.moves)).toBe(true);
+        expect(cleanRoute(late.world, late.bank.rooms, late.bank.doors)).not.toBeNull();
+        // Turning on turn 2, he sees the walker come down the corridor: the same Moves are spotted, and no walk gets by him.
+        const soon = guarded(2);
+        expect(walksUnseen(soon.world, route.from, route.moves)).toBe(false);
+        expect(cleanRoute(soon.world, soon.bank.rooms, soon.bank.doors)).toBeNull();
     });
 
     it('finds a camera pointless that faces a wall, and none of the M1 bank\'s', () => {
