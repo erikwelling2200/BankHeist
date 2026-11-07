@@ -52,7 +52,9 @@ Top-down 2D pixel-art stealth game. Phaser 4 + TypeScript + Vite, shipped as an 
   (`test:changed:main`: since `main`).
 - `npm run sweep` – generates every tier × archetype × plot from several seeds (`SWEEP_SEEDS`, default 4; pin one with
   `SWEEP_TIER`, `SWEEP_ARCHETYPE`, `SWEEP_PLOT`) and prints validity, attempts, time per bank and per room type its
-  size against the program's target and max, how many are shaped and how full they are. Run it after generator changes.
+  size against the program's target and max, how many are shaped and how full they are. It also plays the playability
+  bot (`src/game/bot.ts`: a Clean infiltrator on the crew's knowledge) in each bank and prints its success rate per tier
+  × archetype (`SWEEP_BOT=blueprints|cold|both|off`). Run it after generator changes.
 - `npm run test:e2e` – builds, serves the production build and drives it in Chromium with Playwright (all but the visual
   regression tests). Writes `screenshots/*.png`. `E2E_PORT` serves it on another port than 4173, so two checkouts can
   test at once without one reusing the other's server. Tests run at 656x368 (project `small`, the least height that

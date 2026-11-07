@@ -1669,8 +1669,19 @@ M2 is complete: every package below has landed.
     them from contracts (M6-02); a landline caller turning to a mobile on a dead line; the owner answering in an
     animation of their own (they walk as an investigator, status Investigating); a phone picker on the map (the grid
     cycles); the security chief's absence and the other finale effects (M6/M7).
-- [ ] **M5-05 Playability bot (stretch).**
+- [x] **M5-05 Playability bot (stretch).** (partial: it gets through 34% of the sweep's banks with the Blueprints and 8%
+  without; not a validation gate, decision 423)
   - **Work:** a scripted Clean infiltrator that must reach the alarm closet unexposed on N seeds, run in the sweep.
+  - **Done:** `src/game/bot.ts` (`playBot`, decisions 420–424): a player, not a walker. It plays a planned heist's real
+    start (`heistFromSetup`: Jun alone on foot by the van, Clean, the lockpick and the hacking kit) through the real
+    commands (Move, Dash, End turn, open, pick, hack, the noisemaker), on what the crew knows (the safe floor, the
+    previews, the tiles and doors as known), from the van to the alarm closet or the CCTV room; with `intel` the heist
+    buys the Blueprints (§18.2, M5-03's asset). `npm run sweep` plays it in every bank and prints its success rate per
+    tier × archetype (`SWEEP_BOT=blueprints|cold|both|off`) and why it failed where it did.
+  - **Tests:** `tests/game/bot.test.ts`: the start, the pinned M1 bank `31-2` and three more banks with the Blueprints,
+    one without, and that it plays the same every time.
+  - **Deferred:** a stronger bot (a crew of two, casing from the public floor, a disguise, knocking out a lone
+    watcher, the Guard rota, intel from earlier heists in the bank); the design questions of decision 424.
 
 ### M6: Campaign
 
@@ -3194,6 +3205,58 @@ Later milestones: within each milestone, the `∥` notes in §3 apply. UI packag
     from every corner of that route too. And the vault test fetched each dual-control key-holder to the console inside
     the time-lock window; with a short window and a long way between them it shut again before the crew was through.
     Both are now fetched before the window opens (tests/sim/vault.test.ts).
+420. **The playability bot is a player, not a walker (M5-05).** The Clean route of §17.7 (decision 342) knows the whole
+    bank and holds every card; the bot (`src/game/bot.ts`) plays a planned heist's real start (`heistFromSetup`, §18.1):
+    Jun alone on foot by the van, Clean (Steady Hands halves the work on a lock), with the lockpick and the hacking kit;
+    with the Blueprints, which show every lock, a noisemaker for the lockpick where no lock is mechanical. Only the
+    real commands (Move, Dash, End turn, open, pick, hack, the noisemaker), and only on what the crew knows: the safe
+    floor (§8.8) and `previewDanger` judge on the crew's picture, the doors are `knownDoorStatus`, the tiles
+    `tileVisibility`. A goal room (the alarm closet or the CCTV room) is known once a tile of it is: seen, or on the
+    blueprint's layout. Until then it explores, and staff rooms are unnamed outlines, so the nearest door with hidden
+    tiles beyond is next, dearer by its room's outline area unless the room is narrow as a corridor (the goal rooms are
+    small; a big room holds more people). It holds no card it didn't take. With `intel` the same plan buys the
+    Blueprints (§18.2, M5-03); it carries no intel from earlier heists.
+421. **How the bot plays (M5-05).** Each Move ends on the green tile nearest its target (distances over the tiles the
+    crew can plan on, through closed doors and locks its kit opens). Where nothing green gets nearer, it steps into
+    unknown risk (hatched grey: exploring is impossible without it) the shortest step that does, only as a turn's first
+    action, and where staying is green only after 2 turns' wait; never onto amber, a hand, a camera or red. Off the
+    public floor the turn's last action is kept for getting away (a Move there could show someone it could do nothing
+    about before the world phase), unless it reaches the goal. Otherwise it waits where staying is green, or steps to
+    a green tile, or back toward the public floor, or Dashes. A closed door with hidden tiles beyond it is opened to
+    see in; a lock on its way is picked or hacked when the preview warns of nothing and staying is green (after 3
+    turns' wait, in unknown risk too). Where someone would see the work, it throws a noisemaker that turns them away if
+    one does (the preview of the throw shows nobody making it, and the preview of the work after it nothing), else
+    waits 3 turns and then looks for another way for 10. Challenged (§8.6), it makes for the public floor, working a
+    lock on the way whoever sees it. It gives up after 80 turns, or 30 in a row ending no nearer and seeing nothing new.
+422. **What counts as unexposed (M5-05).** The run fails at an exposure, a camera's sighting, an alarm carrier, an
+    alerted NPC or the bank going loud, or a command the rules refuse. Suspicion pips and challenges don't fail it (a
+    player recovers from both; a challenge not complied with ends as an exposure anyway). The failure says whether the
+    crew knew of whoever made it before the command.
+423. **The bot's success rates (M5-05).** The sweep's 224 banks (4 seeds × every tier, archetype and plot), with the
+    Blueprints / without: small twoWing 4/16, 1/16; atrium 12/16, 0; threeKeys 1/16, 0; fortress 7/16, 0; city twoWing
+    4/16, 0; atrium 2/16, 0; threeKeys 5/16, 0; fortress 9/16, 0; mezzanineWatch 13/16, 8/16; HQ twoWing 4/16, 0;
+    atrium 5/16, 1/16; threeKeys 1/16, 0; fortress 1/16, 0; mezzanineWatch 8/16, 7/16; in all 76/224 (34%) and 17/224
+    (8%), 1.8 s a run. The pinned M1 bank `31-2` gets through with the Blueprints (turn 48) and not without (exposed
+    on turn 72). It is far from "nearly every bank", so it is no validation gate: the sweep reports it and fails on
+    nothing it finds. Why it fails, with the Blueprints / without: stuck 30 turns short of the goal 78 / 15 (a lock on
+    the only way watched for good, by a teller facing the staff door from the counter, say, with no noisemaker in the
+    kit or none that turns them away); exposed 54 / 87, nearly all after a challenge it could not comply with;
+    exploring without finding the goal 0 / 61 (stuck) and out of turns 13 / 40; exposed by someone unseen 2 / 4, a
+    camera 1 / 0. No run was refused a command.
+424. **What the bot's failures say (M5-05).** Mostly that the bot is weak, not that the banks are unfair: the Clean
+    route (decision 342) gets an all-knowing walker through every one of them, and a lone Clean infiltrator with two
+    gadgets is the weakest crew there is (no second member to watch or distract, no disguise, no knockout). Two
+    findings about the game, not changed here: (a) **green doesn't cover NPCs walking in unseen.** Unknown risk
+    (`isUnknownRisk`, decision 24) is the sight of someone who could stand on a tile the crew hasn't seen since the
+    last world phase; an unseen NPC who *walks* into view in the world phase isn't counted, so a stay shown green can be
+    challenged. In a 56-bank probe, 11 of the 30 challenges without the Blueprints came on a wait the floor showed
+    green, every one by an NPC the crew hadn't seen; every challenge by an NPC the crew knew came where the floor
+    showed the trespass hand (a turn ended out of actions after a Move showed them), so no preview broke its promise.
+    The knowledge header's "green means nobody, known or not, would do anything" is true of where they stand, not of
+    where they walk. (b) **A challenge behind a latched staff door can't be complied with.** Doors latch locked as
+    they swing shut (rules/doors.ts), so the way back to the public floor runs through a lock, and picking or hacking
+    it in the challenger's sight is an illegal act: Exposed. A lone Clean crew member challenged in a locked staff wing
+    is done for; the design may want a door that opens from the inside without its key, or a crew wedge.
 
 ### Critical files for implementation
 
