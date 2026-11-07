@@ -8,7 +8,7 @@ import { expect, test, type Page } from '@playwright/test';
 const scene = (page: Page) => page.evaluate(() => (window as any).game.scene.getScene('bank').debugState);
 const campaign = (page: Page) => page.evaluate(() => JSON.parse(localStorage.getItem('bankheist:campaign') ?? 'null')?.campaign);
 
-test('a campaign: days, the Squeeze, money, and a heist that spends its day (M6-01, M6-03)', async ({ page }) => {
+test('a campaign: days, the Squeeze, money, contracts, and a heist that spends its day (M6-01, M6-02, M6-03)', async ({ page }) => {
     test.setTimeout(300000);
     const errors: string[] = [];
     page.on('pageerror', e => errors.push(e.message));
@@ -31,10 +31,28 @@ test('a campaign: days, the Squeeze, money, and a heist that spends its day (M6-
     await expect(page.locator('.cp-clean .cp-amount')).toHaveText('$23,000');
     await expect(page.locator('.cp-item[data-item="medkit"] .cp-have')).toHaveText('×2');
 
+    // The contracts on offer (M6-02): one per stakes; the first low one is the M1 bank, a Granite Savings branch.
+    await expect(page.locator('.cp-offer')).toHaveCount(3);
+    await expect(page.locator('.cp-offer').first()).toHaveAttribute('data-contract', 'd1-low');
+    await expect(page.locator('.cp-offer[data-stakes="low"] .cp-name')).toContainText('Granite Savings small branch');
+    await page.locator('.cp-offers').evaluate(e => e.scrollIntoView({ block: 'start' }));
+    await page.screenshot({ path: 'screenshots/campaign-contracts.png' });
+
+    // The address picks neither the bank nor the stakes: a crafted HQ heist goes back to the campaign, and an offered
+    // contract's address with another bank in it plans the contract's own bank.
+    await page.goto('/?plan&campaign&seed=5-5&tier=hq&still');
+    await expect(page.locator('.cp-title')).toHaveText('Day 2');
+    await page.goto('/?plan&campaign&contract=d1-low&seed=5-5&tier=hq&still');
+    await page.waitForFunction(() => (window as any).planner, undefined, { timeout: 60000 });
+    expect(Object.fromEntries(['seed', 'tier', 'archetype', 'chain'].map(k => [k, new URL(page.url()).searchParams.get(k)])))
+        .toEqual({ seed: '31-2', tier: 'small', archetype: 'twoWing', chain: 'Granite Savings' });
+    await page.goto('/?campaign&still');
+
     // A heist from the campaign: Mara alone at the wheel, driven off at once.
-    await page.locator('.cp-plan').click();
+    await page.locator('.cp-offer[data-stakes="low"] .cp-plan').click();
     await page.waitForFunction(() => (window as any).planner, undefined, { timeout: 60000 });
     expect(new URL(page.url()).searchParams.has('campaign')).toBe(true);
+    expect(new URL(page.url()).searchParams.get('contract')).toBe('d1-low');
     // The plan spends the campaign's money: the Guard rota is paid as it is bought, and stays paid on a reload.
     await expect(page.locator('.pl-cash')).toHaveAttribute('data-cash', '23000');
     await page.locator('.pl-asset[data-asset="guardRota"]').click();
@@ -56,7 +74,8 @@ test('a campaign: days, the Squeeze, money, and a heist that spends its day (M6-
     await page.locator('.pl-start').click();
     await page.waitForFunction(() => (window as any).game?.scene?.getScene('bank')?.debugState?.play && (window as any).sim, undefined, { timeout: 60000 });
     // The day was spent as the heist started; the address no longer names the campaign (a reload resumes the heist).
-    expect(await campaign(page)).toMatchObject({ day: 3, squeeze: 4, visit: { kind: 'heist', day: 2 } });
+    expect(await campaign(page)).toMatchObject({ day: 3, squeeze: 4, visit: { kind: 'heist', day: 2, contract: { id: 'd1-low' } } });
+    expect((await campaign(page)).contracts.map((k: { id: string }) => k.id)).not.toContain('d1-low');
     expect(new URL(page.url()).searchParams.has('campaign')).toBe(false);
     // What the heist sees is the campaign's, dated its day; nothing goes to the device's own intel.
     // (The rota bought while planning is its own record, with the favour it called in.)

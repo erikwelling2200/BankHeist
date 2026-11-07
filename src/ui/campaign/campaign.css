@@ -37,3 +37,11 @@ html.campaign-page #game, html.campaign-page .rotate-hint { display: none; }
 .cp-item { display: grid; grid-template-columns: 1fr auto auto; align-items: center; gap: 8px; padding: 2px 0; break-inside: avoid; }
 .cp-have { font-family: ui-monospace, Menlo, Consolas, monospace; color: #e2a240; }
 .cp button:disabled { opacity: 0.45; cursor: default; }
+/* The contracts on offer (M6-02): one row each, its terms beside its Plan button. */
+.cp-offers { margin: 0; padding: 0; list-style: none; }
+.cp-offer { display: grid; grid-template-columns: 1fr auto; align-items: center; gap: 10px; padding: 6px 0; border-top: 1px solid rgba(242, 230, 200, 0.1); }
+.cp-terms { display: flex; flex-direction: column; min-width: 0; }
+.cp-stakes { font: 600 11px ui-monospace, Menlo, Consolas, monospace; text-transform: uppercase; letter-spacing: 0.1em; color: #7fc47a; }
+.cp-offer.cp-medium .cp-stakes { color: #e2a240; }
+.cp-offer.cp-high .cp-stakes { color: #d44638; }
+.cp-advantages { color: #7fc47a; font-size: 12px; }

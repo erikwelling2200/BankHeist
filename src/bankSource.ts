@@ -1,4 +1,6 @@
-import { generateBank, parseSeed, seedText } from './gen/generate';
+import { generateBank, parseSeed, seedText, type GenerateOptions } from './gen/generate';
+import { SIDE_OBJECTIVES, type SideObjectiveKind } from './gen/objectives';
+import { CHAINS, MAX_ESCALATION } from './campaign/contracts';
 import type { GeneratedBank } from './gen/model';
 import { exampleBank, type BankData } from './level/bankData';
 
@@ -17,14 +19,15 @@ export function bankFromAddress(): { data: BankData; generated?: GeneratedBank }
         archetype: (params.get('archetype') ?? undefined) as GeneratedBank['archetype'] | undefined,
         plot: (params.get('plot') ?? undefined) as GeneratedBank['plot'] | undefined
     };
+    const terms = contractTerms(params);
     let generated: GeneratedBank;
     try {
-        generated = generateBank({ ...seed, ...pins });
+        generated = generateBank({ ...seed, ...pins, ...terms });
     } catch (e) {
         // Picks that can't go together (typed into the address by hand): drop the tier and roll it to fit.
         console.warn(`${(e as Error).message}; rolling the tier instead`);
         params.delete('tier');
-        generated = generateBank({ ...seed, ...pins, tier: undefined });
+        generated = generateBank({ ...seed, ...pins, ...terms, tier: undefined });
     }
     params.set('seed', seedText(generated.seed));
     // A bare flag (`?view`) stays bare rather than turning into `view=`.
@@ -33,4 +36,20 @@ export function bankFromAddress(): { data: BankData; generated?: GeneratedBank }
     const focus = { tx: lobby.x + Math.floor(lobby.w / 2), ty: lobby.y };
     const outlines = generated.rooms.filter(r => r.known === 'outline').map(r => ({ x: r.x, y: r.y, w: r.w, h: r.h, name: r.name, parts: r.parts }));
     return { data: { level: generated.level, rooms: generated.rooms, props: generated.props, people: generated.people, focus, outlines }, generated };
+}
+
+/**
+ * A contract's terms in the address (M6-02, `BankAddress`): `chain`, `escalation` and `objectives`. What isn't one of
+ * them (an unknown chain, steps out of range, an unknown or repeated objective) is left out of the address and the bank.
+ */
+function contractTerms(params: URLSearchParams): Pick<GenerateOptions, 'chain' | 'escalation' | 'objectives'> {
+    const chain = params.get('chain'), steps = Number(params.get('escalation')), kinds = (params.get('objectives') ?? '').split(',').filter(Boolean);
+    const terms: Pick<GenerateOptions, 'chain' | 'escalation' | 'objectives'> = {};
+    if (chain !== null && CHAINS.includes(chain)) terms.chain = chain;
+    else params.delete('chain');
+    if (Number.isInteger(steps) && steps >= 1 && steps <= MAX_ESCALATION) terms.escalation = steps;
+    else params.delete('escalation');
+    if (kinds.length && kinds.every(k => Object.hasOwn(SIDE_OBJECTIVES, k)) && new Set(kinds).size === kinds.length) terms.objectives = kinds as SideObjectiveKind[];
+    else params.delete('objectives');
+    return terms;
 }

@@ -27,10 +27,9 @@ export const STARTER_KIT: Readonly<Partial<Record<ItemId, number>>> = {
     pistol: 2, shotgun: 1, dmr: 1, lightVest: 1, mediumArmour: 1, hackingKit: 1, jammer: 1, breachCharge: 1, flashbang: 1, medkit: 1
 };
 
-/** How a contract's stakes (§19.3) follow the bank's tier until contracts set them (M6-02). */
+/** A contract's stakes (§19.3): its contract's (M6-02, src/campaign/contracts.ts `STAKES_TIER`). */
 export type Stakes = 'low' | 'medium' | 'high';
 export const STAKES: readonly Stakes[] = ['low', 'medium', 'high'];
-export const TIER_STAKES: Readonly<Record<string, Stakes>> = { small: 'low', city: 'medium', hq: 'high' };
 
 /**
  * The black market (§19.4's starting prices): what it sells, and which need a contact (its higher tiers: heavy armour,

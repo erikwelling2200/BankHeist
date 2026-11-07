@@ -1,9 +1,10 @@
 import {
-    campaignRefusal, commitCampaign, COMPLICATION_IDS, favoursToday, knownIntel, STAKES, THRESHOLDS, TIER_STAKES, ALL_THRESHOLDS, type Campaign, type CampaignCommand,
-    type CampaignEvent, type IntelAsset, type Job
+    campaignRefusal, CHAINS, offered, commitCampaign, COMPLICATION_IDS, favoursToday, knownIntel, MAX_ESCALATION, OBJECTIVE_KINDS, OBJECTIVE_OFFERS, STAKES, THRESHOLDS,
+    ALL_THRESHOLDS, type Campaign, type CampaignCommand, type CampaignEvent, type Contract, type IntelAsset, type Job, type Stakes
 } from '../campaign';
+import { ARCHETYPES, PLOTS, TIERS, type GeneratedBank } from '../gen/model';
 import { intelOf, isItem, ITEMS, SaveFormatError, stableJson, type DeepReadonly, type Intel, type ReadonlyWorld, type State } from '../sim';
-import { savedHeist, type CampaignTag } from './heist';
+import { bankAddress, sameAddress, savedHeist, type BankAddress, type CampaignTag } from './heist';
 import { ASSETS, FAVOUR_CAP, gearOf, spent, type HeistSetup, type Purse } from './plan';
 import { Session, type IntelKeeper } from './session';
 import { bankPrint, intelProblem, mergeIntel } from './intel';
@@ -21,8 +22,8 @@ import type { SaveStorage } from './storage';
 
 /** The storage key of the campaign in progress. */
 export const CAMPAIGN_KEY = 'campaign';
-/** The campaign save's format: a save of another format is refused, as the rules' saves are. 2: money (M6-03). */
-export const CAMPAIGN_FORMAT = 2;
+/** The campaign save's format: a save of another format is refused, as the rules' saves are. 2: money (M6-03); 3: contracts (M6-02). */
+export const CAMPAIGN_FORMAT = 3;
 
 const PHASES = ['open', 'raid', 'finaleDue', 'over'];
 const ACTIONS = ['heist', 'case', 'layLow'];
@@ -36,6 +37,19 @@ const exactKeys = (v: Record<string, unknown>, required: readonly string[], opti
 const strings = (v: unknown): v is string[] => Array.isArray(v) && v.every(x => typeof x === 'string');
 const whole = (v: unknown): v is number => Number.isInteger(v) && (v as number) >= 0;
 const gear = (v: unknown): v is string[] => strings(v) && v.every(id => isItem(id) && ITEMS[id].slot !== 'fixed');
+const among = (list: readonly string[], v: unknown): boolean => typeof v === 'string' && list.includes(v);
+
+/** Why `value` isn't a contract (src/campaign/contracts.ts), or undefined: its fields, each of its type. */
+function contractProblem(value: unknown): string | undefined {
+    if (!isRecord(value) || !exactKeys(value, ['id', 'posted', 'expires', 'stakes', 'chain', 'bank', 'escalation', 'bonus'], ['objective'])) return 'a contract with other fields';
+    const k = value, b = k.bank;
+    if (typeof k.id !== 'string' || !isDay(k.posted) || !isDay(k.expires) || (k.expires as number) < (k.posted as number)) return "the contract's days are not days";
+    if (!among(STAKES, k.stakes) || !among(CHAINS, k.chain) || !whole(k.escalation) || (k.escalation as number) > MAX_ESCALATION || !whole(k.bonus)) return 'the contract has no terms';
+    if (k.objective !== undefined && !among(OBJECTIVE_KINDS, k.objective)) return "the contract's side objective is none";
+    if (!isRecord(b) || !exactKeys(b, ['seed', 'tier', 'archetype', 'plot']) || typeof b.seed !== 'string' || !/^\d+-\d+$/.test(b.seed) || !among(TIERS, b.tier)
+        || !among(ARCHETYPES, b.archetype) || !among(PLOTS, b.plot)) return "the contract's bank is no bank";
+    return undefined;
+}
 
 /**
  * Why `value` isn't a campaign, or undefined: exactly a `Campaign`'s fields, each of its type, and a story that holds
@@ -45,7 +59,8 @@ const gear = (v: unknown): v is string[] => strings(v) && v.every(id => isItem(i
 export function campaignProblem(value: unknown): string | undefined {
     if (!isRecord(value)) return 'not a campaign';
     const v = value;
-    if (!exactKeys(v, ['seed', 'day', 'squeeze', 'complications', 'landed', 'falseTip', 'phase', 'days', 'visit', 'intel', 'money', 'fronts', 'contacts', 'armoury', 'shares'])) {
+    if (!exactKeys(v, ['seed', 'day', 'squeeze', 'complications', 'landed', 'falseTip', 'phase', 'days', 'visit', 'intel', 'money', 'fronts', 'contacts', 'armoury', 'shares',
+        'contracts', 'hits', 'advantages', 'objectiveOffers'])) {
         return 'a campaign with other fields';
     }
     if (!Number.isInteger(v.seed) || (v.seed as number) < 0 || (v.seed as number) > 0xffffffff) return 'the seed is no seed';
@@ -74,7 +89,7 @@ export function campaignProblem(value: unknown): string | undefined {
     }
     if (v.visit !== null) {
         const s = v.visit;
-        if (!isRecord(s) || !exactKeys(s, ['kind', 'day', 'bank', 'prior'], ['result', 'job', 'payout']) || !['heist', 'case'].includes(s.kind as string) || !isDay(s.day)
+        if (!isRecord(s) || !exactKeys(s, ['kind', 'day', 'bank', 'prior'], ['result', 'job', 'payout', 'contract']) || !['heist', 'case'].includes(s.kind as string) || !isDay(s.day)
             || typeof s.bank !== 'string' || (s.result !== undefined && (s.kind !== 'heist' || !RESULTS.includes(s.result as string)))) return 'the visit is no visit';
         const j = s.job;
         if (j !== undefined && (s.kind !== 'heist' || !isRecord(j) || !exactKeys(j, ['crew', 'kits', 'stakes']) || !strings(j.crew) || !isRecord(j.kits)
@@ -84,6 +99,14 @@ export function campaignProblem(value: unknown): string | undefined {
         const spent = days[(s.day as number) - 1] as Record<string, unknown> | undefined;
         if (!spent || spent.action !== s.kind || spent.bank !== s.bank) return 'the visit is not a day spent';
         if (s.day !== days.length) return 'the visit is not the last day spent';
+        // A heist is a contract's (M6-02): taken that day, at the job's stakes.
+        if (s.kind === 'heist' && s.contract === undefined) return "the visit's heist is no contract's";
+        if (s.contract !== undefined) {
+            const problem = contractProblem(s.contract), k = s.contract as Record<string, unknown>;
+            if (problem || s.kind !== 'heist') return problem ?? "the visit's contract is no heist's";
+            if ((k.posted as number) > (s.day as number) || (k.expires as number) < (s.day as number)) return "the visit's contract wasn't on offer that day";
+            if (isRecord(j) && j.stakes !== k.stakes) return "the visit's job is not at its contract's stakes";
+        }
         const p = s.prior;
         if (!isRecord(p) || !exactKeys(p, ['guardRota', 'routines', 'opportunities']) || typeof p.guardRota !== 'boolean' || !strings(p.routines)
             || !strings(p.opportunities)) return 'what the visit knew before is not intel';
@@ -100,6 +123,22 @@ export function campaignProblem(value: unknown): string | undefined {
     if (!whole(v.fronts) || !whole(v.contacts)) return 'the fronts or contacts are no count';
     if (!isRecord(v.armoury) || !Object.entries(v.armoury).every(([id, n]) => gear([id]) && Number.isInteger(n) && (n as number) >= 1)) return 'the armoury is not gear';
     if (!isRecord(v.shares) || !Object.values(v.shares).every(n => whole(n) && n <= 100)) return 'the shares are not shares';
+    // The board (M6-02): today's offers, one per stakes at most, each with its own id.
+    const board = v.contracts;
+    if (!Array.isArray(board)) return 'the contracts are no board';
+    for (const k of board) {
+        const problem = contractProblem(k);
+        if (problem) return problem;
+        if ((k as Contract).posted > (v.day as number) || (k as Contract).expires < (v.day as number)) return 'a contract on the board is not on offer today';
+    }
+    if (new Set(board.map(k => (k as Contract).stakes)).size !== board.length) return 'two contracts on the board have the same stakes';
+    const taken = isRecord(v.visit) && isRecord(v.visit.contract) ? v.visit.contract.id : undefined;
+    if (taken !== undefined && board.some(k => (k as Contract).id === taken)) return 'the contract taken is still on offer';
+    if (!isRecord(v.hits) || !Object.entries(v.hits).every(([k, n]) => among(CHAINS, k) && whole(n))) return 'the heists per chain are no counts';
+    const got = v.advantages;
+    if (!strings(got) || !got.every(k => among(OBJECTIVE_KINDS, k)) || new Set(got).size !== got.length) return 'the advantages are not side objectives';
+    if (!isRecord(v.objectiveOffers) || !Object.entries(v.objectiveOffers).every(([k, n]) => among(OBJECTIVE_KINDS, k) && Number.isInteger(n) && (n as number) >= 1
+        && (n as number) <= OBJECTIVE_OFFERS)) return 'the side objectives offered are no counts';
     return undefined;
 }
 
@@ -174,10 +213,18 @@ export function campaignPurse(campaign: DeepReadonly<Campaign>, world: ReadonlyW
     return { cash: campaign.money.clean, favours: FAVOUR_CAP - favoursToday(campaign, bankPrint(world)), armoury: { ...campaign.armoury } };
 }
 
-/** What a plan takes on as the campaign's heist (§19.4): its crew, their gear, the stakes of the bank's tier, and its assets' cost. */
-export function campaignJob(setup: HeistSetup, tier: string): { job: Job; cost: number } {
+/** What a plan takes on as the campaign's heist (§19.4): its crew, their gear, its contract's stakes, and its assets' cost. */
+export function campaignJob(setup: HeistSetup, stakes: Stakes): { job: Job; cost: number } {
     const kits = Object.fromEntries(setup.crew.map(c => [c.id, gearOf({ ...setup, crew: [c] })]));
-    return { job: { crew: setup.crew.map(c => c.id), kits, stakes: TIER_STAKES[tier] ?? 'low' }, cost: spent(setup).cash };
+    return { job: { crew: setup.crew.map(c => c.id), kits, stakes }, cost: spent(setup).cash };
+}
+
+/** The address of a contract's bank (M6-02): what the generator builds it from, its chain, security steps and side objective. */
+export function contractAddress(contract: DeepReadonly<Contract>): BankAddress {
+    return {
+        ...contract.bank, chain: contract.chain, ...(contract.escalation ? { escalation: String(contract.escalation) } : {}),
+        ...(contract.objective ? { objectives: contract.objective } : {})
+    };
 }
 
 /**
@@ -193,6 +240,12 @@ const takeOf = (state: DeepReadonly<State>): number => {
     const value = state.outcome?.value ?? 0;
     return Number.isFinite(value) ? Math.max(0, Math.floor(value)) : 0;
 };
+
+/** The side objectives (§19.5) among the loot that left with the crew: each counts once its carrier got out. */
+export function objectivesOut(world: ReadonlyWorld, state: DeepReadonly<State>): string[] {
+    const out = new Set(state.outcome?.loot ?? []);
+    return world.objects.flatMap(o => (out.has(o.id) && o.loot?.objective !== undefined ? [o.loot.objective] : []));
+}
 
 /**
  * The gear each crew member who escaped carries out of a heist, by crew id (their loadouts but the fixed items): what
@@ -232,7 +285,9 @@ export function campaignKeeper(storage: SaveStorage, tag: CampaignTag): IntelKee
         if (text !== kept) next = commitCampaign(next, { kind: 'learn', bank, day: tag.day, intel }).campaign;
         // Its end, with its take and the gear that came back: once, since a visit with a result takes no other (and drops the heist).
         if (ended && next.visit?.kind === 'heist' && !next.visit.result) {
-            next = commitCampaign(next, { kind: 'heistOver', day: tag.day, result: ended, take: takeOf(state), kept: gearKept(world, state) }).campaign;
+            next = commitCampaign(next, {
+                kind: 'heistOver', day: tag.day, result: ended, take: takeOf(state), kept: gearKept(world, state), objectives: objectivesOut(world, state)
+            }).campaign;
         }
         if (next !== campaign && saveCampaign(storage, next)) kept = text;
         return undefined;
@@ -251,10 +306,23 @@ export function untaggedKeeper(storage: SaveStorage): IntelKeeper {
     };
 }
 
-/** The tag of the campaign day's heist about to start in a bank, or why it can't start. */
-export function campaignHeistRefusal(campaign: Campaign | null, world: ReadonlyWorld): string | undefined {
+/** Why the campaign day's heist on the offered contract can't start in a bank, or undefined. */
+export function campaignHeistRefusal(campaign: Campaign | null, world: ReadonlyWorld, contract: string): string | undefined {
     if (!campaign) return 'No campaign';
-    return campaignRefusal(campaign, { kind: 'heist', bank: bankPrint(world) });
+    return campaignRefusal(campaign, { kind: 'heist', bank: bankPrint(world), contract });
+}
+
+/**
+ * Why a campaign heist can't start in this bank (M6-02), or undefined: `contract` is on today's board, the bank is
+ * exactly the one it names (seed, tier, archetype, plot, chain, security steps and side objective), and the rules
+ * would take it. The address never picks the bank or the stakes: a bank it names that no offer does is refused.
+ */
+export function contractBankRefusal(campaign: Campaign | null, contract: string | null, bank: GeneratedBank, world: ReadonlyWorld): string | undefined {
+    if (!campaign) return 'No campaign';
+    const offer = offered(campaign, contract);
+    if (!offer) return 'Not on offer';
+    if (!sameAddress(contractAddress(offer), bankAddress(bank))) return "Not the contract's bank";
+    return campaignHeistRefusal(campaign, world, offer.id);
 }
 
 /** Whether the campaign's day was spent on a heist that hasn't ended: the next day action abandons it (decision 443). */

@@ -10,12 +10,12 @@ import { OfficerScene } from './scenes/OfficerScene';
 import { PropSheetScene } from './scenes/PropSheetScene';
 import { Fullscreen } from './ui/Fullscreen';
 import { installDebugHandle, MemoryStorage, Session, webStorage, type SaveStorage } from './game';
-import { bankAddress, playPlan, sameAddress, savedHeist, startHeist, type CampaignTag } from './game/heist';
-import type { Campaign, IntelAsset } from './campaign';
+import { ADDRESS_KEYS, bankAddress, playPlan, sameAddress, savedHeist, startHeist, type CampaignTag } from './game/heist';
+import { offered, type Campaign, type IntelAsset } from './campaign';
 import { bankPrint, loadIntel } from './game/intel';
 import {
-    buyCampaignIntel, campaignAct, campaignHeistRefusal, campaignIntel, campaignJob, campaignKeeper, campaignPurse, dropCampaignHeist, heistUnfinished, loadCampaign,
-    untaggedKeeper
+    buyCampaignIntel, campaignAct, campaignIntel, campaignJob, campaignKeeper, campaignPurse, contractAddress, contractBankRefusal, dropCampaignHeist, heistUnfinished,
+    loadCampaign, untaggedKeeper
 } from './game/campaign';
 import { defaultSetup, fitArmoury, planOptions, setupFromAddress, type HeistSetup } from './game/plan';
 import { Planner } from './ui/planning/Planner';
@@ -154,18 +154,25 @@ function launch(params: URLSearchParams, scene: string, bank: { data: BankData; 
  * after asking if a heist is saved, and opens the game on it: the saved heist, resumed.
  */
 function plan(params: URLSearchParams): void {
-    if (!params.has('seed')) {
+    // `?plan&campaign&contract=…` plans the campaign's heist of the day (M6-01, M6-02): an offered contract's, in the bank
+    // it names whatever else the address says, with what its crew knows of the bank today, never the sandbox's intel;
+    // back to the campaign when there is none, the contract isn't on offer or no heist can be planned today.
+    const storage = webStorage() ?? new MemoryStorage();
+    const campaign = params.has('campaign') ? loadCampaign(storage) : undefined;
+    const contract = campaign ? offered(campaign, params.get('contract')) : undefined;
+    if (campaign !== undefined && !contract) {
+        location.replace(campaignAddress());
+        return;
+    }
+    if (contract || !params.has('seed')) {
         const next = new URLSearchParams(location.search);
-        for (const [k, v] of Object.entries(PLAY_BANK)) next.set(k, v);
+        for (const k of ADDRESS_KEYS) next.delete(k);
+        for (const [k, v] of Object.entries(contract ? contractAddress(contract) : PLAY_BANK)) next.set(k, v);
         replaceQuery(next);
     }
     const bank = generateAddressed(), generated = bank.generated!;
     const options = planOptions(generated);
-    // `?plan&campaign` plans the campaign's heist of the day (M6-01): with what its crew knows of the bank today, never
-    // the sandbox's intel; back to the campaign when there is none or no heist can be planned today.
-    const storage = webStorage() ?? new MemoryStorage();
-    const campaign = params.has('campaign') ? loadCampaign(storage) : undefined;
-    if (campaign !== undefined && campaignHeistRefusal(campaign, options.world)) {
+    if (campaign && contractBankRefusal(campaign, contract!.id, generated, options.world)) {
         location.replace(campaignAddress());
         return;
     }
@@ -188,7 +195,7 @@ function plan(params: URLSearchParams): void {
         }
     } : undefined;
     const planner = new Planner(generated, options, fitArmoury(defaultSetup(options, intel), purse), map, setup => {
-        const keep = [...new URLSearchParams(location.search)].filter(([k]) => !['plan', 'new', 'play', 'seed', 'tier', 'archetype', 'plot', 'setup'].includes(k));
+        const keep = [...new URLSearchParams(location.search)].filter(([k]) => !['plan', 'new', 'play', ...ADDRESS_KEYS, 'setup'].includes(k));
         const query = new URLSearchParams([['play', ''], ...Object.entries(bankAddress(generated)), ['setup', JSON.stringify(setup)], ...keep]);
         location.assign(`${location.pathname}?${query.toString().replace(/(^|&)(play|campaign)=(?=&|$)/g, '$1$2')}`);
     }, funds);
@@ -209,9 +216,9 @@ function generateAddressed(): ReturnType<typeof bankFromAddress> {
  */
 function writePlayAddress(bank: GeneratedBank, saved: ReturnType<typeof savedHeist>): void {
     const here = bankAddress(bank);
-    const pinned = here.seed === PLAY_BANK.seed && here.tier === PLAY_BANK.tier && here.archetype === PLAY_BANK.archetype;
+    const pinned = here.seed === PLAY_BANK.seed && here.tier === PLAY_BANK.tier && here.archetype === PLAY_BANK.archetype && !here.chain && !here.escalation && !here.objectives;
     const params = new URLSearchParams(location.search);
-    for (const k of ['play', 'new', 'seed', 'tier', 'archetype', 'plot', 'setup', 'campaign']) params.delete(k);
+    for (const k of ['play', 'new', ...ADDRESS_KEYS, 'setup', 'campaign', 'contract']) params.delete(k);
     const rest = [...params];
     replaceQuery(new URLSearchParams(pinned || sameAddress(saved?.address, here) ? rest : [['play', ''], ...Object.entries(here), ...rest]));
 }
@@ -229,7 +236,7 @@ async function preparePlay(params: URLSearchParams): Promise<{ bank: ReturnType<
         // The saved heist's bank, or the pinned one.
         const address: Record<string, string> = !fresh && saved?.address ? { ...saved.address } : { ...PLAY_BANK };
         const next = new URLSearchParams(location.search);
-        for (const k of ['seed', 'tier', 'archetype', 'plot']) next.delete(k);
+        for (const k of ADDRESS_KEYS) next.delete(k);
         for (const [k, v] of Object.entries(address)) next.set(k, v);
         next.delete('play');
         replaceQuery(new URLSearchParams([['play', ''], ...next]));
@@ -244,8 +251,10 @@ async function preparePlay(params: URLSearchParams): Promise<{ bank: ReturnType<
     // that can't be read or played goes back to planning.
     // `&campaign` with a plan: the campaign's heist of the day (M6-01), planned with what its crew knows today; it
     // spends the day as it starts. No campaign, or no heist today: back to the campaign.
+    // Only an offered contract's heist, in exactly the bank it names: the address picks neither the bank nor the stakes (M6-02).
     const campaign = params.has('setup') && params.has('campaign') ? loadCampaign(storage) : undefined;
-    if (campaign !== undefined && campaignHeistRefusal(campaign, planOptions(generated).world)) {
+    const contract = campaign ? offered(campaign, params.get('contract')) : undefined;
+    if (campaign !== undefined && contractBankRefusal(campaign, params.get('contract'), generated, planOptions(generated).world)) {
         location.replace(campaignAddress());
         return new Promise<never>(() => undefined);
     }
@@ -265,7 +274,7 @@ async function preparePlay(params: URLSearchParams): Promise<{ bank: ReturnType<
         if (campaign) {
             // The day is spent, and saved, before the heist starts: leaving it after a turn has still cost the day.
             // Its assets are paid and its gear taken as it starts (M6-03): the plan was checked against the campaign's purse.
-            const done = campaignAct(storage, { kind: 'heist', bank: bankPrint(planOptions(generated).world), ...campaignJob(planned, generated.tier) });
+            const done = campaignAct(storage, { kind: 'heist', bank: bankPrint(planOptions(generated).world), contract: contract!.id, ...campaignJob(planned, contract!.stakes) });
             // Refused, or stopped: the heist it abandoned landed the Raid (decision 446). The campaign shows it.
             if ('refused' in done || done.events.some(e => e.type === 'stopped')) {
                 // Stopped, the heist it abandoned is over: it isn't played on from `/`.

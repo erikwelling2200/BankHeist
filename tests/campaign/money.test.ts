@@ -1,8 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import {
-    campaignRefusal, commitCampaign, CampaignRefused, drawComplications, favoursToday, fenceCut, FRONT_COST, knownBefore, knownIntel, LAUNDER_PER_DAY, MARKET, newCampaign,
+    campaignRefusal, CampaignRefused, drawComplications, favoursToday, fenceCut, FRONT_COST, knownBefore, knownIntel, LAUNDER_PER_DAY, MARKET, newCampaign,
     sharesOf, STARTER_KIT, STARTING_CASH, STARTING_SHARES, type Campaign, type CampaignCommand, type CampaignEvent, type Job
 } from '../../src/campaign';
+import { commit, contracted, type TestCommand } from './contracted';
 import { FIXED_ITEMS, loadoutItems, ROSTER } from '../../src/game/plan';
 
 /*
@@ -11,10 +12,10 @@ import { FIXED_ITEMS, loadoutItems, ROSTER } from '../../src/game/plan';
  * while planning. Nothing is counted twice, and nothing is had for free.
  */
 
-const run = (c: Campaign, ...cmds: CampaignCommand[]): { campaign: Campaign; events: CampaignEvent[] } => {
+const run = (c: Campaign, ...cmds: TestCommand[]): { campaign: Campaign; events: CampaignEvent[] } => {
     let events: CampaignEvent[] = [];
     for (const cmd of cmds) {
-        const done = commitCampaign(c, cmd);
+        const done = commit(c, cmd);
         c = done.campaign;
         events = [...events, ...done.events];
     }
@@ -24,7 +25,7 @@ const run = (c: Campaign, ...cmds: CampaignCommand[]): { campaign: Campaign; eve
 const ALL: Job = { crew: ['mara', 'jun', 'dex', 'sol'], kits: { mara: [], jun: ['pistol'], dex: ['shotgun', 'mediumArmour', 'breachCharge'], sol: [] }, stakes: 'medium' };
 /** Mara alone, carrying `gear`. */
 const alone = (gear: string[], stakes: Job['stakes'] = 'medium'): Job => ({ crew: ['mara'], kits: { mara: gear }, stakes });
-const heist = (job: Job = ALL, cost = 0): CampaignCommand => ({ kind: 'heist', bank: 'b', job, cost });
+const heist = (job: Job = ALL, cost = 0): TestCommand => ({ kind: 'heist', bank: 'b', job, cost });
 /** A campaign with money to spend. */
 const rich = (clean: number, dirty = 0): Campaign => ({ ...newCampaign(9), money: { clean, dirty } });
 
@@ -55,19 +56,19 @@ describe('a heist pays as it starts and is paid as it ends', () => {
 
     it("refuses a heist beyond the money, the armoury or the crew", () => {
         const c = newCampaign(1);
-        expect(campaignRefusal(c, heist(ALL, 25000))).toBe('Not enough money');
-        expect(campaignRefusal(c, heist(alone(['shotgun', 'shotgun'])))).toBe('Not enough shotgun in the armoury');
-        expect(campaignRefusal(c, heist(alone(['lmg'])))).toBe('Not enough lmg in the armoury');
-        expect(campaignRefusal(c, heist(alone(['zipTies'])))).toBe('Not gear');
-        expect(campaignRefusal(c, heist(alone(['__proto__'])))).toBe('Not gear');
-        expect(campaignRefusal(c, heist({ ...ALL, crew: ['mara', 'mara'] }))).toBe('Not the crew');
+        expect(campaignRefusal(c, contracted(c, heist(ALL, 25000)))).toBe('Not enough money');
+        expect(campaignRefusal(c, contracted(c, heist(alone(['shotgun', 'shotgun']))))).toBe('Not enough shotgun in the armoury');
+        expect(campaignRefusal(c, contracted(c, heist(alone(['lmg']))))).toBe('Not enough lmg in the armoury');
+        expect(campaignRefusal(c, contracted(c, heist(alone(['zipTies']))))).toBe('Not gear');
+        expect(campaignRefusal(c, contracted(c, heist(alone(['__proto__']))))).toBe('Not gear');
+        expect(campaignRefusal(c, contracted(c, heist({ ...ALL, crew: ['mara', 'mara'] })))).toBe('Not the crew');
         // Every kit is a crew member's, and every crew member has one.
-        expect(campaignRefusal(c, heist({ ...alone([]), kits: { mara: [], jun: ['pistol'] } }))).toBe('Not the crew');
-        expect(campaignRefusal(c, heist({ ...ALL, kits: { mara: [] } }))).toBe('Not the crew');
-        expect(campaignRefusal(c, heist({ ...ALL, crew: ['eve'] }))).toBe('Not the crew');
-        expect(campaignRefusal(c, heist({ ...ALL, crew: [] }))).toBe('Not the crew');
-        expect(campaignRefusal(c, heist(ALL, -1))).toBe('No price');
-        expect(() => commitCampaign(c, heist(ALL, 25000))).toThrow(CampaignRefused);
+        expect(campaignRefusal(c, contracted(c, heist({ ...alone([]), kits: { mara: [], jun: ['pistol'] } })))).toBe('Not the crew');
+        expect(campaignRefusal(c, contracted(c, heist({ ...ALL, kits: { mara: [] } })))).toBe('Not the crew');
+        expect(campaignRefusal(c, contracted(c, heist({ ...ALL, crew: ['eve'] })))).toBe('Not the crew');
+        expect(campaignRefusal(c, contracted(c, heist({ ...ALL, crew: [] })))).toBe('Not the crew');
+        expect(campaignRefusal(c, contracted(c, heist(ALL, -1)))).toBe('No price');
+        expect(() => commit(c, heist(ALL, 25000))).toThrow(CampaignRefused);
     });
 
     it("brings its take in once, as dirty money less every crew member's share, and the gear that came back", () => {
@@ -79,7 +80,7 @@ describe('a heist pays as it starts and is paid as it ends', () => {
         c = r.campaign;
         expect(c.money.dirty).toBe(take - shares);
         expect(c.visit?.payout).toBe(take - shares);
-        expect(r.events).toContainEqual({ type: 'paid', day: 1, take, shares, dirty: take - shares });
+        expect(r.events).toContainEqual({ type: 'paid', day: 1, take, bonus: 0, shares, dirty: take - shares });
         // Back: each one's own kit that came out with them, never what they picked up (Dex's guard LMG, Sol's shotgun
         // off a guard); the armour and the charge stayed behind.
         expect(c.armoury.pistol).toBe(2);
@@ -115,8 +116,8 @@ describe('a heist pays as it starts and is paid as it ends', () => {
     it("a heist stopped by the Raid its abandoned one brought spends nothing", () => {
         // Squeeze 36 on day 18: the abandoned job's +2 lands the Raid, and the new heist doesn't start.
         let c = newCampaign(4);
-        for (let i = 0; i < 17; i++) c = commitCampaign(c, { kind: 'layLow' }).campaign;
-        c = commitCampaign(c, heist(alone(['pistol']))).campaign;
+        for (let i = 0; i < 17; i++) c = commit(c, { kind: 'layLow' }).campaign;
+        c = commit(c, heist(alone(['pistol']))).campaign;
         expect(c.squeeze).toBe(36);
         const r = run(c, heist(alone(['dmr']), 5000));
         expect(r.events.some(e => e.type === 'stopped')).toBe(true);
@@ -161,12 +162,12 @@ describe('the fence (§19.4)', () => {
         while (drawComplications(seed)[0] !== 'nervousFence') seed++;
         let c: Campaign = { ...newCampaign(seed), money: { clean: 0, dirty: 10 ** 6 } };
         expect(fenceCut(c)).toBe(50);
-        for (let i = 0; i < 3; i++) c = commitCampaign(c, { kind: 'layLow' }).campaign;
+        for (let i = 0; i < 3; i++) c = commit(c, { kind: 'layLow' }).campaign;
         expect(fenceCut(c)).toBe(50);
-        c = commitCampaign(c, { kind: 'layLow' }).campaign;
+        c = commit(c, { kind: 'layLow' }).campaign;
         expect(c.landed).toEqual([4]);
         expect(fenceCut(c)).toBe(65);
-        expect(commitCampaign(c, { kind: 'fence', amount: 1000 }).campaign.money.clean).toBe(c.money.clean + 350);
+        expect(commit(c, { kind: 'fence', amount: 1000 }).campaign.money.clean).toBe(c.money.clean + 350);
     });
 });
 
@@ -202,7 +203,7 @@ describe('the black market and contacts (§19.4)', () => {
     });
 
     it('trades nothing once the campaign is over', () => {
-        const over = commitCampaign(rich(10 ** 6, 10 ** 6), { kind: 'finale' }).campaign;
+        const over = commit(rich(10 ** 6, 10 ** 6), { kind: 'finale' }).campaign;
         for (const cmd of [{ kind: 'buy', item: 'pistol' }, { kind: 'buyFront' }, { kind: 'fence', amount: 1 }] as CampaignCommand[]) {
             expect(campaignRefusal(over, cmd)).toBe('The campaign is over');
         }
@@ -210,8 +211,8 @@ describe('the black market and contacts (§19.4)', () => {
 });
 
 describe('intel bought while planning (decision 401 in the campaign)', () => {
-    const rota: CampaignCommand = { kind: 'buyIntel', bank: 'b', asset: 'guardRota', cost: 3000, favours: 1 };
-    const plans: CampaignCommand = { kind: 'buyIntel', bank: 'b', asset: 'blueprints', cost: 2000, favours: 1 };
+    const rota: TestCommand = { kind: 'buyIntel', bank: 'b', asset: 'guardRota', cost: 3000, favours: 1 };
+    const plans: TestCommand = { kind: 'buyIntel', bank: 'b', asset: 'blueprints', cost: 2000, favours: 1 };
 
     it('is paid at once and known from then on: never bought twice', () => {
         const r = run(newCampaign(1), rota, plans);
@@ -231,7 +232,7 @@ describe('intel bought while planning (decision 401 in the campaign)', () => {
     it("isn't overwritten by what the day's heist learns, which leaves out what it was bought knowing", () => {
         let c = run(newCampaign(1), rota, heist()).campaign;
         expect(knownBefore(c, 'b').guardRota).toBe(true);
-        c = commitCampaign(c, { kind: 'learn', bank: 'b', day: 1, intel: { guardRota: true, routines: ['x'] } }).campaign;
+        c = commit(c, { kind: 'learn', bank: 'b', day: 1, intel: { guardRota: true, routines: ['x'] } }).campaign;
         expect(c.intel.b).toEqual([{ day: 1, intel: { guardRota: true }, favours: 1 }, { day: 1, intel: { routines: ['x'] } }]);
         // The favours were today's: tomorrow's plan has the whole cap.
         expect(favoursToday(c, 'b')).toBe(0);
@@ -239,7 +240,7 @@ describe('intel bought while planning (decision 401 in the campaign)', () => {
 
     it('a bought rota ages like a learned one: gone after three days, and buyable again', () => {
         let c = run(newCampaign(1), rota, plans).campaign;
-        for (let i = 0; i < 4; i++) c = commitCampaign(c, { kind: 'layLow' }).campaign;
+        for (let i = 0; i < 4; i++) c = commit(c, { kind: 'layLow' }).campaign;
         expect(knownIntel(c, 'b')).toEqual([{ blueprints: true }]);
         expect(campaignRefusal(c, rota)).toBeUndefined();
         expect(campaignRefusal(c, plans)).toBe('Known already');
@@ -247,7 +248,7 @@ describe('intel bought while planning (decision 401 in the campaign)', () => {
 
     it('is bought only while heists can be planned', () => {
         let c = newCampaign(1);
-        for (let i = 0; i < 19; i++) c = commitCampaign(c, { kind: 'layLow' }).campaign;
+        for (let i = 0; i < 19; i++) c = commit(c, { kind: 'layLow' }).campaign;
         expect(campaignRefusal(c, rota)).toBe('No heist to plan');
     });
 });

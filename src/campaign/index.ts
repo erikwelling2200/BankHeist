@@ -4,5 +4,6 @@
  */
 export * from './campaign';
 export * from './complications';
+export * from './contracts';
 export * from './money';
 export * from './squeeze';

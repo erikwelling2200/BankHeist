@@ -1,24 +1,25 @@
 import { describe, expect, it } from 'vitest';
 import {
-    ALL_THRESHOLDS, campaignRefusal, commitCampaign, COMPLICATION_IDS, drawComplications, INTEL_FRESH_DAYS, knownBefore, knownIntel, learnedOf, newCampaign,
-    nextStep, projectedDay, RAID_AT, SQUEEZE, THRESHOLDS, timeline, type Campaign, type CampaignCommand, type CampaignEvent
+    ALL_THRESHOLDS, campaignRefusal, COMPLICATION_IDS, drawComplications, INTEL_FRESH_DAYS, knownBefore, knownIntel, learnedOf, newCampaign,
+    nextStep, projectedDay, RAID_AT, SQUEEZE, THRESHOLDS, timeline, type Campaign, type CampaignEvent
 } from '../../src/campaign';
+import { commit, contracted, type TestCommand } from './contracted';
 
 /*
  * The campaign's core (M6-01, GAME_DESIGN §19.2, §19.3): days, the Squeeze, its thresholds and complications, the Raid,
  * and intel that ages with the days.
  */
 
-const run = (c: Campaign, ...cmds: CampaignCommand[]): { campaign: Campaign; events: CampaignEvent[] } => {
+const run = (c: Campaign, ...cmds: TestCommand[]): { campaign: Campaign; events: CampaignEvent[] } => {
     let events: CampaignEvent[] = [];
     for (const cmd of cmds) {
-        const done = commitCampaign(c, cmd);
+        const done = commit(c, cmd);
         c = done.campaign;
         events = [...events, ...done.events];
     }
     return { campaign: c, events };
 };
-const days = (n: number): CampaignCommand[] => Array.from({ length: n }, () => ({ kind: 'layLow' }) as const);
+const days = (n: number): TestCommand[] => Array.from({ length: n }, () => ({ kind: 'layLow' }) as const);
 
 describe('the Squeeze (§19.2)', () => {
     it('has the thresholds and gains §19.2 lists', () => {
@@ -130,8 +131,8 @@ describe('days (§19.3)', () => {
     it('an abandoned heist that lands the Raid stops the day action: no day spent, no new visit', () => {
         const before = run(newCampaign(1), ...days(17), { kind: 'heist', bank: 'b' }).campaign;
         expect(before).toMatchObject({ day: 19, squeeze: 36, phase: 'open' });
-        for (const cmd of [{ kind: 'heist', bank: 'c' }, { kind: 'case', bank: 'c' }, { kind: 'layLow' }] as CampaignCommand[]) {
-            const r = commitCampaign(before, cmd);
+        for (const cmd of [{ kind: 'heist', bank: 'c' }, { kind: 'case', bank: 'c' }, { kind: 'layLow' }] as TestCommand[]) {
+            const r = commit(before, cmd);
             expect(r.campaign).toMatchObject({ day: 19, squeeze: 38, phase: 'raid', visit: { kind: 'heist', day: 18, bank: 'b', result: 'failure' } });
             expect(r.campaign.days).toHaveLength(18);
             expect(r.campaign.landed.at(-1)).toBe(18);
@@ -144,7 +145,7 @@ describe('days (§19.3)', () => {
     it('the Raid stops the days: the finale follows it, then the campaign is over', () => {
         const raid = run(newCampaign(1), ...days(19)).campaign;
         expect(campaignRefusal(raid, { kind: 'layLow' })).toBe('The Raid comes first');
-        expect(campaignRefusal(raid, { kind: 'heist', bank: 'b' })).toBe('The Raid comes first');
+        expect(campaignRefusal(raid, contracted(raid, { kind: 'heist', bank: 'b' }))).toBe('The Raid comes first');
         expect(campaignRefusal(raid, { kind: 'finale' })).toBe('The Raid comes first');
         const survived = run(raid, { kind: 'raidOver', survived: true }).campaign;
         expect(survived.phase).toBe('finaleDue');
@@ -159,9 +160,9 @@ describe('days (§19.3)', () => {
 
     it('never changes the campaign it was given', () => {
         const c = newCampaign(1), copy = structuredClone(c);
-        commitCampaign(c, { kind: 'heist', bank: 'b' });
+        commit(c, { kind: 'heist', bank: 'b' });
         expect(c).toEqual(copy);
-        expect(() => commitCampaign(run(c, ...days(19)).campaign, { kind: 'layLow' })).toThrow('The Raid comes first');
+        expect(() => commit(run(c, ...days(19)).campaign, { kind: 'layLow' })).toThrow('The Raid comes first');
     });
 });
 

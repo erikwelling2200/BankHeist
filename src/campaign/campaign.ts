@@ -1,5 +1,7 @@
 import { isItem, ITEMS, type DeepReadonly, type Intel } from '../sim';
+import type { SideObjectiveKind } from '../gen/objectives';
 import { COMPLICATIONS, drawComplications, type ComplicationId } from './complications';
+import { escalateChain, refreshContracts, type Contract } from './contracts';
 import { countItems, FENCE_CUT, fenced, FRONT_COST, LAUNDER_PER_DAY, MARKET, NERVOUS_FENCE_CUT, sharesOf, STAKES, STARTER_KIT, STARTING_CASH, STARTING_SHARES, type Stakes } from './money';
 import { ALL_THRESHOLDS, projectedDay, SQUEEZE, THRESHOLDS, type SqueezeSource } from './squeeze';
 
@@ -16,6 +18,10 @@ import { ALL_THRESHOLDS, projectedDay, SQUEEZE, THRESHOLDS, type SqueezeSource }
  * Money (§19.4, M6-03): a heist's take comes in once, as it ends, as dirty money less the crew's shares; every day spent
  * launders some of it, the fence any of it at once for a cut. Clean money pays the heist's assets and the gear it takes
  * as it starts (the gear comes back with whoever escapes), intel bought while planning, fronts and the black market.
+ *
+ * Contracts (§19.3, §19.5, M6-02, src/campaign/contracts.ts): a heist is always one of the day's offers, which names its
+ * bank and stakes; it comes off the board as it starts, the chain's other branches add a security step, and its end
+ * pays the client's bonus on a Success and counts the side objective it held once its carrier got out.
  */
 
 /** What spends a day (§19.3). */
@@ -43,6 +49,8 @@ export interface Visit {
     result?: HeistResult;
     /** A heist's crew, the gear they took and its stakes, as it started (none for a heist started without them). */
     job?: Job;
+    /** A heist's contract, as it was taken. */
+    contract?: Contract;
     /** The dirty money it brought in once over: its take less the crew's shares. */
     payout?: number;
 }
@@ -105,11 +113,19 @@ export interface Campaign {
     armoury: Record<string, number>;
     /** Each crew member's share of a job, in percent, by id (set at recruitment). */
     shares: Record<string, number>;
+    /** The offers on the board today, by stakes (§19.3). */
+    contracts: Contract[];
+    /** Heists started per bank chain: each puts the chain's other branches a security step up. */
+    hits: Record<string, number>;
+    /** The side objectives brought out (§19.5), in order: the finale's advantages. */
+    advantages: SideObjectiveKind[];
+    /** How many offers have held each side objective (once, and once more if missed). */
+    objectiveOffers: Record<string, number>;
 }
 
 export type CampaignCommand =
-    /** Spends the day on a heist in the bank (its print): from the moment it starts, paying `cost` for its assets. */
-    | { kind: 'heist'; bank: string; job?: Job; cost?: number }
+    /** Spends the day on the offered `contract`'s heist in its bank (the print): from the moment it starts, paying `cost` for its assets. */
+    | { kind: 'heist'; bank: string; contract: string; job?: Job; cost?: number }
     /** Spends the day casing the bank (the visit itself is M6-07's). */
     | { kind: 'case'; bank: string }
     /** Spends the day laying low. */
@@ -117,10 +133,10 @@ export type CampaignCommand =
     /** What the visit of `day` to `bank` has learned so far (the heist's whole intel; what was known before is left out). */
     | { kind: 'learn'; bank: string; day: number; intel: Intel }
     /**
-     * The heist of `day` ended: the loot's value that left (`take`) and, by crew id, the gear each who escaped still
-     * carries unused (`kept`).
+     * The heist of `day` ended: the loot's value that left (`take`), by crew id the gear each who escaped still carries
+     * unused (`kept`), and the side objectives that left with them (`objectives`).
      */
-    | { kind: 'heistOver'; day: number; result: HeistResult; take?: number; kept?: Record<string, string[]> }
+    | { kind: 'heistOver'; day: number; result: HeistResult; take?: number; kept?: Record<string, string[]>; objectives?: string[] }
     /** An intel asset bought on the planning screen for the bank's heist (decision 401): paid now, known from now. */
     | { kind: 'buyIntel'; bank: string; asset: IntelAsset; cost: number; favours: number }
     /** Gear from the black market, into the armoury. */
@@ -148,8 +164,12 @@ export type CampaignEvent =
     | { type: 'stopped'; action: DayAction; reason: string }
     /** Clean money went: on a heist's assets, intel, gear or a front. */
     | { type: 'spent'; on: 'heist' | 'intel' | 'gear' | 'front'; amount: number; clean: number }
-    /** A heist's take came in: its value, the crew's shares, and the dirty money left. */
-    | { type: 'paid'; day: number; take: number; shares: number; dirty: number }
+    /** A heist's take came in: its value, the client's bonus, the crew's shares, and the dirty money left. */
+    | { type: 'paid'; day: number; take: number; bonus: number; shares: number; dirty: number }
+    /** The board changed as a day came: offers posted and offers expired, by id. */
+    | { type: 'offers'; posted: string[]; expired: string[] }
+    /** A side objective came out with the crew (§19.5): a finale advantage. */
+    | { type: 'objective'; objective: SideObjectiveKind; day: number }
     | { type: 'laundered'; amount: number; clean: number; dirty: number }
     | { type: 'fenced'; amount: number; paid: number; cut: number }
     | { type: 'contact'; contacts: number }
@@ -171,12 +191,18 @@ export const INTEL_FRESH_DAYS = 3;
 
 /** A new campaign on day 1: the complications drawn from `seed`. */
 export function newCampaign(seed: number): Campaign {
-    return {
+    const c: Campaign = {
         seed: seed >>> 0, day: 1, squeeze: 0, complications: drawComplications(seed >>> 0), landed: [], falseTip: false, phase: 'open',
         days: [], visit: null, intel: {},
-        money: { clean: STARTING_CASH, dirty: 0 }, fronts: 0, contacts: 0, armoury: { ...STARTER_KIT } as Record<string, number>, shares: { ...STARTING_SHARES }
+        money: { clean: STARTING_CASH, dirty: 0 }, fronts: 0, contacts: 0, armoury: { ...STARTER_KIT } as Record<string, number>, shares: { ...STARTING_SHARES },
+        contracts: [], hits: {}, advantages: [], objectiveOffers: {}
     };
+    refreshContracts(c);
+    return c;
 }
+
+/** The offer on today's board with this id, or undefined. */
+export const offered = (c: DeepReadonly<Campaign>, id: string | null | undefined): DeepReadonly<Contract> | undefined => c.contracts.find(k => k.id === id);
 
 const whole = (n: unknown): n is number => Number.isInteger(n) && (n as number) >= 0;
 
@@ -187,13 +213,19 @@ function gearRefusal(c: Campaign, gear: readonly string[]): string | undefined {
     return undefined;
 }
 
-/** Why a heist's job can't be taken on, or undefined: the crew who have shares, the gear in the armoury, the cash. */
-function jobRefusal(c: Campaign, job: Job | undefined, cost: number | undefined): string | undefined {
+/**
+ * Why a heist's job can't be taken on, or undefined: an offer on today's board, at its stakes; the crew who have shares,
+ * the gear in the armoury, the cash.
+ */
+function jobRefusal(c: Campaign, contract: string, job: Job | undefined, cost: number | undefined): string | undefined {
+    const offer = offered(c, contract);
+    if (!offer) return 'Not on offer';
     if (cost !== undefined && !whole(cost)) return 'No price';
     if ((cost ?? 0) > c.money.clean) return 'Not enough money';
     if (!job) return undefined;
     if (!job.crew.length || new Set(job.crew).size !== job.crew.length || job.crew.some(id => !Object.hasOwn(c.shares, id))) return 'Not the crew';
     if (!STAKES.includes(job.stakes)) return 'No stakes';
+    if (job.stakes !== offer.stakes) return "Not the contract's stakes";
     const ids = Object.keys(job.kits);
     if (ids.length !== job.crew.length || ids.some(id => !job.crew.includes(id))) return 'Not the crew';
     return gearRefusal(c, jobGear(job));
@@ -221,7 +253,7 @@ export function campaignRefusal(c: Campaign, cmd: CampaignCommand): string | und
         case 'heist': case 'case': case 'layLow':
             if (c.phase !== 'open') return c.phase === 'over' ? 'The campaign is over' : c.phase === 'raid' ? 'The Raid comes first' : 'The finale is due';
             if (cmd.kind !== 'layLow' && !cmd.bank) return 'No bank';
-            return cmd.kind === 'heist' ? jobRefusal(c, cmd.job, cmd.cost) : undefined;
+            return cmd.kind === 'heist' ? jobRefusal(c, cmd.contract, cmd.job, cmd.cost) : undefined;
         case 'learn':
             if (!c.visit || c.visit.day !== cmd.day || c.visit.bank !== cmd.bank) return "Not the day's visit";
             return undefined;
@@ -229,6 +261,7 @@ export function campaignRefusal(c: Campaign, cmd: CampaignCommand): string | und
             if (!c.visit || c.visit.kind !== 'heist' || c.visit.day !== cmd.day) return "Not the day's heist";
             if (c.visit.result) return 'The heist is over already';
             if (cmd.take !== undefined && !whole(cmd.take)) return 'No take';
+            if (cmd.objectives !== undefined && !(Array.isArray(cmd.objectives) && cmd.objectives.every(k => typeof k === 'string'))) return 'No objectives';
             return undefined;
         case 'buyIntel': {
             if (c.phase !== 'open') return 'No heist to plan';
@@ -295,6 +328,11 @@ export function commitCampaign(campaign: Campaign, cmd: CampaignCommand): { camp
             const visit: Visit | null = cmd.kind === 'layLow' ? null : { kind: cmd.kind, day, bank: cmd.bank, prior: knownBefore(campaign, cmd.bank) };
             c.visit = visit;
             if (cmd.kind === 'heist') {
+                // The contract comes off the board as it starts (abandoning it gives nothing back), and its chain is on guard.
+                const contract = offered(c, cmd.contract) as Contract;
+                c.contracts = c.contracts.filter(k => k !== contract);
+                visit!.contract = contract;
+                escalateChain(c, contract.chain);
                 // The assets are paid and the gear taken as it starts: a heist left after a turn has cost them too.
                 if (cmd.cost) spend(c, events, 'heist', cmd.cost);
                 if (cmd.job) {
@@ -308,6 +346,8 @@ export function commitCampaign(campaign: Campaign, cmd: CampaignCommand): { camp
             launder(c, events);
             c.day = day + 1;
             pruneIntel(c);
+            const board = refreshContracts(c);
+            if (board.posted.length || board.expired.length) events.push({ type: 'offers', ...board });
             break;
         }
         case 'learn': {
@@ -326,15 +366,22 @@ export function commitCampaign(campaign: Campaign, cmd: CampaignCommand): { camp
         case 'heistOver': {
             const v = c.visit!;
             v.result = cmd.result;
+            // The side objective counts once its carrier got out, even if the job failed (§19.5); only the contract's own.
+            const objective = v.contract?.objective;
+            if (objective && (cmd.objectives ?? []).includes(objective) && !c.advantages.includes(objective)) {
+                c.advantages.push(objective);
+                events.push({ type: 'objective', objective, day: v.day });
+            }
             if (cmd.result === 'failure') {
                 // Failure loses the gear brought in (§19.3), and there is no take.
                 events.push({ type: 'jobFailed', day: cmd.day, abandoned: false });
                 add('failedJob', SQUEEZE.failedJob);
             } else if (v.job) {
-                const take = cmd.take ?? 0, shares = sharesOf(take, v.job.crew, c.shares);
-                v.payout = Math.max(0, take - shares);
+                // The client's bonus on a Success (decision 503): part of the job, so the crew take their shares of it too.
+                const take = cmd.take ?? 0, bonus = cmd.result === 'success' ? v.contract?.bonus ?? 0 : 0, shares = sharesOf(take + bonus, v.job.crew, c.shares);
+                v.payout = Math.max(0, take + bonus - shares);
                 c.money.dirty += v.payout;
-                events.push({ type: 'paid', day: v.day, take, shares, dirty: c.money.dirty });
+                events.push({ type: 'paid', day: v.day, take, bonus, shares, dirty: c.money.dirty });
                 returnGear(c, events, v.job, cmd.kept ?? {});
                 if (cmd.result === 'success' && v.job.stakes === 'high') {
                     c.contacts += 1;

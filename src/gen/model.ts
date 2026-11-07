@@ -280,6 +280,9 @@ export interface GeneratedBank {
     policeEta: number;
     /** Whether the tier hides dye packs in its cash (§15.1): the player knows this, not which drawer. */
     dyePacks: boolean;
+    /** A contract's bank (M6-02): the chain it is a branch of, and the security steps the chain added (`policeEta` has them). */
+    chain?: string;
+    escalation?: number;
     level: Level;
     rooms: GenRoom[];
     doors: Door[];

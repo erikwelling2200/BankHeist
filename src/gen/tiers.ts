@@ -47,6 +47,12 @@ export const TIER_SPECS: Record<Tier, TierSpec> = {
     }
 };
 
+/** The soonest police ETA a branch gets from its chain's security steps: the reserve depot's (§17.3). */
+export const ESCALATED_ETA_FLOOR = 3;
+
+/** The police ETA after a chain's security steps (§19.3 chain escalation, M6-02): one turn sooner a step, never below the depot's. */
+export const escalatedEta = (eta: number, steps: number): number => Math.max(Math.min(eta, ESCALATED_ETA_FLOOR), eta - Math.max(0, steps));
+
 /** Drill time by vault class (§15.3). */
 export const DRILL_PHASES = { M: 3, I: 5, II: 8, III: 12 } as const;
 

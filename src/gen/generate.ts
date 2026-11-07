@@ -7,7 +7,7 @@ import { finishNeighbour, placeNeighbour, type Neighbour } from './neighbours';
 import { composePlot, type Plot } from './plot';
 import { Rng, seedOf } from './rng';
 import type { Site } from './site';
-import { rollTier, TIER_SPECS, type TierSpec } from './tiers';
+import { escalatedEta, rollTier, TIER_SPECS, type TierSpec } from './tiers';
 import { placeWays } from './approaches';
 import { keyGraph } from './keys';
 import { roomMetrics } from './metrics';
@@ -28,6 +28,10 @@ export interface GenerateOptions {
     plot?: PlotKind;
     /** The contract's side objectives (§19.5, `objectives.ts`), placed after the furnishing so nothing else changes. */
     objectives?: readonly SideObjectiveKind[];
+    /** The contract's bank chain (§19.3): the bank goes by its name, the street as rolled. Nothing else changes. */
+    chain?: string;
+    /** The security steps its chain added (§19.3 chain escalation, `escalatedEta`): the police come sooner. Nothing else changes. */
+    escalation?: number;
 }
 
 /** The first stages (§17.2 steps 1–3 and 5): plot, archetype, the bank's rooms, walls and doors, the neighbours. */
@@ -168,15 +172,18 @@ function finishBank(shell: Shell, rng: Rng, people: Rng, spec: TierSpec, opts: G
     const nav = new Nav(site, grids);
     const tall = (x: number, y: number) => grids.tall[y * site.width + x] === 1;
     const traffic = trafficTiles(site, nav, bank);
-    const named = rng.fork('name'), name = `${named.pick(BANK_NAMES)} ${named.pick(BANK_KINDS)}, ${named.pick(STREETS)}`;
+    // The rolls are made all the same, so a contract's chain changes only the name.
+    const named = rng.fork('name'), brand = `${named.pick(BANK_NAMES)} ${named.pick(BANK_KINDS)}`, name = `${opts.chain ?? brand}, ${named.pick(STREETS)}`;
+    const escalation = opts.escalation ?? 0;
     const out = (rest: Pick<GeneratedBank, 'people' | 'cameras' | 'locks' | 'timeline' | 'opportunities' | 'intel'>): GeneratedBank => ({
         seed: { layout: opts.layout, population: opts.population },
-        name, tier, archetype, plot: shell.plotKind, headlines, vaultClass, timeLock, dualControl: spec.dualControl, policeEta: spec.policeEta, dyePacks: spec.dyePacks,
+        name, tier, archetype, plot: shell.plotKind, headlines, vaultClass, timeLock, dualControl: spec.dualControl, policeEta: escalatedEta(spec.policeEta, escalation), dyePacks: spec.dyePacks,
         level: site.level(), rooms: site.rooms, doors: site.doors, props: site.props, people: rest.people, cameras: rest.cameras, locks: rest.locks,
         approaches: ways.approaches, routes: ways.routes, getaways: ways.getaways, exits: ways.exits, staging: ways.staging,
         neighbours: shell.neighbours.map(n => n.slot.kind), timeline: rest.timeline, opportunities: rest.opportunities, intel: rest.intel,
         stations: furnished.stations, alarms: furnished.alarms, loot: furnished.loot, grates: furnished.grates, vents: furnished.vents,
-        hatches: furnished.hatches, monitors: spec.monitors, stories: furnished.stories, validation: { results: [], relaxed: [], attempts: 0, metrics: [] }
+        hatches: furnished.hatches, monitors: spec.monitors, stories: furnished.stories, validation: { results: [], relaxed: [], attempts: 0, metrics: [] },
+        ...(opts.chain !== undefined ? { chain: opts.chain } : {}), ...(escalation ? { escalation } : {})
     });
     // The cameras are hung by what the rules' cameras will see (M5-01): the bank's World with nobody in it yet and a
     // camera in every slot.

@@ -87,14 +87,24 @@ export function newHeist(bank: GeneratedBank, setup?: HeistSetup): { world: Read
 /** The storage key of the address of the bank the saved heist is played in, so the game can rebuild it to resume. */
 export const BANK_KEY = 'bank';
 
-/** What names a generated bank in the address (`?seed=…&tier=…&archetype=…&plot=…`). */
-export interface BankAddress { seed: string; tier: string; archetype: string; plot: string }
+/**
+ * What names a generated bank in the address (`?seed=…&tier=…&archetype=…&plot=…`), and a contract's bank's terms when
+ * it has them (M6-02): its chain, its security steps and its side objectives (comma-separated).
+ */
+export interface BankAddress { seed: string; tier: string; archetype: string; plot: string; chain?: string; escalation?: string; objectives?: string }
 
-export const bankAddress = (bank: GeneratedBank): BankAddress =>
-    ({ seed: seedText(bank.seed), tier: bank.tier, archetype: bank.archetype, plot: bank.plot });
+/** The address's keys of a bank, in order: the generator's picks, then a contract's terms. */
+export const ADDRESS_KEYS = ['seed', 'tier', 'archetype', 'plot', 'chain', 'escalation', 'objectives'] as const;
 
-export const sameAddress = (a: BankAddress | null | undefined, b: BankAddress | null | undefined): boolean =>
-    !!a && !!b && a.seed === b.seed && a.tier === b.tier && a.archetype === b.archetype && a.plot === b.plot;
+export function bankAddress(bank: GeneratedBank): BankAddress {
+    const objectives = bank.loot.flatMap(l => (l.objective !== undefined ? [l.objective] : []));
+    return {
+        seed: seedText(bank.seed), tier: bank.tier, archetype: bank.archetype, plot: bank.plot, ...(bank.chain !== undefined ? { chain: bank.chain } : {}),
+        ...(bank.escalation ? { escalation: String(bank.escalation) } : {}), ...(objectives.length ? { objectives: objectives.join(',') } : {})
+    };
+}
+
+export const sameAddress = (a: BankAddress | null | undefined, b: BankAddress | null | undefined): boolean => !!a && !!b && ADDRESS_KEYS.every(k => a[k] === b[k]);
 
 /** Which campaign's day a heist belongs to (M6-01, src/game/campaign.ts): its campaign's seed and the day it was spent on. */
 export interface CampaignTag { seed: number; day: number }
@@ -108,10 +118,12 @@ export function savedHeist(storage: SaveStorage): { address: BankAddress | null;
     try {
         const data = JSON.parse(storage.get(BANK_KEY) ?? 'null') as { address?: BankAddress; name?: string; campaign?: CampaignTag } | null;
         const a = data?.address, t = data?.campaign;
-        const ok = !!a && ['seed', 'tier', 'archetype', 'plot'].every(k => typeof (a as unknown as Record<string, unknown>)[k] === 'string');
+        const fields = a as unknown as Record<string, unknown> | undefined;
+        const ok = !!fields && ADDRESS_KEYS.every((k, i) => typeof fields[k] === 'string' || (i >= 4 && fields[k] === undefined));
         const tagged = !!t && Number.isInteger(t.seed) && Number.isInteger(t.day);
         return {
-            address: ok ? { seed: a!.seed, tier: a!.tier, archetype: a!.archetype, plot: a!.plot } : null, name: typeof data?.name === 'string' ? data.name : null,
+            address: ok ? Object.fromEntries(ADDRESS_KEYS.filter(k => fields[k] !== undefined).map(k => [k, fields[k]])) as unknown as BankAddress : null,
+            name: typeof data?.name === 'string' ? data.name : null,
             campaign: tagged ? { seed: t!.seed, day: t!.day } : null
         };
     } catch {

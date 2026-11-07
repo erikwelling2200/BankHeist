@@ -1666,8 +1666,8 @@ M2 is complete: every package below has landed.
     follows them; in `31-2` the roof hatch moves along the closet wall): the visual baselines are updated, and the M1
     recording (e2e/m1Run.ts) still plays unchanged. Save shape hash `90db9eea5c64824a`.
   - **Deferred:** the Cut phone line and Staff uniforms planning assets (§18.2: the plan's shape and the planner UI);
-    what the intel tells and the drawer card's discovery (done in M5-02); counting side objectives at the debrief and placing
-    them from contracts (M6-02); a landline caller turning to a mobile on a dead line; the owner answering in an
+    what the intel tells and the drawer card's discovery (done in M5-02); counting side objectives at the debrief (placing
+    them from contracts and counting them in the campaign: done in M6-02); a landline caller turning to a mobile on a dead line; the owner answering in an
     animation of their own (they walk as an investigator, status Investigating); a phone picker on the map (the grid
     cycles); the security chief's absence and the other finale effects (M6/M7).
 - [x] **M5-05 Playability bot (stretch).** (partial: it gets through 41% of the sweep's banks with the Blueprints and 8%
@@ -1704,18 +1704,44 @@ M2 is complete: every package below has landed.
   - **Deferred:** what the complications, the Raid and the finale do (M7); difficulty's Squeeze per day (×0.75, ×1.25:
     M6-07); Notoriety's and a talking prisoner's Squeeze wired from the roster (M6-04; the rules' `squeeze` command
     takes them) and the false tip from its side job (M6-02); the case day action's visit mode (M6-07; the rules spend
-    the day and take what it learns); contracts and their banks (M6-02: the campaign plans the pinned bank); money
+    the day and take what it learns); contracts and their banks (done in M6-02, decisions 500–507); money
     (done in M6-03, decisions 480–488: the campaign's planning screen spends the campaign's money, and an intel asset
     bought there is paid at once and kept); the city map and its timeline (M6-06); a
     routine seen again in a heist renewing its date (decision 442 is strict); a population that changes between days
     (the bank's people are its seed's; intel drops day-bound parts all the same); the sandbox's free casing (decision
     406, no clock there).
-- [ ] **M6-02** Contracts by stakes; chain escalation; side objectives placed through M5-04 (§19.3, §19.5).
+- [x] **M6-02** Contracts by stakes; chain escalation; side objectives placed through M5-04 (§19.3, §19.5). (partial: see Deferred)
   - **Work:** also the armoured-car event (§16.2, §16.3; decision 77), which the courier van side objective needs: the
     couriers (2–3, bay → vault → bay in the time-lock window) with their heavily armoured, armed escort (armour 2,
     §12.3, not guards' `rules.guardArmour`: waiting for them is no easy win), and staff opening the vault for the
     delivery or collection in the window, the patient crew's way in. The vault still never opens by itself; a bank
     without an armoured car has no "just wait" route.
+  - **Done:** decisions 500–507. `src/campaign/contracts.ts` (`Contract`, `CHAINS`, `STAKES_TIER`, `BONUS`,
+    `CONTRACT_DAYS`, `MAX_ESCALATION`, the objective odds, `FIRST_CONTRACT`, `drawContract`, `refreshContracts`,
+    `escalateChain`); `Campaign.contracts`, `hits`, `advantages`, `objectiveOffers`, the visit's `contract`; the `heist`
+    command names its contract, `heistOver` carries the side objectives brought out; events `offers` and `objective`,
+    and `paid` with the bonus. The generator takes `chain` and `escalation` (`GenerateOptions`, `escalatedEta` in
+    `src/gen/tiers.ts`); `BankAddress` carries them and the side objectives (`ADDRESS_KEYS`), read by
+    `src/bankSource.ts`. `src/game/campaign.ts`: the save at format 3, `contractAddress`, `contractBankRefusal`,
+    `objectivesOut`, `campaignJob` at the contract's stakes. `?plan&campaign&contract=…` and its Start in `src/boot.ts`;
+    the readout lists the offers with Plan buttons and the side objectives had.
+  - **Tests:** `tests/campaign/contracts.test.ts` (the board by stakes and its first offer, refreshing and expiring,
+    unchanged by what spends no day, refusals off the board, at other stakes or taken twice, abandoning, chain
+    escalation and its cap, the bonus on a Success only with shares, side objectives counted once, on a failure too,
+    offered at most twice and never once had); `tests/game/contracts.test.ts` (a contract's bank built exactly from its
+    terms, the M1 bank as the first, escalation's ETA and the objective changing nothing else, `objectivesOut`, the
+    address saved with the heist, a crafted `?plan&campaign&seed=…&tier=hq` refused with or without a contract, a
+    contract taken already refused, the save's new checks); `tests/campaign/contracted.ts` lets the older campaign
+    tests take whatever is offered; `e2e/campaign.spec.ts` (the three offers, the crafted addresses, Plan on the low
+    offer). No sim state change; no visual baseline changed (the M1 bank is the same bank, its address only adds its chain).
+  - **Deferred:** the contract's own target and payout ranges in the rules (`rules.contractTarget` stays by tier,
+    decision 175; the bonus is on top); crew size by stakes (§19.3's 2–5, with the roster, M6-04); the courier van side
+    objective (the armoured car's, §16.3) and the "Leak a false tip" side job; showing the contract (bonus, side
+    objective) on the planning screen and the debrief, and the side objective's finale advantage itself (M7); casing a
+    contract's bank (M6-07: intel is per bank print, so a branch whose chain escalates or that holds an objective is
+    another print, decision 506); security steps other than the police ETA; offers on the city map (M6-06); the
+    armoured-car event of the Work above (its couriers, their armour-2 escort and staff opening the vault in the
+    window, decision 77) and with it the courier van side objective: not started here.
 - [x] **M6-03** Money, laundering, the fence, crew shares, the black market and contacts (§19.4). **∥** M6-02. (partial: see Deferred)
   - **Done:** decisions 480–488. `src/campaign/money.ts` (the laundering rate, fronts, the fence's cut, the starting
     cash, shares and kit, stakes by tier, the black market's prices); `src/campaign/campaign.ts`: `Campaign.money`
@@ -1736,8 +1762,8 @@ M2 is complete: every package below has landed.
     purchase, the Guard rota paid on the campaign's planning screen and still paid after a reload;
     `screenshots/campaign-money.png`). No sim state change; no visual baseline changed.
   - **Deferred:** the roster's own shares and signing fees (M6-04: the sandbox roster's four with fixed shares until
-    then); the contract's bonus and payout ranges, and stakes from contracts rather than the bank's tier (M6-02: any
-    bank the address names can be the campaign's heist, its tier its stakes); style bonuses in the payout (M6-05, §19.8);
+    then); the contract's bonus and stakes from contracts (done in M6-02, decisions 500–507: only an offered
+    contract's bank is played, at its stakes); style bonuses in the payout (M6-05, §19.8);
     finale purchases unlocked by contacts and contacts from motives and styles (M7, M6-04, M6-05); selling gear back;
     the items §19.4 doesn't price (the taser, suppressed guns, smoke, noisemaker, tripwire, jammer, glass cutter,
     reinforcement kit) are not on sale; the black market as part of the city map (M6-06); a partial amount at the fence
@@ -3410,6 +3436,44 @@ Later milestones: within each milestone, the `∥` notes in §3 apply. UI packag
     Squeeze, the gear carried out comes back, and what it learned is kept. It still spends its day (+2) and brings no
     money, so it is accepted as intended: a heist can serve as casing the bank while keeping its gear, which a real
     casing visit (M6-07, no combat) will also offer. Its scouting is paid in the day, as decision 441 asks.
+500. **Contracts by stakes (M6-02, §19.3).** The campaign keeps a board (`Campaign.contracts`) of one offer per stakes.
+    A contract names its bank exactly (seed, tier, archetype, plot: the tier from its stakes, low a small branch, medium
+    a city branch, high a regional HQ), its chain, its security steps, its bonus and at most one side objective. Each
+    lasts 2–4 days counting the day posted; as a day comes, the offers past their last day go and each stakes left
+    without one gets a new one. Every draw is `Rng(seed).fork('contract-<day>-<stakes>')`, so nothing but the days and
+    the heists taken changes the board: shopping, intel, reloading or abandoning draw nothing again. Ids are
+    `d<day posted>-<stakes>`, unique in a campaign. The save is format 3; an M6-03 save is refused as before.
+501. **The first offer is the M1 bank (M6-02).** Day 1's low-stakes offer is `FIRST_CONTRACT`: `31-2`, small, twoWing,
+    stripMallEnd, a Granite Savings branch (its rolled name already), on the board until day 3 with a $15k bonus and no
+    side objective, so a campaign starts in the bank the player learned on and the bank is unchanged.
+502. **Chain escalation (M6-02, §19.3).** Branches belong to three chains (`CHAINS`; the chain names the bank, nothing
+    else changes). Starting a heist on a branch counts against its chain (`hits`): its other offers on the board add a
+    security step, and offers posted later start with the chain's count, at most `MAX_ESCALATION` = 2. A step brings the
+    police one turn sooner (`escalatedEta`, never below the reserve depot's 3; the generator's `escalation`). A taken
+    contract never comes back, and banks are drawn fresh, so one bank isn't robbed day after day.
+503. **The bonus (M6-02, §19.3).** The client pays a bonus on a Success, drawn in $5k steps (low $10–20k, medium
+    $25–50k, high $60–120k), on top of the take: dirty money, and part of the job, so the crew take their shares of
+    it. A Partial or a failure pays none. It comes in with the take, once (decision 482).
+504. **Only offered contracts are played (M6-02; the M6-03 review's MAJOR).** The `heist` command names its contract:
+    refused unless on today's board ('Not on offer') and at its stakes; it leaves the board as the heist starts, and
+    the visit keeps it. `?plan&campaign&contract=…` rewrites the address to the contract's bank (`contractAddress`)
+    whatever the address said, and goes back to the campaign without an offered contract; Start sends the contract
+    along, and the play page refuses unless the bank it built is exactly the contract's (`contractBankRefusal`: seed,
+    tier, archetype, plot, chain, steps, objective) before spending the day. The stakes are the contract's, never the
+    tier's (`TIER_STAKES` is gone). A second tab finds the contract taken and goes back to the campaign.
+505. **Side objectives (M6-02, §19.5; decision 365).** An offer holds one with a chance of 1 in 4 (low) or 1 in 2: one
+    not yet had, not on the board or in the heist going on, and offered fewer than twice (once, and once more if
+    missed or let expire). The address carries it (`objectives=`), so the generator places it and a resumed heist is
+    the same bank. At the end the keeper sends the objectives among the loot that left (`objectivesOut`); only the
+    contract's own counts, once, whatever the result, into `Campaign.advantages` (the finale's, M7).
+506. **A contract's bank is its own print (M6-02).** Intel stays per bank print (decision 442): a branch with a
+    security step or a side objective is another World, so what was learned of it before doesn't carry over. Today only
+    a heist learns, a taken contract never comes back, and a new offer's seed is drawn from a million, so little is
+    lost yet; casing (M6-07) will have to key intel by the contract's bank instead.
+507. **Contract exploits checked (M6-02).** The address can't pick the bank, its terms or the stakes (refused on both
+    pages, and by the rules for the stakes); reloading the planning page keeps the offer; Start takes it, so reloading,
+    abandoning or a second tab can't play it twice; the board is drawn from the seed and the day only. A new campaign
+    draws a new board, losing the old campaign.
 
 ### Critical files for implementation
 

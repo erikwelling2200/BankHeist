@@ -50,7 +50,11 @@ export function generatorHash(read: (file: string) => string = f => readFileSync
 }
 
 /** The options in a fixed order, so `{ tier, layout }` and `{ layout, tier }` are the same bank. */
-const keyOf = (opts: GenerateOptions): string => JSON.stringify([opts.layout, opts.population, opts.tier ?? null, opts.archetype ?? null, opts.plot ?? null]);
+/** A contract's terms (M6-02) join the key only when there are any, so plain banks keep their keys. */
+const keyOf = (opts: GenerateOptions): string => {
+    const terms = opts.objectives?.length || opts.chain !== undefined || opts.escalation ? [[...(opts.objectives ?? [])], opts.chain ?? null, opts.escalation ?? 0] : [];
+    return JSON.stringify([opts.layout, opts.population, opts.tier ?? null, opts.archetype ?? null, opts.plot ?? null, ...terms]);
+};
 
 const memory = new Map<string, GeneratedBank>();
 let version: string | undefined;
