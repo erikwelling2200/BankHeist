@@ -53,6 +53,7 @@ import './rules/npc/behaviour';
 import './rules/npc/intent';
 import './rules/npc/schedule';
 import './rules/npc/walk';
+import './rules/opportunities';
 import './rules/perceive';
 import './rules/phones';
 import './rules/police';
@@ -97,7 +98,7 @@ export {
     type CarrierPreview, type CarrierRequest, type CarrierVerdict, type KnownCarrier
 } from './rules/carriers';
 export {
-    carrierPos, HACKING_KIT, hasTrait, JAMMER, jammed, panelWorkLeft, startEscapee, TRAITS, walkingToAlarm, workActions, type AlarmWalk, type Jammer, type Trait
+    carrierPos, HACKING_KIT, hasTrait, JAMMER, jammed, panelWorkLeft, serviceCard, startEscapee, TRAITS, walkingToAlarm, workActions, type AlarmWalk, type Jammer, type Trait
 } from './rules/alarms';
 export {
     filmedCrew, footageKept, LOOP_FROM, nearestFreeGuard, operatorWatch, pinVerifiers, type Footage
@@ -215,6 +216,9 @@ export { cardOpens, codeParts, entered, lockOn, partOf, timeLockOpen, vaultLock,
 export { DRILL, steadyHand, THERMITE, type Device } from './rules/vault';
 export { keycardBlocked, keycardsHere } from './rules/actions/keycards';
 export { lineCutAt, phonesInReach, ringBlocked } from './rules/phones';
+export {
+    bribeFor, documentBlocked, learnIntel, opportunitiesOf, opportunityFound, type FoundHow, type FoundOpportunity, type OpportunityDef, type OpportunityWay
+} from './rules/opportunities';
 export * from './data/weapons';
 export { atan2Deg, rotate, sinCosDeg } from './geo/angles';
 export {

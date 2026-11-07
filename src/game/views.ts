@@ -1,11 +1,11 @@
 import {
     CARRIERS, commandPreview, doorSides, crewLoot, crewLook, DASH_ACTIONS, hasWeaponInHand, heatOf, holdPreview, isKnownNow, knownCarriers, lootOf, markerKind, mayBeDyed, MODE_LABELS, nextWave,
-    fortificationOf, isWindow, policeModeView, POLICE_LABELS, steadyHand, walkingToAlarm, MOVE_ACTIONS, nextDriveBy, type CarrierChanges, type CarrierPreview,
+    fortificationOf, isWindow, opportunitiesOf, policeModeView, POLICE_LABELS, steadyHand, walkingToAlarm, MOVE_ACTIONS, nextDriveBy, type CarrierChanges, type CarrierPreview,
     type CommandRings, type Command, type FortifyAction, type HoldRing, type OutcomeResult, type RamTarget, type ReadonlyWorld, type SimEvent, type State
 } from '../sim';
 import {
     crewColour, OVERLAY_IDS, type ActionVM, type BankStatus, type CommitKind, type ConfirmVM, type HudIcon, type BankStatusVM, type CrewVM, type HudViewModel, type LootVM, MAX_ACTIONS, type OverlayId,
-    type HeatVM, type OutcomeCrewVM, type OutcomeVM, type RecapEventVM, type RecapVM, type RingsVM, type ThreatVM
+    type HeatVM, type OutcomeCrewVM, type OutcomeVM, type RecapEventVM, type RecapVM, type RingsVM, type ThreatVM, type Guidance, type JournalEntryVM, type JournalVM
 } from '../ui/hud/viewModels';
 import { actionMenu, cameraName, VERBS } from './actions';
 import type { UiState } from './session';
@@ -288,6 +288,8 @@ export interface HudExtras {
     goPreview?: State;
     /** The pending command's rings (`Session.commandRings`) or the pending hold's (`Session.holdRing`). */
     rings?: CommandRings | HoldRing;
+    /** The Intel journal's guidance (§17.6); absent: no journal. */
+    guidance?: Guidance;
 }
 
 /**
@@ -451,6 +453,25 @@ export function confirmView(
     };
 }
 
+/**
+ * The Intel journal (§17.6): the opportunities the crew has found, and nothing of the rest (not even how many). Full
+ * guidance adds when each plays out and where; Minimal and Off show the text alone (Off also drops the HUD's new-entry
+ * badge, mountHud.ts).
+ */
+export function journalView(world: ReadonlyWorld, state: State, guidance: Guidance): JournalVM {
+    const full = guidance === 'full';
+    const entries = state.opportunitiesFound.flatMap((found): JournalEntryVM[] => {
+        const o = opportunitiesOf(world).find(x => x.id === found.id);
+        if (!o) return [];
+        const until = o.until ?? (o.turn !== undefined ? o.turn + 1 : undefined);
+        const now = !full || o.turn === undefined ? null : state.turn < o.turn ? 'soon' : until !== undefined && state.turn >= until ? 'over' : 'open';
+        const when = now === null ? null
+            : now === 'soon' ? `turn ${o.turn}, in ${o.turn! - state.turn}` : now === 'open' ? `turn ${o.turn}: now, until ${until}` : `turn ${o.turn}: over`;
+        return [{ id: o.id, text: o.text, how: found.how, when, now, pos: full && o.at ? { x: o.at.x, y: o.at.y } : null }];
+    });
+    return { guidance, entries };
+}
+
 export function hudView(world: ReadonlyWorld, state: State, ui: UiState, extras: HudExtras = {}): HudViewModel {
     // GO previewed (§9.3, UI.md "GO previewed"): the rail turns gold and shows the crew as GO leaves them, masked with a
     // third action each; on the takeover turn it stays gold.
@@ -470,7 +491,9 @@ export function hudView(world: ReadonlyWorld, state: State, ui: UiState, extras:
         ledger: threatLedger(state, world),
         overlays: Object.fromEntries(OVERLAY_IDS.map(id => [id, extras.overlays?.[id] ?? false])) as Record<OverlayId, boolean>,
         mapOn: extras.mapOn ?? false,
-        outcome: outcomeView(world, state)
+        outcome: outcomeView(world, state),
+        // Every heist has its journal, whatever the bank holds: its button says nothing about what there is to find.
+        journal: extras.guidance ? journalView(world, state, extras.guidance) : null
     };
 }
 
@@ -604,6 +627,10 @@ export function describeEvent(world: ReadonlyWorld, state: State, event: SimEven
         case 'keycardFromDrawer': return `${name(event.crew)} took a keycard from the drawer`;
         case 'lineDead': return 'A call on the landline went nowhere: the line is dead';
         case 'deadLineNoticed': return `Dispatch noticed the dead phone line: a patrol car is coming (turn ${event.driveBy})`;
+        case 'opportunityFound': return `${event.crew ? name(event.crew) : 'The crew'} ${event.how === 'overheard' ? 'overheard something' : event.how === 'read' ? 'read something useful' : 'learned something from the intel'}`;
+        case 'documentRead': return `${name(event.crew)} read ${world.objects.find(o => o.id === event.object)?.name?.toLowerCase() ?? 'a document'}`;
+        case 'bribed': return `${name(event.crew)} bribed ${name(event.npc)}`;
+        case 'doorPropped': return `${name(event.by)} propped ${doorName(world, event.door)} open`;
         case 'intelFound': return event.crew ? `${name(event.crew)} found intel in a deposit box` : 'Intel lies among the deposit boxes';
         case 'pcHacked': return `${name(event.crew)} got into the manager’s PC: ${event.part ? CODE_PART[event.part] : 'no code'}${event.window ? `; the time lock takes codes on turns ${event.window.from}–${event.window.until - 1}` : ''}`;
         case 'lockWorked': return `${name(event.crew)} worked on the lock (${event.progress}/${event.needed})`;

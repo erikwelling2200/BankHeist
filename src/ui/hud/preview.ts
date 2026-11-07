@@ -1,6 +1,6 @@
 import { h } from './dom';
 import { mountHud } from './mountHud';
-import { SAMPLE_STATES } from './sample';
+import { SAMPLE_STATES, sampleJournal } from './sample';
 import type { HudCallbacks, HudViewModel } from './viewModels';
 
 /**
@@ -38,7 +38,9 @@ export function showHudPreview(): void {
         toggleOverlay: (id, on) => { record(`toggleOverlay:${id}:${on}`); vm.overlays = { ...vm.overlays, [id]: on }; hud.update(vm); },
         ledgerJump: (pos, id) => record(`ledgerJump:${pos.x},${pos.y}:${id ?? ''}`),
         toggleMap: () => { record('toggleMap'); vm.mapOn = !vm.mapOn; hud.update(vm); },
-        resume: () => { record('resume'); vm.recap = null; hud.update(vm); }
+        resume: () => { record('resume'); vm.recap = null; hud.update(vm); },
+        setGuidance: g => { record(`setGuidance:${g}`); vm.journal = sampleJournal(g); hud.update(vm); },
+        journalJump: pos => record(`journalJump:${pos.x},${pos.y}`)
     };
     const hud = mountHud(document.body, callbacks, { textScale: Number(params.get('text') ?? 1) || 1, colourBlind: params.has('cb') });
 

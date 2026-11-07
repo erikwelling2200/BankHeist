@@ -14,6 +14,7 @@ import {
 import { COVER_HP, DEFAULT_COVER_HP, FLIPPABLE } from '../data/weapons';
 import { CONTRACT_TARGETS, VEHICLES } from '../data/vehicles';
 import type { Heading, VehicleDef } from '../geo/drive';
+import type { OpportunityDef } from '../rules/opportunities';
 import { freezeWorld } from './freeze';
 import { DOOR_KINDS, WALL_MATERIALS } from './materials';
 
@@ -34,9 +35,12 @@ import { DOOR_KINDS, WALL_MATERIALS } from './materials';
  *   the vault's wiring box; `OBJECT_KINDS`), the CCTV desk's recorder, the manager's PC, the alarm buttons that start a
  *   §9.1 carrier, and the loot; the deposit boxes' loot becomes the wall's haul (Heavy, drilled) and its boxes (Light,
  *   picked one by one, one of them the intel's), rules/vault.ts; side objectives (§19.5) as loot of their own; the
- *   manager's keycard in his drawer at lunch when the generator says he leaves it there. A desk phone's owner is the
+ *   manager's keycard in his drawer at lunch when the generator says he leaves it there; the documents (the note by a
+ *   monitor, the manager's papers, the records). A desk phone's owner is the
  *   person whose post is at its desk (rules/phones.ts).
  * - locks: the key graph's, as the generator made it (rules/keys.ts).
+ * - opportunities (§17.6): who to overhear, the document each is written in, where and when it plays out and what it
+ *   wires in (`bankOpportunities`, rules/opportunities.ts).
  * - stash rooms: the cleaner's closet, where a body can be hidden (§8.10); the building: the bank's rooms under its
  *   roof, which a dye pack's cash must not leave (§15.1).
  * - people: their role, observer class and schedule (the typed `routine` with its tiles, run by rules/npc), and a hidden
@@ -292,13 +296,23 @@ export function worldFromBank(bank: GeneratedBank): ReadonlyWorld {
         for (let k = 0; k < n; k++) add('loot', l.tx, l.ty, 's', { name: 'Deposit box', loot: { value: Math.floor(l.value / n), weight: 'light', behind: 'depositBox', ...(k === l.intelBox ? { intel: true as const } : {}) } });
     }
     // The manager's keycard in the desk drawer while he is out at lunch, if he leaves it there (§17.6's opportunity,
-    // rules/actions/keycards.ts): from the lunch turn to his return.
+    // rules/actions/keycards.ts): from the lunch turn to his return. The drawer is there in every bank with his desk, so
+    // whether he leaves it shows in nothing but the opportunity (M5-02).
     const drawer = bank.opportunities.find(o => o.id === 'keycard-drawer'), manager = bank.people.find(p => p.role === 'manager');
     const pc = objects.find(o => o.kind === 'managerPc');
     const lunch = drawer?.turn !== undefined ? bank.timeline.find(t => t.name === 'Lunch rotation' && t.turn === drawer.turn) : undefined;
-    if (lunch?.duration !== undefined && manager && pc) {
-        add('keycard', pc.pos.x, pc.pos.y, pc.facing, { name: "The manager's keycard", holder: manager.id, from: lunch.turn, until: lunch.turn + lunch.duration });
+    if (manager && pc) {
+        add('keycard', pc.pos.x, pc.pos.y, pc.facing, {
+            name: "The manager's keycard", holder: manager.id, ...(lunch?.duration !== undefined ? { from: lunch.turn, until: lunch.turn + lunch.duration } : {})
+        });
     }
+    // The documents (§17.6, rules/opportunities.ts): the note by a monitor, the papers on the manager's desk, the records
+    // room's files. Each is there whether or not it tells anything.
+    const note = bank.stories.find(s => s.id === 'sticky-note');
+    if (note) add('document', note.tx, note.ty, 's', { name: 'A note by a monitor' });
+    if (pc) add('document', pc.pos.x, pc.pos.y, pc.facing, { name: "The manager's papers" });
+    const files = objects.find(o => o.kind === 'filingCabinet' && bank.rooms.find(r => r.id === o.room)?.type === 'recordsRoom');
+    if (files) add('document', files.pos.x, files.pos.y, files.facing, { name: 'The records' });
 
     const people: PersonDef[] = bank.people.map(p => ({
         id: p.id, name: p.name, role: p.role, observer: p.observer satisfies ObserverClass, pos: { x: p.tx, y: p.ty },
@@ -349,8 +363,81 @@ export function worldFromBank(bank: GeneratedBank): ReadonlyWorld {
         id: `route-${i}`, kind: r.kind, name: r.name, outside: { x: r.outside.tx, y: r.outside.ty }, inside: { x: r.inside.tx, y: r.inside.ty }, transit: r.transit
     }));
     const vehicles = bankVehicles(bank);
+    const opportunities = bankOpportunities(bank, objects, people, doors, edges, locks);
     return freezeWorld({
         width, height, tiles, edges, doors, objects, people, cameras, rules, stashRooms, building, locks, staging, ...(lane.length ? { patrol } : {}),
-        ...(vehicles.length ? { vehicles } : {}), ...(routes.length ? { routes } : {})
+        ...(vehicles.length ? { vehicles } : {}), ...(routes.length ? { routes } : {}), ...(opportunities.length ? { opportunities } : {})
     });
+}
+
+/** The timeline entry each event-of-the-day opportunity goes with (its turn, and how long it lasts). */
+const TIMED: Readonly<Record<string, string>> = { 'keycard-drawer': 'Lunch rotation', 'smoke-break': 'Smoke break', 'it-tech': 'IT technician', 'cash-cart': 'Cash run' };
+
+/** Who talks about an eavesdropped opportunity (§17.6); one nobody in this population fits is anyone on the staff's. */
+const SPEAKERS: Readonly<Record<string, (p: GeneratedBank['people'][number]) => boolean>> = {
+    'keycard-drawer': p => p.role === 'manager', 'smoke-break': p => p.role === 'operator', bribe: p => !!p.traits.bribable,
+    'cleaner-keys': p => p.role === 'cleaner', 'check-in': p => p.role === 'lobbyGuard'
+};
+
+/**
+ * The bank's opportunities as the rules find and wire them (§17.6, rules/opportunities.ts): who to overhear, the
+ * document each written one is in (the note its own; the records room's files the records; any other the manager's
+ * papers, else the records), where it plays out, its window on the timeline, and what each wires in.
+ */
+function bankOpportunities(
+    bank: GeneratedBank, objects: readonly WorldObject[], people: readonly PersonDef[], doors: Readonly<Record<string, DoorDef>>,
+    edges: Readonly<Record<string, WallEdge>>, locks: GeneratedBank['locks']
+): OpportunityDef[] {
+    const docs = objects.filter(o => o.kind === 'document');
+    const doc = (name: string) => docs.find(o => o.name === name);
+    const note = doc('A note by a monitor'), papers = doc("The manager's papers"), records = doc('The records');
+    const block = (role: string, activity: string) => {
+        const person = people.find(p => p.role === role);
+        const b = person?.schedule.find(x => x.activity === activity);
+        return person && b ? { person, b } : undefined;
+    };
+    const at = (p: { x: number; y: number } | undefined) => (p ? { at: { x: p.x, y: p.y } } : {});
+    const out: OpportunityDef[] = [];
+    for (const o of bank.opportunities) {
+        const def: OpportunityDef = { id: o.id, text: o.text, found: o.found, ...(o.turn !== undefined ? { turn: o.turn } : {}) };
+        const timed = TIMED[o.id] ? bank.timeline.find(t => t.name === TIMED[o.id] && t.turn === o.turn) : undefined;
+        if (timed?.duration !== undefined) def.until = timed.turn + timed.duration;
+        if (o.found === 'eavesdropping') {
+            const fits = SPEAKERS[o.id];
+            const named = fits ? bank.people.filter(fits) : [];
+            def.speakers = (named.length ? named : bank.people.filter(p => p.observer !== 'civilian')).map(p => p.id).sort();
+        }
+        const home = o.found !== 'documents' ? undefined : o.id === 'sticky-note' ? note : o.id === 'records' ? records ?? papers : papers ?? records;
+        if (home) def.document = home.id;
+        if (o.id === 'keycard-drawer' || o.id === 'manager-pc') Object.assign(def, at(papers?.pos));
+        if (o.id === 'sticky-note') {
+            Object.assign(def, at(note?.pos));
+            // What the note holds, by how the vault opens (§15.2): the code, or the head teller's half of it.
+            const vault = locks.find(l => l.id === 'vault');
+            if (vault?.social.kind === 'code') def.part = vault.social.parts.length > 1 ? 'headTeller' : 'whole';
+        }
+        if (o.id === 'records') Object.assign(def, at(records?.pos));
+        if (o.id === 'it-tech') Object.assign(def, at(block('technician', 'serviceVisit')?.b.at));
+        if (o.id === 'cash-cart') Object.assign(def, at(people.find(p => p.schedule.some(b => b.activity === 'cashRun'))?.schedule.find(b => b.activity === 'cashRun')?.at));
+        if (o.id === 'bribe') {
+            const taker = bank.people.find(p => p.traits.bribable);
+            if (taker) {
+                def.npc = taker.id;
+                Object.assign(def, at(people.find(p => p.id === taker.id)?.schedule.find(b => (b.activity === 'window' || b.activity === 'post') && b.at)?.at));
+            }
+        }
+        if (o.id === 'smoke-break') {
+            // The door beside the operator's smoke spot (the generator puts him just outside it).
+            const smoke = block('operator', 'smokeBreak'), spot = smoke?.b.at;
+            const door = spot && Object.values(doors).find(d => {
+                const e = edges[d.edge];
+                if (!e || d.lock === 'vault') return false;
+                const a = e.run === 'eastWest' ? { x: e.tx, y: e.ty - 1 } : { x: e.tx - 1, y: e.ty };
+                return (a.x === spot.x && a.y === spot.y) || (e.tx === spot.x && e.ty === spot.y);
+            });
+            if (smoke && door) Object.assign(def, { door: door.id, npc: smoke.person.id }, at(spot));
+        }
+        out.push(def);
+    }
+    return out;
 }

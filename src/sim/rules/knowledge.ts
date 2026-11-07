@@ -343,13 +343,15 @@ export function withPicturedDoors(world: ReadonlyWorld, knowing: State, state: S
  * Whether the crew can't vouch for a door's pictured status (decision 44): no tile beside it is seen this turn, and its
  * status is one something unseen could have changed (an NPC opens a closed or locked door it walks through; an open
  * leaf door swings shut at the end of a world phase, relocking if it locks). A breached or jammed door stays as it is,
- * and so does an open one that never swings shut (built open, propped by the crew, or the vault's).
+ * and so does an open one that never swings shut (built open, propped by the crew, or the vault's; not one an NPC
+ * propped, who may pull the wedge).
  */
 function isDoubted(world: ReadonlyWorld, state: State, fresh: Uint8Array, d: DoorSides): boolean {
     if (sideIn(fresh, d)) return false;
     const def = world.doors[d.id]!, pictured = lastSeen(state.knowledge, d.id);
     if (pictured === 'breached' || pictured === 'jammed') return false;
-    const propped = Object.hasOwn(state.doors, d.id) && !!state.doors[d.id]!.propped;
+    // Propped by the crew; one an NPC propped may be unwedged unseen (rules/opportunities.ts).
+    const propped = Object.hasOwn(state.doors, d.id) && !!state.doors[d.id]!.propped && state.doors[d.id]!.proppedBy === undefined;
     return !(pictured === 'open' && (def.start === 'open' || def.lock === 'vault' || propped));
 }
 

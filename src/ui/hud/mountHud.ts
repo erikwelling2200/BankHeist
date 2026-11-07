@@ -2,7 +2,7 @@ import { COMMIT_CUES, crewWithActionsLeft, labelFit, liveCarriers, shownActions,
 import { h, img } from './dom';
 import { iconUrl, portraitUrl } from './icons';
 import {
-    DEFAULT_KEYMAP, OVERLAY_IDS, type ActionVM, type CrewVM, type HudCallbacks, type HudHandle, type HudKeymap, type HudOptions, type HudViewModel,
+    DEFAULT_KEYMAP, GUIDANCE, OVERLAY_IDS, type ActionVM, type Guidance, type JournalEntryVM, type JournalVM, type CrewVM, type HudCallbacks, type HudHandle, type HudKeymap, type HudOptions, type HudViewModel,
     type HudIcon, type LootVM, type NegotiatorVM, type OverlayId, type PoliceModeId, type PortraitName, type RingsVM, type ThreatVM
 } from './viewModels';
 import './hud.css';
@@ -20,7 +20,7 @@ const OVERLAY_NAMES: Record<OverlayId, string> = {
 const PROFILE_NAMES = { clean: 'Clean', concealed: 'Concealed', armed: 'Armed', heavy: 'Heavy', unknown: 'Profile unknown' } as const;
 const KEY_NAMES: Record<string, string> = { ' ': 'Space', enter: 'Enter', tab: 'Tab', escape: 'Esc' };
 
-export type HudPanel = 'ledger' | 'drawer' | 'prompt' | null;
+export type HudPanel = 'ledger' | 'drawer' | 'journal' | 'prompt' | null;
 
 /** The handle, plus what the dev page (`?scene=hud`) uses to show a state without clicking through to it. */
 export interface HudDevHandle extends HudHandle {
@@ -68,7 +68,13 @@ export function mountHud(root: HTMLElement, callbacks: HudCallbacks, options: Hu
     ledgerBtn.addEventListener('click', () => toggle('ledger'));
     // The loot counter (§15.1): what the crew carries, shown once it has any.
     const loot = h('div.sh-panel.sh-loot', { 'data-region': 'loot', role: 'status', hidden: true });
-    const top = h('div.sh-top', {}, pill, timeline, loot, turn, ledgerBtn);
+    // The Intel journal (§17.6), beside the ledger: what the crew has found, with a count of entries not yet looked at
+    // (not on Off guidance).
+    const journalCount = h('span.sh-count.sh-jcount', { hidden: true });
+    const journalBtn = h('button.sh-jbtn', { 'data-region': 'journal-button', 'aria-label': 'Intel journal', 'aria-expanded': 'false', 'aria-controls': 'sh-journal', 'data-tag': 'Intel journal', hidden: true },
+        h('span.sh-panel.sh-ledger-face', {}, img(iconUrl('ear')), journalCount), keycap(capName(keys.journal)));
+    journalBtn.addEventListener('click', () => toggle('journal'));
+    const top = h('div.sh-top', {}, pill, timeline, loot, turn, journalBtn, ledgerBtn);
     // A previewed command's rings counted (§10.1): who goes face down, panics, is alerted or ignores it, and each
     // resister's chance; a previewed hold's: who it keeps down.
     const rings = h('div.sh-panel.sh-rings', { 'data-region': 'rings', role: 'status', hidden: true });
@@ -98,6 +104,21 @@ export function mountHud(root: HTMLElement, callbacks: HudCallbacks, options: Hu
     // The safe floor's promise, and its limit (§8.8, §8.15).
     drawer.append(h('div.sh-legend', { role: 'note' }, 'Safe floor: green counts only the NPCs the crew knows of; a corner triangle is what the next world phase does. Grey: no data. Hatched grey: someone unseen could react to this crew member there.'));
 
+    const journal = h('div.sh-sheet.sh-journal', { id: 'sh-journal', role: 'region', 'aria-label': 'Intel journal', 'data-region': 'journal', hidden: true });
+    const guidanceBtns = new Map<Guidance, HTMLButtonElement>();
+    const guidance = h('div.sh-guide', { role: 'radiogroup', 'aria-label': 'Guidance' });
+    for (const g of GUIDANCE) {
+        const b = h('button.sh-gopt', { role: 'radio', 'aria-checked': 'false', 'data-guidance': g }, GUIDANCE_NAMES[g]);
+        b.addEventListener('click', () => callbacks.setGuidance?.(g));
+        guidanceBtns.set(g, b);
+        guidance.append(b);
+    }
+    const journalRows = h('div.sh-rows');
+    const journalHint = h('div.sh-legend.sh-jhint', { role: 'note' });
+    journal.append(h('div.sh-sheet-title', {}, img(iconUrl('ear')), h('span.sh-grow', {}, 'INTEL'), guidance), journalHint, journalRows);
+    /** The entries the player has had the journal open on. */
+    const looked = new Set<string>();
+
     // ---------------------------------------------------------------------------------------------- right thumb
     const actions = h('div.sh-actions', { role: 'toolbar', 'aria-label': 'Actions' });
     const undo = h('button.sh-panel.sh-btn.sh-undo', { 'data-region': 'undo', 'aria-label': 'Undo', 'data-tag': 'Undo' }, img(iconUrl('undo')), keycap(capName(keys.undo)));
@@ -119,7 +140,7 @@ export function mountHud(root: HTMLElement, callbacks: HudCallbacks, options: Hu
     const negotiator = h('div.sh-negot-back', { hidden: true });
     const tag = h('div.sh-tag', { 'aria-hidden': 'true', hidden: true });
 
-    el.append(top, rings, endTurn, rail, ltools, drawer, actions, undo, confirm, confirmNote, ledger, prompt, recap, outcome, negotiator, tag);
+    el.append(top, rings, endTurn, rail, ltools, drawer, journal, actions, undo, confirm, confirmNote, ledger, prompt, recap, outcome, negotiator, tag);
     root.append(el);
     if (options.textScale) el.style.setProperty('--sh-text', String(options.textScale));
     el.classList.toggle('cb', !!options.colourBlind);
@@ -136,7 +157,7 @@ export function mountHud(root: HTMLElement, callbacks: HudCallbacks, options: Hu
         const besideLeft = target.closest('.sh-actions, .sh-undo');
         let x = besideLeft ? r.left - t.width - 8 : r.right + 8, y = r.top + r.height / 2 - t.height / 2;
         if (target.closest('.sh-drawer, .sh-ltools')) { x = r.left + r.width / 2 - t.width / 2; y = r.top - t.height - 8; }
-        if (target.closest('.sh-endturn, .sh-ledger-btn')) { x = r.right - t.width; y = r.bottom + 6; }
+        if (target.closest('.sh-endturn, .sh-ledger-btn, .sh-jbtn')) { x = r.right - t.width; y = r.bottom + 6; }
         tag.style.left = `${Math.max(4, Math.min(W - t.width - 4, x))}px`;
         tag.style.top = `${Math.max(4, y)}px`;
     };
@@ -214,11 +235,15 @@ export function mountHud(root: HTMLElement, callbacks: HudCallbacks, options: Hu
         panel = p;
         ledger.hidden = p !== 'ledger';
         drawer.hidden = p !== 'drawer';
+        journal.hidden = p !== 'journal';
         prompt.hidden = p !== 'prompt';
         ledgerBtn.setAttribute('aria-expanded', String(p === 'ledger'));
         ledgerBtn.classList.toggle('on', p === 'ledger');
         drawerBtn.setAttribute('aria-expanded', String(p === 'drawer'));
         drawerBtn.classList.toggle('on', p === 'drawer');
+        journalBtn.setAttribute('aria-expanded', String(p === 'journal'));
+        journalBtn.classList.toggle('on', p === 'journal');
+        if (p === 'journal' && vm) renderJournal(vm);
         if (p !== 'prompt') el.classList.remove('flash-pips');
         if (p === 'prompt' && was !== 'prompt') {
             renderPrompt();
@@ -273,6 +298,8 @@ export function mountHud(root: HTMLElement, callbacks: HudCallbacks, options: Hu
             toggle('ledger');
         } else if (keyIs(e, keys.drawer)) {
             if (!e.repeat) toggle('drawer');
+        } else if (keyIs(e, keys.journal)) {
+            if (!e.repeat && vm.journal) toggle('journal');
         } else if (keyIs(e, keys.close)) {
             open(null);
         }
@@ -631,6 +658,46 @@ export function mountHud(root: HTMLElement, callbacks: HudCallbacks, options: Hu
         negotiator.replaceChildren(card);
     }
 
+    /**
+     * The Intel journal (§17.6): each opportunity found, marked by how (overheard, read, intel); on Full guidance also
+     * when it plays out (amber ahead, the safe colour while it is on, faded once over; the words say it too) and a Show
+     * button that moves the camera there. Only what the view model holds: nothing about what is still to find.
+     */
+    function renderJournal(v: HudViewModel): void {
+        const j: JournalVM | null = v.journal ?? null;
+        journalBtn.hidden = !j;
+        if (!j) {
+            if (panel === 'journal') open(null);
+            return;
+        }
+        if (panel === 'journal') for (const e of j.entries) looked.add(e.id);
+        const fresh = j.guidance === 'off' ? 0 : j.entries.filter(e => !looked.has(e.id)).length;
+        if (changed(journalCount, String(fresh))) {
+            journalCount.textContent = fresh ? String(fresh) : '';
+            journalCount.hidden = !fresh;
+            journalBtn.setAttribute('aria-label', fresh ? `Intel journal, ${fresh} new` : 'Intel journal');
+        }
+        for (const [g, b] of guidanceBtns) {
+            b.setAttribute('aria-checked', String(g === j.guidance));
+            b.classList.toggle('on', g === j.guidance);
+        }
+        if (!changed(journalRows, JSON.stringify(j))) return;
+        journalRows.replaceChildren(...j.entries.map(e => journalRow(e)));
+        if (!j.entries.length) journalRows.append(h('div.sh-empty', {}, 'Nothing found yet'));
+        journalHint.textContent = j.guidance === 'full' ? 'Overhear staff (2 tiles, a whole turn), read papers, find the intel.' : '';
+        journalHint.hidden = j.guidance !== 'full';
+    }
+
+    function journalRow(e: JournalEntryVM): HTMLElement {
+        const row = h('div.sh-jrow', { 'data-entry': e.id });
+        const show = e.pos ? h('button.sh-panel.sh-jshow', { 'aria-label': 'Show on the map', 'data-tag': 'Show' }, img(iconUrl('eye'))) : null;
+        const at = e.pos;
+        if (show && at) show.addEventListener('click', () => callbacks.journalJump?.({ x: at.x, y: at.y }));
+        put(row, h('span.sh-jhow', { title: HOW_NAMES[e.how], 'aria-label': HOW_NAMES[e.how] }, img(iconUrl(HOW_ICONS[e.how]))),
+            h('span.sh-jbody', {}, h('span.sh-jtext', {}, e.text), e.when ? h(`span.sh-jwhen.${e.now ?? ''}` as 'span', {}, e.when) : null), show);
+        return row;
+    }
+
     function renderOverlays(v: HudViewModel): void {
         for (const [id, b] of overlayBtns) {
             b.classList.toggle('on', !!v.overlays[id]);
@@ -652,6 +719,7 @@ export function mountHud(root: HTMLElement, callbacks: HudCallbacks, options: Hu
             renderRecap(next);
             renderOutcome(next);
             renderNegotiator(next);
+            renderJournal(next);
             if (panel === 'prompt' && changed(prompt, JSON.stringify(crewWithActionsLeft(next.crew)))) renderPrompt();
         },
         setTextScale(scale: number): void {
@@ -676,6 +744,10 @@ export function mountHud(root: HTMLElement, callbacks: HudCallbacks, options: Hu
 /** The police's modes in the phase strip (§13.4), with their icons (UI.md "Driving the van" mockup's strip). */
 const MODE_ORDER: readonly (readonly [PoliceModeId, HudIcon])[] = [['contain', 'shield'], ['negotiate', 'phone'], ['assault', 'charge'], ['regroup', 'car']];
 const MODE_NAMES: Readonly<Record<PoliceModeId, string>> = { contain: 'Contain', negotiate: 'Negotiate', assault: 'Assault', regroup: 'Regroup' };
+
+const GUIDANCE_NAMES: Readonly<Record<Guidance, string>> = { full: 'Full', minimal: 'Minimal', off: 'Off' };
+const HOW_NAMES: Readonly<Record<JournalEntryVM['how'], string>> = { overheard: 'Overheard', read: 'Read', intel: 'Intel' };
+const HOW_ICONS: Readonly<Record<JournalEntryVM['how'], HudIcon>> = { overheard: 'ear', read: 'eye', intel: 'layers' };
 
 /** A desktop key cap printed on its button (§20.7, UI.md "Desktop"); shown only where there is a mouse. */
 function keycap(key: string): HTMLElement {

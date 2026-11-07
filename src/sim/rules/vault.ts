@@ -19,6 +19,7 @@ import { raiseCarrier, registerCarrierCheck } from './carriers';
 import { cctvControlled, cctvDesk } from './cctv';
 import { registerEvidenceSource, type Evidence } from './evidence';
 import { registerPreviewSecret } from './knowledge';
+import { learnIntel } from './opportunities';
 import { entered, enterPart, partOf, timeLockOpen, unlockVault, vaultLock, vaultShut } from './keys';
 
 /*
@@ -63,8 +64,8 @@ import { entered, enterPart, partOf, timeLockOpen, unlockVault, vaultLock, vault
  *   actions of work, Steady Hands half; the illegal act 'lockpick', a quiet noise of radius 1) opens the next box in the
  *   room: its jewels lie there to take. Drilling the wall gives the haul instead: the two exclude each other. Opening
  *   a box is final (the crew has seen inside). One box holds the bank's intel (M5-04, §17.4, `loot.intel`): opening it,
- *   or drilling its wall, records it in `State.intelFound` (`intelFound`, which a preview never shows; what it tells is
- *   M5-02's). A side objective's box (§19.5) is opened like the others, and comes open with a drilled wall.
+ *   or drilling its wall, records it in `State.intelFound` (`intelFound`, which a preview never shows) and tells the
+ *   opportunities only intel finds (rules/opportunities.ts `learnIntel`, M5-02). A side objective's box (§19.5) is opened like the others, and comes open with a drilled wall.
  */
 
 /** What works on a lock across world phases: a drill, or a thermite charge. */
@@ -313,11 +314,12 @@ registerMoveHook('vault', {
 const boxesIn = (world: ReadonlyWorld, room: string | undefined): string[] =>
     world.objects.filter(o => o.kind === 'loot' && o.loot?.behind === 'depositBox' && o.room === room).map(o => o.id).sort();
 
-/** The crew learns what the intel box holds (§17.4): what it tells is the opportunities' (M5-02). */
+/** The crew learns what the intel box holds (§17.4): the opportunities only intel tells (rules/opportunities.ts). */
 function findIntel(ctx: Ctx, crew: string | null, box: string): void {
     if (ctx.state.intelFound.includes(box)) return;
     ctx.state.intelFound = [...ctx.state.intelFound, box].sort();
     ctx.emit({ type: 'intelFound', crew, object: box });
+    learnIntel(ctx, crew);
 }
 
 /** The haul of the deposit wall in a room, if it has one. */

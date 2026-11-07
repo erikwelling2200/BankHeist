@@ -329,6 +329,33 @@ export interface OutcomeVM {
     loot: { name: string; value: number }[];
 }
 
+// ---------------------------------------------------------------------------------------------------------- Intel journal
+
+/** How much the Intel journal helps (§17.6, §19.9 toggles): Full, Minimal or Off. */
+export type Guidance = 'full' | 'minimal' | 'off';
+export const GUIDANCE: readonly Guidance[] = ['full', 'minimal', 'off'];
+
+/** One opportunity the crew has found (§17.6). */
+export interface JournalEntryVM {
+    id: string;
+    /** What it says. */
+    text: string;
+    /** How it was found: overheard, read in a document, or from the intel. */
+    how: 'overheard' | 'read' | 'intel';
+    /** Full guidance: when it plays out ("turn 14, in 3"), or null. */
+    when: string | null;
+    /** Full guidance: whether its window is open now, or over. */
+    now: 'soon' | 'open' | 'over' | null;
+    /** Full guidance: where it plays out (the Show button moves the camera there), or null. */
+    pos: Pos | null;
+}
+
+/** The Intel journal (§17.6): only what the crew has found, in the order it was found. */
+export interface JournalVM {
+    guidance: Guidance;
+    entries: JournalEntryVM[];
+}
+
 // ---------------------------------------------------------------------------------------------------------- The HUD
 
 export interface HudViewModel {
@@ -364,6 +391,8 @@ export interface HudViewModel {
     outcome?: OutcomeVM | null;
     /** The negotiator's call (§13.4), while it rings and the player hasn't put it aside. */
     negotiator?: NegotiatorVM | null;
+    /** The Intel journal (§17.6); absent or null: no journal button. */
+    journal?: JournalVM | null;
 }
 
 /** What the HUD reports back. Every input arrives here; the HUD changes nothing in the game itself. */
@@ -386,6 +415,10 @@ export interface HudCallbacks {
     negotiate?(id: string): void;
     /** The negotiator's dialog put aside for this turn (the grid still offers the answers). */
     closeNegotiator?(): void;
+    /** The journal's guidance switch (§17.6). */
+    setGuidance?(guidance: Guidance): void;
+    /** A journal entry's Show: move the camera to `pos`. */
+    journalJump?(pos: Pos): void;
 }
 
 /** The HUD's hotkeys (§20.7), by what they do; `KeyboardEvent.key` values, lower-case for letters. */
@@ -396,10 +429,11 @@ export interface HudKeymap {
     undo: string;
     ledger: string;
     drawer: string;
+    journal: string;
     close: string;
 }
 
-export const DEFAULT_KEYMAP: Readonly<HudKeymap> = { selectCrew: ['1', '2', '3', '4', '5'], endTurn: ' ', confirm: 'Enter', undo: 'z', ledger: 'Tab', drawer: 'o', close: 'Escape' };
+export const DEFAULT_KEYMAP: Readonly<HudKeymap> = { selectCrew: ['1', '2', '3', '4', '5'], endTurn: ' ', confirm: 'Enter', undo: 'z', ledger: 'Tab', drawer: 'o', journal: 'j', close: 'Escape' };
 
 export interface HudOptions {
     /** Rebinds hotkeys (§20.8 "full rebinding on desktop"). */

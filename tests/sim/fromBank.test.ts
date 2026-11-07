@@ -156,6 +156,40 @@ describe('worldFromBank', { timeout: 30000 }, () => {
         expect(racks / breakRooms).toBeGreaterThan(0.8);
         expect(wired / antechambers).toBeGreaterThan(0.8);
     });
+
+    it('carries the opportunities, each found some way, the documents and what each wires in (M5-02)', () => {
+        let doors = 0, smokes = 0, notes = 0;
+        for (const { label, bank, world } of banks) {
+            const ops = world.opportunities ?? [], ids = new Set(world.objects.map(o => o.id)), people = new Set(world.people.map(p => p.id));
+            expect(ops.map(o => o.id), label).toEqual(bank.opportunities.map(o => o.id));
+            for (const o of ops) {
+                if (o.document !== undefined) expect(world.objects.find(x => x.id === o.document)?.kind, `${label} ${o.id}`).toBe('document');
+                for (const s of o.speakers ?? []) expect(people.has(s), `${label} ${o.id}`).toBe(true);
+                if (o.found === 'eavesdropping') expect(o.speakers?.length, `${label} ${o.id}`).toBeGreaterThan(0);
+                if (o.id === 'bribe') expect(people.has(o.npc!), label).toBe(true);
+                if (o.id === 'sticky-note') {
+                    notes++;
+                    expect(o.document, label).toBeDefined();
+                }
+                if (o.id === 'smoke-break') {
+                    smokes++;
+                    if (o.door !== undefined) {
+                        doors++;
+                        expect(Object.hasOwn(world.doors, o.door) && people.has(o.npc!), label).toBe(true);
+                    }
+                }
+            }
+            // The drawer's keycard is there wherever the manager's desk is, rolled or not (nothing tells it apart).
+            const manager = world.people.some(p => p.role === 'manager'), pc = world.objects.some(o => o.kind === 'managerPc');
+            expect(world.objects.filter(o => o.kind === 'keycard').length, label).toBe(manager && pc ? 1 : 0);
+            if (pc) expect(world.objects.some(o => o.kind === 'document' && o.name === "The manager's papers"), label).toBe(true);
+            expect([...ids].length, label).toBe(world.objects.length);
+        }
+        expect(notes).toBeGreaterThan(0);
+        // Every smoke break has its door beside the operator's spot.
+        expect(smokes).toBeGreaterThan(0);
+        expect(doors).toBe(smokes);
+    });
 });
 
 /** Whether a step between orthogonal neighbours is allowed by the raised/climb rule (as src/sim/geo/move.ts has it). */

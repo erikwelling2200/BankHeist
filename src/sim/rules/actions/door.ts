@@ -178,6 +178,7 @@ registerAction('door', {
             case 'close': {
                 const next = { ...was, status: 'closed' as const };
                 delete next.propped;
+                delete next.proppedBy;
                 state.doors[cmd.door] = next;
                 ctx.emit({ type: 'doorClosed', door: cmd.door, by: member.id });
                 break;

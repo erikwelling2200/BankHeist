@@ -898,6 +898,20 @@ test('auto-advance walks a 3-turn route turn by turn and says why it stopped; a 
     expect(errors).toEqual([]);
 });
 
+test('the Intel journal opens on J with nothing found yet, and remembers its guidance (§17.6, M5-02)', SMOKE, async ({ page }) => {
+    const errors = await boot(page);
+    await expect(page.locator('[data-region="journal-button"]')).toBeVisible();
+    await page.keyboard.press('j');
+    const journal = page.locator('[data-region="journal"]');
+    await expect(journal).toBeVisible();
+    await expect(journal.locator('.sh-empty')).toHaveText('Nothing found yet');
+    await expect(journal.locator('[data-guidance="full"]')).toHaveAttribute('aria-checked', 'true');
+    await journal.locator('[data-guidance="off"]').click();
+    await expect(journal.locator('[data-guidance="off"]')).toHaveAttribute('aria-checked', 'true');
+    expect(await page.evaluate(() => localStorage.getItem('bankheist.guidance'))).toBe('off');
+    expect(errors).toEqual([]);
+});
+
 test.describe('on a phone', () => {
     test.use({ viewport: { width: 844, height: 390 }, hasTouch: true, isMobile: true });
 

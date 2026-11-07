@@ -31,7 +31,7 @@ import { isWounded } from '../woundsState';
  *   reactions only walk and telegraph: tellers go to their window and press the button, the manager to the desk
  *   button, the operator to the console, guards radio where they stand (`raiseAlarm` intents, carried out by M1-08),
  *   other staff walk to the nearest guard and tell them (`tell`, carried out here: the guard is Exposed to the crew
- *   member too, §8.7). Civilians panic as they Expose someone (rules/panic.ts), which comes first; one not panicking
+ *   member too, §8.7). A bribed NPC (rules/opportunities.ts) only watches, and reports no evidence. Civilians panic as they Expose someone (rules/panic.ts), which comes first; one not panicking
  *   any more (it was commanded, and got up) only watches. An NPC that has done its part
  *   (`NpcState.reported`) only keeps watching.
  *
@@ -186,6 +186,8 @@ export function registerReaction(role: string, reaction: Reaction, options: { re
 
 /** The plan of an NPC reacting to a crew member it Exposed. */
 export function reactionOf(world: ReadonlyWorld, state: State, npc: DeepReadonly<NpcState>, want: DeepReadonly<Want>): ReactionPlan {
+    // Bribed (§17.6, rules/opportunities.ts): stays off the alarm, and only watches.
+    if (npc.bribed) return watching(npc, want);
     const role = personOf(world, npc.id).role;
     return (REACTIONS.get(role) ?? REACTIONS.get('*')!)(world, state, npc, want);
 }
@@ -305,6 +307,8 @@ export function evidenceGoal(world: ReadonlyWorld, state: State, npc: DeepReadon
  */
 export function evidenceReport(world: ReadonlyWorld, state: State, npc: DeepReadonly<NpcState>): ReactionPlan {
     const ev = npc.evidence!, facing = facingToward(npc.pos, ev.tile);
+    // Bribed (§17.6): she keeps it to herself.
+    if (npc.bribed) return { tile: null, pace: 'hurry', ...(facing ? { facing } : {}), action: null, onArrival: false };
     const inPlace = (carrier: CarrierKind): ReactionPlan =>
         ({ tile: null, pace: 'hurry', ...(facing ? { facing } : {}), action: { kind: 'reportEvidence', evidence: ev.id, carrier }, onArrival: true });
     if (personOf(world, npc.id).observer === 'enforcer') return inPlace('guardRadio');

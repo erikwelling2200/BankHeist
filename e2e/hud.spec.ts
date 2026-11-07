@@ -144,6 +144,27 @@ test.describe('the stealth HUD on a phone', () => {
         await page.locator('[aria-label="End turn now"]').click();
         expect(await page.evaluate(() => (window as any).hudLog)).toEqual(['endTurn']);
     });
+
+    test('the Intel journal (§17.6): found entries only, guidance Full, Minimal or Off', async ({ page }) => {
+        await open(page, 'select');
+        await expect(page.locator('[data-region="journal-button"]')).toBeHidden();
+        const errors = await open(page, 'journal');
+        const journal = page.locator('[data-region="journal"]');
+        await expect(journal).toBeVisible();
+        await expect(journal.locator('.sh-jrow')).toHaveCount(4);
+        // Full: when each plays out, in words and colour, and Show buttons that move the camera there.
+        await expect(journal.locator('.sh-jwhen')).toHaveText(['turn 13, in 4', 'turn 8: now, until 10', 'turn 6: over']);
+        await expect(journal.locator('[data-guidance="full"]')).toHaveAttribute('aria-checked', 'true');
+        await journal.locator('.sh-jshow').first().click();
+        await journal.locator('[data-guidance="minimal"]').click();
+        await expect(journal.locator('[data-guidance="minimal"]')).toHaveAttribute('aria-checked', 'true');
+        await expect(journal.locator('.sh-jwhen')).toHaveCount(0);
+        await expect(journal.locator('.sh-jshow')).toHaveCount(0);
+        await expect(journal.locator('.sh-jrow')).toHaveCount(4);
+        await page.screenshot({ path: 'screenshots/hud/journal-minimal.png' });
+        expect(await page.evaluate(() => (window as any).hudLog)).toEqual(['journalJump:12,4', 'setGuidance:minimal']);
+        expect(errors).toEqual([]);
+    });
 });
 
 test.describe('the stealth HUD on a desktop', () => {
@@ -158,7 +179,7 @@ test.describe('the stealth HUD on a desktop', () => {
             await page.screenshot({ path: `screenshots/hud/1280-${state}.png` });
         }
         await open(page, 'preview');
-        await expect(page.locator('.sh-kc').first()).toBeVisible();
+        await expect(page.locator('.sh-ledger-btn .sh-kc')).toBeVisible();
         await page.screenshot({ path: 'screenshots/hud-1280.png' });
     });
 

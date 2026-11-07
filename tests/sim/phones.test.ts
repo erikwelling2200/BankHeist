@@ -209,6 +209,10 @@ describe('the keycard in the drawer (§17.6)', () => {
         npc(lunch, 'manager').status = 'unconscious';
         expect(whyNot(world, lunch, take)).toBe('There is no keycard here');
         npc(lunch, 'manager').status = 'away';
+        // Until the crew has found the opportunity it doesn't know to look in the drawer: the same answer, no entry (M5-02).
+        expect(whyNot(world, lunch, take)).toBe('There is no keycard here');
+        expect(actionMenu(world, scouted(world, lunch), 'jun').some(e => e.id === 'takeKeycard')).toBe(false);
+        lunch.opportunitiesFound = [{ id: 'keycard-drawer', how: 'overheard', turn: 1 }];
         expect(actionMenu(world, scouted(world, lunch), 'jun').find(e => e.id === 'takeKeycard')?.command).toEqual(take);
         const done = act(world, lunch, take);
         expect(done.undoable).toBe(false);

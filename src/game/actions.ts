@@ -1,7 +1,7 @@
 import {
     besideDoor, COMBAT_COMMANDS, FACING_STEP, crewPicture, negotiatorCalling, offerEffect, releasable, tradeable, withDoubtedShut, doorStatus, DRAGGABLE, draggedBy, goBlocked, HACKING_KIT, inHands, inReach, interactionVerbs, isKnownNow, JAMMER, officerSeen, legalActions, LOCKPICK, lockActions, LOOP_FROM, lootWeight,
     pocketed, preview, IllegalCommand, reachesObject, STASH_KINDS, throwTargets, tieIneligible, tileVisibility, whyNot, driveBudget, driveMap, driveReach, exitTiles, poseKey, ramPlan, vehicleBeside,
-    vehicleDef, edgesAround, keycardsHere, phonesInReach, fortificationOf, fortifyBlocked, isWindow, noisemakersLeft, noisemakerTargets, routeEndInReach, type FortifyAction, type RouteKind, type Command, type DriveNode, type Pose, type Pos, type ReadonlyWorld, type State
+    vehicleDef, edgesAround, bribeFor, documentBlocked, keycardsHere, phonesInReach, fortificationOf, fortifyBlocked, isWindow, noisemakersLeft, noisemakerTargets, routeEndInReach, type FortifyAction, type RouteKind, type Command, type DriveNode, type Pose, type Pos, type ReadonlyWorld, type State
 } from '../sim';
 import type { HudIcon as HudIconName } from '../ui/hud/viewModels';
 
@@ -105,9 +105,10 @@ export function targetsOf(world: ReadonlyWorld, state: State, crewId: string): T
     const npcs = crewPicture(world, state).npcs
         .filter(n => n.status !== 'away' && n.stashed === null && !state.crew.some(c => c.dragging === n.id) && inReach(world, state, member.pos, n.pos))
         .map(n => n.id);
-    // A keycard lying in a drawer has its own entry, only when it can be taken (rules/actions/keycards.ts).
+    // A keycard lying in a drawer has its own entry, only when it can be taken (rules/actions/keycards.ts); a document
+    // its own Read, so it never hides behind the desk it lies on (rules/opportunities.ts).
     const objects = world.objects
-        .filter(o => o.kind !== 'keycard' && (STASH_KINDS.has(o.kind) || interactionVerbs(world, o.id).length) && reachesObject(world, state, member.pos, o))
+        .filter(o => o.kind !== 'keycard' && o.kind !== 'document' && (STASH_KINDS.has(o.kind) || interactionVerbs(world, o.id).length) && reachesObject(world, state, member.pos, o))
         .map(o => o.id);
     const atConsole = world.objects.some(o => LOOP_FROM.has(o.kind) && inReach(world, state, member.pos, o.pos));
     // Not a ruined stack put down: it is nothing to take, and would hide real loot behind a greyed Take.
@@ -363,6 +364,14 @@ export function actionMenu(world: ReadonlyWorld, state: State, crewId: string, t
     // The manager's keycard in his drawer (§17.6), only while it can be taken: a drawer gives nothing away before.
     const card = keycardsHere(world, state).find(o => reachesObject(world, state, member.pos, o));
     if (card) add('takeKeycard', 'Take keycard', 'bag', { type: 'interact', crew: crewId, object: card.id, verb: 'take' }, card.id);
+    // A document in reach (§17.6): every one is offered, whether or not it tells anything; the tapped one, else the
+    // first not read yet.
+    const docs = world.objects.filter(o => o.kind === 'document' && reachesObject(world, state, member.pos, o));
+    const doc = docs.find(o => o.id === target) ?? docs.find(o => !documentBlocked(state, o)) ?? docs[0];
+    if (doc) add('read', 'Read', 'eye', { type: 'interact', crew: crewId, object: doc.id, verb: 'read' }, doc.id);
+    // The bribe (§17.6), once the crew knows who takes one, offered to a Smooth Talker in reach of her.
+    const bribe = bribeFor(world, state, member);
+    if (bribe) add('bribe', 'Bribe', 'chat', bribe, bribe.npc);
 
     if (member.loadout.items.includes(JAMMER)) add('jammer', 'Jammer', 'radio', { type: 'placeJammer', crew: crewId });
     // Off-map routes (§14.7, M4-05): the route whose end is in reach, offered even when closed (the helicopter, loot too

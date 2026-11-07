@@ -34,7 +34,8 @@ import { isEyesDown } from './suspicion';
  * - **The alarm panel** (§9.1, Secure zone): interact `disable` with a hacking kit, 1 action at a time, the work kept on
  *   the panel (`ObjectState.progress`, in plain actions' worth of work) so it can be spread across turns and crew
  *   members: `rules.panelActions` (4) actions, half with Steady Hands (at least 1; each of their actions does two
- *   actions' worth; `CrewState.traits`). Panel work is a quiet noise of radius 1 (§8.9) and the illegal act
+ *   actions' worth; `CrewState.traits`); the IT technician's access card (`serviceCard`) logs in without a kit and does it in
+ *   one. Panel work is a quiet noise of radius 1 (§8.9) and the illegal act
  *   'hack' (§8.4). Once dead, every wired carrier dies, those running too (`registerCarrierCheck('panel')`), and no
  *   button starts one. The panel has its own battery (§14.6): cutting the power doesn't touch it.
  * - **The jammer** (§12.2): `placeJammer` (1 action, the jammer item) leaves it running on the crew member's tile.
@@ -232,8 +233,15 @@ export function walkingToAlarm(world: ReadonlyWorld, state: State): AlarmWalk[] 
 // ---------------------------------------------------------------------------------------------------------- The panel
 
 /** Why the crew member can't work on this panel now, or undefined. */
-function panelBlocked(state: DeepReadonly<State>, member: DeepReadonly<CrewState>, objectId: string): string | undefined {
-    if (!carries(member, HACKING_KIT)) return `${member.name} has no hacking kit`;
+/**
+ * Whether a crew member holds the IT technician's access card (§17.6's IT tech, M5-02): it logs into the alarm panel,
+ * no kit needed, and kills it in one action. A property of the card, whether or not the crew knew of his visit.
+ */
+export const serviceCard = (world: ReadonlyWorld, member: DeepReadonly<CrewState>): boolean =>
+    member.keycards.some(id => world.people.find(p => p.id === id)?.role === 'technician');
+
+function panelBlocked(world: ReadonlyWorld, state: DeepReadonly<State>, member: DeepReadonly<CrewState>, objectId: string): string | undefined {
+    if (!carries(member, HACKING_KIT) && !serviceCard(world, member)) return `${member.name} has no hacking kit`;
     if (Object.hasOwn(state.objects, objectId) && state.objects[objectId]!.disabled) return 'The alarm panel is dead already';
     return undefined;
 }
@@ -242,12 +250,12 @@ registerInteraction('alarmPanel', {
     disable: {
         cost: () => 1,
         illegal: 'hack',
-        whyNot: (_world, state, member, object) => panelBlocked(state, member, object.id),
+        whyNot: (world, state, member, object) => panelBlocked(world, state, member, object.id),
         run(ctx, member, object) {
             const { state, world } = ctx;
             const now = state.objects[object.id] ?? (state.objects[object.id] = {});
             const needed = world.rules.panelActions;
-            now.progress = Math.min(needed, (now.progress ?? 0) + workStep(member, needed));
+            now.progress = Math.min(needed, (now.progress ?? 0) + workStep(world, member, needed));
             ctx.emit({ type: 'panelWorked', crew: member.id, object: object.id, progress: now.progress, needed });
             makeNoise(ctx, 'panelWork', member.pos, `panel ${member.id}`);
             if (now.progress >= needed) {
@@ -259,14 +267,15 @@ registerInteraction('alarmPanel', {
 });
 
 /** The work one action does on a job of `actions` (§7.2 Steady Hands: two actions' worth, so half the actions). */
-const workStep = (member: DeepReadonly<CrewState>, actions: number): number => Math.ceil(actions / workActions(member, actions));
+const workStep = (world: ReadonlyWorld, member: DeepReadonly<CrewState>, actions: number): number =>
+    (serviceCard(world, member) ? actions : Math.ceil(actions / workActions(member, actions)));
 
 /** Actions a crew member still needs on a panel (the HUD's "Disable panel: 2 more actions"); 0 once it is dead. */
 export function panelWorkLeft(world: ReadonlyWorld, state: DeepReadonly<State>, member: DeepReadonly<CrewState>, objectId: string): number {
     const now = Object.hasOwn(state.objects, objectId) ? state.objects[objectId]! : undefined;
     if (now?.disabled) return 0;
     const needed = world.rules.panelActions;
-    return Math.ceil((needed - (now?.progress ?? 0)) / workStep(member, needed));
+    return Math.ceil((needed - (now?.progress ?? 0)) / workStep(world, member, needed));
 }
 
 // A dead panel kills every wired carrier, running ones too (§9.1).

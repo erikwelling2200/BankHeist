@@ -1,4 +1,4 @@
-import { CREW_COLOURS, type ActionVM, type BankStatusVM, type CrewVM, type HudViewModel, type ScheduleVM, type ThreatVM } from './viewModels';
+import { CREW_COLOURS, type ActionVM, type BankStatusVM, type CrewVM, type Guidance, type HudViewModel, type JournalVM, type ScheduleVM, type ThreatVM } from './viewModels';
 
 /**
  * Sample view models for the dev page `?scene=hud`, one per board of the UI mockups (docs/ui-mockups/), so the HUD can
@@ -63,7 +63,7 @@ const base = (): HudViewModel => ({
     recap: null
 });
 
-export type SamplePanel = 'ledger' | 'drawer' | 'prompt' | null;
+export type SamplePanel = 'ledger' | 'drawer' | 'journal' | 'prompt' | null;
 
 export interface SampleState {
     title: string;
@@ -217,6 +217,11 @@ export const SAMPLE_STATES: Record<string, () => SampleState> = {
         vm.overlays = { ...vm.overlays, zones: true, cover: true };
         return { title: 'The overlay drawer', vm, panel: 'drawer' };
     },
+    journal: () => {
+        const vm = base();
+        vm.journal = sampleJournal('full');
+        return { title: 'The Intel journal on Full guidance: three opportunities found', vm, panel: 'journal' };
+    },
     prompt: () => {
         const vm = base();
         vm.crew[1]!.actionsLeft = 0;
@@ -262,3 +267,15 @@ export const SAMPLE_STATES: Record<string, () => SampleState> = {
         return { title: 'The outcome screen', vm };
     }
 };
+
+/** The journal's sample (UI.md "Intel journal"): what turn 9 of the sample heist would show, at a guidance level. */
+export function sampleJournal(guidance: Guidance): JournalVM {
+    const full = guidance === 'full';
+    const entries: JournalVM['entries'] = [
+        { id: 'keycard-drawer', text: 'The manager takes lunch at turn 13 and leaves the keycard in the desk drawer.', how: 'overheard', when: 'turn 13, in 4', now: 'soon', pos: { x: 12, y: 4 } },
+        { id: 'smoke-break', text: 'The operator smokes at the alley door at turn 8 and props the fire door open.', how: 'overheard', when: 'turn 8: now, until 10', now: 'open', pos: { x: 30, y: 14 } },
+        { id: 'sticky-note', text: 'A note by a monitor in the staff office has the vault code on it.', how: 'read', when: null, now: null, pos: { x: 18, y: 6 } },
+        { id: 'it-tech', text: 'An IT tech visits the server room at turn 6; ambush them for their access card.', how: 'intel', when: 'turn 6: over', now: 'over', pos: { x: 22, y: 3 } }
+    ];
+    return { guidance, entries: full ? entries : entries.map(e => ({ ...e, when: null, now: null, pos: null })) };
+}

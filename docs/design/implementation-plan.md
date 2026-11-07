@@ -1576,7 +1576,7 @@ M2 is complete: every package below has landed.
 | Population and schedule (text activities) | Typed activities: M1-06 (done) |
 | Traits (strings) | Typed traits: M2-02 |
 | Validation §17.7 on the rules' vision | none (M5-01 done) |
-| Opportunities (text) | M5-02 |
+| Opportunities as mechanics | none (M5-02 done, partial) |
 | Knowledge layers (blueprint outlines, rendering only) | M1-10 for in-heist casing, then M5-03 |
 | Furnished data not exported | M1-02 |
 
@@ -1590,9 +1590,33 @@ M2 is complete: every package below has landed.
     slot); the generator's own `cone` and its constants are gone. `cleanRoute` and `pointlessCameras` are exported
     and tested on their own (tests/validate.test.ts: a guard watching the goal's doors, a camera facing a wall). The
     sweep (224 banks) still passes with no relaxed rule; the review is in decision 343.
-- [ ] **M5-02 Opportunities as mechanics.**
+- [x] **M5-02 Opportunities as mechanics.** (partial: see Deferred)
   - **Covers:** §17.6.
   - **Work:** discovery triggers (eavesdropping within 2 tiles for 1 turn, document objects, intel); effects wired in (the keycard in the drawer, the propped fire door, the bribe, the IT tech's card, the vault code note); the Intel journal UI with Full, Minimal or Off guidance.
+  - **Done:** `src/sim/rules/opportunities.ts` (decisions 380–388). `worldFromBank` makes each generated opportunity an
+    `OpportunityDef` (`World.opportunities`: its speakers, its document, where and when it plays out, what it wires
+    in) and three `document` objects (the note by a monitor, the manager's papers, the records); the drawer keycard
+    object is in every bank with a manager's desk. Found ones are `State.opportunitiesFound` (in order, with how and
+    when). Found by **eavesdropping** (a calm speaker within 2 tiles and in sight at both ends of a world phase), by
+    **reading** a document (`interact … read`, always final), or by the **intel** box (the intel ones, and those
+    nothing else in the bank would tell). Wired in: the drawer keycard only once `keycard-drawer` is found; the
+    operator props the back door on his smoke break (`DoorState.proppedBy`; doubtful to the crew's picture); the
+    `bribe` command (Smooth Talker, the teller in debt stays off the alarm); the IT technician's card logs into the
+    alarm panel without a kit, at once; the vault code note gives its part of the code. The grid offers Read and Bribe.
+    The **Intel journal** (src/ui/hud/, `journalView` in src/game/views.ts) beside the ledger in the top strip (J):
+    found entries only, marked overheard, read or intel; Full adds when (amber ahead, the safe colour while on, struck
+    through once over) and a Show button, Minimal the text alone, Off also no new-entry badge or bark; remembered on
+    the device (`bankheist.guidance`), Full by default (§22). `/?scene=hud&state=journal`.
+  - **Tests:** `tests/sim/opportunities.test.ts`, the M5-02 case in `tests/sim/fromBank.test.ts`, the drawer case in
+    `tests/sim/phones.test.ts`; e2e: the journal in `e2e/hud.spec.ts` (and every sample's layout) and
+    `e2e/play.spec.ts`. No generator change: the banks and visual baselines are as before. Save shape hash
+    `418d9802f81981b7`.
+  - **Deferred:** intel bought or shown on the planning screen (M5-03); a conversation between two people with its
+    own bark, and map pins for Full guidance (Show moves the camera); the bribe's price (M6's money); a bribed
+    teller's lapsed command still phoning; the text-only opportunities stay text (cash cart, café wall, vent,
+    scaffolding, records, cleaner's keys, check-ins, manager's PC: their mechanics are the map's or other packages');
+    the note's text under dual control without a head teller (the generator says "half", the rules give the whole
+    code); the guidance toggle on a settings screen (§19.9; it lives in the journal).
 - [ ] **M5-03 Knowledge across days.**
   - **Covers:** §17.8.
   - **Work:** the Blueprints and Guard rota assets; casing persisting between days; intel shown on the planning screen.
@@ -1617,7 +1641,7 @@ M2 is complete: every package below has landed.
     follows them; in `31-2` the roof hatch moves along the closet wall): the visual baselines are updated, and the M1
     recording (e2e/m1Run.ts) still plays unchanged. Save shape hash `90db9eea5c64824a`.
   - **Deferred:** the Cut phone line and Staff uniforms planning assets (§18.2: the plan's shape and the planner UI);
-    what the intel tells and the drawer card's discovery (M5-02); counting side objectives at the debrief and placing
+    what the intel tells and the drawer card's discovery (done in M5-02); counting side objectives at the debrief and placing
     them from contracts (M6-02); a landline caller turning to a mobile on a dead line; the owner answering in an
     animation of their own (they walk as an investigator, status Investigating); a phone picker on the map (the grid
     cycles); the security chief's absence and the other finale effects (M6/M7).
@@ -2922,6 +2946,45 @@ Later milestones: within each milestone, the `∥` notes in §3 apply. UI packag
     kind, a want about the crew or a search lets it ring (so a Clean ring can't wipe minor evidence). A phone rings at
     most once every `rules.phoneRingPhases` (4) turns, a little more than the walk to answer it and back (§8.13's
     "about 2 phases"), so the same desk can't be used to hold someone at it.
+
+380. **Opportunities are rules data, and only found ones reach the player (M5-02, §17.6).** `worldFromBank` turns each
+    generated opportunity into an `OpportunityDef`; the crew's finds are `State.opportunitiesFound` (`{ id, how,
+    turn }`, in order). The journal, the grid and the barks read only the finds; `opportunityFound` is a preview
+    secret and blocks undo. Every heist has its journal button, whatever the bank holds.
+381. **Documents (M5-02).** Three `document` objects: the note by a monitor (the story's `sticky-note`), the manager's
+    papers (on his desk) and the records (the records room's first filing cabinet). A written opportunity is in the
+    note (its own), the records (`records`), else the papers, else the records. Every document can be read (1 action,
+    no illegal act: the zone judges being there), whether or not it tells anything, and reading is always final
+    (`documentRead`), so neither the offer, the refusal ("Read already") nor an undo tells what it held. The grid has
+    its own Read entry, so a document never hides behind the desk it lies on.
+382. **Eavesdropping (M5-02).** A speaker (by role: the manager for the drawer, the operator for his smoke, the teller
+    in debt, the cleaners, the lobby guards; anyone on the staff where no one fits) talks while calm and about. A crew
+    member able to act, within `rules.eavesdropRange` (2, Chebyshev) of them with a line of sight, both as a world
+    phase begins and as it ends, overhears it: "standing within 2 tiles for 1 turn". Checked in the world phase. Hearing
+    nothing from someone tells only that they said nothing useful while the crew listened: knowledge earned, as
+    any casing is.
+383. **What the intel tells (M5-02, §17.4).** The intel box tells every opportunity found by intel, and any this bank
+    gives no other way to find (no speaker in its population, no document).
+384. **The drawer keycard needs the opportunity (M5-02).** The crew doesn't know to look until `keycard-drawer` is
+    found; until then the grid has no entry and a take is refused as if there were no card. The card object is in
+    every bank with a manager and his desk (`from`/`until` only when he leaves it), so a refusal by id tells nothing
+    either.
+385. **The propped fire door (M5-02).** On his smoke break, calm and at his spot outside the back door (the door whose
+    edge touches it), the operator wedges it open (`propped`, `proppedBy`, `doorPropped`); it stays open while he is
+    out, and if he never comes back in; calm and off his break, he pulls the wedge and it swings shut and locks as
+    doors do. A door an NPC propped is still doubtful to the crew (knowledge.ts `isDoubted`): he may pull it unseen.
+386. **The bribe (M5-02, §7.2).** `bribe { crew, npc }`, 1 action, in reach, a Smooth Talker, once `bribe` is found, on
+    the teller in debt while she is calm. She stays off the alarm: her reaction to anyone she Exposes is to watch, and
+    she reports no evidence (npc/behaviour.ts); she still sees and others still react. Anyone else, or her before the
+    find, is refused with the same words. It changes an NPC, so it is final.
+387. **The IT technician's card (M5-02).** A crew member holding the technician's card (a frisk takes it, decision 60)
+    disables the alarm panel without a hacking kit, in one action. A property of the card, not of the opportunity, so
+    holding the card tells nothing about the visit. Widening the key graph instead (his card on the CCTV door) would
+    have changed which doors NPCs walk through, and the banks with them.
+388. **The vault code note and guidance (M5-02).** Reading the `sticky-note` gives its part of the code
+    (`State.codesKnown`: the whole code, or the head teller's half under dual control; nothing under Three Keys,
+    whose note is the time-lock window). Guidance is the player's, not the rules': Full (when, where, Show), Minimal
+    (text) or Off (text, no badge, no bark), kept in `localStorage`, Full by default (§22's first banks).
 
 340. **Validation sees with the rules (M5-01, §17.7).** The checks of what is seen run on the World the game builds from
     the bank (`worldFromBank`) in its state on turn 1 (`initialState`: everyone where they start, the doors as they

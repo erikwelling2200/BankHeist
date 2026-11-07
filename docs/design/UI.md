@@ -49,6 +49,7 @@ to edge under everything.
 | Area | Position | Contents |
 | --- | --- | --- |
 | **Top strip** | Top, between the rail and End turn, 32px high | State pill (QUIET, GO, LOUD, or the heat level and its next step), the schedule timeline before the Alarm or the police phase strip after it, the turn number, and the threat-ledger button with a count of live carriers. |
+| **Intel journal** | Top strip, left of the ledger button, 44×44 (J) | The opportunities the crew has found (§17.6) in a sheet where the ledger's opens: each marked overheard, read or intel. Full guidance adds when it plays out and a Show button; a cream count marks entries not yet looked at (not on Off). |
 | **End turn** | Top right, 52×44 | Hold to end the turn. It fills while held. If crew have actions left, the unused pips on their portraits flash first. It is far from Confirm on purpose. |
 | **Crew rail** | Left edge | One 54×62 card per crew member (60px wide when selected): portrait, 2 action pips (gold for the third action on GO), profile icon, HP bar, and carried loot or a van icon. |
 | **Camera** | Bottom left | Tactical map and overlay drawer buttons, 44×44. |
@@ -275,6 +276,11 @@ The canvas has five pages. Each board shows one decision or one moment.
 - **Trespass challenge with a deadline.** A green path shows the nearest public tile Mara has to reach this turn.
 - **World phase.** The guard turns, and a dashed line in Jun's colour links the guard's new pip to Jun. The
   playback controls are 1×, 2× and skip.
+- **Intel journal.** Only what the crew has found, never how much is left to find. Full guidance shows each entry's
+  window as a chip that says it in words too: amber and dashed while ahead ("turn 13, in 4"), the safe colour and solid
+  while on ("now, until 10"), struck through once over; Show moves the camera to where it plays out. Minimal shows the
+  text alone, Off the same without the new-entry count or the crew's "Overheard something". The switch sits in the
+  sheet's title and is remembered on the device.
 - **Long-press a wall.** The wall's material, and each tool that opens it shown with a tick or a cross.
 
 ### Alarm and takeover

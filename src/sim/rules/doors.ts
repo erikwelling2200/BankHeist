@@ -18,6 +18,8 @@ declare module '../core/types' {
     interface DoorState {
         /** Wedged open: it doesn't swing shut. */
         propped?: boolean;
+        /** Propped by an NPC (the operator's smoke break, rules/opportunities.ts), who may pull the wedge unseen. */
+        proppedBy?: string;
     }
     interface EventMap {
         /** A door shut: by itself at the end of the world phase, or by `by` (a crew member, rules/actions/door.ts). */

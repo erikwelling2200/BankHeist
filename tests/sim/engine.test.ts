@@ -168,9 +168,9 @@ describe('the rules engine', () => {
     it('runs the world phase in the order of §6.1 and starts the next crew phase', () => {
         expect(WORLD_STEPS).toEqual(['fuses', 'passiveNpcs', 'combatNpcs', 'devices', 'commitIntents', 'crewPhase']);
         expect(worldHooks()).toEqual({
-            fuses: ['attack.dazedEnds', 'throwables.fuses', 'charges.fuses'],
+            fuses: ['opportunities.listen', 'attack.dazedEnds', 'throwables.fuses', 'charges.fuses'],
             passiveNpcs: ['knowledge.freshBefore', 'shot.leanNpcs', 'command.hold', 'evidence.judge', 'perception.world', 'evidence.notice', 'cameras.operator', 'trespass.deadlines', 'npcs.passive', 'alarms.raise', 'panic.act', 'command.called', 'command.flee', 'command.draw', 'negotiation.told', 'attack.reactions', 'panic.spread', 'evidence.tell'], combatNpcs: ['snipers.dazed', 'swat.wedges', 'npcs.combat', 'swat.breaches'],
-            devices: ['devices.carriers', 'devices.police', 'heat.track', 'police.director', 'transit.track', 'radio.checkIns', 'wounds', 'patrol.pass', 'phones.deadLine', 'test.dice', 'cameras.pan', 'vault.devices', 'perception.decay', 'knockout.wake', 'evidence.settle', 'hostage.untie', 'doors.swingShut', 'throwables.smoke'],
+            devices: ['devices.carriers', 'devices.police', 'heat.track', 'police.director', 'transit.track', 'radio.checkIns', 'wounds', 'patrol.pass', 'phones.deadLine', 'test.dice', 'cameras.pan', 'vault.devices', 'opportunities.fireDoor', 'perception.decay', 'knockout.wake', 'evidence.settle', 'hostage.untie', 'doors.swingShut', 'throwables.smoke', 'opportunities.overhear'],
             commitIntents: ['perception.glances', 'attack.suppressionEnds', 'command.surprise', 'panic.calm', 'npcs.intents', 'cameras.pin'], crewPhase: ['shot.leanCrew', 'attack.watchEnds', 'power.generator', 'crew.actions', 'evidence.forget', 'transit.actions', 'vault.timeLock', 'wounds.actions', 'panic.tackled', 'negotiation.call', 'command.lapse', 'panic.react', 'vault.jams']
         });
         const { world, state } = smallBank();

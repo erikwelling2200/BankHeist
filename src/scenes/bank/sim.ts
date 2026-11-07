@@ -22,7 +22,7 @@ import {
 import { mountAutoBar, type AutoBarHandle } from '../../ui/hud/autoBar';
 import { iconUrl, portraitUrl } from '../../ui/hud/icons';
 import { mountHud } from '../../ui/hud/mountHud';
-import { crewColour, type HudHandle, type OverlayId } from '../../ui/hud/viewModels';
+import { crewColour, type Guidance, type HudHandle, type OverlayId } from '../../ui/hud/viewModels';
 import type { BankCamera } from './camera';
 import { MapInput } from './input';
 import { Loupe } from './loupe';
@@ -79,6 +79,18 @@ const centre = (p: Pos): [number, number] => [(p.x + 0.5) * TILE, (p.y + 0.5) * 
 const COLOUR_BLIND_KEY = 'bankheist.colourBlind';
 /** Keys that don't stop a Go or Wait for… run: modifiers, and the camera's pan keys (arrows, WASD; camera.ts). */
 const KEEP_RUN_KEYS: ReadonlySet<string> = new Set(['Shift', 'Control', 'Alt', 'Meta', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'w', 'a', 's', 'd']);
+
+/** Where the Intel journal's guidance (§17.6, §19.9 toggles) is remembered; Full by default (§22: the first banks). */
+const GUIDANCE_KEY = 'bankheist.guidance';
+
+function readGuidance(): Guidance {
+    try {
+        const g = localStorage.getItem(GUIDANCE_KEY);
+        return g === 'minimal' || g === 'off' ? g : 'full';
+    } catch {
+        return 'full';
+    }
+}
 
 function readColourBlind(): boolean {
     if (new URLSearchParams(location.search).has('cb')) return true;
@@ -191,6 +203,8 @@ export class PlayMode {
     private readonly fireBar: HTMLElement = document.createElement('div');
     /** The colour-blind preset: `&cb` in the address, or the B key (remembered). */
     private colourBlind = readColourBlind();
+    /** The Intel journal's guidance, remembered on this device. */
+    private guidance: Guidance = readGuidance();
     /** The door, NPC or object the player tapped: the grid's actions on a thing are for it. */
     private target: string | null = null;
     /** The selected member's range, worked out once per state and member. */
@@ -275,6 +289,14 @@ export class PlayMode {
                 this.refresh();
             },
             ledgerJump: pos => this.camera.centreOn(...centre(pos), 250),
+            journalJump: pos => this.camera.centreOn(...centre(pos), 250),
+            setGuidance: g => {
+                this.guidance = g;
+                try {
+                    localStorage.setItem(GUIDANCE_KEY, g);
+                } catch { /* private mode: for this visit only */ }
+                this.refresh();
+            },
             toggleMap: () => this.camera.toggleMap(),
             resume: () => {
                 this.recap = false;
@@ -751,6 +773,9 @@ export class PlayMode {
                 return true;
             }
             case 'intelFound': if (e.crew) say(e.crew, 'Intel!'); return true;
+            // An opportunity found (§17.6): the journal has it; Off guidance says nothing about it.
+            case 'opportunityFound': if (e.crew && this.guidance !== 'off') say(e.crew, e.how === 'overheard' ? 'Overheard something' : e.how === 'read' ? 'Noted' : 'Intel noted'); return true;
+            case 'bribed': say(e.crew, 'Our secret'); return true;
             case 'panelWorked': say(e.crew, `Panel ${e.progress}/${e.needed}`); return true;
             case 'panelDisabled': say(e.crew, 'Alarm panel dead'); return true;
             case 'carrierStopped': {
@@ -1550,7 +1575,7 @@ export class PlayMode {
 
     /** The HUD, the rings and the overlay, from the Session. */
     private refresh(): void {
-        const { session } = this, hudVm = session.hud({ mapOn: this.mapOn, overlays: this.overlays, target: this.target });
+        const { session } = this, hudVm = session.hud({ mapOn: this.mapOn, overlays: this.overlays, target: this.target, guidance: this.guidance });
         // The negotiator's call (M3-09), unless put aside this turn or still playing back.
         const negotiator = this.negotiatorLater === session.state.turn || this.busy ? null : negotiatorView(session.world, session.state, session.selected);
         const vm = { ...hudVm, negotiator };
