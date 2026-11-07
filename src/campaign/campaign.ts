@@ -99,7 +99,9 @@ export type CampaignEvent =
     | { type: 'raid'; day: number }
     | { type: 'jobFailed'; day: number; abandoned: boolean }
     | { type: 'learned'; bank: string; day: number }
-    | { type: 'phase'; phase: CampaignPhase };
+    | { type: 'phase'; phase: CampaignPhase }
+    /** The day action didn't happen: the heist it abandoned landed the Raid (decision 446). No day was spent. */
+    | { type: 'stopped'; action: DayAction; reason: string };
 
 export class CampaignRefused extends Error {
     constructor(message: string) {
@@ -163,6 +165,12 @@ export function commitCampaign(campaign: Campaign, cmd: CampaignCommand): { camp
                 v.result = 'failure';
                 events.push({ type: 'jobFailed', day: v.day, abandoned: true });
                 add('failedJob', SQUEEZE.failedJob);
+                // The failure is settled first: if it landed the Raid, the day action doesn't happen (decision 446).
+                const stopped = campaignRefusal(c, cmd);
+                if (stopped) {
+                    events.push({ type: 'stopped', action: cmd.kind, reason: stopped });
+                    break;
+                }
             }
             const day = c.day;
             c.visit = cmd.kind === 'layLow' ? null : { kind: cmd.kind, day, bank: cmd.bank, prior: knownBefore(campaign, cmd.bank) };

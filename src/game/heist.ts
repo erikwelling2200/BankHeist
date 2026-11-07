@@ -125,14 +125,18 @@ export function savedHeist(storage: SaveStorage): { address: BankAddress | null;
  */
 export function startHeist(bank: GeneratedBank, storage: SaveStorage, options: ResumeOptions = {}, setup?: HeistSetup, campaign?: CampaignTag): Session {
     const { world, state } = newHeist(bank, setup);
-    // The tag goes first: a heist saved under an older tag would send what this one learns to the wrong campaign day.
-    try {
-        storage.remove(BANK_KEY);
-    } catch { /* nothing to remove */ }
-    const session = Session.start({ world, state, storage, genVersion: GEN_VERSION, ...options });
+    // The bank entry, tag and all, goes first and in one write replacing the old one, so the heist is never saved under
+    // another heist's tag, or a campaign heist without its own (it would then send what it learns to the wrong place).
     try {
         storage.set(BANK_KEY, JSON.stringify({ address: bankAddress(bank), name: bank.name, ...(campaign ? { campaign } : {}) }));
-    } catch { /* a full quota: the heist is saved, only rebuilding its bank without a seed in the address fails */ }
+    } catch (e) {
+        // A full quota: an old tag must not stay on the new heist, and a campaign heist doesn't start untagged.
+        try {
+            storage.remove(BANK_KEY);
+        } catch { /* nothing more to do */ }
+        if (campaign) throw e;
+    }
+    const session = Session.start({ world, state, storage, genVersion: GEN_VERSION, ...options });
     return session;
 }
 

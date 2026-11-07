@@ -66,7 +66,8 @@ export function showCampaign(): void {
         const done = campaignAct(storage, cmd);
         if (!('refused' in done)) dropCampaignHeist(storage, campaign.seed);
         render();
-        if ('refused' in done) root.querySelector('.cp-panel')?.append(el('p', 'cp-warn', done.refused));
+        const stopped = 'refused' in done ? done.refused : done.events.find(e => e.type === 'stopped')?.reason;
+        if (stopped) root.querySelector('.cp-panel')?.append(el('p', 'cp-warn', 'refused' in done ? stopped : `The abandoned heist brought the Raid: ${stopped.toLowerCase()}.`));
     }
 
     function campaignView(c: Campaign): HTMLElement {

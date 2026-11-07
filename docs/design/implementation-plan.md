@@ -1687,7 +1687,7 @@ M2 is complete: every package below has landed.
 
 - [x] **M6-01** Campaign state and save; days; the Squeeze, its thresholds and complications (§19.2). Pure, in `src/campaign/`. (partial: see Deferred)
   Must price casing (M5-03, decision 406): a heist abandoned after a turn keeps its intel for free today.
-  - **Done:** decisions 440–445. `src/campaign/` (`campaign.ts`: `Campaign`, `commitCampaign`, `campaignRefusal`,
+  - **Done:** decisions 440–446. `src/campaign/` (`campaign.ts`: `Campaign`, `commitCampaign`, `campaignRefusal`,
     `timeline`, intel by the day; `squeeze.ts`: the thresholds, the Raid, the gains; `complications.ts`: the pool and its
     seeded draw). `src/game/campaign.ts`: the save (`CAMPAIGN_KEY`, `CAMPAIGN_FORMAT`, `campaignProblem`), `campaignAct`,
     `campaignIntel`, `campaignKeeper`. The Session takes `keepIntel`; `startHeist` tags a campaign heist
@@ -3151,6 +3151,14 @@ Later milestones: within each milestone, the `∥` notes in §3 apply. UI packag
     A campaign heist's New heist comes back to it, and its address drops `campaign` once started so a reload resumes the
     heist. The planning screen's cash stays the sandbox's $24k (decision 323): the campaign's money is M6-03's, which
     this doesn't need. `window.campaign` (`get`, `act`, `start`) on that page is for tests and the console.
+446. **The abandoned heist settles first (M6-01 review).** A day action that abandons the day's heist adds the failed
+    job's +2 first and asks again whether it may go on (`campaignRefusal`): when that +2 landed the Raid it stops there
+    (a `stopped` event, no day spent, no new visit; the page says so and a planned heist goes back to the campaign).
+    `campaignProblem` refuses a day spent after the Raid (it lands on the last day spent) and a visit that isn't the
+    last day spent. A campaign heist's bank entry, tag included, is written before the heist in one write replacing the
+    old one, and a campaign heist that can't be tagged doesn't start. Its keeper drops the heist (`'drop'`: the Session
+    retires and forgets it) once its campaign day is over, so a tab left open on it after Lay low saves it no more; an
+    untagged heist resumed in the bank of the campaign's unfinished heist keeps nothing on the device (`untaggedKeeper`).
 340. **Validation sees with the rules (M5-01, §17.7).** The checks of what is seen run on the World the game builds from
     the bank (`worldFromBank`) in its state on turn 1 (`initialState`: everyone where they start, the doors as they
     start), through `src/sim/geo`: §8.3's arcs and ranges, darkness halving them, cameras blind on an unlit tile, the

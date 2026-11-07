@@ -1,9 +1,9 @@
 import {
     campaignRefusal, commitCampaign, COMPLICATION_IDS, knownIntel, THRESHOLDS, ALL_THRESHOLDS, type Campaign, type CampaignCommand, type CampaignEvent
 } from '../campaign';
-import { intelOf, SaveFormatError, stableJson, type DeepReadonly, type Intel, type ReadonlyWorld, type State } from '../sim';
+import { intelOf, SaveFormatError, stableJson, type DeepReadonly, type Intel, type ReadonlyWorld } from '../sim';
 import { savedHeist, type CampaignTag } from './heist';
-import { Session } from './session';
+import { Session, type IntelKeeper } from './session';
 import { bankPrint, intelProblem, mergeIntel } from './intel';
 import type { SaveStorage } from './storage';
 
@@ -60,6 +60,8 @@ export function campaignProblem(value: unknown): string | undefined {
     if ((v.phase === 'open' && raided) || ((v.phase === 'raid' || v.phase === 'finaleDue') && !raided)) return "the phase isn't the Raid's";
     const days = v.days;
     if (!Array.isArray(days) || days.length !== (v.day as number) - 1) return 'the days spent are not the days before today';
+    // No day is spent after the Raid lands (decision 446): it lands on the last day spent.
+    if (raided && landed[ALL_THRESHOLDS.length - 1] !== Math.max(1, days.length)) return 'a day was spent after the Raid';
     for (const [i, d] of days.entries()) {
         if (!isRecord(d) || !exactKeys(d, ['day', 'action'], ['bank']) || d.day !== i + 1 || !ACTIONS.includes(d.action as string)
             || (d.action === 'layLow') !== (d.bank === undefined) || (d.bank !== undefined && typeof d.bank !== 'string')) return 'a day spent is no day action';
@@ -70,6 +72,7 @@ export function campaignProblem(value: unknown): string | undefined {
             || typeof s.bank !== 'string' || (s.result !== undefined && (s.kind !== 'heist' || !RESULTS.includes(s.result as string)))) return 'the visit is no visit';
         const spent = days[(s.day as number) - 1] as Record<string, unknown> | undefined;
         if (!spent || spent.action !== s.kind || spent.bank !== s.bank) return 'the visit is not a day spent';
+        if (s.day !== days.length) return 'the visit is not the last day spent';
         const p = s.prior;
         if (!isRecord(p) || !exactKeys(p, ['guardRota', 'routines', 'opportunities']) || typeof p.guardRota !== 'boolean' || !strings(p.routines)
             || !strings(p.opportunities)) return 'what the visit knew before is not intel';
@@ -147,22 +150,36 @@ export function campaignIntel(campaign: DeepReadonly<Campaign>, world: ReadonlyW
 
 /**
  * What a campaign heist does after each save (`SessionOptions.keepIntel`): what it has learned goes to its campaign day,
- * and its end, once, to the campaign (a failure is a failed job, §19.2). Nothing when the saved campaign is no longer
- * the one it was played for, or its day's visit is another's. Every save from the first counts: the day is spent at the
- * start (decision 441).
+ * and its end, once, to the campaign (a failure is a failed job, §19.2). Every save from the first counts: the day is
+ * spent at the start (decision 441). When the saved campaign is no longer the one it was played for, or its day is
+ * over (a day action came after it, perhaps in another tab), the heist is dropped (`'drop'`): it sends nothing and is
+ * saved no more. A campaign that can't be read drops nothing.
  */
-export function campaignKeeper(storage: SaveStorage, tag: CampaignTag): (world: ReadonlyWorld, state: State) => void {
+export function campaignKeeper(storage: SaveStorage, tag: CampaignTag): IntelKeeper {
     let kept: string | null = null;
     return (world, state) => {
-        const bank = bankPrint(world), intel = intelOf(world, state), text = stableJson(intel);
-        const ended = state.outcome?.result;
-        if (text === kept && !ended) return;
         const campaign = loadCampaign(storage);
-        if (!campaign || campaign.seed !== tag.seed || campaign.visit?.day !== tag.day || campaign.visit.bank !== bank) return;
+        if (!campaign) return lastCampaignError === null ? 'drop' : undefined;
+        const bank = bankPrint(world);
+        if (campaign.seed !== tag.seed || campaign.visit?.day !== tag.day || campaign.visit.bank !== bank) return 'drop';
+        const intel = intelOf(world, state), text = stableJson(intel), ended = state.outcome?.result;
         let next = campaign;
         if (text !== kept) next = commitCampaign(next, { kind: 'learn', bank, day: tag.day, intel }).campaign;
         if (ended && next.visit?.kind === 'heist' && !next.visit.result) next = commitCampaign(next, { kind: 'heistOver', day: tag.day, result: ended }).campaign;
         if (next !== campaign && saveCampaign(storage, next)) kept = text;
+        return undefined;
+    };
+}
+
+/**
+ * The keeper of a resumed heist that carries no campaign tag: the device's intel as usual (`'device'`), unless the
+ * campaign's day is an unfinished heist in this very bank. That may be the campaign's heist with its tag lost, and
+ * what it learns must not reach the sandbox's free intel either.
+ */
+export function untaggedKeeper(storage: SaveStorage): IntelKeeper {
+    return world => {
+        const campaign = loadCampaign(storage);
+        return campaign && heistUnfinished(campaign) && campaign.visit!.bank === bankPrint(world) ? undefined : 'device';
     };
 }
 

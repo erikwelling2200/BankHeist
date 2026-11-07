@@ -98,8 +98,15 @@ export interface SessionOptions {
      * Keeps what the heist has learned after each save, in place of the bank's intel on this device (M5-03): a campaign
      * heist's goes to its campaign instead (M6-01, src/game/campaign.ts). What it throws never fails the save.
      */
-    keepIntel?: (world: ReadonlyWorld, state: State) => void;
+    keepIntel?: IntelKeeper;
 }
+
+/**
+ * Keeps a heist's intel after a save (`SessionOptions.keepIntel`). It may answer `'device'`: keep it in the bank's
+ * intel on this device after all, as without a keeper; or `'drop'`: the heist is over elsewhere (its campaign day is
+ * gone), so the Session forgets it and saves nothing more.
+ */
+export type IntelKeeper = (world: ReadonlyWorld, state: State) => void | 'device' | 'drop';
 
 export type ResumeOptions = Pick<SessionOptions, 'uiSaveDelay' | 'onListenerError' | 'keepIntel'>;
 
@@ -184,7 +191,7 @@ export class Session {
     /** The intel last kept for this bank (`keepIntel`), as JSON. */
     private intelKept: string | null = null;
     /** Where what the heist learns goes, if not to the bank's intel on this device (`SessionOptions.keepIntel`). */
-    private readonly intelKeeper?: (world: ReadonlyWorld, state: State) => void;
+    private readonly intelKeeper?: IntelKeeper;
     /** Auto-advance is committing: its moves keep their crew member's route. */
     private autoPlaying = false;
     /** The stop the last auto-advance step ended with: the same evidence stop doesn't hold the next Go again. */
@@ -649,12 +656,19 @@ export class Session {
      */
     private keepIntel(): void {
         if (this.intelKeeper) {
+            let answer: ReturnType<IntelKeeper>;
             try {
-                this.intelKeeper(this.world, this._state);
+                answer = this.intelKeeper(this.world, this._state);
             } catch (e) {
                 console.warn("The heist's intel couldn't be kept", e);
+                return;
             }
-            return;
+            if (answer === 'drop') {
+                console.warn('This heist is over elsewhere: it is no longer saved');
+                this.retire();
+                Session.clear(this.storage);
+            }
+            if (answer !== 'device') return;
         }
         if (this.world.intel === undefined || this._state.turn <= 1) return;
         const intel = intelOf(this.world, this._state), text = stableJson(intel);

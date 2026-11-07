@@ -2,11 +2,11 @@ import { describe, expect, it } from 'vitest';
 import { commitCampaign, knownBefore, newCampaign, type Campaign, type CampaignCommand } from '../../src/campaign';
 import {
     CAMPAIGN_FORMAT, CAMPAIGN_KEY, campaignAct, campaignHeistRefusal, campaignIntel, campaignKeeper, campaignProblem, deserialiseCampaign, dropCampaignHeist,
-    heistUnfinished, loadCampaign, saveCampaign, serialiseCampaign
+    heistUnfinished, loadCampaign, saveCampaign, serialiseCampaign, untaggedKeeper
 } from '../../src/game/campaign';
-import { savedHeist, startHeist, type CampaignTag } from '../../src/game/heist';
+import { BANK_KEY, GEN_VERSION, savedHeist, startHeist, type CampaignTag } from '../../src/game/heist';
 import { bankPrint, intelKey } from '../../src/game/intel';
-import { defaultSetup, planOptions } from '../../src/game/plan';
+import { defaultSetup, heistFromSetup, planOptions, type HeistSetup } from '../../src/game/plan';
 import { HEIST_KEY, MemoryStorage, Session } from '../../src/game';
 import { intelOf, SaveFormatError } from '../../src/sim';
 import { cachedBank } from '../bankCache';
@@ -21,9 +21,10 @@ const options = planOptions(bank);
 const print = bankPrint(options.world);
 
 /** A campaign heist as the game starts one: the day spent and saved first, then the heist tagged with it. */
-function campaignHeist(storage: MemoryStorage): { session: Session; tag: CampaignTag } {
+function campaignHeist(storage: MemoryStorage, change: (s: HeistSetup) => void = () => {}): { session: Session; tag: CampaignTag } {
     const campaign = loadCampaign(storage)!;
     const setup = defaultSetup(options, campaignIntel(campaign, options.world));
+    change(setup);
     const done = campaignAct(storage, { kind: 'heist', bank: print });
     if ('refused' in done) throw new Error(done.refused);
     const tag = { seed: done.campaign.seed, day: done.campaign.visit!.day };
@@ -77,6 +78,24 @@ describe('the campaign save', () => {
         expect(broken(v => { v.day = 3; })).toBe('the days spent are not the days before today');
         expect(broken(v => { v.visit = { kind: 'heist', day: 1, bank: print, prior: { guardRota: false, routines: [], opportunities: [] } }; })).toBe('the visit is not a day spent');
         expect(broken(v => { v.intel = { b: [{ day: 1, intel: {} }] }; })).toBe('the intel is not dated intel');
+        // The review's probe, as the old rules saved it: a heist abandoned into the Raid, and a day spent after it.
+        let raid = newCampaign(1);
+        for (let i = 0; i < 17; i++) raid = commitCampaign(raid, { kind: 'layLow' }).campaign;
+        raid = commitCampaign(raid, { kind: 'heist', bank: 'b' }).campaign;
+        raid = commitCampaign(raid, { kind: 'heist', bank: 'c' }).campaign;
+        expect(campaignProblem(raid)).toBeUndefined();
+        const after = structuredClone(raid);
+        after.days.push({ day: 19, action: 'heist', bank: 'c' });
+        after.day = 20;
+        after.squeeze = 40;
+        after.visit = { kind: 'heist', day: 19, bank: 'c', prior: { guardRota: false, routines: [], opportunities: [] } };
+        expect(campaignProblem(after)).toBe('a day was spent after the Raid');
+        // A visit that isn't the last day spent.
+        let two = commitCampaign(newCampaign(1), { kind: 'heist', bank: 'b' }).campaign;
+        two = commitCampaign(two, { kind: 'heistOver', day: 1, result: 'success' }).campaign;
+        const visit = two.visit;
+        two = commitCampaign(two, { kind: 'layLow' }).campaign;
+        expect(campaignProblem({ ...two, visit })).toBe('the visit is not the last day spent');
         // A broken save loads as none, and says why.
         const storage = new MemoryStorage();
         storage.set(CAMPAIGN_KEY, JSON.stringify({ format: CAMPAIGN_FORMAT, campaign: { ...c, day: 2 } }));
@@ -145,6 +164,70 @@ describe('a campaign heist (decision 406: casing is paid in days)', () => {
         session.commit({ type: 'endTurn' });
         expect(loadCampaign(storage)).toEqual(before);
         expect(tag.day).toBe(1);
+        // As a tab still open on it would: the heist is dropped at its next save, and saves nothing more.
+        expect(storage.get(HEIST_KEY)).toBeNull();
+        session.commit({ type: 'endTurn' });
+        expect(storage.get(HEIST_KEY)).toBeNull();
+    });
+
+    it('a heist that really ends in failure, through the Session, is a failed job counted once', () => {
+        const storage = started();
+        const done = campaignAct(storage, { kind: 'heist', bank: print });
+        if ('refused' in done) throw new Error(done.refused);
+        const tag = { seed: done.campaign.seed, day: 1 };
+        // Every crew member dead: the next turn's end ends the heist, a failure (§15.5).
+        const { world, state } = heistFromSetup(bank, defaultSetup(options));
+        for (const c of state.crew) c.wounds = { ...c.wounds, hp: 0, dead: true };
+        const session = Session.start({ world, state, storage, genVersion: GEN_VERSION, keepIntel: campaignKeeper(storage, tag) });
+        session.commit({ type: 'endTurn' });
+        expect(session.state.outcome?.result).toBe('failure');
+        expect(loadCampaign(storage)).toMatchObject({ squeeze: 4, visit: { result: 'failure' } });
+        session.save();
+        expect(loadCampaign(storage)!.squeeze).toBe(4);
+    });
+
+    it('a routine learned is dated its day: it ages from then, and knowing it again in a later heist renews nothing', () => {
+        const storage = started();
+        // The Guard rota bought: every guard's routine is learned on day 1.
+        const { session } = campaignHeist(storage, s => { s.guardRota = true; });
+        session.commit({ type: 'endTurn' });
+        const learned = intelOf(session.world, session.state).routines ?? [];
+        expect(learned.length).toBeGreaterThan(0);
+        let c = loadCampaign(storage)!;
+        expect(c.intel[print]![0]).toMatchObject({ day: 1, intel: { guardRota: true, routines: learned } });
+        expect(knownBefore(c, print)).toMatchObject({ guardRota: true, routines: learned });
+        // Day 3: a heist that starts knowing them learns nothing new about them.
+        campaignAct(storage, { kind: 'layLow' });
+        const second = campaignHeist(storage).session;
+        second.commit({ type: 'endTurn' });
+        c = loadCampaign(storage)!;
+        const today = c.intel[print]!.find(r => r.day === 3)!;
+        expect(today.intel.guardRota).toBeUndefined();
+        expect((today.intel.routines ?? []).filter(id => learned.includes(id))).toEqual([]);
+        // Past INTEL_FRESH_DAYS after day 1 they are gone.
+        for (let i = 0; i < 2; i++) campaignAct(storage, { kind: 'layLow' });
+        expect(loadCampaign(storage)!.day).toBe(6);
+        expect(knownBefore(loadCampaign(storage)!, print).guardRota).toBe(false);
+        expect(knownBefore(loadCampaign(storage)!, print).routines.filter(id => learned.includes(id) && !(today.intel.routines ?? []).includes(id))).toEqual([]);
+    });
+
+    it('a campaign heist is tagged before it is saved; untagged in the campaign day\'s bank, it sends nothing to the device', () => {
+        const storage = started();
+        const { session, tag } = campaignHeist(storage);
+        expect(JSON.parse(storage.get(BANK_KEY)!).campaign).toEqual(tag);
+        // A full quota on the bank entry: a campaign heist doesn't start untagged.
+        const full = started();
+        campaignAct(full, { kind: 'heist', bank: print });
+        const set = full.set.bind(full);
+        full.set = (key, value) => { if (key === BANK_KEY) throw new Error('quota'); set(key, value); };
+        expect(() => startHeist(bank, full, {}, defaultSetup(options), { seed: 11, day: 1 })).toThrow('quota');
+        // Its tag lost, the heist resumed as the game resumes an untagged one keeps nothing on the device.
+        storage.set(BANK_KEY, JSON.stringify({ address: savedHeist(storage)!.address }));
+        session.retire();
+        const resumed = Session.resume(storage, { keepIntel: untaggedKeeper(storage) })!;
+        resumed.commit({ type: 'endTurn' });
+        resumed.commit({ type: 'endTurn' });
+        expect(storage.get(intelKey(resumed.world))).toBeNull();
     });
 
     it('a heist that ended in failure is a failed job, counted once', () => {

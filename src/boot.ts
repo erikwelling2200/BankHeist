@@ -13,7 +13,7 @@ import { installDebugHandle, MemoryStorage, Session, webStorage, type SaveStorag
 import { bankAddress, playPlan, sameAddress, savedHeist, startHeist, type CampaignTag } from './game/heist';
 import type { Campaign } from './campaign';
 import { bankPrint, loadIntel } from './game/intel';
-import { campaignAct, campaignHeistRefusal, campaignIntel, campaignKeeper, heistUnfinished, loadCampaign } from './game/campaign';
+import { campaignAct, campaignHeistRefusal, campaignIntel, campaignKeeper, heistUnfinished, loadCampaign, untaggedKeeper } from './game/campaign';
 import { defaultSetup, planOptions, setupFromAddress, type HeistSetup } from './game/plan';
 import { Planner } from './ui/planning/Planner';
 import { askPlayer } from './ui/askPlayer';
@@ -253,7 +253,8 @@ async function preparePlay(params: URLSearchParams): Promise<{ bank: ReturnType<
         if (campaign) {
             // The day is spent, and saved, before the heist starts: leaving it after a turn has still cost the day.
             const done = campaignAct(storage, { kind: 'heist', bank: bankPrint(planOptions(generated).world) });
-            if ('refused' in done) {
+            // Refused, or stopped: the heist it abandoned landed the Raid (decision 446). The campaign shows it.
+            if ('refused' in done || done.events.some(e => e.type === 'stopped')) {
                 location.replace(campaignAddress());
                 return new Promise<never>(() => undefined);
             }
@@ -271,14 +272,21 @@ async function preparePlay(params: URLSearchParams): Promise<{ bank: ReturnType<
     }
     if (plan === 'resume') {
         // A campaign's heist sends what it learns to its campaign day, as when it started.
-        session = Session.resume(storage, saved?.campaign ? { keepIntel: campaignKeeper(storage, saved.campaign) } : {});
+        session = Session.resume(storage, { keepIntel: saved?.campaign ? campaignKeeper(storage, saved.campaign) : untaggedKeeper(storage) });
         if (!session) {
             console.warn("The saved heist can't be resumed", Session.lastResumeError);
             if (!(await askPlayer("The saved heist can't be read.", 'Start a new one in its place?', 'Start new', 'Play without saving'))) target = new MemoryStorage();
         }
     }
     const resumed = !!session;
-    session ??= startHeist(generated, target, tag ? { keepIntel: campaignKeeper(target, tag) } : {}, planned, tag);
+    try {
+        session ??= startHeist(generated, target, tag ? { keepIntel: campaignKeeper(target, tag) } : {}, planned, tag);
+    } catch (e) {
+        // A campaign heist that can't be saved with its tag (a full quota) doesn't start: back to the campaign.
+        console.warn("The campaign's heist couldn't be saved", e);
+        location.replace(campaignAddress());
+        return new Promise<never>(() => undefined);
+    }
     // A campaign heist's New heist goes back to the campaign.
     const next = (tag ?? (resumed ? saved?.campaign : undefined)) ? campaignAddress() : undefined;
     writePlayAddress(generated, savedHeist(target));

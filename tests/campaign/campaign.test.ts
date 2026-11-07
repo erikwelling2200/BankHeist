@@ -120,6 +120,27 @@ describe('days (§19.3)', () => {
         expect(campaignRefusal(left.campaign, { kind: 'heistOver', day: 1, result: 'success' })).toBe("Not the day's heist");
     });
 
+    it('an abandoned heist settles first: a complication it lands lands, and the day action goes on', () => {
+        const r = run(newCampaign(1), ...days(2), { kind: 'heist', bank: 'b' }, { kind: 'layLow' });
+        // 4, the heist's day 6, the failure 8 (landing on the heist's day 3), then the day laid low 10.
+        expect(r.campaign).toMatchObject({ day: 5, squeeze: 10, landed: [3], visit: null });
+        expect(r.events.some(e => e.type === 'stopped')).toBe(false);
+    });
+
+    it('an abandoned heist that lands the Raid stops the day action: no day spent, no new visit', () => {
+        const before = run(newCampaign(1), ...days(17), { kind: 'heist', bank: 'b' }).campaign;
+        expect(before).toMatchObject({ day: 19, squeeze: 36, phase: 'open' });
+        for (const cmd of [{ kind: 'heist', bank: 'c' }, { kind: 'case', bank: 'c' }, { kind: 'layLow' }] as CampaignCommand[]) {
+            const r = commitCampaign(before, cmd);
+            expect(r.campaign).toMatchObject({ day: 19, squeeze: 38, phase: 'raid', visit: { kind: 'heist', day: 18, bank: 'b', result: 'failure' } });
+            expect(r.campaign.days).toHaveLength(18);
+            expect(r.campaign.landed.at(-1)).toBe(18);
+            expect(r.events).toContainEqual({ type: 'raid', day: 18 });
+            expect(r.events.at(-1)).toEqual({ type: 'stopped', action: cmd.kind, reason: 'The Raid comes first' });
+            expect(r.events.some(e => e.type === 'dayPassed')).toBe(false);
+        }
+    });
+
     it('the Raid stops the days: the finale follows it, then the campaign is over', () => {
         const raid = run(newCampaign(1), ...days(19)).campaign;
         expect(campaignRefusal(raid, { kind: 'layLow' })).toBe('The Raid comes first');
