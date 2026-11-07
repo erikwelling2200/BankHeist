@@ -601,6 +601,7 @@ export function describeEvent(world: ReadonlyWorld, state: State, event: SimEven
         case 'sensorsCut': return `${name(event.crew)} cut the vault’s sensors`;
         case 'phoneRang': return `${name(event.crew)} rang a desk phone${event.remote ? ' from the hacking kit' : ''}`;
         case 'phoneLineCut': return `${name(event.crew)} cut the phone line`;
+        case 'keycardFromDrawer': return `${name(event.crew)} took a keycard from the drawer`;
         case 'lineDead': return 'A call on the landline went nowhere: the line is dead';
         case 'deadLineNoticed': return `Dispatch noticed the dead phone line: a patrol car is coming (turn ${event.driveBy})`;
         case 'intelFound': return event.crew ? `${name(event.crew)} found intel in a deposit box` : 'Intel lies among the deposit boxes';

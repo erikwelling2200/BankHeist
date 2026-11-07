@@ -327,6 +327,8 @@ export function actionMenu(world: ReadonlyWorld, state: State, crewId: string, t
             add(`interact:${verb}`, named?.label ?? verb.charAt(0).toUpperCase() + verb.slice(1), named?.icon ?? 'interact', { type: 'interact', crew: crewId, object, verb }, object);
             if (kind === 'alarmPanel' && verb === 'disable') out.at(-1)!.progress = `${state.objects[object]?.progress ?? 0}/${world.rules.panelActions}`;
             if (kind === 'managerPc') out.at(-1)!.progress = `${state.objects[object]?.progress ?? 0}/${world.rules.pcActions}`;
+            // The cost of it, told up front (§9.1): dispatch notices a dead line.
+            if (kind === 'phoneLine') out.at(-1)!.label = `Cut phone line (dispatch notices in ${world.rules.phoneLineNoticed})`;
             if ((kind === 'vaultConsole' || kind === 'wiringBox') && verb === 'sensors') out.at(-1)!.progress = `${state.objects[object]?.progress ?? 0}/${world.rules.sensorActions}`;
             if (kind === 'depositBoxes') out.at(-1)!.progress = `${state.objects[object]?.progress ?? 0}/${world.rules.lockpickActions}`;
         }

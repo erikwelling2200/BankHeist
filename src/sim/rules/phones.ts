@@ -13,7 +13,7 @@ import { reconsider } from './npc/intent';
 import { isPresent } from './npc/walk';
 
 /*
- * The bank's telephones (§8.13, §9.1; implementation plan M5-04, decisions 360–363).
+ * The bank's telephones (§8.13, §9.1; implementation plan M5-04, decisions 360–362, 368).
  *
  * - **Desk phones** (`deskPhone` objects, from the generator's phones on the desks): each has an owner, the person
  *   whose post is at that desk (`WorldObject.owner`, `worldFromBank`), and the tile they answer it from
@@ -21,14 +21,16 @@ import { isPresent } from './npc/walk';
  *   a guard is sent to look at a spot (rules/evidence.ts `sendToLook`): they walk to their desk, the walk telegraphed in
  *   this crew phase, and go back to their routine once there (or after `rules.evidencePhases`). It is rung **from
  *   another desk phone** in reach (picking up a phone is Clean, no illegal act), or **remotely with a hacking kit**
- *   (the illegal act 'hack': the kit is out). Nobody comes for a phone whose owner is away, down, under the crew's
- *   control or busy with something that matters more; the ring is the same either way, so its preview tells nothing
- *   about an owner the crew doesn't know (the owner's walk shows only as their intent, which previews project).
+ *   (the illegal act 'hack': the kit is out). Only a calm owner comes: one away, down, under the crew's control,
+ *   alerted, panicking, or already dealing with something (evidence of any kind, a want about the crew) lets it ring,
+ *   so a ring never wipes what an NPC is acting on (decision 368). A phone rings at most once every
+ *   `rules.phoneRingPhases` (4) turns. A ring is always final (`phoneRang` blocks undo): whether a hidden owner came
+ *   would otherwise show as whether the ring could be undone (decision 368).
  * - **The phone line** (`phoneLine`, the junction box in the alarm closet): **cut** (`interact … cut`, 1 action, 'hack'),
  *   the landlines are dead. A call on a landline (made by someone at their desk or window, `Carrier.line`) doesn't go
  *   out (`lineDead`), and one under way stops (`registerCarrierCheck('phoneLine')`); mobile calls carry on (the jammer
  *   is theirs). Dispatch notices the dead line after `rules.phoneLineNoticed` (15) world phases and sends a patrol car
- *   past, as for any lost contact (rules/checkins.ts). A cut line stays cut.
+ *   past, as for any lost contact (rules/checkins.ts), unless a drive-by it sent is still to come. A cut line stays cut.
  */
 
 declare module '../core/types' {
@@ -41,10 +43,16 @@ declare module '../core/types' {
     interface ObjectState {
         /** The phone line: the turn it was cut. */
         cutAt?: number;
+        /** The phone line: dispatch has noticed it is dead. */
+        lineNoticed?: boolean;
+        /** A desk phone: the turn it was last rung. */
+        rungAt?: number;
     }
     interface Rules {
         /** World phases until dispatch notices a cut phone line (§9.1: 15). */
         phoneLineNoticed: number;
+        /** Turns before a desk phone can be rung again (decision 368). */
+        phoneRingPhases: number;
     }
     interface CommandMap {
         /** Ring the desk phone `phone` (1 action): from another desk phone in reach, or anywhere with a hacking kit. */
@@ -62,7 +70,7 @@ declare module '../core/types' {
     }
 }
 
-registerRuleDefaults({ phoneLineNoticed: 15 });
+registerRuleDefaults({ phoneLineNoticed: 15, phoneRingPhases: 4 });
 
 // ---------------------------------------------------------------------------------------------------------- Desk phones
 
@@ -81,6 +89,8 @@ export function ringBlocked(world: ReadonlyWorld, state: State, member: DeepRead
     const target = world.objects.find(o => o.id === phone);
     if (target?.kind !== 'deskPhone') return 'There is no desk phone there';
     if (phoneLineDead(world, state)) return 'The phone line is dead';
+    const rung = Object.hasOwn(state.objects, phone) ? state.objects[phone]!.rungAt : undefined;
+    if (rung !== undefined && state.turn - rung < world.rules.phoneRingPhases) return `It was rung lately: again from turn ${rung + world.rules.phoneRingPhases}`;
     if (ringsRemotely(world, state, member, phone) && !member.loadout.items.includes(HACKING_KIT)) return `${member.name} needs another desk phone in reach, or a hacking kit`;
     return undefined;
 }
@@ -93,8 +103,11 @@ registerAction('ringPhone', {
     run(ctx, member, cmd) {
         const { world, state } = ctx, phone = world.objects.find(o => o.id === cmd.phone)!;
         ctx.emit({ type: 'phoneRang', crew: member.id, phone: phone.id, remote: ringsRemotely(world, state, member, phone.id) });
+        state.objects[phone.id] = { ...state.objects[phone.id], rungAt: state.turn };
         const owner = phone.owner !== undefined ? state.npcs.find(n => n.id === phone.owner) : undefined;
         if (!owner || !phone.answerAt || !isPresent(owner) || !decidesFor(owner) || owner.alerted || owner.panic !== null) return;
+        // Busy: it keeps to what it is dealing with.
+        if (owner.status !== 'calm' || owner.evidence !== null || owner.wants.length || owner.search) return;
         // Each ring is its own errand: the owner walks to the desk and goes back once there.
         sendToLook(ctx, owner, `phone:${phone.id}:${state.turn}`, phone.answerAt);
         reconsider(ctx);
@@ -127,18 +140,21 @@ export function lineCutAt(world: ReadonlyWorld, state: DeepReadonly<State>): num
 }
 
 // Dispatch notices the dead line (§9.1): after `phoneLineNoticed` world phases, a drive-by as for any lost contact.
+// Once, unless a drive-by dispatch sent is still to come (that car looks anyway).
 registerWorldHook('devices', 'phones.deadLine', (ctx, phase) => {
     const { world, state } = ctx;
-    const cut = lineCutAt(world, state);
-    if (cut === null || state.radio.driveBy !== null || state.bank.alarm) return;
+    const cut = lineCutAt(world, state), line = world.objects.find(o => o.kind === 'phoneLine');
+    if (cut === null || !line || state.objects[line.id]?.lineNoticed || state.bank.alarm) return;
     if (phase.turn - cut + 1 < world.rules.phoneLineNoticed) return;
-    state.radio.driveBy = phase.turn + world.rules.driveByLead;
-    ctx.emit({ type: 'deadLineNoticed', driveBy: state.radio.driveBy });
+    state.objects[line.id] = { ...state.objects[line.id], lineNoticed: true };
+    const due = state.radio.driveBy !== null && state.radio.driveBy > phase.turn;
+    if (!due) state.radio.driveBy = phase.turn + world.rules.driveByLead;
+    ctx.emit({ type: 'deadLineNoticed', driveBy: state.radio.driveBy! });
 }, { order: 7 });
 
 registerEvents({
-    // Nothing hidden: the ring and the owner's walk are what a preview shows.
-    phoneRang: { undoBlocking: false },
+    // Final whatever came of it, so undo tells nothing about an owner the crew doesn't know (decision 368).
+    phoneRang: { undoBlocking: true },
     // Nobody sees a cut line until dispatch's count runs out: undoable, as cutting the vault's sensors is.
     phoneLineCut: { undoBlocking: false },
     lineDead: { undoBlocking: true },

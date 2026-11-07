@@ -1,4 +1,5 @@
 import { DEPOSIT_BOX, type GeneratedBank, type GenRoom, type RoutineBlock } from '../../gen/model';
+import { phoneOwners } from '../../gen/phones';
 import { CATALOG } from '../../level/catalog';
 import { floorHeight, RAISED_HEIGHT, type LevelProp, type PersonFacing } from '../../level/plan';
 import type { Facing as PropFacing } from '../../level/space';
@@ -294,9 +295,9 @@ export function worldFromBank(bank: GeneratedBank): ReadonlyWorld {
     // rules/actions/keycards.ts): from the lunch turn to his return.
     const drawer = bank.opportunities.find(o => o.id === 'keycard-drawer'), manager = bank.people.find(p => p.role === 'manager');
     const pc = objects.find(o => o.kind === 'managerPc');
-    if (drawer?.turn !== undefined && manager && pc) {
-        const lunch = bank.timeline.find(t => t.name === 'Lunch rotation' && t.turn === drawer.turn);
-        add('keycard', pc.pos.x, pc.pos.y, pc.facing, { name: "The manager's keycard", holder: manager.id, from: drawer.turn, until: drawer.turn + (lunch?.duration ?? 6) });
+    const lunch = drawer?.turn !== undefined ? bank.timeline.find(t => t.name === 'Lunch rotation' && t.turn === drawer.turn) : undefined;
+    if (lunch?.duration !== undefined && manager && pc) {
+        add('keycard', pc.pos.x, pc.pos.y, pc.facing, { name: "The manager's keycard", holder: manager.id, from: lunch.turn, until: lunch.turn + lunch.duration });
     }
 
     const people: PersonDef[] = bank.people.map(p => ({
@@ -307,20 +308,19 @@ export function worldFromBank(bank: GeneratedBank): ReadonlyWorld {
         // A hero (§16.2): resists a command, flees or tackles.
         ...(p.traits.hero ? { hero: true as const } : {})
     }));
-    // Each desk phone's owner (§8.13): whoever's post is at that desk (beside the phone, the nearest first), and where
-    // they stand to answer it.
-    for (const phone of objects.filter(o => o.kind === 'deskPhone')) {
-        const room = roomAt(phone.pos.x, phone.pos.y);
-        let best = Infinity;
-        for (const p of people) for (const b of p.schedule) {
-            if (b.activity !== 'post' || !b.at || roomAt(b.at.x, b.at.y) !== room) continue;
-            const dx = b.at.x - phone.pos.x, dy = b.at.y - phone.pos.y, d = dx * dx + dy * dy;
-            if (Math.max(Math.abs(dx), Math.abs(dy)) > 1 || d >= best) continue;
-            best = d;
-            phone.owner = p.id;
-            phone.answerAt = { x: b.at.x, y: b.at.y };
-        }
-    }
+    // Each desk phone's owner (§8.13): whoever's post is at that desk, one owner a phone (src/gen/phones.ts).
+    const phones = objects.filter(o => o.kind === 'deskPhone');
+    const posts = people.filter(p => p.observer !== 'civilian')
+        .flatMap(p => p.schedule.filter(b => b.activity === 'post' && b.at).map(b => ({ person: p.id, at: { x: b.at!.x, y: b.at!.y } })));
+    // A desk nobody in this population works at keeps its phone as furniture (the building doesn't change with the
+    // population, §17.2), but it is no phone the rules ring.
+    const unowned = new Set<WorldObject>();
+    phoneOwners(phones.map(o => o.pos), posts, roomAt).forEach((owned, i) => {
+        if (!owned) { unowned.add(phones[i]!); return; }
+        phones[i]!.owner = owned.owner;
+        phones[i]!.answerAt = owned.at;
+    });
+    for (const o of unowned) objects.splice(objects.indexOf(o), 1);
     const cameras: CameraDef[] = bank.cameras.map(c => ({
         id: c.id, pos: { x: c.tx, y: c.ty }, facings: c.pan ? [c.pan[0], c.pan[1]] : [PROP_FACING[c.facing]], room: c.room
     }));

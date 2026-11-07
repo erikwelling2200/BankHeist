@@ -117,28 +117,43 @@ describe('worldFromBank', { timeout: 30000 }, () => {
     });
 
     it('carries the phones and their owners, the phone line, the uniforms, the wiring box and the intel box (M5-04)', () => {
+        let racks = 0, breakRooms = 0, wired = 0, antechambers = 0;
         for (const { label, bank, world } of banks) {
             const kinds = (k: string) => world.objects.filter(o => o.kind === k), has = (t: string) => bank.rooms.some(r => r.type === t);
             expect(kinds('phoneLine').length, label).toBe(has('alarmCloset') ? 1 : 0);
-            // Every break room has staff uniforms: on their rail, or in lockers where a small room has no space left for it.
+            // Every break room has its rail of uniforms, but for a small one already full whose lockers hold them.
             for (const room of bank.rooms.filter(r => r.type === 'breakRoom')) {
-                expect(world.objects.some(o => (o.kind === 'uniformRack' || o.kind === 'lockers') && o.room === room.id), `${label} ${room.id}`).toBe(true);
+                const here = (k: string) => world.objects.some(o => o.kind === k && o.room === room.id);
+                expect(here('uniformRack') || here('lockers'), `${label} ${room.id}`).toBe(true);
+                if (!here('lockers')) expect(here('uniformRack'), `${label} ${room.id}`).toBe(true);
+                if (here('uniformRack')) racks++;
+                breakRooms++;
             }
-            expect(kinds('wiringBox').length, label).toBe(has('antechamber') ? 1 : 0);
+            // The wiring box beside the vault, clear of its door; without room for it the console carries the wiring.
+            expect(kinds('wiringBox').length, label).toBeLessThanOrEqual(has('antechamber') ? 1 : 0);
+            if (kinds('wiringBox').length) wired++;
+            if (has('antechamber')) antechambers++;
+            // Every phone is on a desk someone works at: one owner each, one phone an owner, answered from their post.
             const phones = kinds('deskPhone');
             expect(phones.length, label).toBeGreaterThan(0);
-            for (const p of phones.filter(o => o.owner !== undefined)) {
+            expect(new Set(phones.map(p => p.owner)).size, label).toBe(phones.length);
+            for (const p of phones) {
+                expect(p.owner, `${label} ${p.id}`).toBeDefined();
                 const owner = world.people.find(q => q.id === p.owner)!;
+                expect(owner.observer, `${label} ${p.id}`).not.toBe('civilian');
                 expect(owner.schedule.some(b => b.activity === 'post' && b.at?.x === p.answerAt!.x && b.at.y === p.answerAt!.y), `${label} ${p.id}`).toBe(true);
                 expect(Math.max(Math.abs(p.answerAt!.x - p.pos.x), Math.abs(p.answerAt!.y - p.pos.y)), `${label} ${p.id}`).toBeLessThanOrEqual(1);
             }
             // The manager answers his own desk's phone.
-            const office = bank.rooms.find(r => r.type === 'managerOffice'), manager = bank.people.find(p => p.role === 'manager');
-            if (office && manager && phones.some(p => p.room === office.id)) expect(phones.filter(p => p.room === office.id).map(p => p.owner), label).toContain(manager.id);
+            const office = bank.rooms.find(r => r.type === 'managerOffice')!, manager = bank.people.find(p => p.role === 'manager')!;
+            expect(phones.filter(p => p.room === office.id).map(p => p.owner), label).toContain(manager.id);
             // One box of each deposit room's wall holds the intel.
             const rooms = new Set(bank.loot.filter(l => l.behind === 'depositBoxes').map(l => l.room));
             expect(kinds('loot').filter(o => o.loot?.intel).map(o => o.room).sort(), label).toEqual([...rooms].sort());
         }
+        // Nearly always there.
+        expect(racks / breakRooms).toBeGreaterThan(0.8);
+        expect(wired / antechambers).toBeGreaterThan(0.8);
     });
 });
 

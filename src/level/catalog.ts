@@ -83,8 +83,9 @@ export const CATALOG: Record<LevelProp['kind'], ItemSpec> = {
     officeChair: { size: fixed(0.6, 0.6, 1.0) },
     bookshelf: { size: fixed(1.0, 0.35, 1.9), alignY: 'north' },
     lockers: { size: fixed(1.0, 0.5, 1.9), alignY: 'north' },
-    // The break room's rail of staff uniforms (§8.14, §16.3 shift change): jackets on hangers across a steel rail, low
-    // enough to see over (not full height).
+    // The break room's rail of staff uniforms (§8.14, §16.3 shift change): jackets on hangers across a steel rail. Kept
+    // at 1.55m on purpose, under the height at which a prop blocks sight (`isTall`): a real rail would be a little
+    // taller, but one that blocked sight changed what the crew and the NPCs see across break rooms (the pinned M1 run).
     uniformRack: { size: fixed(1.2, 0.55, 1.55), alignY: 'north' },
     shelving: { size: fixed(1.0, 0.45, 1.8), alignY: 'north' },
     mopBucket: { size: fixed(0.4, 0.4, 1.2) },

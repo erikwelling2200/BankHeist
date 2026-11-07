@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
-    carrierVerdict, clonePlain, commit, fixtureWorld, hashOf, initialState, legalActions, preview, projectPreviewEvents, raiseCarrier, whyNot, type Command,
+    actionPreview, carrierVerdict, clonePlain, commit, fixtureWorld, hashOf, initialState, legalActions, preview, projectPreviewEvents, raiseCarrier, whyNot, type Command,
     type CrewStart, type PersonDef, type Pos, type ReadonlyWorld, type SimEvent, type State, type WorldObject
 } from '../../src/sim';
 import { actionMenu } from '../../src/game/actions';
@@ -22,11 +22,16 @@ const staff = (id: string, role: string, pos: Pos, at?: Pos): PersonDef => ({
     schedule: at ? [{ from: 1, activity: 'post', label: 'at post', room: 's', at, facing: 's' }] : []
 });
 
-/** Commits and checks that the preview said exactly the same. */
+/**
+ * Commits and checks that the preview said exactly the same, and that what the player is shown of it (projected on
+ * what the crew knows) says the same about undo as the commit.
+ */
 function act(world: ReadonlyWorld, state: State, cmd: Command) {
-    const seen = preview(world, state, cmd), done = step(world, state, cmd);
+    const seen = preview(world, state, cmd), done = step(world, state, cmd), shown = actionPreview(world, state, cmd);
     expect(seen.events).toEqual(done.events);
     expect(hashOf(seen.state)).toBe(hashOf(done.state));
+    if (!shown.ok) throw new Error(shown.reason);
+    expect(shown.undoable).toBe(done.undoable);
     return done;
 }
 
@@ -79,6 +84,39 @@ describe('desk phones (§8.13)', () => {
         expect(of(done.events, 'phoneRang')[0]!.remote).toBe(true);
         expect(legalActions(world, state, 'mara').filter(c => c.type === 'ringPhone').length).toBe(2);
         expect(whyNot(world, state, { type: 'ringPhone', crew: 'mara', phone: 'line' })).toBe('There is no desk phone there');
+    });
+
+    it('is final whether or not a hidden owner comes, and the projected preview says so', () => {
+        // A wall between Jun and the clerk's end of the floor.
+        const world = fixtureWorld(FLOOR, {
+            zones: ZONES, rooms: ROOMS, objects: PHONES, walls: Array.from({ length: 7 }, (_, y) => ({ between: [P(7, y), P(8, y)] as [Pos, Pos] })),
+            people: [staff('manager', 'manager', P(2, 2), P(2, 2)), staff('clerk', 'clerk', P(10, 6), P(10, 2))]
+        });
+        const state = clonePlain(initialState(world, { seed: 5, crew: [{ id: 'jun', pos: P(3, 2), items: ['hackingKit'] }] }));
+        // The clerk is unseen: present (she comes) or away (nobody comes), the ring reads the same and is final.
+        const present = act(world, state, ring('phone-1'));
+        expect(npc(present.state, 'clerk').goal.kind).toBe('inspect');
+        const gone = clonePlain(state);
+        npc(gone, 'clerk').status = 'away';
+        const absent = act(world, gone, ring('phone-1'));
+        expect([present.undoable, absent.undoable]).toEqual([false, false]);
+        const tell = (r: ReturnType<typeof actionPreview>) => (r.ok ? { undoable: r.undoable, events: r.events.map(e => e.type) } : r);
+        expect(tell(actionPreview(world, state, ring('phone-1')))).toEqual(tell(actionPreview(world, gone, ring('phone-1'))));
+    });
+
+    it('doesn\'t take an owner off what they are dealing with, and rings again only after its pause', () => {
+        const { world, state } = office([{ id: 'jun', pos: P(3, 2) }]);
+        const busy = clonePlain(state);
+        npc(busy, 'clerk').evidence = { id: 'noise:x', kind: 'quietNoise', major: false, tile: P(6, 6), decided: { turn: 1, phase: 'crew' } };
+        const done = act(world, busy, ring('phone-1'));
+        expect(npc(done.state, 'clerk').evidence?.id).toBe('noise:x');
+        // Rung once, the same phone waits `phoneRingPhases` turns; another phone doesn't.
+        expect(whyNot(world, done.state, ring('phone-1'))).toBe(`It was rung lately: again from turn ${1 + world.rules.phoneRingPhases}`);
+        let s = done.state;
+        for (let i = 0; i < world.rules.phoneRingPhases; i++) s = commit(world, s, endTurn).state;
+        const later = clonePlain(s);
+        later.crew[0]!.pos = P(3, 2);
+        expect(whyNot(world, later, ring('phone-1'))).toBeUndefined();
     });
 
     it('brings nobody whose owner is down, and the grid offers it for the phone tapped', () => {
@@ -151,12 +189,17 @@ describe('the keycard in the drawer (§17.6)', () => {
         expect(actionMenu(world, scouted(world, state), 'jun').some(e => e.id === 'takeKeycard')).toBe(false);
         const lunch = clonePlain(state);
         lunch.turn = 3;
+        // Knocked out before he could leave, he never put it in the drawer.
+        npc(lunch, 'manager').status = 'unconscious';
+        expect(whyNot(world, lunch, take)).toBe('There is no keycard here');
+        npc(lunch, 'manager').status = 'away';
         expect(actionMenu(world, scouted(world, lunch), 'jun').find(e => e.id === 'takeKeycard')?.command).toEqual(take);
         const done = act(world, lunch, take);
+        expect(done.undoable).toBe(false);
         expect(done.state.crew[0]!.keycards).toEqual(['manager']);
         expect(npc(done.state, 'manager').keycard).toBe(false);
         expect(whyNot(world, done.state, take)).toBe('The keycard is gone');
-        const back = clonePlain(state);
+        const back = clonePlain(lunch);
         back.turn = 6;
         expect(whyNot(world, back, take)).toBe('There is no keycard here');
         // Frisked off him before lunch, it never reaches the drawer.

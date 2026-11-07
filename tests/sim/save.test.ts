@@ -78,7 +78,7 @@ describe('saving', () => {
  * NpcStatusMap, CarrierKindMap or adds a field must also fill it in below, or a change of shape goes unnoticed.
  */
 const SHAPE_HASHES: Record<number, string> = {
-    1: '92e55d7db1f5b4f8'
+    1: '90db9eea5c64824a'
 };
 
 /** Paths whose objects are records by id, not structs. */
@@ -184,7 +184,7 @@ describe('the save format', () => {
         full.ammoBags = [{ id: 'ammoBag-8', at: { x: 1, y: 1 }, uses: 3, by: 'jun' }];
         full.crew[0]!.charges = { shapedCharge: 1 };
         full.doors.staffDoor = { status: 'open', propped: true, work: 1 };
-        full.objects.panel = { disabled: true, open: false, progress: 2, codes: ['manager'], sensorsCut: true, cutAt: 3 };
+        full.objects.panel = { disabled: true, open: false, progress: 2, codes: ['manager'], sensorsCut: true, cutAt: 3, lineNoticed: true, rungAt: 2 };
         full.devices = [{ id: 'drill-4', kind: 'drill', at: 'vault', pos: { x: 1, y: 1 }, crew: 'jun', done: 2, needed: 5, jammed: true, noise: 6 }];
         full.codesKnown = ['whole'];
         full.intelFound = ['cash'];
