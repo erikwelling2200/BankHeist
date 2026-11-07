@@ -1977,7 +1977,8 @@ high-stakes successes.
 
 - **Recruits** come with one trait (§7.2) and a **personal motive** ("pay off my $80k debt", "never kill
   anyone", "get even with the bank that foreclosed on me"). Meeting it before the finale gives a one-time bonus (a
-  perk or a contact).
+  perk or a contact). "Never kill anyone" is settled at the finale instead: met if that crew member killed nobody
+  themselves on any job, its bonus paid then.
 - **Traits:** a crew member picks a new trait from three offered for every two jobs survived. No HP growth.
 - **Downed during a job** (even if revived) → injured, out for a number of days. Time is the cost.
 - **Arrested** → jailed. Options: a lawyer (money and days), a **jailbreak contract**, or leave them, in which case

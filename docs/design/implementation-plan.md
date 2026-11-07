@@ -3484,6 +3484,10 @@ Later milestones: within each milestone, the `∥` notes in §3 apply. UI packag
     src/bankSource.ts) drops, outside the campaign, a side objective the bank has no place for (blackmail with no
     manager's desk) as it drops a tier that can't fit; a contract's bank (`&campaign`) is built with all its terms or
     not at all, as before. The side-objective cap is tested by missing objectives until each has had its two offers.
+509. **"Never kill anyone" is settled at the finale (M6-04; user decision).** It is a constraint, not a goal, so it can't
+    be met partway: it counts as met at the finale if that crew member never killed anyone themselves on any job they
+    went on, and its bonus is paid then (the one exception to §19.6's "before the finale"). Deaths caused by others on
+    the same job don't break it; a kill by this crew member breaks it for good.
 
 ### Critical files for implementation
 
