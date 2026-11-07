@@ -136,9 +136,10 @@ describe('worldFromBank', { timeout: 30000 }, () => {
             // Every phone is on a desk someone works at: one owner each, one phone an owner, answered from their post.
             const phones = kinds('deskPhone');
             expect(phones.length, label).toBeGreaterThan(0);
-            expect(new Set(phones.map(p => p.owner)).size, label).toBe(phones.length);
-            for (const p of phones) {
-                expect(p.owner, `${label} ${p.id}`).toBeDefined();
+            const owned = phones.filter(p => p.owner !== undefined);
+            expect(new Set(owned.map(p => p.owner)).size, label).toBe(owned.length);
+            expect(phones.length, label).toBe(bank.props.filter(p => p.kind === 'deskPhone').length);
+            for (const p of owned) {
                 const owner = world.people.find(q => q.id === p.owner)!;
                 expect(owner.observer, `${label} ${p.id}`).not.toBe('civilian');
                 expect(owner.schedule.some(b => b.activity === 'post' && b.at?.x === p.answerAt!.x && b.at.y === p.answerAt!.y), `${label} ${p.id}`).toBe(true);

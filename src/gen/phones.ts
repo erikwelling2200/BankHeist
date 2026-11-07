@@ -2,9 +2,8 @@
  * Desk phones and their owners (§8.13; implementation plan M5-04, decision 360): one owner per phone, one phone per
  * owner. An owner is someone with a `post` beside the phone (within a tile, in its room), staff or a guard, never a
  * customer; the pairs are made nearest first (then by phone, then by person), so a desk pair's two phones go to the two
- * people facing each other across it. `worldFromBank` makes rules objects only of the phones that get an owner (the
- * props stay: the building doesn't change with the population). The CCTV operator's console and visitors (the IT tech)
- * have no desk phone.
+ * people facing each other across it. A phone with no owner in this population (the building doesn't change with it)
+ * still rings in the rules, and brings nobody. The CCTV operator's console and visitors (the IT tech) have no desk phone.
  */
 
 export interface PhonePost { person: string; at: { x: number; y: number } }

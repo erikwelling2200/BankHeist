@@ -119,6 +119,22 @@ describe('desk phones (§8.13)', () => {
         expect(whyNot(world, later, ring('phone-1'))).toBeUndefined();
     });
 
+    it('rings a phone nobody works at like any other, final and paused, and rings from it too', () => {
+        const spare: WorldObject = { id: 'phone-2', kind: 'deskPhone', pos: P(6, 1), facing: 's', room: 's' };
+        const { world, state } = office([{ id: 'jun', pos: P(6, 2) }], [...PHONES, spare]);
+        const s = scouted(world, state);
+        // The grid offers it and the other phones from it, as at an owned desk.
+        expect(actionMenu(world, s, 'jun', 'phone-1').find(e => e.id === 'ring')?.reason).toBeUndefined();
+        const from = act(world, state, ring('phone-1'));
+        expect(npc(from.state, 'clerk').goal.kind).toBe('inspect');
+        const { world: w2, state: s2 } = office([{ id: 'jun', pos: P(3, 2) }], [...PHONES, spare]);
+        const done = act(w2, s2, ring('phone-2'));
+        expect(done.undoable).toBe(false);
+        expect(done.state.npcs.map(n => n.evidence)).toEqual(s2.npcs.map(n => n.evidence));
+        expect(whyNot(w2, done.state, ring('phone-2'))).toMatch(/rung lately/);
+        expect(actionMenu(w2, scouted(w2, s2), 'jun', 'phone-2').some(e => e.id === 'ring' && e.target === 'phone-2')).toBe(true);
+    });
+
     it('brings nobody whose owner is down, and the grid offers it for the phone tapped', () => {
         const { world, state } = office([{ id: 'jun', pos: P(3, 2), items: ['hackingKit'] }]);
         const down = clonePlain(state);

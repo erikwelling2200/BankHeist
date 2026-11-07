@@ -2878,8 +2878,9 @@ Later milestones: within each milestone, the `∥` notes in §3 apply. UI packag
     doesn't exist, a jammer off the grid, and no van (no getaway). `setupProblems` reports it first, so the game sends
     such an address back to planning.
 360. **Desk phones and their owners (M5-04, §8.13).** The generator puts a phone on the desks of the workstations,
-    desk pairs and the manager's desk (the building, which doesn't change with the population, §17.2); `worldFromBank`
-    makes a phone of it only where someone works, its object ids staying in desk order: its owner is someone whose `post` block
+    desk pairs and the manager's desk (the building, which doesn't change with the population, §17.2). Every one is a
+    rules object; one where nobody in this population works rings like any other (final, the same pause) and brings
+    nobody, so the offer to ring a phone says nothing about who works at its desk. An owner is someone whose `post` block
     stands within a tile of it, in its room, staff or a guard (never a customer), paired one owner a phone and one
     phone an owner, nearest first (`src/gen/phones.ts`); they answer it
     from that post (`answerAt`). The CCTV operator's console has no phone (he has the radio and the console), nor have

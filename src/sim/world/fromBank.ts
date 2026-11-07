@@ -312,15 +312,13 @@ export function worldFromBank(bank: GeneratedBank): ReadonlyWorld {
     const phones = objects.filter(o => o.kind === 'deskPhone');
     const posts = people.filter(p => p.observer !== 'civilian')
         .flatMap(p => p.schedule.filter(b => b.activity === 'post' && b.at).map(b => ({ person: p.id, at: { x: b.at!.x, y: b.at!.y } })));
-    // A desk nobody in this population works at keeps its phone as furniture (the building doesn't change with the
-    // population, §17.2), but it is no phone the rules ring.
-    const unowned = new Set<WorldObject>();
+    // A desk nobody in this population works at keeps its phone, which rings like any other and brings nobody (so the
+    // offer to ring it tells nothing about who works where).
     phoneOwners(phones.map(o => o.pos), posts, roomAt).forEach((owned, i) => {
-        if (!owned) { unowned.add(phones[i]!); return; }
+        if (!owned) return;
         phones[i]!.owner = owned.owner;
         phones[i]!.answerAt = owned.at;
     });
-    for (const o of unowned) objects.splice(objects.indexOf(o), 1);
     const cameras: CameraDef[] = bank.cameras.map(c => ({
         id: c.id, pos: { x: c.tx, y: c.ty }, facings: c.pan ? [c.pan[0], c.pan[1]] : [PROP_FACING[c.facing]], room: c.room
     }));
