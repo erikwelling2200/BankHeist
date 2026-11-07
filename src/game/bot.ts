@@ -1,6 +1,6 @@
 import type { GeneratedBank } from '../gen/model';
 import {
-    bitsCount, challengerOf, commit, crewMember, dashRefusal, decodeBits, doorBetween, doorSides, IllegalCommand, knownDoorStatus, markerKind, MOVE_ACTIONS,
+    bitsCount, challengerOf, commit, crewCanUnlatch, crewMember, dashRefusal, decodeBits, doorBetween, doorSides, IllegalCommand, knownDoorStatus, markerKind, MOVE_ACTIONS,
     noisemakerTargets, planMoveOptions, planningState, previewCertain, previewDanger, PreviewRollError, projectPreviewEvents, safeFloor, stepCost, tileAt,
     tileVisibility, type Command, type DeepReadonly, type DoorDef, type DoorStatus, type FloorTile, type Pos, type ReadonlyWorld,
     type SimEvent, type State
@@ -259,12 +259,19 @@ class Bot {
         return cost;
     }
 
-    /** Steps on the crew's picture of the bank with nobody in the way: through closed doors, and locked ones it can work. */
+    /**
+     * Steps on the crew's picture of the bank with nobody in the way: through closed doors, locked ones it can work, and
+     * locked ones it leaves by their exit side (decision 461), which cost nothing extra.
+     */
     private planning(): { step(a: Pos, b: Pos): number | undefined } {
         const { world } = this, me = this.me();
         const picture = { ...planningState(world, this.state), npcs: [] };
         const base = planMoveOptions(world, this.state, me);
-        const options = { ...base, canPassDoor: (door: DeepReadonly<DoorDef>, status: DoorStatus) => !this.dead.has(door.id) && (status === 'closed' || (status === 'locked' && this.workable(door))) };
+        const options = {
+            ...base,
+            canPassDoor: (door: DeepReadonly<DoorDef>, status: DoorStatus, from: DeepReadonly<Pos>) =>
+                !this.dead.has(door.id) && (status === 'closed' || (status === 'locked' && (this.workable(door) || crewCanUnlatch(world, me, door, from))))
+        };
         return {
             step: (a, b) => {
                 const c = stepCost(world, picture, a, b, options);
@@ -272,7 +279,8 @@ class Bot {
                 const door = a.x === b.x || a.y === b.y ? doorBetween(world, a, b) : undefined;
                 if (!door) return c;
                 // A lock to work on costs the turn or two it takes; one it gave up waiting at, the walk round.
-                return c + (knownDoorStatus(world, this.state, door.id) === 'locked' ? LOCK_COST : 0) + ((this.avoid.get(door.id) ?? 0) > this.state.turn ? AVOID_COST : 0);
+                const work = knownDoorStatus(world, this.state, door.id) === 'locked' && !crewCanUnlatch(world, me, door, a);
+                return c + (work ? LOCK_COST : 0) + ((this.avoid.get(door.id) ?? 0) > this.state.turn ? AVOID_COST : 0);
             }
         };
     }
@@ -374,7 +382,8 @@ class Bot {
                 }
             }
             const onWay = beyond === 'hidden' ? arrived : there >= 0 && there < here;
-            if (status === 'locked' && onWay) {
+            // A latched door it leaves by its exit side is walked through (decision 461): no lock to work.
+            if (status === 'locked' && onWay && !crewCanUnlatch(world, me, door, at)) {
                 if (!this.workable(door)) { this.dead.add(door.id); return this.choose(this.field()); }
                 const action = door.lock === 'mechanical' ? 'pick' : 'hack';
                 const cmd: Command = { type: 'door', crew: BOT_CREW, door: door.id, action };
@@ -460,6 +469,8 @@ class Bot {
         for (const door of Object.values(world.doors)) {
             const sides = doorSides(world, door);
             if (!sides || !sides.some(s => s.x === at.x && s.y === at.y) || knownDoorStatus(world, this.state, door.id) !== 'locked' || !this.workable(door)) continue;
+            // Leaving by its exit side, a Move walks through it (decision 461).
+            if (crewCanUnlatch(world, this.me(), door, at)) continue;
             const other = sides.find(s => s.x !== at.x || s.y !== at.y)!;
             if (!tileAt(world, other) || cost(other) < 0 || (here >= 0 && cost(other) >= here)) continue;
             return { type: 'door', crew: BOT_CREW, door: door.id, action: door.lock === 'mechanical' ? 'pick' : 'hack' };

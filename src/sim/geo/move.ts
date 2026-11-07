@@ -44,8 +44,11 @@ registerRuleDefaults({ heavyMoveTiles: 4, dashTiles: 12 });
 export interface MoveOptions {
     /** Who moves (a crew or NPC id): their own tile doesn't count as occupied, and their side decides who they pass. */
     mover?: string;
-    /** Whether the mover may pass a door that is closed or locked, opening it on the way. Default: never. */
-    canPassDoor?: (door: DeepReadonly<DoorDef>, status: DoorStatus) => boolean;
+    /**
+     * Whether the mover may pass a door that is closed or locked, opening it on the way, stepping through it from
+     * `from` (a door's exit side lets a crew member out, geo/egress.ts). Default: never.
+     */
+    canPassDoor?: (door: DeepReadonly<DoorDef>, status: DoorStatus, from: DeepReadonly<Pos>) => boolean;
     /**
      * Whether a plan may go through a door barred by a barricade or the crew's reinforcement (§14.3), which only the
      * police break, announced (rules/routine.ts). Default: never; nobody walks through one.
@@ -112,7 +115,7 @@ function edgeStops(world: ReadonlyWorld, state: State, a: Pos, b: Pos, options: 
     if (!door) return true;
     if (barred(now)) return !options.canBreak?.(door, now);
     const status = doorStatus(world, state, door.id);
-    return status === 'jammed' || !options.canPassDoor?.(door, status);
+    return status === 'jammed' || !options.canPassDoor?.(door, status, a);
 }
 
 const SIDES: Readonly<Record<ClimbSide, Pos>> = { n: FACING_STEP.n, e: FACING_STEP.e, s: FACING_STEP.s, w: FACING_STEP.w };

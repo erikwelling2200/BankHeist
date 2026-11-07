@@ -10,7 +10,7 @@ import type {
     CameraDef, Command, CommandType, CrewState, DeepReadonly, DoorDef, DoorState, DoorStatus, EventType, Facing, Intent, NpcState, NpcStatus, ObserverClass, Pos, ReadonlyWorld, SimEvent, State
 } from '../core/types';
 import { eventClass } from '../core/undo';
-import { crewHasKey, registerMoveHook, registerPlanView } from '../crew/movement';
+import { crewCanUnlatch, registerMoveHook, registerPlanView } from '../crew/movement';
 import type { Profile } from '../data/items';
 import { OUTCOME_RANK, UNIFORMS, type Uniform } from '../data/matrix';
 import type { NoiseKind } from '../data/noise';
@@ -65,7 +65,9 @@ import type { FoundHow } from './opportunities';
  *   a camera's reach, from a hidden tile; either looking through every door the crew can't vouch for as if open, and
  *   across what is unknown on hidden tiles (`knownSight`: only the outline walls round them stop it). There,
  *   at its worst (any class, Alerted, a camera taken as live), it would react to the crew member by the reaction rules
- *   (`unknownWatcher`). Green therefore means nobody, known or not, would do anything about them there.
+ *   (`unknownWatcher`). Green therefore means nobody, known or not, would do anything about them there during this
+ *   crew phase; in the coming world phase only the NPCs the crew knows of count (the corner marker): someone unseen may
+ *   walk into view then, which no tile could rule out off the public floor (decision 460).
  * - **Doors**: the status of each door last seen (a tile beside it in view). Doors move: one with no fresh tile beside
  *   it is pictured as last seen, or plain closed if never seen (`knownDoorStatus`), never as it is. Whether a door locks
  *   is layout, known unless only hidden tiles are beside it. A door the crew can't vouch for (`doorDoubt`: not seen this
@@ -565,15 +567,16 @@ export function doubtStates(world: ReadonlyWorld, state: State, d: DoorDoubt, ke
 }
 
 /**
- * Whether a doubted door could refuse `member` the step from `a` to `b`: one with a lock they hold no key to (whether a
- * door locks is part of the layout), or one with only hidden tiles beside it, whose lock the crew can't know.
+ * Whether a doubted door could refuse `member` the step from `a` to `b`: one with a lock they hold no key to and don't
+ * leave by (whether a door locks, and its exit side, is part of the layout), or one with only hidden tiles beside it,
+ * whose lock the crew can't know.
  */
 export function doorMayRefuse(
     world: ReadonlyWorld, d: DoorDoubt | null, member: DeepReadonly<CrewState>, a: DeepReadonly<Pos>, b: DeepReadonly<Pos>
 ): boolean {
     if (!d || Math.abs(a.x - b.x) + Math.abs(a.y - b.y) !== 1) return false;
     const door = doorBetween(world, { x: a.x, y: a.y }, { x: b.x, y: b.y });
-    if (!door || !d.doors.has(door.id) || crewHasKey(world, member, door)) return false;
+    if (!door || !d.doors.has(door.id) || crewCanUnlatch(world, member, door, a)) return false;
     return door.lock !== 'none' || d.unknownLock.has(door.id);
 }
 

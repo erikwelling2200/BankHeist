@@ -238,6 +238,8 @@ interface Run {
     world: ReadonlyWorld; rng: Rng; omniscient: boolean; label: string; tier: string; probe: Probe; stealth?: boolean; loot?: boolean; vault?: boolean;
     /** Each NPC's intended action as the crew phase of `turn` began (`checkTelegraphs`). */
     shown?: { turn: number; actions: Map<string, string> };
+    /** The probe's counts when this segment began: rare commands are counted from there (`RARE_COMMANDS`). */
+    rareFrom?: Readonly<Record<string, number>>;
 }
 
 const LOOT_COMMANDS = new Set(['takeLoot', 'dropLoot', 'throwLoot', 'pass', 'inspectLoot']);
@@ -455,7 +457,7 @@ function playOne(run: Run, state: State, timing: boolean): State {
     const favoured = run.loot ? LOOT_COMMANDS : run.vault ? VAULT_COMMANDS : undefined;
     const kinds = [...new Set(options.map(c => c.type))], looting = kinds.filter(k => favoured?.has(k));
     // Doors and interactions are offered rarely: take each the first few times it is, so every sample plays them.
-    const rare = RARE_COMMANDS.find(k => kinds.includes(k) && (probe.stats[`command ${k}`] ?? 0) < 5);
+    const rare = RARE_COMMANDS.find(k => kinds.includes(k) && (probe.stats[`command ${k}`] ?? 0) - (run.rareFrom?.[`command ${k}`] ?? 0) < 5);
     const kind = rare ?? (looting.length && rng.chance(0.7) ? rng.pick(looting) : rng.pick(kinds));
     const ofKind = options.filter(c => c.type === kind);
     const toMates = ofKind.filter(c => c.type === 'throwLoot' && state.crew.some(m => m.pos.x === c.to.x && m.pos.y === c.to.y));
@@ -1045,7 +1047,7 @@ function playLoot(probe: Probe, rng: Rng, n: number): void {
  * codes among its moves; jams (more likely here, 40%) are rolled as the crew phase begins, so the world phase's
  * preview stops at their odds.
  */
-function playVault(probe: Probe, rng: Rng, n: number): void {
+function playVault(probe: Probe, rng: Rng, n: number, rareFrom: Readonly<Record<string, number>>): void {
     const map = ['..........', '..........', '..........', '..........', '..........', '..........'];
     const rooms = ['aaaaaavvvv', 'aaaaaavvvv', 'aaaaaavvvv', 'aaaaaavvvv', 'ssssssvvvv', 'ssssssvvvv'];
     const walls: FixtureWall[] = [
@@ -1097,7 +1099,7 @@ function playVault(probe: Probe, rng: Rng, n: number): void {
     if (rng.chance(0.6)) state = commit(world, state, { type: 'command', crew: 'c0' }).state;
     const pcPart = partOf(world, 'manager');
     if (pcPart && rng.chance(0.3)) state = { ...state, codesKnown: [pcPart] };
-    play({ world, rng, omniscient: n % 2 === 0, label: `vault ${n} ${social}`, tier: 'fixture', probe, vault: true }, state, FIXTURE_TURNS + 3, false);
+    play({ world, rng, omniscient: n % 2 === 0, label: `vault ${n} ${social}`, tier: 'fixture', probe, vault: true, rareFrom }, state, FIXTURE_TURNS + 3, false);
 }
 
 /**
@@ -1398,8 +1400,9 @@ describe('previews (property, §8.8)', () => {
         const lrng = new Rng(SEED + 7717);
         for (let n = 0; n < LOOT_RUNS; n++, seeds++) playLoot(probe, lrng, n);
         // Its own stream too.
-        const vrng = new Rng(SEED + 9973);
-        for (let n = 0; n < VAULT_RUNS; n++, seeds++) playVault(probe, vrng, n);
+        // Its rare commands counted from its start, so what the fixtures before it happen to play doesn't steer it.
+        const vrng = new Rng(SEED + 9973), vaultRare = { ...probe.stats };
+        for (let n = 0; n < VAULT_RUNS; n++, seeds++) playVault(probe, vrng, n, vaultRare);
         let combo = 0;
         for (let s = 0; s < BANK_SEEDS; s++) for (const tier of TIERS) for (const archetype of archetypesFor(tier)) {
             if (BANK_SKIP && (combo + s) % BANK_SKIP === BANK_SKIP - 1) {

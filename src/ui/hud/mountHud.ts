@@ -1,4 +1,4 @@
-import { COMMIT_CUES, crewWithActionsLeft, labelFit, liveCarriers, shownActions, statePill, threatIcon, threatTone, TONE_WORDS, trackPercent } from './derive';
+import { COMMIT_CUES, crewWithActionsLeft, SAFE_FLOOR_LEGEND, labelFit, liveCarriers, shownActions, statePill, threatIcon, threatTone, TONE_WORDS, trackPercent } from './derive';
 import { h, img } from './dom';
 import { iconUrl, portraitUrl } from './icons';
 import {
@@ -101,8 +101,8 @@ export function mountHud(root: HTMLElement, callbacks: HudCallbacks, options: Hu
         overlayBtns.set(id, b);
         drawer.append(b);
     }
-    // The safe floor's promise, and its limit (§8.8, §8.15).
-    drawer.append(h('div.sh-legend', { role: 'note' }, 'Safe floor: green counts only the NPCs the crew knows of; a corner triangle is what the next world phase does. Grey: no data. Hatched grey: someone unseen could react to this crew member there.'));
+    // The safe floor's promise, and its limit (§8.8, §8.15, decision 460).
+    drawer.append(h('div.sh-legend', { role: 'note' }, SAFE_FLOOR_LEGEND));
 
     const journal = h('div.sh-sheet.sh-journal', { id: 'sh-journal', role: 'region', 'aria-label': 'Intel journal', 'data-region': 'journal', hidden: true });
     const guidanceBtns = new Map<Guidance, HTMLButtonElement>();

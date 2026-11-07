@@ -480,7 +480,9 @@ not a forced move. When a Clean crew member is seen in the Staff zone by staff o
    marker showing the challenger and an arrow to the nearest Public tile. Nothing else happens yet.
 2. **Next world phase:** the challenger walks toward the crew member (telegraphed path) and keeps watching them.
 3. **Next crew phase, the deadline:** the crew member must **end this crew phase on a Public tile**. They walk out
-   themselves, using their normal actions.
+   themselves, using their normal actions. A staff door that latched behind them is no trap: every locked leaf door
+   opens without its key from its **exit side**, the side away from the Public floor (a thumb-turn, a lever, a push
+   bar), so the way out never needs a lock picked in the challenger's sight. It lets people out, never in.
    - **They comply:** the challenger follows them to the boundary, watches for one more world phase, then returns to
      its routine. The crew member is **Warned** by that NPC for the rest of the heist (an icon over the NPC; it isn't
      suspicion and doesn't make the NPC follow them).
@@ -555,6 +557,11 @@ Rules:
   "Guard: sees Armed".
 - When a crew action changes an NPC's intent (a noise draws a guard), that NPC's arrow is redrawn on the spot and
   every overlay updates.
+- **What green promises about people the crew hasn't seen:** nobody, seen or unseen, reacts to the move itself
+  (hatched grey covers everyone who could be watching now), and nobody the crew knows of reacts in the coming world
+  phase (the corner marker). Someone unseen **walking into view** in that world phase is not counted: off the public
+  floor some unseen corner is always within a walk of every tile, so counting it would hatch every tile and green
+  would say nothing. The overlay drawer's note says so in words instead.
 - **It must use exactly the same rules as the real perception check.** The promise covers every NPC the crew knows
   about (§8.15): a tile shown as safe that gets a crew member spotted by a known NPC is a critical bug. Automated tests should replay large numbers of random moves and
   compare the preview against the outcome.

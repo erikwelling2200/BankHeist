@@ -971,9 +971,20 @@ test('the safe floor: tints as the sim judges them, a drawn path\'s eye, who and
     await page.screenshot({ path: 'screenshots/play-safefloor-cb.png' });
     await page.keyboard.press('b');
 
-    // Draw a path to a red tile: its steps tinted, the eye on the first unsafe step.
-    const target = truth.filter((t: any) => t.band === 'move' && (t.kind === 'red' || t.kind === 'camera'))
-        .sort((a: any, b: any) => b.path.length - a.path.length)[0];
+    // Draw a path to a red tile: its steps tinted, the eye on the first unsafe step. The longest such path whose tiles
+    // all show on the canvas (none under the HUD), so the finger can draw every step of it.
+    const onCanvas = async (path: Pos[]) => {
+        for (const p of path) {
+            const at = await onPage(page, p);
+            if (!await page.evaluate(([x, y]) => document.elementFromPoint(x, y)?.tagName === 'CANVAS', [at.x, at.y])) return false;
+        }
+        return true;
+    };
+    let target: any;
+    for (const t of truth.filter((t: any) => t.band === 'move' && (t.kind === 'red' || t.kind === 'camera')).sort((a: any, b: any) => b.path.length - a.path.length)) {
+        if (await onCanvas(t.path)) { target = t; break; }
+    }
+    expect(target).toBeDefined();
     const from = await onPage(page, setup!.at);
     await page.mouse.move(from.x, from.y);
     await page.mouse.down();

@@ -2,7 +2,7 @@ import { samePos, tileAt } from '../../core/grid';
 import { sortedIds } from '../../core/json';
 import type { CrewState, DeepReadonly, DoorDef, DoorStatus, Pos, ReadonlyWorld, State, Zone } from '../../core/types';
 import { registerEvents } from '../../core/undo';
-import { crewHasKey } from '../../crew/movement';
+import { crewCanUnlatch, crewHasKey } from '../../crew/movement';
 import { doorStatus } from '../../geo/move';
 import { lacksActions, registerAction } from './act';
 import { HACKING_KIT, workActions } from '../alarms';
@@ -14,7 +14,9 @@ import { lockReleased, powerOn } from '../../core/power';
 /*
  * Interacting with doors (§6.3 Interact, 1 action), from a tile beside the door:
  *
- * - **open** a closed door; a locked one only with its key (`crewHasKey`, crew/movement.ts: a keycard taken in a frisk).
+ * - **open** a closed door; a locked one with its key (`crewHasKey`, crew/movement.ts: a keycard taken in a frisk), or
+ *   without one from its exit side, where its hardware lets anyone out (geo/egress.ts, decision 461). A move walks
+ *   through such a door the same way (`crewMoveOptions`).
  * - **close** an open door (a propped one too: the wedge comes out). Breached and jammed doors stay as they are.
  * - **lock** a closed door: with its key, or without one a mechanical lock from its inner side (the side of the higher
  *   zone, Public < Staff < Secure; either side between equals), where a thumb-turn needs none. Keycards, maglocks and
@@ -125,7 +127,7 @@ export function doorActionBlocked(
     switch (action) {
         case 'open':
             if (status === 'open') return 'The door is already open';
-            return status === 'locked' && !crewHasKey(world, member, door) ? 'The door is locked' : undefined;
+            return status === 'locked' && !crewCanUnlatch(world, member, door, at) ? 'The door is locked' : undefined;
         case 'close':
             return status !== 'open' ? 'The door is already shut' : undefined;
         case 'lock':

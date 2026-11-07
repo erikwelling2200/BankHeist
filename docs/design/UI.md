@@ -136,7 +136,9 @@ standing, read by having no fill): Move's solid steel blue, Dash's dashed gold. 
 small dark plate, drawn over the cones and paths; a path's own steps show its verdict instead (their tint, the eye
 plate), its end its own glyph. The tile states are:
 
-- **Safe:** green tint.
+- **Safe:** green tint: nobody, seen or unseen, reacts to the move, nor anyone the crew knows of in the world phase
+  after it. Someone unseen walking in during that world phase isn't counted (GAME_DESIGN §8.8); the overlay drawer's
+  note says so ("someone unseen can still walk in then"), as no tile could show it without hatching them all.
 - **+1 pip** and **+2 pips:** amber tint with that many pips.
 - **Challenge:** amber with a hand.
 - **Exposed:** red with an eye.

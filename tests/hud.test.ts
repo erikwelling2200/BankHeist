@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { crewWithActionsLeft, isAlarming, labelFit, liveCarriers, shownActions, statePill, threatIcon, threatTone, trackPercent } from '../src/ui/hud/derive';
+import { crewWithActionsLeft, isAlarming, SAFE_FLOOR_LEGEND, labelFit, liveCarriers, shownActions, statePill, threatIcon, threatTone, trackPercent } from '../src/ui/hud/derive';
 import { MAX_ACTIONS, type ActionVM, type CrewVM, type ThreatVM } from '../src/ui/hud/viewModels';
 
 const threat = (id: string, countdown: number, kind: ThreatVM['kind'], halted: ThreatVM['halted'] = null): ThreatVM =>
@@ -20,6 +20,12 @@ describe('the stealth HUD view', () => {
         expect(statePill({ bank: { status: 'alarm', label: 'ALARM', nextAlarmIn: null, policeEta: 4 } })).toMatchObject({ tone: 'alarm', text: 'ALARM' });
         expect(statePill({ bank: { status: 'loud', label: 'LOUD', nextAlarmIn: null } })).toMatchObject({ tone: 'loud', text: 'LOUD' });
         expect(statePill({ bank: { status: 'quiet', label: 'QUIET', nextAlarmIn: null, go: true } })).toMatchObject({ tone: 'go', text: 'GO' });
+    });
+
+    it('says where green\'s promise stops: someone unseen can walk in during the world phase (decision 460)', () => {
+        expect(SAFE_FLOOR_LEGEND).toMatch(/nobody reacts this turn, seen or unseen/);
+        expect(SAFE_FLOOR_LEGEND).toMatch(/anyone the crew knows of in the next world phase/);
+        expect(SAFE_FLOOR_LEGEND).toMatch(/someone unseen can still walk in then/);
     });
 
     it('places turns on the schedule track from turn 1 to closing', () => {

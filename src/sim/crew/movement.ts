@@ -7,6 +7,7 @@ import { DASH_ACTIONS, MOVE_ACTIONS } from '../data/movement';
 import {
     ABSENT_STATUSES, dashBudget, doorBetween, doorStatus, inHeavyArmour, moveBudget, occupancy, stepCost, validatePath, type MoveOptions
 } from '../geo/move';
+import { exitSide } from '../geo/egress';
 import { makeNoise } from '../geo/sound';
 import { onFloor } from '../rules/place';
 import { cardOpens } from '../rules/keys';
@@ -215,11 +216,19 @@ export function crewHasKey(world: ReadonlyWorld, member: DeepReadonly<CrewState>
     return member.keycards.some(holder => cardOpens(world, holder, door));
 }
 
-/** The doors a crew member walks through, opening them: closed ones, and locked ones they hold the key to. */
+/**
+ * Whether a crew member may open a locked door stepping through it from `from`: with its key, or from its exit side,
+ * where its hardware lets anyone out (geo/egress.ts, decision 461).
+ */
+export const crewCanUnlatch = (world: ReadonlyWorld, member: DeepReadonly<CrewState>, door: DeepReadonly<DoorDef>, from: DeepReadonly<Pos>): boolean =>
+    crewHasKey(world, member, door) || exitSide(world, door, from);
+
+/** The doors a crew member walks through, opening them: closed ones, and locked ones they hold the key to or leave by (`crewCanUnlatch`). */
 export function crewMoveOptions(world: ReadonlyWorld, member: DeepReadonly<CrewState>): MoveOptions {
     return {
         mover: member.id,
-        canPassDoor: (door: DeepReadonly<DoorDef>, status: DoorStatus) => status === 'closed' || (status === 'locked' && crewHasKey(world, member, door))
+        canPassDoor: (door: DeepReadonly<DoorDef>, status: DoorStatus, from: DeepReadonly<Pos>) =>
+            status === 'closed' || (status === 'locked' && crewCanUnlatch(world, member, door, from))
     };
 }
 
