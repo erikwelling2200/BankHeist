@@ -13,7 +13,7 @@ import { installDebugHandle, MemoryStorage, Session, webStorage, type SaveStorag
 import { bankAddress, playPlan, sameAddress, savedHeist, startHeist, type CampaignTag } from './game/heist';
 import type { Campaign } from './campaign';
 import { bankPrint, loadIntel } from './game/intel';
-import { campaignAct, campaignHeistRefusal, campaignIntel, campaignKeeper, heistUnfinished, loadCampaign, untaggedKeeper } from './game/campaign';
+import { campaignAct, campaignHeistRefusal, campaignIntel, campaignKeeper, dropCampaignHeist, heistUnfinished, loadCampaign, untaggedKeeper } from './game/campaign';
 import { defaultSetup, planOptions, setupFromAddress, type HeistSetup } from './game/plan';
 import { Planner } from './ui/planning/Planner';
 import { askPlayer } from './ui/askPlayer';
@@ -255,6 +255,8 @@ async function preparePlay(params: URLSearchParams): Promise<{ bank: ReturnType<
             const done = campaignAct(storage, { kind: 'heist', bank: bankPrint(planOptions(generated).world) });
             // Refused, or stopped: the heist it abandoned landed the Raid (decision 446). The campaign shows it.
             if ('refused' in done || done.events.some(e => e.type === 'stopped')) {
+                // Stopped, the heist it abandoned is over: it isn't played on from `/`.
+                if (!('refused' in done)) dropCampaignHeist(storage, done.campaign.seed);
                 location.replace(campaignAddress());
                 return new Promise<never>(() => undefined);
             }

@@ -230,6 +230,26 @@ describe('a campaign heist (decision 406: casing is paid in days)', () => {
         expect(storage.get(intelKey(resumed.world))).toBeNull();
     });
 
+    it('a heist abandoned into the Raid is dropped, and sends nothing more to the campaign', () => {
+        const storage = new MemoryStorage();
+        let c = newCampaign(11);
+        for (let i = 0; i < 17; i++) c = commitCampaign(c, { kind: 'layLow' }).campaign;
+        saveCampaign(storage, c);
+        const { session } = campaignHeist(storage);
+        // The next day action abandons it: its +2 lands the Raid and the action stops.
+        const done = campaignAct(storage, { kind: 'layLow' });
+        expect(done).toMatchObject({ campaign: { phase: 'raid', visit: { day: 18, result: 'failure' } } });
+        const before = loadCampaign(storage)!;
+        // Still open in a tab (or resumed from `/`): its next save drops it and the campaign is left as it was.
+        session.commit({ type: 'endTurn' });
+        session.commit({ type: 'endTurn' });
+        expect(storage.get(HEIST_KEY)).toBeNull();
+        expect(loadCampaign(storage)).toEqual(before);
+        // Once dropped by the page (`dropCampaignHeist`) there is nothing to resume.
+        dropCampaignHeist(storage, 11);
+        expect(Session.resume(storage)).toBeNull();
+    });
+
     it('a heist that ended in failure is a failed job, counted once', () => {
         const storage = started();
         const { session, tag } = campaignHeist(storage);

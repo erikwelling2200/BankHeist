@@ -153,7 +153,8 @@ export function campaignIntel(campaign: DeepReadonly<Campaign>, world: ReadonlyW
  * and its end, once, to the campaign (a failure is a failed job, §19.2). Every save from the first counts: the day is
  * spent at the start (decision 441). When the saved campaign is no longer the one it was played for, or its day is
  * over (a day action came after it, perhaps in another tab), the heist is dropped (`'drop'`): it sends nothing and is
- * saved no more. A campaign that can't be read drops nothing.
+ * saved no more, and so once its result is in (it ended, or a day action abandoned it into the Raid). A campaign that
+ * can't be read drops nothing.
  */
 export function campaignKeeper(storage: SaveStorage, tag: CampaignTag): IntelKeeper {
     let kept: string | null = null;
@@ -162,6 +163,8 @@ export function campaignKeeper(storage: SaveStorage, tag: CampaignTag): IntelKee
         if (!campaign) return lastCampaignError === null ? 'drop' : undefined;
         const bank = bankPrint(world);
         if (campaign.seed !== tag.seed || campaign.visit?.day !== tag.day || campaign.visit.bank !== bank) return 'drop';
+        // Its result is in already (it ended, or was abandoned into the Raid): it learns nothing more for the campaign.
+        if (campaign.visit.result) return 'drop';
         const intel = intelOf(world, state), text = stableJson(intel), ended = state.outcome?.result;
         let next = campaign;
         if (text !== kept) next = commitCampaign(next, { kind: 'learn', bank, day: tag.day, intel }).campaign;

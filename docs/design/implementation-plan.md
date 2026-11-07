@@ -3158,7 +3158,8 @@ Later milestones: within each milestone, the `∥` notes in §3 apply. UI packag
     last day spent. A campaign heist's bank entry, tag included, is written before the heist in one write replacing the
     old one, and a campaign heist that can't be tagged doesn't start. Its keeper drops the heist (`'drop'`: the Session
     retires and forgets it) once its campaign day is over, so a tab left open on it after Lay low saves it no more; an
-    untagged heist resumed in the bank of the campaign's unfinished heist keeps nothing on the device (`untaggedKeeper`).
+    untagged heist resumed in the bank of the campaign's unfinished heist keeps nothing on the device (`untaggedKeeper`). A heist whose
+    visit already has its result (ended, or abandoned into the Raid) is dropped too, and a stopped Start drops it at once.
 340. **Validation sees with the rules (M5-01, §17.7).** The checks of what is seen run on the World the game builds from
     the bank (`worldFromBank`) in its state on turn 1 (`initialState`: everyone where they start, the doors as they
     start), through `src/sim/geo`: §8.3's arcs and ranges, darkness halving them, cameras blind on an unlit tile, the
