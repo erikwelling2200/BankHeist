@@ -1,6 +1,6 @@
 import {
     CARRIERS, commandPreview, doorSides, crewLoot, crewLook, DASH_ACTIONS, hasWeaponInHand, heatOf, holdPreview, isKnownNow, knownCarriers, lootOf, markerKind, mayBeDyed, MODE_LABELS, nextWave,
-    fortificationOf, isWindow, opportunitiesOf, policeModeView, POLICE_LABELS, steadyHand, walkingToAlarm, MOVE_ACTIONS, nextDriveBy, type CarrierChanges, type CarrierPreview,
+    crewPicture, fortificationOf, isWindow, opportunitiesOf, policeModeView, tileVisibility, POLICE_LABELS, steadyHand, walkingToAlarm, MOVE_ACTIONS, nextDriveBy, type CarrierChanges, type CarrierPreview,
     type CommandRings, type Command, type FortifyAction, type HoldRing, type OutcomeResult, type RamTarget, type ReadonlyWorld, type SimEvent, type State
 } from '../sim';
 import {
@@ -460,17 +460,26 @@ export function confirmView(
  */
 export function journalView(world: ReadonlyWorld, state: State, guidance: Guidance): JournalVM {
     const full = guidance === 'full';
+    const picture = crewPicture(world, state).npcs;
     const entries = state.opportunitiesFound.flatMap((found): JournalEntryVM[] => {
         const o = opportunitiesOf(world).find(x => x.id === found.id);
         if (!o) return [];
         const until = o.until ?? (o.turn !== undefined ? o.turn + 1 : undefined);
-        const now = !full || o.turn === undefined ? null : state.turn < o.turn ? 'soon' : until !== undefined && state.turn >= until ? 'over' : 'open';
-        const when = now === null ? null
-            : now === 'soon' ? `turn ${o.turn}, in ${o.turn! - state.turn}` : now === 'open' ? `turn ${o.turn}: now, until ${until}` : `turn ${o.turn}: over`;
-        return [{ id: o.id, text: o.text, how: found.how, when, now, pos: full && o.at ? { x: o.at.x, y: o.at.y } : null }];
+        // Called off when the crew knows the one it turns on is down or held (never from what it doesn't know).
+        const who = o.npc !== undefined && markerKind(world, state, o.npc) ? picture.find(n => n.id === o.npc) : undefined;
+        const off = !!who && !ABOUT.has(who.status);
+        const now = !full || o.turn === undefined ? null : off || (until !== undefined && state.turn >= until) ? 'over' : state.turn < o.turn ? 'soon' : 'open';
+        const when = now === null ? null : off ? `turn ${o.turn}: off`
+            : now === 'soon' ? `turn ${o.turn}, in ${o.turn! - state.turn}` : now === 'open' ? `turn ${o.turn}: due now, until ${until}` : `turn ${o.turn}: over`;
+        // Where, only on a tile the crew knows: Show never points into a room it hasn't seen.
+        const pos = full && o.at && tileVisibility(world, state, o.at) !== 'hidden' ? { x: o.at.x, y: o.at.y } : null;
+        return [{ id: o.id, text: o.text, how: found.how, when, now, pos }];
     });
     return { guidance, entries };
 }
+
+/** The statuses of someone still going about their day, as far as a journal entry is concerned. */
+const ABOUT: ReadonlySet<string> = new Set(['calm', 'curious', 'investigating', 'alerted', 'away']);
 
 export function hudView(world: ReadonlyWorld, state: State, ui: UiState, extras: HudExtras = {}): HudViewModel {
     // GO previewed (§9.3, UI.md "GO previewed"): the rail turns gold and shows the crew as GO leaves them, masked with a
@@ -628,6 +637,8 @@ export function describeEvent(world: ReadonlyWorld, state: State, event: SimEven
         case 'lineDead': return 'A call on the landline went nowhere: the line is dead';
         case 'deadLineNoticed': return `Dispatch noticed the dead phone line: a patrol car is coming (turn ${event.driveBy})`;
         case 'opportunityFound': return `${event.crew ? name(event.crew) : 'The crew'} ${event.how === 'overheard' ? 'overheard something' : event.how === 'read' ? 'read something useful' : 'learned something from the intel'}`;
+        case 'overheard': return `${name(event.crew)} overheard some talk`;
+        case 'noteRead': return `${name(event.crew)} read the note: ${event.part ? CODE_PART[event.part] : event.window ? `the time lock takes codes on turns ${event.window.from}–${event.window.until - 1}` : 'nothing'}`;
         case 'documentRead': return `${name(event.crew)} read ${world.objects.find(o => o.id === event.object)?.name?.toLowerCase() ?? 'a document'}`;
         case 'bribed': return `${name(event.crew)} bribed ${name(event.npc)}`;
         case 'doorPropped': return `${name(event.by)} propped ${doorName(world, event.door)} open`;

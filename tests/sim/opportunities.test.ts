@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import {
-    actionPreview, clonePlain, commit, doorStatus, fixtureWorld, freezeWorld, initialState, legalActions, preview, projectPreviewEvents, whyNot, type Command,
+    actionPreview, clonePlain, commit, doorStatus, fixtureWorld, freezeWorld, initialState, preview, projectPreviewEvents, whyNot, type Command,
     type CrewStart, type FixtureWall, type OpportunityDef, type PersonDef, type Pos, type ReadonlyWorld, type SimEvent, type State, type WorldObject
 } from '../../src/sim';
-import { reactionOf } from '../../src/sim/rules/npc/behaviour';
+import { behaviourGoal, reactionOf } from '../../src/sim/rules/npc/behaviour';
 import { actionMenu } from '../../src/game/actions';
 import { describeEvent, journalView } from '../../src/game/views';
 import { scouted, step } from './helpers';
@@ -39,22 +39,41 @@ function act(w: ReadonlyWorld, state: State, cmd: Command) {
     return done;
 }
 
-// A public floor: the teller in debt at her window (4, 1), a clerk at (3, 1); a wall between (6, 1) and (7, 1).
+// A public floor: the teller in debt at her window (4, 1) talking with a clerk at (3, 1); a wall between (6, 1) and
+// (7, 1). Every conversation overheard is about what the talker knows (`overhearChance` 1) unless a test says otherwise.
 const FLOOR = ['........', '........', '........', '........'];
 const BRIBE: OpportunityDef = { id: 'bribe', text: 'Tess, a teller, is in debt.', found: 'eavesdropping', speakers: ['tess'], npc: 'tess', at: P(4, 1) };
-const floor = (opportunities: OpportunityDef[] = [BRIBE]) => world(FLOOR, {
-    zones: FLOOR.map(r => r.replace(/\./g, '.')), rooms: FLOOR.map(r => r.replace(/\./g, '.')),
-    walls: [{ between: [P(6, 1), P(7, 1)] }],
+const floor = (opportunities: OpportunityDef[] = [BRIBE], chance = 1, walls: FixtureWall[] = []) => world(FLOOR, {
+    rules: { overhearChance: chance }, walls: [{ between: [P(6, 1), P(7, 1)] }, ...walls],
     people: [person('tess', 'teller', P(4, 1)), person('clerk', 'clerk', P(3, 1))]
 }, opportunities);
 
-describe('eavesdropping (§17.6)', () => {
-    it('overhears a calm speaker within 2 tiles, in sight, for a whole turn; the journal tells it', () => {
+/** Ends `n` turns, with every event. */
+function turns(w: ReadonlyWorld, state: State, n: number): { state: State; events: SimEvent[] } {
+    let s = state;
+    const events: SimEvent[] = [];
+    for (let i = 0; i < n; i++) {
+        const r = step(w, s, endTurn);
+        events.push(...r.events);
+        s = r.state;
+    }
+    return { state: s, events };
+}
+
+describe('eavesdropping (§17.6, decision 382)', () => {
+    it('overhears a conversation in earshot for a whole turn; never shown by a preview; the journal tells it', () => {
         const w = floor(), state = start(w, [{ id: 'mara', pos: P(4, 3) }]);
         expect(journalView(w, state, 'full').entries).toEqual([]);
-        const done = step(w, state, endTurn);
+        // The first world phase only starts the turn of listening.
+        const one = step(w, state, endTurn);
+        expect(of(one.events, 'overheard')).toEqual([]);
+        expect(one.state.earshot).toEqual(['mara|clerk', 'mara|tess']);
+        const shown = preview(w, one.state, endTurn);
+        expect(projectPreviewEvents(w, one.state, shown).some(e => e.type === 'opportunityFound' || e.type === 'overheard')).toBe(false);
+        const done = step(w, one.state, endTurn);
+        expect(of(done.events, 'overheard')).toEqual([{ type: 'overheard', crew: 'mara' }]);
         expect(of(done.events, 'opportunityFound')).toEqual([{ type: 'opportunityFound', opportunity: 'bribe', crew: 'mara', how: 'overheard' }]);
-        expect(done.state.opportunitiesFound).toEqual([{ id: 'bribe', how: 'overheard', turn: 1 }]);
+        expect(done.state.opportunitiesFound).toEqual([{ id: 'bribe', how: 'overheard', turn: 2 }]);
         expect(describeEvent(w, done.state, of(done.events, 'opportunityFound')[0]!)).toBe('mara overheard something');
         const journal = journalView(w, done.state, 'full');
         expect(journal.entries.map(e => [e.id, e.text, e.how, e.pos])).toEqual([['bribe', BRIBE.text, 'overheard', P(4, 1)]]);
@@ -62,19 +81,29 @@ describe('eavesdropping (§17.6)', () => {
         expect(journalView(w, done.state, 'minimal').entries[0]!.pos).toBeNull();
     });
 
-    it('hears nothing from 3 tiles, through a wall, or from a speaker who isn\'t calm', () => {
+    it('hears the same chatter whether or not there is anything to find, so silence tells nothing', () => {
+        const none = turns(floor([]), start(floor([]), [{ id: 'mara', pos: P(4, 3) }]), 2);
+        const unlucky = turns(floor([BRIBE], 0), start(floor([BRIBE], 0), [{ id: 'mara', pos: P(4, 3) }]), 2);
+        for (const r of [none, unlucky]) {
+            expect(of(r.events, 'overheard')).toEqual([{ type: 'overheard', crew: 'mara' }]);
+            expect(r.state.opportunitiesFound).toEqual([]);
+        }
+        // The same rolls either way: what the talk was about doesn't move the dice.
+        expect(none.state.rng).toEqual(unlucky.state.rng);
+    });
+
+    it('hears nothing from 3 tiles, through a wall or glass, from someone talking to nobody, or from a speaker who isn\'t calm', () => {
         const w = floor();
-        expect(step(w, start(w, [{ id: 'mara', pos: P(1, 3) }]), endTurn).state.opportunitiesFound).toEqual([]);
-        expect(step(w, start(w, [{ id: 'mara', pos: P(7, 3) }]), endTurn).state.opportunitiesFound).toEqual([]);
-        const walled = world(FLOOR, {
-            zones: FLOOR.map(r => r.replace(/\./g, '.')), rooms: FLOOR.map(r => r.replace(/\./g, '.')),
-            walls: [{ between: [P(4, 1), P(4, 2)] }, { between: [P(3, 1), P(3, 2)] }, { between: [P(5, 1), P(5, 2)] }],
-            people: [person('tess', 'teller', P(4, 1))]
-        }, [BRIBE]);
-        expect(step(walled, start(walled, [{ id: 'mara', pos: P(4, 3) }]), endTurn).state.opportunitiesFound).toEqual([]);
+        expect(turns(w, start(w, [{ id: 'mara', pos: P(1, 3) }]), 2).state.opportunitiesFound).toEqual([]);
+        expect(turns(w, start(w, [{ id: 'mara', pos: P(7, 3) }]), 2).state.opportunitiesFound).toEqual([]);
+        const glass = floor([BRIBE], 1, [2, 3, 4, 5].map((x): FixtureWall => ({ between: [P(x, 1), P(x, 2)], material: 'glass' })));
+        expect(turns(glass, start(glass, [{ id: 'mara', pos: P(4, 3) }]), 2).events.some(e => e.type === 'overheard')).toBe(false);
+        const alone = world(FLOOR, { rules: { overhearChance: 1 }, people: [person('tess', 'teller', P(4, 1))] }, [BRIBE]);
+        expect(turns(alone, start(alone, [{ id: 'mara', pos: P(4, 3) }]), 2).events.some(e => e.type === 'overheard')).toBe(false);
         const curious = start(w, [{ id: 'mara', pos: P(4, 3) }]);
         npc(curious, 'tess').status = 'curious';
-        expect(step(w, curious, endTurn).state.opportunitiesFound).toEqual([]);
+        npc(curious, 'clerk').status = 'curious';
+        expect(turns(w, curious, 2).state.opportunitiesFound).toEqual([]);
     });
 });
 
@@ -85,7 +114,6 @@ describe('the bribe (§17.6, §7.2)', () => {
         const w = floor(), state = start(w, [{ id: 'mara', pos: P(4, 2), traits: ['smoothTalker'] }]);
         expect(whyNot(w, state, bribe())).toBe('They won\'t take a bribe');
         expect(whyNot(w, state, bribe('clerk'))).toBe('They won\'t take a bribe');
-        expect(legalActions(w, state, 'mara').some(c => c.type === 'bribe')).toBe(false);
         expect(actionMenu(w, scouted(w, state), 'mara').some(e => e.id === 'bribe')).toBe(false);
         state.opportunitiesFound = [{ id: 'bribe', how: 'overheard', turn: 1 }];
         expect(whyNot(w, state, bribe('clerk'))).toBe('They won\'t take a bribe');
@@ -98,6 +126,13 @@ describe('the bribe (§17.6, §7.2)', () => {
         const done = act(w, state, bribe());
         expect(of(done.events, 'bribed')).toEqual([{ type: 'bribed', crew: 'mara', npc: 'tess' }]);
         expect(npc(done.state, 'tess').bribed).toBe(true);
+        // Cash changing hands is seen as a pickpocket's would be (decision 386): the clerk beside her Exposes Mara.
+        expect(npc(done.state, 'clerk').exposedTo).toContain('mara');
+        expect(npc(done.state, 'tess').exposedTo).toContain('mara');
+        // A lapsed command doesn't send her to the phone either.
+        const lapsed = clonePlain(done.state);
+        npc(lapsed, 'tess').lapse = { kind: 'phone', crew: 'mara' };
+        expect(behaviourGoal(w, lapsed, npc(lapsed, 'tess'))?.kind).not.toBe('phone');
         expect(reactionOf(w, done.state, npc(done.state, 'tess'), want).action).toBeNull();
         expect(whyNot(w, done.state, bribe())).toBe('Bribed already');
     });
@@ -125,6 +160,16 @@ describe('documents (§17.6)', () => {
         const blank = act(w, state, { type: 'interact', crew: 'kim', object: 'blank', verb: 'read' });
         expect(blank.undoable).toBe(false);
         expect(of(blank.events, 'opportunityFound')).toEqual([]);
+    });
+
+    it('under Three Keys tells the time-lock window, as the manager\'s PC does', () => {
+        const windowNote: OpportunityDef = { id: 'sticky-note', text: 'The window.', found: 'documents', document: 'note', window: { from: 10, until: 14 } };
+        const w = world(FLOOR, { zones: FLOOR.map(r => r.replace(/\./g, 's')), objects: DOCS }, [windowNote]);
+        const done = act(w, start(w, [{ id: 'jun', pos: P(1, 2) }]), read('note'));
+        const told = of(done.events, 'noteRead');
+        expect(told).toEqual([{ type: 'noteRead', crew: 'jun', object: 'note', part: null, window: { from: 10, until: 14 } }]);
+        expect(describeEvent(w, done.state, told[0]!)).toBe('jun read the note: the time lock takes codes on turns 10–13');
+        expect(done.state.codesKnown).toEqual([]);
     });
 });
 
@@ -189,6 +234,30 @@ describe('the propped fire door (§17.6)', () => {
         for (let i = 0; i < 4; i++) s = step(w, s, endTurn).state;
         expect([doorStatus(w, s, 'back'), s.doors.back!.propped, s.doors.back!.proppedBy]).toEqual(['open', true, 'op']);
     });
+
+    it('is wedged once a break: shut by the crew, it stays shut', () => {
+        let s = start(w, [{ id: 'jun', pos: P(4, 4) }]);
+        while (!s.doors.back?.propped) s = step(w, s, endTurn).state;
+        // Shut as the crew's Close leaves it (rules/actions/door.ts): the wedge out.
+        s.doors.back = { status: 'closed', wedgedOn: s.doors.back.wedgedOn! };
+        s = step(w, s, endTurn).state;
+        expect([doorStatus(w, s, 'back'), s.doors.back!.propped]).toEqual(['closed', undefined]);
+    });
+
+    it('points the journal only at tiles the crew knows, and calls it off when the crew sees him down', () => {
+        const drawer: OpportunityDef = { id: 'keycard-drawer', text: 'The drawer.', found: 'eavesdropping', turn: 3, until: 6, speakers: ['op'], npc: 'op', at: P(2, 1) };
+        const w2 = freezeWorld({ ...w, opportunities: [...w.opportunities!, drawer] });
+        const s = start(w2, [{ id: 'jun', pos: P(4, 4) }]);
+        s.opportunitiesFound = [{ id: 'smoke-break', how: 'overheard', turn: 1 }, { id: 'keycard-drawer', how: 'intel', turn: 1 }];
+        // Inside is staff floor nobody has seen: no Show into it.
+        expect(journalView(w2, s, 'full').entries.map(e => e.pos)).toEqual([P(2, 4), null]);
+        expect(journalView(w2, scouted(w2, s), 'full').entries.map(e => e.pos)).toEqual([P(2, 4), P(2, 1)]);
+        const down = clonePlain(s);
+        down.turn = 2;
+        npc(down, 'op').status = 'unconscious';
+        npc(down, 'op').pos = P(3, 4);
+        expect(journalView(w2, scouted(w2, down), 'full').entries[0]!.when).toBe('turn 2: off');
+    });
 });
 
 describe('the IT tech\'s card (§17.6)', () => {
@@ -197,10 +266,14 @@ describe('the IT tech\'s card (§17.6)', () => {
         const w = world(rows, {
             zones: rows.map(r => r.replace(/\./g, 'x')), objects: [{ id: 'panel', kind: 'alarmPanel', pos: P(1, 0), facing: 's' }],
             people: [person('tech', 'technician', P(3, 2)), person('clerk', 'clerk', P(0, 2))]
-        }, []);
+        }, [{ id: 'it-tech', text: 'An IT tech visits.', found: 'intel', turn: 5, npc: 'tech' }]);
         const state = start(w, [{ id: 'jun', pos: P(1, 1) }]);
         const disable: Command = { type: 'interact', crew: 'jun', object: 'panel', verb: 'disable' };
         expect(whyNot(w, state, disable)).toBe('jun has no hacking kit');
+        state.crew[0]!.keycards = ['clerk', 'tech'];
+        // Before the crew knows of his visit, his card is any staff card: it tells nothing.
+        expect(whyNot(w, state, disable)).toBe('jun has no hacking kit');
+        state.opportunitiesFound = [{ id: 'it-tech', how: 'intel', turn: 1 }];
         state.crew[0]!.keycards = ['clerk'];
         expect(whyNot(w, state, disable)).toBe('jun has no hacking kit');
         state.crew[0]!.keycards = ['clerk', 'tech'];

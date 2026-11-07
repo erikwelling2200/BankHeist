@@ -273,7 +273,7 @@ export function sampleJournal(guidance: Guidance): JournalVM {
     const full = guidance === 'full';
     const entries: JournalVM['entries'] = [
         { id: 'keycard-drawer', text: 'The manager takes lunch at turn 13 and leaves the keycard in the desk drawer.', how: 'overheard', when: 'turn 13, in 4', now: 'soon', pos: { x: 12, y: 4 } },
-        { id: 'smoke-break', text: 'The operator smokes at the alley door at turn 8 and props the fire door open.', how: 'overheard', when: 'turn 8: now, until 10', now: 'open', pos: { x: 30, y: 14 } },
+        { id: 'smoke-break', text: 'The operator smokes at the alley door at turn 8 and props the fire door open.', how: 'overheard', when: 'turn 8: due now, until 10', now: 'open', pos: { x: 30, y: 14 } },
         { id: 'sticky-note', text: 'A note by a monitor in the staff office has the vault code on it.', how: 'read', when: null, now: null, pos: { x: 18, y: 6 } },
         { id: 'it-tech', text: 'An IT tech visits the server room at turn 6; ambush them for their access card.', how: 'intel', when: 'turn 6: over', now: 'over', pos: { x: 22, y: 3 } }
     ];

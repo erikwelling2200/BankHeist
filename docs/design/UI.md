@@ -278,7 +278,8 @@ The canvas has five pages. Each board shows one decision or one moment.
   playback controls are 1×, 2× and skip.
 - **Intel journal.** Only what the crew has found, never how much is left to find. Full guidance shows each entry's
   window as a chip that says it in words too: amber and dashed while ahead ("turn 13, in 4"), the safe colour and solid
-  while on ("now, until 10"), struck through once over; Show moves the camera to where it plays out. Minimal shows the
+  while on ("due now, until 10"), struck through once over or "off" once the crew sees its NPC down; Show moves the
+  camera to where it plays out, only on a tile the crew knows. Minimal shows the
   text alone, Off the same without the new-entry count or the crew's "Overheard something". The switch sits in the
   sheet's title and is remembered on the device.
 - **Long-press a wall.** The wall's material, and each tool that opens it shown with a tick or a cross.

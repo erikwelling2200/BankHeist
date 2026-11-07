@@ -1,16 +1,17 @@
 import { registerWorldHook, type Ctx } from '../core/engine';
-import { samePos } from '../core/grid';
+import { edgeBetween, edgeKey, samePos, tileAt } from '../core/grid';
 import { registerStateCheck } from '../core/save';
 import { actorRefusal, crewMember, registerNpcInit, registerRuleDefaults, registerStateInit } from '../core/state';
 import type { CrewState, DeepReadonly, NpcState, Pos, ReadonlyWorld, State, WorldObject } from '../core/types';
 import { registerEvents } from '../core/undo';
-import { lineOfSight, sightMap } from '../geo/los';
+import { soundEdgeCost } from '../geo/sound';
 import { doorStatus } from '../geo/move';
 import type { CodePart } from '../../gen/model';
 import { inReach, lacksActions, registerAction } from './actions/act';
 import { registerInteraction } from './actions/interact';
 import { hasTrait } from './alarms';
-import { registerPreviewSecret } from './knowledge';
+import { isEyesDown } from './suspicion';
+import { crewPicture, isKnownNow, registerPreviewSecret } from './knowledge';
 import { activityAt } from './npc/schedule';
 import { isPresent } from './npc/walk';
 
@@ -21,10 +22,13 @@ import { isPresent } from './npc/walk';
  * `journalView`); nothing else of an opportunity reaches the player until it is found.
  *
  * **Finding one** (`opportunityFound`, a preview secret that blocks undo):
- * - **Eavesdropping** (`speakers`): a crew member who stands within `rules.eavesdropRange` (2) tiles of a speaker, with
- *   a line of sight between them, both when a world phase begins and when it ends (a whole turn), while the speaker is
- *   calm and about (talking shop: to a colleague, a customer, on the phone), overhears it. Checked in the world phase,
- *   which is final anyway.
+ * - **Eavesdropping** (`speakers`, decision 382): NPCs talk in **conversations**: a calm NPC on its feet with another
+ *   within `rules.eavesdropRange` (2) tiles, or at its own desk phone. Talk carries only through open air and open
+ *   doors (`earshot`: no wall, no glass, no shut door; sound, not sight). A crew member in earshot of a talker at the
+ *   end of one world phase, as the next begins and as it ends (a whole turn), overhears the conversation: always some
+ *   chatter (`overheard`), whoever talks, and with `rules.overhearChance` (½, rolled for every conversation overheard
+ *   whatever it is about) the first unfound opportunity the talker knows. So a turn of small talk tells nothing about
+ *   what is still to find. Checked in the world phase, which is final anyway.
  * - **Documents** (`document`): `interact … read` at a `document` object (the note by a monitor, the papers on the
  *   manager's desk, the records room's files; 1 action, no illegal act: being there is what the zones judge). Every
  *   document can be read, whether or not it tells anything, and reading is always final (`documentRead`), so neither
@@ -36,16 +40,18 @@ import { isPresent } from './npc/walk';
  * - The keycard in the drawer (rules/actions/keycards.ts): it can be taken only once `keycard-drawer` is found (the
  *   crew doesn't know to look); the card object exists in every bank with a manager's desk, so its refusals are alike.
  * - The propped fire door (`smoke-break`): when the operator, calm, reaches his smoke spot outside the back door, he
- *   wedges it open (`DoorState.propped`, `proppedBy`); it stays open while he is out, even if he never comes back, and
- *   he pulls the wedge as he goes back in. A door an NPC propped can be unpropped unseen, so it stays doubtful
+ *   wedges it open, once a break (`DoorState.propped`, `proppedBy`, `wedgedOn`); it stays open while he is out, even if
+ *   he never comes back, and he pulls the wedge as he walks back in through it. A door an NPC propped can be unpropped unseen, so it stays doubtful
  *   (knowledge.ts `isDoubted`).
- * - The bribe (`bribe { crew, npc }`, 1 action, in reach, a Smooth Talker, §7.2): once `bribe` is found, the teller in
- *   debt, calm and about, takes it and stays off the alarm (`NpcState.bribed`: she watches instead of reacting or
- *   reporting, npc/behaviour.ts). Any other NPC, or her before the bribe is found, refuses alike.
- * - The IT tech's card (rules/alarms.ts): the technician's access card logs into the alarm panel, no hacking kit
- *   needed, at once. A property of the card, not of the opportunity, so holding it tells nothing.
- * - The vault code note (`sticky-note`, `part`): reading it gives the crew the part of the code it holds
- *   (`State.codesKnown`), as the manager's PC does.
+ * - The bribe (`bribe { crew, npc }`, 1 action, in reach, a Smooth Talker, §7.2; decision 386): once `bribe` is found,
+ *   the teller in debt, calm and about, takes it and stays off the alarm (`NpcState.bribed`: she watches instead of
+ *   reacting, reporting or phoning on a lapse, npc/behaviour.ts). Cash changing hands is the illegal act 'pickPocket',
+ *   seen by whoever watches. Any other NPC, or her before the bribe is found, refuses alike.
+ * - The IT tech's card (rules/alarms.ts `serviceCard`): the visiting technician's access card (`it-tech`'s `npc`) logs
+ *   into the alarm panel, no hacking kit needed, at once, once the crew knows of his visit (so holding the card of a
+ *   technician tells nothing about whether one visits).
+ * - The vault code note (`sticky-note`, `part`, `window`): reading it gives the crew the part of the code it holds
+ *   (`State.codesKnown`), or under Three Keys the time-lock window, as the manager's PC does (`noteRead`).
  */
 
 /** How an opportunity is found (§17.6). */
@@ -67,11 +73,15 @@ export interface OpportunityDef {
     document?: string;
     /** Where it plays out (the journal's Full guidance points the camera there). */
     at?: Pos;
-    /** The smoke break: the door the operator props, and the operator. The bribe: who takes it (`npc`). */
+    /**
+     * The smoke break: the door the operator props. `npc`: who it turns on (the operator, the teller in debt, the
+     * manager, the visiting technician, the cash run's teller).
+     */
     door?: string;
     npc?: string;
-    /** The vault code note: the part of the code it holds. */
+    /** The vault code note: the part of the code it holds, or the time-lock window (Three Keys). */
     part?: CodePart;
+    window?: { from: number; until: number };
 }
 
 /** How a crew member found one (the journal's mark). */
@@ -88,6 +98,8 @@ declare module '../core/types' {
     interface State {
         /** The opportunities the crew has found, in the order found (the Intel journal). */
         opportunitiesFound: FoundOpportunity[];
+        /** Who was in earshot of whom as the last world phase ended, as `crew|talker` keys, sorted (decision 382). */
+        earshot: string[];
     }
     interface NpcState {
         /** Took a bribe (§17.6): stays off the alarm. */
@@ -98,8 +110,14 @@ declare module '../core/types' {
         read?: boolean;
     }
     interface Rules {
-        /** How near a speaker a crew member overhears them (§17.6: 2 tiles). */
+        /** How near a talker a crew member overhears them, and how near two NPCs talk (§17.6: 2 tiles). */
         eavesdropRange: number;
+        /** The chance a conversation overheard for a turn is about something the talker knows (decision 382). */
+        overhearChance: number;
+    }
+    interface DoorState {
+        /** The turn of the smoke break on which the operator wedged it (he wedges it once a break). */
+        wedgedOn?: number;
     }
     interface CommandMap {
         /** Bribe the NPC `npc` in reach (1 action, a Smooth Talker, §7.2, §17.6). */
@@ -108,8 +126,12 @@ declare module '../core/types' {
     interface EventMap {
         /** The crew found an opportunity (§17.6). A preview never shows it. */
         opportunityFound: { opportunity: string; crew: string | null; how: FoundHow };
+        /** A crew member overheard a conversation for a turn (whatever it was about). */
+        overheard: { crew: string };
         /** A crew member read a document (whatever it told). */
         documentRead: { crew: string; object: string };
+        /** The vault code note told the crew its part of the code, or the time-lock window. A preview never shows it. */
+        noteRead: { crew: string; object: string; part: CodePart | null; window: { from: number; until: number } | null };
         /** An NPC took a crew member's bribe. */
         bribed: { crew: string; npc: string };
         /** An NPC wedged a door open. */
@@ -117,17 +139,18 @@ declare module '../core/types' {
     }
 }
 
-registerRuleDefaults({ eavesdropRange: 2 });
+registerRuleDefaults({ eavesdropRange: 2, overhearChance: 0.5 });
 
 registerStateInit('opportunities', (_world, state) => {
     state.opportunitiesFound = [];
+    state.earshot = [];
 });
 
 registerNpcInit('opportunities', (_world, _person, npc) => {
     npc.bribed = false;
 });
 
-registerStateCheck('opportunitiesFound', state => (Array.isArray(state.opportunitiesFound) ? undefined : 'no opportunities found (a save from before M5-02)'));
+registerStateCheck('opportunitiesFound', state => (Array.isArray(state.opportunitiesFound) && Array.isArray(state.earshot) ? undefined : 'no opportunities found (a save from before M5-02)'));
 
 /** The bank's opportunities. */
 export const opportunitiesOf = (world: ReadonlyWorld): readonly DeepReadonly<OpportunityDef>[] => world.opportunities ?? [];
@@ -144,24 +167,61 @@ function learn(ctx: Ctx, opportunity: DeepReadonly<OpportunityDef>, crew: string
 
 // ---------------------------------------------------------------------------------------------------------- Eavesdropping
 
-/** A speaker talks while calm and about, on their feet (see the header). */
-const talking = (npc: DeepReadonly<NpcState>): boolean => npc.status === 'calm' && isPresent(npc);
+/** An NPC talks while calm and on its feet, not under the crew's control. */
+const canTalk = (npc: DeepReadonly<NpcState>): boolean => npc.status === 'calm' && isPresent(npc) && !isEyesDown(npc);
 
-/** Who could overhear whom now, as `crew|opportunity|speaker` keys. */
-function inEarshot(world: ReadonlyWorld, state: State): Set<string> {
-    const out = new Set<string>(), range = world.rules.eavesdropRange;
-    const open = opportunitiesOf(world).filter(o => o.speakers?.length && !opportunityFound(state, o.id));
-    if (!open.length) return out;
-    const sight = sightMap(world, state);
-    for (const o of open) {
-        for (const id of o.speakers!) {
-            const npc = state.npcs.find(n => n.id === id);
-            if (!npc || !talking(npc)) continue;
-            for (const c of state.crew) {
-                if (actorRefusal(c) || Math.max(Math.abs(c.pos.x - npc.pos.x), Math.abs(c.pos.y - npc.pos.y)) > range) continue;
-                if (lineOfSight(sight, c.pos, npc.pos)) out.add(`${c.id}|${o.id}|${id}`);
+/**
+ * The tiles talk at `from` reaches (see the header): within `rules.eavesdropRange` steps (a diagonal one where either
+ * way round the corner is open), through open air and open doors only: an edge sound crosses for free, not glass.
+ */
+function earshot(world: ReadonlyWorld, state: State, from: Pos): Set<string> {
+    const key = (p: Pos) => `${p.x},${p.y}`;
+    const open = (a: Pos, b: Pos): boolean => {
+        if (!tileAt(world, b)) return false;
+        const edge = edgeKey(edgeBetween(a, b)), built = world.edges[edge];
+        const changed = Object.hasOwn(state.edges, edge) ? state.edges[edge] : undefined;
+        if (built && !built.door && (changed?.material ?? built.material) === 'glass' && !changed?.shattered) return false;
+        return soundEdgeCost(world, state, edge) === 0;
+    };
+    const seen = new Set([key(from)]);
+    let ring: Pos[] = [from];
+    for (let step = 0; step < world.rules.eavesdropRange; step++) {
+        const next: Pos[] = [];
+        for (const p of ring) {
+            for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [1, -1], [-1, 1], [-1, -1]] as const) {
+                const q = { x: p.x + dx, y: p.y + dy };
+                if (seen.has(key(q))) continue;
+                const reaches = dx && dy
+                    ? [{ x: q.x, y: p.y }, { x: p.x, y: q.y }].some(c => open(p, c) && open(c, q))
+                    : open(p, q);
+                if (!reaches) continue;
+                seen.add(key(q));
+                next.push(q);
             }
         }
+        ring = next;
+    }
+    return seen;
+}
+
+/** Who is talking now: NPCs in a conversation (another NPC talking in earshot, or at their own desk phone). */
+function talkers(world: ReadonlyWorld, state: State): Map<string, Set<string>> {
+    const out = new Map<string, Set<string>>(), able = state.npcs.filter(canTalk);
+    const ears = new Map(able.map(n => [n.id, earshot(world, state, n.pos)]));
+    for (const n of able) {
+        const ear = ears.get(n.id)!;
+        const partner = able.some(m => m.id !== n.id && ear.has(`${m.pos.x},${m.pos.y}`));
+        const onPhone = world.objects.some(o => o.kind === 'deskPhone' && o.owner === n.id && inReach(world, state, n.pos, o.pos));
+        if (partner || onPhone) out.set(n.id, ear);
+    }
+    return out;
+}
+
+/** Who is in earshot of whom now, as `crew|talker` keys. */
+function inEarshot(world: ReadonlyWorld, state: State): Set<string> {
+    const out = new Set<string>();
+    for (const [talker, ear] of talkers(world, state)) {
+        for (const c of state.crew) if (!actorRefusal(c) && ear.has(`${c.pos.x},${c.pos.y}`)) out.add(`${c.id}|${talker}`);
     }
     return out;
 }
@@ -173,19 +233,25 @@ registerWorldHook('fuses', 'opportunities.listen', ctx => {
     EARSHOT.set(ctx, inEarshot(ctx.world, ctx.state));
 }, { order: -100 });
 
-// After everyone has acted and the doors have swung shut: still in earshot of the same speaker, a whole turn on.
+// After everyone has acted and the doors have swung shut: in earshot of the same talker since the last world phase
+// ended, as this one began and as it ends. Every conversation overheard rolls, whatever it is about.
 registerWorldHook('devices', 'opportunities.overhear', ctx => {
-    const before = EARSHOT.get(ctx);
+    const { world, state } = ctx;
+    const before = EARSHOT.get(ctx) ?? new Set<string>(), last = new Set(state.earshot);
     EARSHOT.delete(ctx);
-    if (!before?.size) return;
-    const now = inEarshot(ctx.world, ctx.state);
-    for (const o of opportunitiesOf(ctx.world)) {
-        for (const c of ctx.state.crew) {
-            if (o.speakers?.some(s => before.has(`${c.id}|${o.id}|${s}`) && now.has(`${c.id}|${o.id}|${s}`))) {
-                learn(ctx, o, c.id, 'overheard');
-                break;
-            }
+    const now = inEarshot(world, state);
+    state.earshot = [...now].sort();
+    const heard = [...now].filter(k => before.has(k) && last.has(k)).sort();
+    const told = new Set<string>();
+    for (const k of heard) {
+        const [crew, talker] = k.split('|') as [string, string];
+        if (!told.has(crew)) {
+            told.add(crew);
+            ctx.emit({ type: 'overheard', crew });
         }
+        const topic = ctx.dice.odds('talk', world.rules.overhearChance, `talk ${talker}`);
+        const o = topic ? opportunitiesOf(world).find(x => x.speakers?.includes(talker) && !opportunityFound(state, x.id)) : undefined;
+        if (o) learn(ctx, o, crew, 'overheard');
     }
 }, { order: 900 });
 
@@ -205,8 +271,11 @@ registerInteraction('document', {
             for (const o of opportunitiesOf(ctx.world)) {
                 if (o.document !== object.id) continue;
                 learn(ctx, o, member.id, 'read');
-                // The vault code note (§17.6): the part of the code written on it.
+                // The vault code note (§17.6): the part of the code written on it, or the time-lock window.
                 if (o.part && !ctx.state.codesKnown.includes(o.part)) ctx.state.codesKnown = [...ctx.state.codesKnown, o.part].sort();
+                if (o.part || o.window) {
+                    ctx.emit({ type: 'noteRead', crew: member.id, object: object.id, part: o.part ?? null, window: o.window ? { from: o.window.from, until: o.window.until } : null });
+                }
             }
         }
     }
@@ -250,6 +319,9 @@ registerAction('bribe', {
         return npc && hasTrait(member, 'smoothTalker') ? [{ type: 'bribe', crew: member.id, npc }] : [];
     },
     cost: () => 1,
+    // Cash changing hands, as a pickpocket's (decision 386): anyone who sees it Exposes the crew member; she, bribed by
+    // then, only watches.
+    illegal: (_world, state, cmd) => ({ act: 'pickPocket', tiles: [crewMember(state, cmd.crew).pos, state.npcs.find(n => n.id === cmd.npc)!.pos].map(p => ({ x: p.x, y: p.y })) }),
     run(ctx, member, cmd) {
         ctx.state.npcs.find(n => n.id === cmd.npc)!.bribed = true;
         ctx.emit({ type: 'bribed', crew: member.id, npc: cmd.npc });
@@ -270,10 +342,12 @@ registerWorldHook('devices', 'opportunities.fireDoor', ctx => {
         if (door.status === 'breached' || door.status === 'jammed') continue;
         const block = activityAt(world, npc.id, state.turn)?.block, calm = npc.status === 'calm' && isPresent(npc);
         const out = block?.activity === 'smokeBreak' && !!block.at && samePos(npc.pos, block.at);
-        if (calm && out && !door.propped) {
-            state.doors[o.door] = { ...door, status: 'open', propped: true, proppedBy: npc.id };
+        // Once a break: a door the crew shut again stays shut.
+        if (calm && out && !door.propped && door.wedgedOn !== block!.from) {
+            state.doors[o.door] = { ...door, status: 'open', propped: true, proppedBy: npc.id, wedgedOn: block!.from };
             ctx.emit({ type: 'doorPropped', door: o.door, by: npc.id });
-        } else if (calm && block?.activity !== 'smokeBreak' && door.proppedBy === npc.id) {
+        } else if (calm && block?.activity !== 'smokeBreak' && door.proppedBy === npc.id && o.at && tileAt(world, npc.pos)?.room !== tileAt(world, o.at)?.room) {
+            // Back through the door, he pulls the wedge.
             const next = { ...door };
             delete next.propped;
             delete next.proppedBy;
@@ -290,11 +364,17 @@ registerEvents({
     documentRead: { undoBlocking: true },
     // It changes the NPC, which no undo takes back (core/engine.ts).
     bribed: { undoBlocking: true },
-    doorPropped: { undoBlocking: true }
+    doorPropped: { undoBlocking: true },
+    overheard: { undoBlocking: true },
+    noteRead: { undoBlocking: true }
 });
+registerPreviewSecret('noteRead');
+registerPreviewSecret('overheard');
 
-/** The crew member's bribe offer, for the grid: the command when the crew knows who takes one. */
+/** The crew member's bribe offer, for the grid: when the crew knows who takes one and sees her in reach now. */
 export function bribeFor(world: ReadonlyWorld, state: State, member: DeepReadonly<CrewState>): { type: 'bribe'; crew: string; npc: string } | undefined {
-    const npc = state.npcs.find(n => n.id === bribeTaker(world, state));
-    return npc && hasTrait(member, 'smoothTalker') && inReach(world, state, member.pos, npc.pos) ? { type: 'bribe', crew: member.id, npc: npc.id } : undefined;
+    const id = bribeTaker(world, state);
+    if (!id || !hasTrait(member, 'smoothTalker') || !isKnownNow(world, state, id)) return undefined;
+    const npc = crewPicture(world, state).npcs.find(n => n.id === id);
+    return npc && isPresent(npc) && inReach(world, state, member.pos, npc.pos) ? { type: 'bribe', crew: member.id, npc: id } : undefined;
 }

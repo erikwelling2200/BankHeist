@@ -256,7 +256,8 @@ export function behaviourGoal(world: ReadonlyWorld, state: State, npc: DeepReado
     // A lapsed command's intent (§10.5) comes before anything it wants: it was rolled and shown.
     if (npc.lapse?.kind === 'flee') return { kind: 'flee', tile: { x: npc.lapse.exit.x, y: npc.lapse.exit.y } };
     if (npc.lapse?.kind === 'reach') return { kind: 'reach', crew: npc.lapse.crew };
-    if (npc.lapse?.kind === 'phone') return { kind: 'phone', crew: npc.lapse.crew };
+    // A bribed NPC (rules/opportunities.ts) doesn't phone it in, a lapse or not.
+    if (npc.lapse?.kind === 'phone' && !npc.bribed) return { kind: 'phone', crew: npc.lapse.crew };
     // Panic (§10.8) comes before anything it wants: frozen, then what it picked, shown as it was picked.
     if (npc.panic) return panicGoal(state, npc);
     const top = topWant(npc);

@@ -29,13 +29,17 @@ declare module '../../core/types' {
     interface WorldObject {
         /** A keycard lying somewhere: whose it is. */
         holder?: string;
-        /** A keycard lying somewhere: the turn it is put there, and the turn its holder takes it back. */
+        /** A keycard lying somewhere: the turn it is put there (absent: never), and the turn its holder takes it back. */
         from?: number;
         until?: number;
     }
 }
 
-/** Why the keycard object can't be taken now, or undefined. */
+/**
+ * Why the keycard object can't be taken now, or undefined. A card without `from` is never put down (M5-02: the object
+ * stands in every bank with the manager's desk, its window only when he leaves it); one without `until` stays until
+ * taken. Every reason but a taken card reads the same, so a refusal tells nothing.
+ */
 export function keycardBlocked(state: DeepReadonly<State>, object: DeepReadonly<WorldObject>): string | undefined {
     const taken = Object.hasOwn(state.objects, object.id) ? state.objects[object.id]!.taken : undefined;
     if (taken !== undefined) return 'The keycard is gone';

@@ -153,7 +153,7 @@ test.describe('the stealth HUD on a phone', () => {
         await expect(journal).toBeVisible();
         await expect(journal.locator('.sh-jrow')).toHaveCount(4);
         // Full: when each plays out, in words and colour, and Show buttons that move the camera there.
-        await expect(journal.locator('.sh-jwhen')).toHaveText(['turn 13, in 4', 'turn 8: now, until 10', 'turn 6: over']);
+        await expect(journal.locator('.sh-jwhen')).toHaveText(['turn 13, in 4', 'turn 8: due now, until 10', 'turn 6: over']);
         await expect(journal.locator('[data-guidance="full"]')).toHaveAttribute('aria-checked', 'true');
         await journal.locator('.sh-jshow').first().click();
         await journal.locator('[data-guidance="minimal"]').click();

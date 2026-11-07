@@ -78,7 +78,7 @@ describe('saving', () => {
  * NpcStatusMap, CarrierKindMap or adds a field must also fill it in below, or a change of shape goes unnoticed.
  */
 const SHAPE_HASHES: Record<number, string> = {
-    1: '418d9802f81981b7'
+    1: '15cec6b111e4f5de'
 };
 
 /** Paths whose objects are records by id, not structs. */
@@ -183,12 +183,13 @@ describe('the save format', () => {
         full.debris = [{ x: 1, y: 1 }];
         full.ammoBags = [{ id: 'ammoBag-8', at: { x: 1, y: 1 }, uses: 3, by: 'jun' }];
         full.crew[0]!.charges = { shapedCharge: 1 };
-        full.doors.staffDoor = { status: 'open', propped: true, proppedBy: 'guard', work: 1 };
+        full.doors.staffDoor = { status: 'open', propped: true, proppedBy: 'guard', wedgedOn: 2, work: 1 };
         full.objects.panel = { disabled: true, open: false, progress: 2, codes: ['manager'], sensorsCut: true, cutAt: 3, lineNoticed: true, rungAt: 2, read: true };
         full.devices = [{ id: 'drill-4', kind: 'drill', at: 'vault', pos: { x: 1, y: 1 }, crew: 'jun', done: 2, needed: 5, jammed: true, noise: 6 }];
         full.codesKnown = ['whole'];
         full.intelFound = ['cash'];
         full.opportunitiesFound = [{ id: 'bribe', how: 'overheard', turn: 2 }];
+        full.earshot = ['jun|guard'];
         full.npcs[0]!.bribed = true;
         full.objects.recorder = { taken: 'jun', destroyed: false };
         full.cameras.cam = { facing: 0, live: true, loopedUntil: 3 };
@@ -252,7 +253,7 @@ describe('the save format', () => {
                 building: ['lobby'],
                 opportunities: [{
                     id: 'smoke-break', text: 'smoke', found: 'eavesdropping', turn: 3, until: 5, speakers: ['guard'], document: 'paper', at: { x: 0, y: 0 },
-                    door: 'staffDoor', npc: 'guard', part: 'whole'
+                    door: 'staffDoor', npc: 'guard', part: 'whole', window: { from: 3, until: 5 }
                 }],
                 routes: [{ id: 'route-0', kind: 'roof', name: 'Roof route', outside: { x: 0, y: 2 }, inside: { x: 1, y: 1 }, transit: 2 }],
                 locks: [{

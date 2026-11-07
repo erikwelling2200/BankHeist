@@ -410,15 +410,30 @@ function bankOpportunities(
         const home = o.found !== 'documents' ? undefined : o.id === 'sticky-note' ? note : o.id === 'records' ? records ?? papers : papers ?? records;
         if (home) def.document = home.id;
         if (o.id === 'keycard-drawer' || o.id === 'manager-pc') Object.assign(def, at(papers?.pos));
+        if (o.id === 'keycard-drawer') {
+            const manager = people.find(p => p.role === 'manager');
+            if (manager) def.npc = manager.id;
+        }
         if (o.id === 'sticky-note') {
             Object.assign(def, at(note?.pos));
-            // What the note holds, by how the vault opens (§15.2): the code, or the head teller's half of it.
+            // What the note holds, by how the vault opens (§15.2): the code, the head teller's half of it, or the time-lock
+            // window; its text says what it gives (dual control without a head teller has one whole code).
             const vault = locks.find(l => l.id === 'vault');
             if (vault?.social.kind === 'code') def.part = vault.social.parts.length > 1 ? 'headTeller' : 'whole';
+            else if (vault?.timeLock) def.window = { from: vault.timeLock.from, until: vault.timeLock.until };
+            const holds = def.part === 'headTeller' ? "the head teller's half of the vault code" : def.part === 'whole' ? 'the vault code'
+                : def.window ? `the time-lock window written out (turns ${def.window.from}–${def.window.until - 1})` : undefined;
+            if (holds) def.text = def.text.replace(/ has .* on it\.$/, ` has ${holds} on it.`);
         }
         if (o.id === 'records') Object.assign(def, at(records?.pos));
-        if (o.id === 'it-tech') Object.assign(def, at(block('technician', 'serviceVisit')?.b.at));
-        if (o.id === 'cash-cart') Object.assign(def, at(people.find(p => p.schedule.some(b => b.activity === 'cashRun'))?.schedule.find(b => b.activity === 'cashRun')?.at));
+        if (o.id === 'it-tech') {
+            const visit = block('technician', 'serviceVisit');
+            if (visit) Object.assign(def, { npc: visit.person.id }, at(visit.b.at));
+        }
+        if (o.id === 'cash-cart') {
+            const runner = people.find(p => p.schedule.some(b => b.activity === 'cashRun'));
+            if (runner) Object.assign(def, { npc: runner.id }, at(runner.schedule.find(b => b.activity === 'cashRun')?.at));
+        }
         if (o.id === 'bribe') {
             const taker = bank.people.find(p => p.traits.bribable);
             if (taker) {

@@ -1597,12 +1597,14 @@ M2 is complete: every package below has landed.
     `OpportunityDef` (`World.opportunities`: its speakers, its document, where and when it plays out, what it wires
     in) and three `document` objects (the note by a monitor, the manager's papers, the records); the drawer keycard
     object is in every bank with a manager's desk. Found ones are `State.opportunitiesFound` (in order, with how and
-    when). Found by **eavesdropping** (a calm speaker within 2 tiles and in sight at both ends of a world phase), by
+    when). Found by **eavesdropping** (a conversation in earshot for a whole turn: always chatter, the topic by
+    chance), by
     **reading** a document (`interact … read`, always final), or by the **intel** box (the intel ones, and those
     nothing else in the bank would tell). Wired in: the drawer keycard only once `keycard-drawer` is found; the
     operator props the back door on his smoke break (`DoorState.proppedBy`; doubtful to the crew's picture); the
-    `bribe` command (Smooth Talker, the teller in debt stays off the alarm); the IT technician's card logs into the
-    alarm panel without a kit, at once; the vault code note gives its part of the code. The grid offers Read and Bribe.
+    `bribe` command (Smooth Talker, seen as a pickpocket's act; the teller in debt stays off the alarm); the visiting IT
+    technician's card logs into the alarm panel without a kit, at once, once his visit is known; the vault code note
+    gives its part of the code or the time-lock window. The grid offers Read and Bribe.
     The **Intel journal** (src/ui/hud/, `journalView` in src/game/views.ts) beside the ledger in the top strip (J):
     found entries only, marked overheard, read or intel; Full adds when (amber ahead, the safe colour while on, struck
     through once over) and a Show button, Minimal the text alone, Off also no new-entry badge or bark; remembered on
@@ -1610,13 +1612,13 @@ M2 is complete: every package below has landed.
   - **Tests:** `tests/sim/opportunities.test.ts`, the M5-02 case in `tests/sim/fromBank.test.ts`, the drawer case in
     `tests/sim/phones.test.ts`; e2e: the journal in `e2e/hud.spec.ts` (and every sample's layout) and
     `e2e/play.spec.ts`. No generator change: the banks and visual baselines are as before. Save shape hash
-    `418d9802f81981b7`.
+    `15cec6b111e4f5de`.
   - **Deferred:** intel bought or shown on the planning screen (M5-03); a conversation between two people with its
-    own bark, and map pins for Full guidance (Show moves the camera); the bribe's price (M6's money); a bribed
-    teller's lapsed command still phoning; the text-only opportunities stay text (cash cart, café wall, vent,
+    own bark (talk is two NPCs in earshot or a phone call, no scheduled talk blocks), and map pins for Full guidance
+    (Show moves the camera); the bribe's price (M6's money); the text-only opportunities stay text (cash cart, café
+    wall, vent,
     scaffolding, records, cleaner's keys, check-ins, manager's PC: their mechanics are the map's or other packages');
-    the note's text under dual control without a head teller (the generator says "half", the rules give the whole
-    code); the guidance toggle on a settings screen (§19.9; it lives in the journal).
+    the guidance toggle on a settings screen (§19.9; it lives in the journal).
 - [ ] **M5-03 Knowledge across days.**
   - **Covers:** §17.8.
   - **Work:** the Blueprints and Guard rota assets; casing persisting between days; intel shown on the planning screen.
@@ -2957,34 +2959,46 @@ Later milestones: within each milestone, the `∥` notes in §3 apply. UI packag
     no illegal act: the zone judges being there), whether or not it tells anything, and reading is always final
     (`documentRead`), so neither the offer, the refusal ("Read already") nor an undo tells what it held. The grid has
     its own Read entry, so a document never hides behind the desk it lies on.
-382. **Eavesdropping (M5-02).** A speaker (by role: the manager for the drawer, the operator for his smoke, the teller
-    in debt, the cleaners, the lobby guards; anyone on the staff where no one fits) talks while calm and about. A crew
-    member able to act, within `rules.eavesdropRange` (2, Chebyshev) of them with a line of sight, both as a world
-    phase begins and as it ends, overhears it: "standing within 2 tiles for 1 turn". Checked in the world phase. Hearing
-    nothing from someone tells only that they said nothing useful while the crew listened: knowledge earned, as
-    any casing is.
+382. **Eavesdropping (M5-02; review).** NPCs talk in conversations: a calm NPC on its feet, not under the crew's
+    control, with another such NPC in earshot, or at its own desk phone (the manager on the line). Talk reaches
+    `rules.eavesdropRange` (2) steps (a diagonal where either way round the corner is open) through open air and open
+    doors only: no wall, no glass, no shut door (sound, not sight). A crew member able to act who is in earshot of the
+    same talker as one world phase ends, as the next begins and as it ends (a whole turn) overhears the conversation:
+    always some chatter (`overheard`, whoever talks, opportunity or not), and with `rules.overhearChance` (½) the first
+    unfound opportunity that talker knows. The roll is made for every conversation overheard, whatever it is about, so
+    neither the chatter, the dice nor a turn of silence tells whether there is anything to find (the first version let
+    any calm speaker talk alone and always tell: one turn beside the manager proved the drawer wasn't rolled). Both
+    `overheard` and `opportunityFound` are preview secrets.
 383. **What the intel tells (M5-02, §17.4).** The intel box tells every opportunity found by intel, and any this bank
     gives no other way to find (no speaker in its population, no document).
 384. **The drawer keycard needs the opportunity (M5-02).** The crew doesn't know to look until `keycard-drawer` is
     found; until then the grid has no entry and a take is refused as if there were no card. The card object is in
     every bank with a manager and his desk (`from`/`until` only when he leaves it), so a refusal by id tells nothing
     either.
-385. **The propped fire door (M5-02).** On his smoke break, calm and at his spot outside the back door (the door whose
-    edge touches it), the operator wedges it open (`propped`, `proppedBy`, `doorPropped`); it stays open while he is
-    out, and if he never comes back in; calm and off his break, he pulls the wedge and it swings shut and locks as
-    doors do. A door an NPC propped is still doubtful to the crew (knowledge.ts `isDoubted`): he may pull it unseen.
-386. **The bribe (M5-02, §7.2).** `bribe { crew, npc }`, 1 action, in reach, a Smooth Talker, once `bribe` is found, on
-    the teller in debt while she is calm. She stays off the alarm: her reaction to anyone she Exposes is to watch, and
-    she reports no evidence (npc/behaviour.ts); she still sees and others still react. Anyone else, or her before the
-    find, is refused with the same words. It changes an NPC, so it is final.
-387. **The IT technician's card (M5-02).** A crew member holding the technician's card (a frisk takes it, decision 60)
-    disables the alarm panel without a hacking kit, in one action. A property of the card, not of the opportunity, so
-    holding the card tells nothing about the visit. Widening the key graph instead (his card on the CCTV door) would
-    have changed which doors NPCs walk through, and the banks with them.
-388. **The vault code note and guidance (M5-02).** Reading the `sticky-note` gives its part of the code
-    (`State.codesKnown`: the whole code, or the head teller's half under dual control; nothing under Three Keys,
-    whose note is the time-lock window). Guidance is the player's, not the rules': Full (when, where, Show), Minimal
-    (text) or Off (text, no badge, no bark), kept in `localStorage`, Full by default (§22's first banks).
+385. **The propped fire door (M5-02; review).** On his smoke break, calm and at his spot outside the back door (the
+    door whose edge touches it), the operator wedges it open (`propped`, `proppedBy`, `doorPropped`) once a break
+    (`wedgedOn`: a door the crew shuts again stays shut); it stays open while he is out, and if he never comes back in.
+    He pulls the wedge as he walks back through it (calm, off his break, on the inside); it then swings shut and locks
+    as doors do. A door an NPC propped is still doubtful to the crew (knowledge.ts `isDoubted`).
+386. **The bribe (M5-02, §7.2; review).** `bribe { crew, npc }`, 1 action, in reach, a Smooth Talker, once `bribe` is
+    found, on the teller in debt while she is calm. Cash changing hands is the illegal act 'pickPocket' (seen on both
+    tiles): anyone who sees it Exposes the crew member, so it is done out of others' sight. She stays off the alarm:
+    her reaction to anyone she Exposes is to watch, she reports no evidence, and a lapsed command doesn't send her to
+    the phone (npc/behaviour.ts); others still react. Anyone else, or her before the find, is refused with the same
+    words. The grid offers it only for her as the crew knows her (seen or predicted, on her feet, in reach). It changes
+    an NPC, so it is final.
+387. **The IT technician's card (M5-02; review).** The visiting technician's card (`it-tech`'s `npc`; a frisk takes it,
+    decision 60) disables the alarm panel without a hacking kit, in one action, once the crew has found his visit.
+    Before that it is any staff card, so holding a technician's card tells nothing about whether he visits. Widening
+    the key graph instead (his card on the CCTV door) would have changed which doors NPCs walk through.
+388. **The vault code note and guidance (M5-02; review).** Reading the `sticky-note` gives its part of the code
+    (`State.codesKnown`: the whole code, or the head teller's half under dual control) or, under Three Keys, the
+    time-lock window (`noteRead`, as `pcHacked` tells it; a preview secret); its text is rewritten to say what it
+    gives (dual control without a head teller has one whole code). The journal is the crew's knowledge: Show and its
+    position only on tiles that aren't hidden (never into a room the crew hasn't seen), and an entry whose NPC the crew
+    knows is down or held reads "off", else "due now" while its window is open. Guidance is the player's, not the
+    rules': Full (when, where, Show), Minimal (text) or Off (text, no badge, no bark), kept in `localStorage`, Full by
+    default (§22's first banks).
 
 340. **Validation sees with the rules (M5-01, §17.7).** The checks of what is seen run on the World the game builds from
     the bank (`worldFromBank`) in its state on turn 1 (`initialState`: everyone where they start, the doors as they
