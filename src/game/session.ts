@@ -1,10 +1,11 @@
 import {
     actionPreview, assertPlainJson, autoStep, clonePlain, commandPreview, explain, holdPreview, type CommandRings, type HoldRing, pathSafety, safeFloor, safeFloorJob, type ActionPreview, type CarrierChanges, type Explanation, type FloorBand, type FloorJob,
-    type PathSafety, type SafeFloor, commit, deepFreeze, hashOf, noticedUnseen, popUndo, preview, previewCertain, projectEvents, projectPreviewEvents, RECENT_EVENTS, recordUndo, SaveFormatError, stableJson,
+    type PathSafety, type SafeFloor, commit, deepFreeze, hashOf, intelOf, noticedUnseen, popUndo, preview, previewCertain, projectEvents, projectPreviewEvents, RECENT_EVENTS, recordUndo, SaveFormatError, stableJson,
     type AutoOptions, type AutoStepResult, type AutoStop, type Command, type CommitResult, type Pos, type PreviewResult, type ReadonlyWorld, type Routes, type SimEvent, type State,
     type UndoStack, withLayoutCameras
 } from '../sim';
 import { foundStop } from './evidenceWarning';
+import { recordIntel } from './intel';
 import { deserialiseHeist, deserialiseUi, heistWorldId, serialiseHeist, serialiseUi, serialiseWorld } from './persist';
 import { PlaybackQueue, type PlaybackItem } from './playback';
 import type { SaveStorage } from './storage';
@@ -175,6 +176,8 @@ export class Session {
     private readonly onListenerError: (error: unknown) => void;
     /** Replaced by another heist in the same save slot (the debug handle's `restart`): it saves nothing any more. */
     private retired = false;
+    /** The intel last kept for this bank (`keepIntel`), as JSON. */
+    private intelKept: string | null = null;
     /** Auto-advance is committing: its moves keep their crew member's route. */
     private autoPlaying = false;
     /** The stop the last auto-advance step ended with: the same evidence stop doesn't hold the next Go again. */
@@ -623,11 +626,22 @@ export class Session {
             }
             this.seq++;
             this.lastSaveError = null;
+            this.keepIntel();
             return true;
         } catch (e) {
             this.lastSaveError = e;
             return false;
         }
+    }
+
+    /**
+     * Keeps what the crew has learned of this bank for later heists in it (M5-03, src/game/intel.ts), when it has
+     * grown since last kept. A failure to store it never fails the save.
+     */
+    private keepIntel(): void {
+        const intel = intelOf(this.world, this._state), text = stableJson(intel);
+        if (text === this.intelKept) return;
+        if (recordIntel(this.storage, this.world, intel) !== null) this.intelKept = text;
     }
 
     /** Writes the UI entry alone (cheap: no state). */

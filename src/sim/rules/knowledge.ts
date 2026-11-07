@@ -26,6 +26,7 @@ import { isWarned } from './trespass';
 import { isPresent, npcCanPass, personOf } from './npc/walk';
 import { bodyPos, onFloor } from './place';
 import { bitsCount, decodeBits, encodeBits } from './knowledgeBits';
+import type { FoundHow } from './opportunities';
 
 /*
  * What the crew knows (GAME_DESIGN §8.8, §8.15, §17.8; implementation plan M1-10). The engine works on the truth; the
@@ -103,12 +104,22 @@ import { bitsCount, decodeBits, encodeBits } from './knowledgeBits';
  * - `crewPicture(world, state)` / `knownBlockers(world, state)`: the state as the crew pictures it (its NPCs and doors).
  */
 
-/** The intel a heist bought (§18.2), as far as knowledge needs it. */
+/**
+ * What the crew knows of the bank before the heist starts (§17.8, §18.2): the intel bought (the Blueprints, the Guard
+ * rota) and what earlier heists in the same bank taught it (M5-03: the casing layer carried across days). Plain JSON;
+ * the game keeps it per bank (src/game/intel.ts) and `intelOf` gives it back after a heist, grown by what was learned.
+ */
 export interface Intel {
     /** The Blueprints asset: the full layout, not only the public floor. */
     blueprints?: boolean;
     /** The Guard rota asset: every guard's routine is known from the start. */
     guardRota?: boolean;
+    /** The tiles seen in earlier heists, a bitset string as `Knowledge.seen`: their layout is known (stale), never their people. */
+    seen?: string;
+    /** The NPCs whose routine the crew learned in earlier heists, sorted: known from the start, as the Guard rota's are. */
+    routines?: string[];
+    /** The opportunities found in earlier heists, in the order found, and how: found from the start (turn 0). */
+    opportunities?: { id: string; how: FoundHow }[];
 }
 
 /** What the crew knows of one NPC it has seen (or was told about). */
@@ -122,7 +133,7 @@ export interface NpcKnowledge {
     live: boolean;
     /** Its routine is known: shown as a predicted marker while out of sight. */
     routine: boolean;
-    /** Its routine came with the Guard rota: known again whenever it is back on it. */
+    /** Its routine came with intel (the Guard rota, or an earlier heist's casing): known again whenever it is back on it. */
     rota: boolean;
     /** How many turns it has been in view (toward a known routine); `watchedTurn` the last one counted. */
     watched: number;
@@ -160,6 +171,11 @@ export interface Knowledge {
     doors: Record<string, DoorStatus>;
     /** What the crew knows of each NPC it has seen, by NPC id. */
     npcs: Record<string, NpcKnowledge>;
+    /**
+     * The NPCs whose routine the crew has known at any time in this heist or from its intel, sorted: what casing carries
+     * to a later heist (`intelOf`), though the routine itself is forgotten once they leave it. Absent in older saves: none.
+     */
+    routines?: string[];
     /** Loud noises heard this turn and the last. */
     pings: Ping[];
     /**
@@ -690,6 +706,7 @@ export function updateKnowledge(world: ReadonlyWorld, state: State, emit: (event
         emit({ type: 'revealed', what: 'tiles', id: String(added) });
         learnRoomsAndCameras(world, k, seen, before, emit);
     }
+    scoutCctv(world, k, now, emit);
     // Seen since the last world phase.
     if (options.worldPhase) {
         // The phase ends at this tick; what the crew sees standing now is seen after it (the next tick), so an NPC in
@@ -830,14 +847,33 @@ function learnRoomsAndCameras(world: ReadonlyWorld, k: Knowledge, bits: Uint8Arr
         k.cameras = [...cams].sort();
         emit({ type: 'revealed', what: 'camera', id: c.id });
     }
-    if (!k.cctv) {
-        const desk = world.objects.find(o => o.kind === 'cctvDesk'
-            && (o.room ? rooms.has(o.room) : inBounds(world, o.pos) && bits[o.pos.y * world.width + o.pos.x] === 1));
-        if (desk) {
-            k.cctv = true;
-            emit({ type: 'revealed', what: 'cctv', id: desk.id });
-        }
+}
+
+/**
+ * The CCTV room is scouted (the cameras' feed status known) once a tile of it is in the crew's view in this heist
+ * (`now`): the room as an earlier heist saw it tells nothing of today's feeds (M5-03).
+ */
+function scoutCctv(world: ReadonlyWorld, k: Knowledge, now: Uint8Array, emit: (event: SimEvent) => void): void {
+    if (k.cctv) return;
+    const desk = cctvDesks(world).find(d => d.tiles.some(i => now[i] === 1));
+    if (desk) {
+        k.cctv = true;
+        emit({ type: 'revealed', what: 'cctv', id: desk.id });
     }
+}
+
+const CCTV_DESKS = new WeakMap<ReadonlyWorld, readonly { id: string; tiles: readonly number[] }[]>();
+
+/** Each CCTV desk with the tiles that scout it (its room's, or its own without a room), in object order. */
+function cctvDesks(world: ReadonlyWorld): readonly { id: string; tiles: readonly number[] }[] {
+    let desks = CCTV_DESKS.get(world);
+    if (desks) return desks;
+    desks = world.objects.filter(o => o.kind === 'cctvDesk').map(o => ({
+        id: o.id,
+        tiles: o.room ? world.tiles.flatMap((t, i) => (t.room === o.room ? [i] : [])) : inBounds(world, o.pos) ? [o.pos.y * world.width + o.pos.x] : []
+    }));
+    CCTV_DESKS.set(world, desks);
+    return desks;
 }
 
 // Set while `foreseenFacing` previews a command, whose own knowledge update then needs no foresight of its own.
@@ -909,6 +945,7 @@ function learnNpcs(
         }
         if (rec && !rec.routine && (rec.rota || rec.watched >= rules.knownRoutineTurns) && onRoutine(npc) && stealth) {
             rec.routine = true;
+            learnRoutine(k, npc.id);
             emit({ type: 'revealed', what: 'routine', id: npc.id });
         }
         if (rec && !rec.live && rec.routine) {
@@ -920,6 +957,23 @@ function learnNpcs(
     }
 }
 
+/**
+ * What the crew knows of the bank after (or during) a heist, to carry into a later one in the same bank (M5-03): the
+ * heist's own intel grown by its casing. The tiles seen (the intel's included, `Knowledge.seen` starting from them),
+ * every routine known at any time, the opportunities found in the order found. Bought intel stays bought. Nothing
+ * else carries: who stood where, doors, feeds, codes and the day's events belong to the day.
+ */
+export function intelOf(world: ReadonlyWorld, state: DeepReadonly<State>): Intel {
+    const prior = world.intel ?? {}, k = state.knowledge;
+    return {
+        ...(prior.blueprints ? { blueprints: true } : {}),
+        ...(prior.guardRota ? { guardRota: true } : {}),
+        seen: k.seen,
+        routines: [...(k.routines ?? [])],
+        opportunities: state.opportunitiesFound.map(o => ({ id: o.id, how: o.how }))
+    };
+}
+
 // As a world phase begins, before anyone moves: the crew phase's fresh tiles go into `fresh1`, the last ones into `fresh2`.
 registerWorldHook('passiveNpcs', 'knowledge.freshBefore', ctx => {
     const k = ctx.state.knowledge;
@@ -927,16 +981,38 @@ registerWorldHook('passiveNpcs', 'knowledge.freshBefore', ctx => {
     k.fresh1 = k.fresh;
 }, { order: -1000 });
 
+/** Adds an NPC to those whose routine the crew has known (`Knowledge.routines`, sorted). */
+function learnRoutine(k: Knowledge, id: string): void {
+    const routines = k.routines ?? [];
+    if (!routines.includes(id)) k.routines = [...routines, id].sort();
+}
+
+/** The tiles earlier heists saw (`Intel.seen`), or null when there are none. */
+function priorSeen(world: ReadonlyWorld): Uint8Array | null {
+    const seen = world.intel?.seen;
+    return seen === undefined ? null : decodeBits(seen, tilesOf(world));
+}
+
 registerStateInit('knowledge', (world, state) => {
-    state.knowledge = emptyKnowledge(world);
-    if (world.intel?.guardRota) {
-        for (const person of world.people) {
-            if (person.observer !== 'enforcer') continue;
-            state.knowledge.npcs[person.id] = {
-                at: { x: person.pos.x, y: person.pos.y }, facing: person.facing, turn: state.turn, live: false, routine: true, rota: true,
-                watched: 0, watchedTurn: 0, tick: 0
-            };
-        }
+    const k = state.knowledge = emptyKnowledge(world), intel = world.intel;
+    // The casing of earlier heists (M5-03): the layout seen is known, stale, and the rooms and cameras on it. Nothing
+    // that moves or changes comes with it: no NPC there, no door as it stood, no feed status (the CCTV room is scouted
+    // only by seeing it in this heist, `scoutCctv`).
+    const prior = priorSeen(world);
+    if (prior) {
+        k.seen = encodeBits(prior);
+        learnRoomsAndCameras(world, k, prior, new Uint8Array(prior.length), () => {});
+    }
+    // Routines known from the start: every guard's with the Guard rota, and those an earlier heist learned. Each is shown
+    // where its schedule has put it, and known again whenever it is back on it.
+    const people = new Set(world.people.map(p => p.id)), routines = new Set((intel?.routines ?? []).filter(id => people.has(id)));
+    for (const person of world.people) {
+        if (!(intel?.guardRota && person.observer === 'enforcer') && !routines.has(person.id)) continue;
+        k.npcs[person.id] = {
+            at: { x: person.pos.x, y: person.pos.y }, facing: person.facing, turn: state.turn, live: false, routine: true, rota: true,
+            watched: 0, watchedTurn: 0, tick: 0
+        };
+        learnRoutine(k, person.id);
     }
     // What the crew sees where it starts is known from the start: nothing to reveal, nothing to undo.
     updateKnowledge(world, state, () => {}, { worldPhase: true });
@@ -1003,6 +1079,7 @@ registerStateCheck('knowledge', (state, world) => {
     if (typeof k.tick !== 'number' || typeof k.phaseTick !== 'number' || typeof k.cctv !== 'boolean') return 'knowledge has no tick or cctv';
     if (!Array.isArray(k.rooms) || !Array.isArray(k.cameras) || !Array.isArray(k.pings)) return 'knowledge has no rooms, cameras or pings';
     if (!k.doors || typeof k.doors !== 'object' || !k.npcs || typeof k.npcs !== 'object') return 'knowledge has no doors or NPCs';
+    if (k.routines !== undefined && (!Array.isArray(k.routines) || !k.routines.every(id => typeof id === 'string'))) return 'knowledge.routines is not a list of NPCs';
     for (const id of sortedIds(k.npcs)) {
         const r = k.npcs[id] as Partial<NpcKnowledge> | undefined;
         if (!r || !r.at || typeof r.turn !== 'number' || typeof r.routine !== 'boolean' || typeof r.live !== 'boolean'

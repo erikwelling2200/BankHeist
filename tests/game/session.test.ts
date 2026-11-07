@@ -5,6 +5,7 @@ import {
 import { commit as engineCommit, fixtureWorld, hashOf, IllegalCommand, SaveFormatError, startCarrier, type Command } from '../../src/sim';
 import { registerTestCommand, smallBank, testCommand, type TestCommand } from '../sim/helpers';
 import { CREW_COLOURS } from '../../src/ui/hud/viewModels';
+import { intelKey } from '../../src/game/intel';
 
 /** Starts a teller-button carrier: final, since the world reacted. */
 registerTestCommand('gameTestAlarm', (ctx, cmd) => {
@@ -106,7 +107,8 @@ describe('the game session', () => {
         const storage = new MemoryStorage();
         storage.set(worldKey('old'), '{}');
         const { session } = start(storage);
-        expect(storage.keys().sort()).toEqual([HEIST_KEY, worldKey(session.worldId)].sort());
+        // Beside the heist and its world, what the crew learned of the bank (M5-03).
+        expect(storage.keys().sort()).toEqual([HEIST_KEY, worldKey(session.worldId), intelKey(session.world)].sort());
     });
 
     it('resumes exactly: state, undo stack, recent events, selection and camera', () => {

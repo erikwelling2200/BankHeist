@@ -11,6 +11,7 @@ import { PropSheetScene } from './scenes/PropSheetScene';
 import { Fullscreen } from './ui/Fullscreen';
 import { installDebugHandle, MemoryStorage, Session, webStorage } from './game';
 import { bankAddress, playPlan, sameAddress, savedHeist, startHeist } from './game/heist';
+import { loadIntel } from './game/intel';
 import { defaultSetup, planOptions, setupProblems, type HeistSetup } from './game/plan';
 import { Planner } from './ui/planning/Planner';
 import type { BankData } from './level/bankData';
@@ -161,7 +162,9 @@ function plan(params: URLSearchParams): void {
     };
     // Start opens the game with the plan in its address (`&setup=`): it starts the heist there, asking first if one is
     // saved, so the plan survives the page change even with no storage, and never carries `new` along.
-    const planner = new Planner(generated, options, defaultSetup(options), map, setup => {
+    // What the crew knows of this bank from earlier heists in it (M5-03): the plan starts with it.
+    const intel = loadIntel(webStorage() ?? new MemoryStorage(), options.world);
+    const planner = new Planner(generated, options, defaultSetup(options, intel), map, setup => {
         const keep = [...new URLSearchParams(location.search)].filter(([k]) => !['plan', 'new', 'play', 'seed', 'tier', 'archetype', 'plot', 'setup'].includes(k));
         const query = new URLSearchParams([['play', ''], ...Object.entries(bankAddress(generated)), ['setup', JSON.stringify(setup)], ...keep]);
         location.assign(`${location.pathname}?${query.toString().replace(/(^|&)(play)=(?=&|$)/g, '$1$2')}`);

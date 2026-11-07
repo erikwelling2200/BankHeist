@@ -57,10 +57,12 @@ export class BankScene extends Phaser.Scene {
     /** Play mode (the game, `/`): the bank driven by a Session. */
     private play?: PlayMode;
     /**
-     * The planning screen (`?plan`, M4-07): the plot on the tactical map at the blueprint's knowledge, nobody moving, the
+     * The planning screen (`?plan`, M4-07): the plot on the tactical map at what the crew knows at the start, nobody moving, the
      * HTML planner (src/ui/planning) over it.
      */
     private planning = false;
+    /** The planning map's tile visibility codes (`showPlan`), row-major. */
+    private planVisibility?: Uint8Array;
     /** The planned heist's vehicles as drawn on the planning screen. */
     private planVehicles?: Vehicles;
     /** The bank with the power out (play mode). */
@@ -121,9 +123,11 @@ export class BankScene extends Phaser.Scene {
         });
         if (play?.setupMs !== undefined) this.timings.heist = play.setupMs;
         if (this.planning) {
-            // What the crew knows before casing (§17.8), the whole plot to plan on; nobody shows until the planner says
-            // whom the crew knows (`showPlan`), and the vehicles stand where the plan parks them.
+            // The blueprint's knowledge (§17.8) until the planner says what the crew knows at the start (`showPlan`: the
+            // intel's too); nobody shows until it says whom, and the vehicles stand where the plan parks them.
             knowledge.show(false);
+            // A predicted NPC on a hidden tile (the Guard rota, a routine learned before) is drawn over its block, as in play.
+            this.people.alsoAbove((index, x, y) => index < this.bank.people.length && this.planHiddenAt(x, y));
             this.planVehicles = new Vehicles(baker, this.bank, built);
             this.bank.people.forEach((_, i) => this.people.setAway(i, true));
             this.camera.toggleMap();
@@ -207,13 +211,24 @@ export class BankScene extends Phaser.Scene {
      * The planning screen's picture of the heist's start (decision 328): only the NPCs the crew knows then (by the bank's
      * people's order), as play draws them at turn 1 (a predicted one translucent), and the vehicles where the plan parks them.
      */
-    showPlan(view: { npcs: readonly (MarkerKind | null)[]; vehicles: DeepReadonly<Record<string, VehicleState>> }): void {
+    showPlan(view: { npcs: readonly (MarkerKind | null)[]; vehicles: DeepReadonly<Record<string, VehicleState>>; visibility: Uint8Array }): void {
+        // Each tile as the crew knows it at the start (decision 402): hidden ones blocked, as play draws them.
+        this.planVisibility = view.visibility;
+        this.knowledge.show(true);
+        this.knowledge.showHidden(view.visibility, this.mapWidth / TILE);
         this.bank.people.forEach((_, i) => {
             const kind = view.npcs[i] ?? null;
             this.people.setAway(i, kind === null);
             if (kind) this.people.setAlpha(i, kind === 'live' ? 1 : kind === 'predicted' ? 0.55 : 0.3);
         });
         this.planVehicles?.sync(view.vehicles);
+        this.people.reveal();
+    }
+
+    /** Whether map point (x, y) is on a tile the planning map shows as hidden. */
+    private planHiddenAt(x: number, y: number): boolean {
+        const v = this.planVisibility, w = this.mapWidth / TILE, tx = Math.floor(x / TILE), ty = Math.floor(y / TILE);
+        return !!v && tx >= 0 && ty >= 0 && tx < w && v[ty * w + tx] === 0;
     }
 
     /** The tile under page point (x, y), in CSS pixels (the planner's taps): the inverse of `tileOnPage`. */

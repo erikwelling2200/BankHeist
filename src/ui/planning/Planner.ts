@@ -1,13 +1,14 @@
 import type { GeneratedBank } from '../../gen/model';
 import {
-    ASSETS, assetsOf, CREW_SIZE, FAVOUR_CAP, hasLongGun, jammerSpot, loadoutProfile, PLANNING_CASH, rosterMember, ROSTER, setupProblems, SLOT_ITEMS,
+    ASSETS, assetsOf, CREW_SIZE, FAVOUR_CAP, hasLongGun, heistIntel, INTEL_ASSETS, jammerSpot, loadoutProfile, PLANNING_CASH, rosterMember, ROSTER, setupProblems, SLOT_ITEMS,
     spent, startView, type AssetId, type CrewPlan, type HeistSetup, type PlanOptions, type StartPick
 } from '../../game/plan';
+import { intelSummary, noIntel } from '../../game/intel';
 import { CONTRACT_TARGETS, footprint, VEHICLES, type ItemId, type MarkerKind, type Pos, type State, type VehicleType } from '../../sim';
 import { h, img } from '../hud/dom';
 import { iconUrl, portraitUrl } from '../hud/icons';
 import { crewColour, type HudIcon } from '../hud/viewModels';
-import { ITEM_NAMES, TRAIT_NAMES } from '../names';
+import { ITEM_NAMES, ROLE_NAMES, TRAIT_NAMES } from '../names';
 import '../hud/hud.css';
 import './planning.css';
 
@@ -18,6 +19,10 @@ import './planning.css';
  * (a tap opens their loadout); the assets on the right with their price and favour pips (a tap buys or sells; a
  * placed one shows where on the map, and a tap on its pin moves it); Start bottom right, dimmed with the first thing
  * in the way said above it. The map's pins follow the camera every frame.
+ *
+ * What the crew knows (§17.8, M5-03): the map shows the bank at turn 1 as the crew will know it, with the intel of
+ * earlier heists in it and the intel assets bought; the Intel chip in the top strip opens what that intel holds. An
+ * intel asset is paid as it is bought, since the map shows what it tells at once: it can't be given back (decision 401).
  */
 
 /** What the planner needs of the bank scene: where tiles show on the page and the reverse, for its pins and taps. */
@@ -25,7 +30,7 @@ export interface PlanMap {
     tileOnPage(x: number, y: number): { x: number; y: number };
     tileAtPage(x: number, y: number): Pos;
     /** Draws the heist's start as planned: the NPCs the crew knows (by the bank's people's order) and the vehicles. */
-    showPlan(view: { npcs: readonly (MarkerKind | null)[]; vehicles: State['vehicles'] }): void;
+    showPlan(view: { npcs: readonly (MarkerKind | null)[]; vehicles: State['vehicles']; visibility: Uint8Array }): void;
 }
 
 /** Each item's picture on the planning screen. */
@@ -37,7 +42,10 @@ const ITEM_ICONS: Readonly<Record<string, HudIcon>> = {
 };
 
 const VEHICLE_ICONS: Readonly<Record<VehicleType, HudIcon>> = { van: 'car', car: 'car', ramTruck: 'truck' };
-const ASSET_ICONS: Readonly<Record<AssetId, HudIcon>> = { ramTruck: 'truck', car: 'car', nest: 'dmr', jammer: 'radio' };
+const ASSET_ICONS: Readonly<Record<AssetId, HudIcon>> = { blueprints: 'map', guardRota: 'watch', ramTruck: 'truck', car: 'car', nest: 'dmr', jammer: 'radio' };
+
+/** How the planning screen names how an opportunity was found. */
+const HOW_NAMES = { overheard: 'Overheard', read: 'Read', intel: 'Intel' } as const;
 
 /** A start as the select names it, and back. */
 const startKey = (s: StartPick): string => (s.at === 'nest' ? 'nest' : `${s.at}:${s.aboard ? 'in' : 'by'}`);
@@ -143,7 +151,11 @@ export class Planner {
 
     private toggleAsset(id: AssetId): void {
         const owned = assetsOf(this.setup).includes(id);
-        if (id === 'jammer') {
+        if (id === 'blueprints' || id === 'guardRota') {
+            // Paid as bought, and known for good (decision 401): never given back, never bought twice or beyond the cash.
+            if (owned || this.setup.intel[id] || !this.affords(id)) return;
+            this.change(s => { s[id] = true; });
+        } else if (id === 'jammer') {
             if (owned || this.placing === 'jammer') this.change(s => { s.jammer = null; });
             this.placing = owned || this.placing === 'jammer' ? null : 'jammer';
         } else if (id === 'nest') {
@@ -168,6 +180,12 @@ export class Planner {
             }
         }
         this.render();
+    }
+
+    /** Whether the cash and favours left pay for an asset. */
+    private affords(id: AssetId): boolean {
+        const { cash, favours } = spent(this.setup);
+        return cash + ASSETS[id].cost <= PLANNING_CASH && favours + ASSETS[id].favours <= FAVOUR_CAP;
     }
 
     /** The spots a vehicle could move to: its own and those no other vehicle of the plan takes. */
@@ -236,7 +254,7 @@ export class Planner {
         const problems = setupProblems(this.setup, this.options);
         if (!problems.length) {
             const start = startView(this.bank, this.setup, this.options);
-            this.view = { npcs: this.bank.people.map(p => (Object.hasOwn(start.npcs, p.id) ? start.npcs[p.id]! : null)), vehicles: start.vehicles };
+            this.view = { npcs: this.bank.people.map(p => (Object.hasOwn(start.npcs, p.id) ? start.npcs[p.id]! : null)), vehicles: start.vehicles, visibility: start.visibility };
         }
         this.start.classList.toggle('off', problems.length > 0);
         this.start.setAttribute('aria-disabled', String(problems.length > 0));
@@ -246,7 +264,8 @@ export class Planner {
         this.hint.hidden = placing === null;
         this.hint.textContent = placing === 'jammer' ? `Tap the street by the bank: it jams from turn 1, and dispatch notices after ${this.options.world.rules.dispatchSilence} phases`
             : placing ? `Tap a spot for the ${VEHICLES[placing].name.toLowerCase()}` : '';
-        if (this.sheet) this.openSheet(this.sheet.dataset.crew!);
+        if (this.sheet?.dataset.crew) this.openSheet(this.sheet.dataset.crew);
+        else if (this.sheet) this.openIntel();
     }
 
     private renderTop(): void {
@@ -258,12 +277,53 @@ export class Planner {
             h('div.sh-panel.pl-chip', { 'aria-label': `Target $${thousands(target)}` }, img(iconUrl('loot')), h('span.sh-num', {}, thousands(target))),
             h('div.sh-panel.pl-chip', { 'aria-label': `Police in ${this.bank.policeEta} turns, vault class ${this.bank.vaultClass}` },
                 img(iconUrl('police')), h('span.sh-num', {}, String(this.bank.policeEta)), h('span.pl-bar'), img(iconUrl('lock')), h('span.sh-num', {}, this.bank.vaultClass)),
+            this.intelChip(),
             h('div.sh-grow'),
             h(`div.sh-panel.pl-chip.pl-cash${left < 0 ? '.over' : ''}`, { 'aria-label': `$${thousands(left)} left`, 'data-cash': String(left) },
                 h('span.sh-num.pl-dollar', {}, '$'), h('span.sh-num', {}, thousands(left))),
             h(`div.sh-panel.pl-chip.pl-favours${favours > FAVOUR_CAP ? '.over' : ''}`, { 'aria-label': `${favours} of ${FAVOUR_CAP} favours`, 'data-favours': String(favours) },
                 h('span.sh-num.pl-star', {}, '★'), h('span.pl-pips', {}, ...pips))
         );
+    }
+
+    /** The Intel chip: what the crew knows going in (the intel's finds counted); a tap lists it. */
+    private intelChip(): HTMLElement {
+        const intel = heistIntel(this.setup), sum = intelSummary(this.options.world, intel), none = noIntel(intel);
+        const parts = [sum.blueprints ? 'blueprints' : '', sum.guardRota ? 'guard rota' : '', sum.rooms ? `${sum.rooms} room${sum.rooms === 1 ? '' : 's'} cased` : '',
+            sum.routines.length ? `${sum.routines.length} routine${sum.routines.length === 1 ? '' : 's'}` : '',
+            sum.finds.length ? `${sum.finds.length} find${sum.finds.length === 1 ? '' : 's'}` : ''].filter(Boolean);
+        const chip = h(`button.sh-panel.pl-chip.pl-intel${none ? '' : '.on'}`, {
+            'aria-label': `Intel: ${none ? 'nothing yet' : parts.join(', ')}`, 'data-finds': String(sum.finds.length), 'data-rooms': String(sum.rooms),
+            'data-routines': String(sum.routines.length)
+        }, img(iconUrl('layers')), h('span.pl-intel-name', {}, 'Intel'), sum.finds.length ? h('span.sh-num', {}, String(sum.finds.length)) : null);
+        chip.addEventListener('click', () => this.openIntel());
+        return chip;
+    }
+
+    /** The intel sheet: the intel bought, what earlier heists cased, the opportunities found. Only what the intel holds. */
+    private openIntel(): void {
+        const intel = heistIntel(this.setup), sum = intelSummary(this.options.world, intel);
+        const asset = (id: 'blueprints' | 'guardRota', what: string) => {
+            const state = this.setup.intel[id] ? 'known from before' : this.setup[id] ? 'bought' : `not bought ($${thousands(ASSETS[id].cost)})`;
+            return h(`li.pl-intel-row${sum[id] ? '.on' : ''}`, { 'data-intel': id }, img(iconUrl(ASSET_ICONS[id]), 'sh-ic'), h('span', {}, `${ASSETS[id].name}: ${what}`), h('span.pl-intel-state', {}, state));
+        };
+        const cased = sum.rooms || sum.routines.length
+            ? `${sum.rooms} room${sum.rooms === 1 ? '' : 's'} seen into; ${sum.routines.length ? `the routine${sum.routines.length === 1 ? '' : 's'} of ${sum.routines.map(r => `${r.name} (${ROLE_NAMES[r.role] ?? r.role})`).join(', ')}` : 'no routines'}`
+            : 'Nothing: what a heist sees, the routines it learns and what it finds are kept for the next one here.';
+        const sheet = h('div.pl-sheet.sh-panel.pl-intel-sheet', { role: 'dialog', 'aria-label': 'Intel', 'data-intel-sheet': '' },
+            h('div.pl-head', {}, img(iconUrl('layers'), 'sh-ic'), h('div.pl-who', {}, h('span.pl-title', {}, 'Intel'), h('span.sh-tiny', {}, `What the crew knows of ${this.bank.name}`))),
+            h('ul.pl-intel-list', {},
+                asset('blueprints', 'the full layout'),
+                asset('guardRota', "every guard's routine"),
+                h('li.pl-intel-row', { 'data-intel': 'cased' }, img(iconUrl('eye'), 'sh-ic'), h('span', {}, `Cased before: ${cased}`))),
+            sum.finds.length ? h('ul.pl-intel-list.pl-finds', {}, ...sum.finds.map(f =>
+                h('li.pl-intel-row', { 'data-find': f.id }, img(iconUrl(f.how === 'overheard' ? 'ear' : f.how === 'read' ? 'eye' : 'layers'), 'sh-ic'),
+                    h('span', {}, f.text), h('span.pl-intel-state', {}, HOW_NAMES[f.how])))) : null,
+            h('div.pl-buttons', {}, h('button.pl-button.pl-done', { 'aria-label': 'Done' }, 'Done')));
+        sheet.querySelector('.pl-done')!.addEventListener('click', () => this.closeSheet());
+        if (this.sheet) this.sheet.replaceWith(sheet);
+        else this.root.append(sheet);
+        this.sheet = sheet;
     }
 
     private renderRail(): void {
@@ -293,13 +353,18 @@ export class Planner {
     private renderAssets(): void {
         const owned = assetsOf(this.setup);
         this.assets.replaceChildren(...(Object.keys(ASSETS) as AssetId[]).filter(id => id !== 'nest' || this.options.nestRoom).map(id => {
-            const a = ASSETS[id], on = owned.includes(id) || this.placing === id;
-            // A vehicle with no spot left to wait at can't be bought.
+            const intel = INTEL_ASSETS.includes(id), known = intel && !!this.setup.intel[id as 'blueprints' | 'guardRota'];
+            const a = ASSETS[id], on = known || owned.includes(id) || this.placing === id;
+            // A vehicle with no spot left to wait at can't be bought; intel can't be given back once bought, nor bought
+            // beyond the cash, nor again when the crew has it from before.
             const full = !on && (id === 'car' || id === 'ramTruck') && !this.freeSpots(id).length;
-            const b = h(`button.sh-panel.pl-asset${on ? '.on' : ''}`, {
-                ...(full ? { disabled: true } : {}),
-                role: 'listitem', 'data-asset': id, 'aria-pressed': String(on), 'aria-label': `${a.name}, $${thousands(a.cost)}, ${a.favours} favour${a.favours === 1 ? '' : 's'}`
-            }, img(iconUrl(ASSET_ICONS[id])), h('span.sh-num', {}, thousands(a.cost)), h('span.pl-name', {}, a.name), h('span.pl-short', {}, a.short), h('span.pl-fv', {}, ...Array.from({ length: a.favours }, () => h('i'))));
+            const fixed = intel && (on || !this.affords(id));
+            const label = known ? `${a.name}, known from before` : intel && on ? `${a.name}, bought` : `${a.name}, $${thousands(a.cost)}, ${a.favours} favour${a.favours === 1 ? '' : 's'}`;
+            const b = h(`button.sh-panel.pl-asset${on ? '.on' : ''}${known ? '.known' : ''}${intel && on ? '.paid' : ''}`, {
+                ...(full || fixed ? { disabled: true } : {}),
+                role: 'listitem', 'data-asset': id, 'aria-pressed': String(on), 'aria-label': label
+            }, img(iconUrl(ASSET_ICONS[id])), h('span.sh-num', {}, known ? '✓' : thousands(a.cost)), h('span.pl-name', {}, a.name), h('span.pl-short', {}, a.short),
+            h('span.pl-fv', {}, ...Array.from({ length: known ? 0 : a.favours }, () => h('i'))));
             b.addEventListener('click', () => this.toggleAsset(id));
             // A jammer running from turn 1 starts dispatch's lost-contact count then (decision 324).
             if (id === 'jammer' && owned.includes('jammer')) return h('div.pl-with-note', {}, b, h('span.pl-note', {}, `Dispatch notices in ${this.options.world.rules.dispatchSilence}`));

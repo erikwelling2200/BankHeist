@@ -41,6 +41,24 @@
 .pl-fv { display: flex; gap: 2px; flex: none; }
 .pl-fv i { display: block; width: 7px; height: 7px; background: var(--gold); border: 1px solid #000; }
 
+/* Intel (M5-03): bought, it can't be given back; known from an earlier heist, it is ticked and costs nothing. */
+.pl-asset.on:disabled { opacity: 1; }
+.pl-asset.known .sh-num { color: var(--safe); }
+.pl-intel { gap: 4px; }
+.pl-intel-name { font: 500 calc(var(--sh-text) * 12px)/1 var(--sans); letter-spacing: 0; }
+.pl-intel:not(.on) { color: var(--dim); }
+.pl-intel:not(.on) img { opacity: 0.6; }
+.pl-intel.on { border-color: var(--cmd); }
+.pl-intel-list { list-style: none; margin: 0 0 6px; padding: 0; display: flex; flex-direction: column; gap: 4px; }
+.pl-intel-row { display: flex; align-items: center; gap: 6px; font: 500 calc(var(--sh-text) * 12px)/1.25 var(--sans); letter-spacing: 0; color: var(--dim); }
+.pl-intel-row.on { color: var(--iv); }
+.pl-intel-row > span:first-of-type { flex: 1; min-width: 0; }
+.pl-intel-row .sh-ic { width: 18px; height: 18px; flex: none; }
+.pl-intel-state { flex: none; font-size: calc(var(--sh-text) * 11px); color: var(--mute); }
+.pl-intel-row.on .pl-intel-state { color: var(--safe); }
+.pl-finds { padding-top: 6px; border-top: 1px solid var(--line); }
+.pl-finds .pl-intel-row { color: var(--iv); }
+
 .sh-confirm.pl-start { width: var(--side); }
 .pl-problem { position: absolute; right: var(--pr); bottom: calc(var(--pb) + 64px); max-width: calc(var(--side) + 60px); padding: 5px 8px;
   border-color: var(--amber); color: var(--amber); font: 500 calc(var(--sh-text) * 12px)/1.25 var(--sans); letter-spacing: 0; text-align: right; }
@@ -86,6 +104,12 @@
   .pl-fv i { width: 6px; height: 6px; }
   .pl-card { height: 42px; }
   .pl-portrait { width: 32px; height: 32px; }
+}
+
+/* A short screen: six assets still clear Start. */
+@media (max-height: 420px) {
+  .pl-assets { gap: 3px; }
+  .pl-asset { height: 32px; }
 }
 
 /* The fullscreen button keeps clear of the rail: bottom left. */

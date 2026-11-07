@@ -78,7 +78,7 @@ describe('saving', () => {
  * NpcStatusMap, CarrierKindMap or adds a field must also fill it in below, or a change of shape goes unnoticed.
  */
 const SHAPE_HASHES: Record<number, string> = {
-    1: '15cec6b111e4f5de'
+    1: '6a302cf30755c37c'
 };
 
 /** Paths whose objects are records by id, not structs. */
@@ -201,6 +201,7 @@ describe('the save format', () => {
         full.knowledge.cctv = true;
         full.knowledge.npcs = { guard: { at: { x: 1, y: 1 }, facing: 'e', turn: 2, live: false, routine: true, rota: true, watched: 3, watchedTurn: 2, tick: 4 } };
         full.knowledge.doors = { staffDoor: 'open' };
+        full.knowledge.routines = ['guard'];
         full.knowledge.pings = [{ at: { x: 2, y: 2 }, turn: 3, kind: 'loud', cause: 'pistol' }];
         full.knowledge.officers = { 'police-1': { at: { x: 3, y: 2 }, turn: 2, kind: 'swat' } };
         full.carriers.push({ id: 'carrier-9', kind: 'tellerButton', source: 'teller', pos: { x: 0, y: 0 }, countdown: 2, started: { turn: 1, phase: 'world' }, halted: null, about: 'jun', subject: 'guard', line: 'landline' });
@@ -245,7 +246,7 @@ describe('the save format', () => {
             genVersion: 'fixture',
             world: {
                 ...world,
-                intel: { blueprints: true, guardRota: true },
+                intel: { blueprints: true, guardRota: true, seen: full.knowledge.seen, routines: ['guard'], opportunities: [{ id: 'smoke-break', how: 'overheard' }] },
                 patrol: { lane: [{ x: 0, y: 2 }, { x: 1, y: 2 }], turns: [5, 15] },
                 stashRooms: ['closet'],
                 staging: [{ id: 'street-west', name: 'Main street, west end', pos: { x: 0, y: 2 } }],

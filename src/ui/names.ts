@@ -19,3 +19,9 @@ export const TRAIT_NAMES: Readonly<Record<string, string>> = {
     steadyHands: 'Steady Hands', smoothTalker: 'Smooth Talker', intimidating: 'Intimidating', bruiser: 'Bruiser', marksman: 'Marksman',
     sapper: 'Sapper', wheelman: 'Wheelman', medic: 'Medic', forgettable: 'Forgettable', coolHead: 'Cool Head'
 };
+
+/** NPC roles as the player reads them. */
+export const ROLE_NAMES: Readonly<Record<string, string>> = {
+    headTeller: 'head teller', lobbyGuard: 'lobby guard', patrolGuard: 'patrol guard', chief: 'security chief', operator: 'CCTV operator', 'passer-by': 'passer-by',
+    clerk: 'clerk', counter: 'cash counter', archivist: 'archivist', technician: 'ATM technician'
+};

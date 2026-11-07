@@ -143,8 +143,14 @@ declare module '../core/types' {
 
 registerRuleDefaults({ eavesdropRange: 2, overhearChance: 0.5 });
 
-registerStateInit('opportunities', (_world, state) => {
-    state.opportunitiesFound = [];
+registerStateInit('opportunities', (world, state) => {
+    // Found in earlier heists in this bank (the intel, M5-03): known from the start, as found before it (turn 0).
+    const ids = new Set(opportunitiesOf(world).map(o => o.id)), done = new Set<string>();
+    state.opportunitiesFound = (world.intel?.opportunities ?? []).flatMap(o => {
+        if (!ids.has(o.id) || done.has(o.id)) return [];
+        done.add(o.id);
+        return [{ id: o.id, how: o.how, turn: 0 }];
+    });
     state.earshot = [];
 });
 

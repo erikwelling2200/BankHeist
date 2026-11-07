@@ -170,3 +170,58 @@ test("the outcome's New heist plans the next one in the same bank (M4-07)", asyn
     expect(await page.evaluate(() => localStorage.getItem('bankheist:heist') !== null)).toBe(false);
     expect(errors).toEqual([]);
 });
+
+test('the intel assets show on the planning map at once, and a heist leaves its intel for the next plan (M5-03)', async ({ page }) => {
+    test.setTimeout(180000);
+    const errors: string[] = [];
+    page.on('pageerror', e => errors.push(e.message));
+    const hiddenTiles = () => page.evaluate(() => {
+        const v: Uint8Array | undefined = (window as any).game.scene.getScene('bank').planVisibility;
+        return v ? v.reduce((n: number, c: number) => n + (c === 0 ? 1 : 0), 0) : -1;
+    });
+    await page.goto('/?plan&still');
+    await page.waitForFunction(() => (window as any).game?.scene?.getScene('bank')?.sys.isActive() && (window as any).planner, undefined, { timeout: 60000 });
+    await expect.poll(async () => (await scene(page)).settled, { timeout: 20000 }).toBe(true);
+    // Nothing known yet: the Intel chip says so, the staff side is hidden.
+    await expect(page.locator('.pl-intel')).toHaveAttribute('aria-label', 'Intel: nothing yet');
+    await expect.poll(hiddenTiles, { timeout: 20000 }).toBeGreaterThan(0);
+    const shownBefore = (await npcsShown(page)).filter(Boolean).length;
+
+    // The Blueprints: paid at once, the whole layout shown, and never given back.
+    await page.locator('.pl-asset[data-asset="blueprints"]').click();
+    await expect(page.locator('.pl-cash')).toHaveAttribute('data-cash', '22000');
+    await expect(page.locator('.pl-asset[data-asset="blueprints"]')).toBeDisabled();
+    await expect.poll(hiddenTiles).toBe(0);
+    // The Guard rota: every guard predicted from turn 1.
+    await page.locator('.pl-asset[data-asset="guardRota"]').click();
+    await expect(page.locator('.pl-cash')).toHaveAttribute('data-cash', '19000');
+    await expect.poll(async () => (await npcsShown(page)).filter(Boolean).length).toBeGreaterThan(shownBefore);
+    await expect(page.locator('.pl-favours')).toHaveAttribute('data-favours', '2');
+    await page.screenshot({ path: 'screenshots/planning-intel-assets.png' });
+
+    // Started, the heist knows it; a few turns at the van, then planning the next heist in this bank.
+    await page.locator('.pl-start').click();
+    await page.waitForFunction(() => (window as any).game?.scene?.getScene('bank')?.debugState?.play && (window as any).sim, undefined, { timeout: 60000 });
+    expect(await page.evaluate(() => (window as any).sim.world.intel)).toEqual({ blueprints: true, guardRota: true });
+    for (let i = 0; i < 3; i++) {
+        await page.evaluate(() => (window as any).sim.endTurn());
+        await expect.poll(async () => (await scene(page)).play.playing, { timeout: 15000 }).toBe(false);
+    }
+    await page.goto('/?plan&still');
+    await page.waitForFunction(() => (window as any).game?.scene?.getScene('bank')?.sys.isActive() && (window as any).planner, undefined, { timeout: 60000 });
+    await expect.poll(async () => (await scene(page)).settled, { timeout: 20000 }).toBe(true);
+    // Known from before: ticked, free, and the map as it was bought.
+    await expect(page.locator('.pl-asset.known[data-asset="blueprints"]')).toHaveCount(1);
+    await expect(page.locator('.pl-asset.known[data-asset="guardRota"]')).toHaveCount(1);
+    await expect(page.locator('.pl-cash')).toHaveAttribute('data-cash', '24000');
+    await expect.poll(hiddenTiles, { timeout: 20000 }).toBe(0);
+    await expect(page.locator('.pl-intel.on')).toHaveCount(1);
+    await page.locator('.pl-intel').click();
+    const sheet = page.locator('[data-intel-sheet]');
+    await expect(sheet.locator('[data-intel="blueprints"]')).toContainText('known from before');
+    await expect(sheet.locator('[data-intel="guardRota"]')).toContainText('known from before');
+    await page.screenshot({ path: 'screenshots/planning-intel.png' });
+    await sheet.getByRole('button', { name: 'Done' }).click();
+    await expect(sheet).toHaveCount(0);
+    expect(errors).toEqual([]);
+});

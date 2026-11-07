@@ -178,7 +178,7 @@ export {
 } from './rules/npc/behaviour';
 export { committedEnd, reconsider } from './rules/npc/intent';
 export {
-    blueprint, crewPicture, floorKnowledge, officerMarkers, officerSeen, registerLookout, type OfficerKnowledge, type OfficerMarker, type Lookout, isKnownNow, isUnknownRisk, knownBlockers, knownDoorStatus, knownNpcIds, knownView, markerKind, noticedUnseen, onRoutine,
+    blueprint, crewPicture, floorKnowledge, intelOf, officerMarkers, officerSeen, registerLookout, type OfficerKnowledge, type OfficerMarker, type Lookout, isKnownNow, isUnknownRisk, knownBlockers, knownDoorStatus, knownNpcIds, knownView, markerKind, noticedUnseen, onRoutine,
     tileVisibility, visibilityMap, VISIBILITY, type TileVisibility, doorDoubt, doorMayRefuse, mayLookIntoHidden, narrowDoubt, previewCertain, sightDoubted, viewDoubted, withDoubtedShut, withLayoutCameras, withPicturedDoors,
     type DoorDoubt,
     projectEvents, projectPreviewEvents, unknownReach, unknownWatcher, unknownWatchers, updateKnowledge, type UnknownOptions, type UnknownWatcher, type Blueprint, type FloorKnowledge, type Intel, type Knowledge, type KnownCamera,

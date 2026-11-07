@@ -1557,12 +1557,12 @@ M2 is complete: every package below has landed.
     starts a heist, shows only the NPCs play shows at turn 1, asks before overwriting a saved heist (and goes back on
     Keep planning), and the outcome's New heist goes to planning (`screenshots/planning.png`,
     `planning-assets.png`, `planned-heist.png`). No visual baseline changed.
-  - **Deferred:** the other §18.2 assets: Blueprints and Guard rota (M5-03), Inside man (M5-02), Stash drop (needs Gear
+  - **Deferred:** the other §18.2 assets: Blueprints and Guard rota (done in M5-03), Inside man (M5-02), Stash drop (needs Gear
     up and a stash to take from), Cut phone line (M5-04's phone line), Tow truck (police arriving by side), pre-placed
     charges (a remote detonator), staff uniforms (M5-04), the Silent and Beast drills (M6), the Medic bag (shared
     medkits in the van), the generator and breaker (M4-03); Gear up, and so packing a long gun or armour in planning;
     the backup car's and ram truck's own art (M4-04's deferral; the car wears the longer van's); the campaign's money,
-    roster and contract crew size (M6-02, M6-03, M6-04) and intel on the planning screen (M5-03); dragging assets onto
+    roster and contract crew size (M6-02, M6-03, M6-04) and intel on the planning screen (done in M5-03); dragging assets onto
     the map (they are tapped); the shadow the generator's van leaves baked at its spot when the plan parks it elsewhere
     (as after a drive).
   - **M4 is complete apart from its partials' deferrals.**
@@ -1620,10 +1620,29 @@ M2 is complete: every package below has landed.
     wall, vent,
     scaffolding, records, cleaner's keys, check-ins, manager's PC: their mechanics are the map's or other packages');
     the guidance toggle on a settings screen (§19.9; it lives in the journal).
-- [ ] **M5-03 Knowledge across days.**
+- [x] **M5-03 Knowledge across days.** (partial: see Deferred)
   - **Covers:** §17.8.
   - **Work:** the Blueprints and Guard rota assets; casing persisting between days; intel shown on the planning screen.
   - **Depends on:** M4-07.
+  - **Done:** decisions 400–404. The rules' `Intel` (`World.intel`, rules/knowledge.ts) is all the crew knows of a bank
+    before a heist: the Blueprints and the Guard rota, and the casing of earlier heists there (the tiles seen, the
+    routines learned, the opportunities found, with how). A heist starts knowing it: the tiles seen stale (their
+    layout, rooms and cameras), the routines predicted from turn 1 as the rota's are, the finds in the journal (turn 0);
+    nothing that moves or belongs to the day (who stands where, doors, feeds, codes). `intelOf(world, state)` gives the
+    heist's intel back, grown (`Knowledge.routines` keeps every routine ever known). `src/game/intel.ts` keeps it per
+    bank (`intelKey`, by `bankPrint`), merging (`mergeIntel`) as the Session saves; planning loads it (`loadIntel`,
+    checked by `intelProblem`) into `HeistSetup.intel`. The planner sells the Blueprints ($2k, 1) and the Guard rota
+    ($3k, 1), paid as bought; the planning map draws the start's tiles as play does at turn 1 (`startView.visibility`)
+    with the intel and the intel assets; the top strip's Intel chip opens what the intel holds (`intelSummary`).
+  - **Tests:** `tests/game/intel.test.ts`; the shape sample in `tests/sim/save.test.ts`; `e2e/planning.spec.ts` buys
+    both assets, starts, and plans the next heist with the intel (`screenshots/planning-intel-assets.png`,
+    `planning-intel.png`). Save shape hash `6a302cf30755c37c`. No visual baseline changed (nothing new at the start of an
+    unplanned heist or in the viewer).
+  - **Deferred:** days (M6-01): a bank's intel only grows here; a rota or schedule that changes between days, a routine
+    whose NPC isn't on today's roster and intel that goes stale are the campaign's to drop. The Guard rota's check-in
+    times (the guards' radio check-ins shown in planning or the HUD); money that stays spent (an intel asset bought and the
+    planning page reloaded is bought again; M6-03); the journal marking finds from earlier heists apart from today's;
+    pruning old banks' intel from storage; the other §18.2 assets (as M4-07 lists them).
 - [x] **M5-04 Generator content for the rules.** (partial: see Deferred)
   - **Work:** desk phones and their owners; the phone line; uniforms in the break room; keycards as items; the deposit-box intel box; a hook for placing side objectives (needed by M6).
   - **Missing interactables (found in M1-02):** the catalog has no desk phones or phone-line point (the line §9.1's calls go out on), and no vault wiring box; `worldFromBank` derives no objects for them until they are props.
@@ -2898,7 +2917,7 @@ Later milestones: within each milestone, the `∥` notes in §3 apply. UI packag
     predicted one translucent), recomputed after each change to a playable plan, and the vehicles stand where the plan
     parks them. Cash is spent only at Start, so what a paid start would see shows only once the heist starts: renting
     the nest, looking and giving it back scouts nothing (re-review). Guard posts and anyone else unknown stay hidden
-    until intel (M5-03).
+    until intel (M5-03: decisions 401, 402).
 329. **A plan from the address is checked whole (M4-07 re-review).** `setupShapeProblem` refuses anything but a
     `HeistSetup`'s exact fields and types: unknown keys, items that aren't items, other than two gadget slots (§7.3), a
     start that isn't one (`aboard` a boolean, the nest with nothing else), `nest` not a boolean, a vehicle type that
@@ -3014,6 +3033,36 @@ Later milestones: within each milestone, the `∥` notes in §3 apply. UI packag
     rules': Full (when, where, Show), Minimal (text) or Off (text, no badge, no bark), kept in `localStorage`, Full by
     default (§22's first banks).
 
+400. **Intel is everything known before the heist (M5-03, §17.8).** The rules' `Intel` (`World.intel`) holds the intel
+    bought (Blueprints, Guard rota) and the casing of earlier heists in the bank: the tiles seen (a bitset as
+    `Knowledge.seen`), the NPCs whose routine was known (`Knowledge.routines`: every routine known at any time in a
+    heist, kept after the NPC leaves it), the opportunities found and how. A heist starts with the tiles seen stale (their
+    layout and furniture, the rooms and the cameras on them), the routines known as the rota's are (predicted from turn 1,
+    known again whenever back on them) and the finds in `opportunitiesFound` at turn 0 (wired in: the drawer card, the
+    bribe, the technician's card). Nothing that moves or belongs to the day carries: no NPC where it stood, no door as it
+    stood, no feed status (the CCTV room is scouted only by a tile of it in view in this heist, `scoutCctv`, so a room
+    cased yesterday tells nothing of today's monitors), no codes (the note is read again), keycards, evidence or the
+    intel box. Stale tiles stay where unknown NPCs may stand (unknown risk), so the safe floor promises nothing the
+    casing doesn't. `intelOf(world, state)` is the heist's intel grown by what it learned.
+401. **The intel assets are paid as they are bought (M5-03, §18.2).** Blueprints ($2k, 1 favour) and Guard rota ($3k, 1)
+    are planning assets. The planning map shows what they tell at once (planning shows what the assets bought and the
+    intel justify), so a bought one can't be given back (its button is disabled), and one that would go over the cash or
+    the favours can't be bought; one known from an earlier heist is ticked and free, and a plan buying it again is
+    refused. Decision 328 holds for the starts: renting the nest and giving it back still scouts nothing. **Accepted:**
+    the sandbox's cash isn't kept (M6-03), so reloading the planning page forgets a purchase not started, though the
+    player has seen what it showed.
+402. **The planning map draws the start's knowledge (M5-03).** `startView` also gives each tile's visibility at turn 1
+    from the free starts with the intel and the intel assets (`freeSetup` keeps them); the scene draws its hidden tiles
+    as play does (`Knowledge.showHidden`, a predicted NPC over the block) in place of the blueprint's room outlines.
+403. **Intel is kept per bank and only grows (M5-03).** `src/game/intel.ts` keeps it under `intel:` and the bank's print
+    (a hash of its World without the plan's vehicles and intel), so a generator change that rebuilds the bank under the
+    same address never shows yesterday's layout. The Session merges `intelOf` into it after each save that grew it (a
+    failure never fails the save); the planning screen loads it (`loadIntel` refuses anything `intelProblem` doesn't read
+    as this bank's: routines of its people, its own opportunities, a tile set of its size). Unplanned heists (`/`, the M1
+    crew) add to it but never start from it, so M1 plays as before. Days, and forgetting, are M6-01's.
+404. **The plan carries its intel (M5-03).** `HeistSetup` gains `blueprints`, `guardRota` (bought now) and `intel` (known
+    from before); the address carries them, `setupShapeProblem` refuses a plan without them (an older address goes back
+    to planning) and `setupProblems` checks the intel against the bank. `heistIntel` is what the heist starts knowing.
 340. **Validation sees with the rules (M5-01, §17.7).** The checks of what is seen run on the World the game builds from
     the bank (`worldFromBank`) in its state on turn 1 (`initialState`: everyone where they start, the doors as they
     start), through `src/sim/geo`: §8.3's arcs and ranges, darkness halving them, cameras blind on an unlit tile, the

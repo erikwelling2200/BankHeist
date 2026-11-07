@@ -1,6 +1,6 @@
 import { HEADLINE_NAMES, type GeneratedBank } from '../gen/model';
 import { TIER_SPECS } from '../gen/tiers';
-import { ARCHETYPE_NAMES, PLOT_NAMES } from './names';
+import { ARCHETYPE_NAMES, PLOT_NAMES, ROLE_NAMES } from './names';
 
 /**
  * The briefing for a generated bank (§17.2 step 8): the bank, its headline features, the vault and its keys (the
@@ -93,7 +93,3 @@ function el(tag: string, className = '', text?: string): HTMLElement {
 }
 
 const NEIGHBOUR_NAMES: Record<string, string> = { cafe: 'café', vacantShop: 'vacant shop', garage: 'parking garage', buildingSite: 'building site', shop: 'shop', tower: 'office tower (sniper nest)' };
-const ROLE_NAMES: Record<string, string> = {
-    headTeller: 'head teller', lobbyGuard: 'lobby guard', patrolGuard: 'patrol guard', chief: 'security chief', operator: 'CCTV operator', 'passer-by': 'passer-by',
-    clerk: 'clerk', counter: 'cash counter', archivist: 'archivist', technician: 'ATM technician'
-};

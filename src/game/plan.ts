@@ -1,9 +1,10 @@
 import type { GeneratedBank, GenRoom } from '../gen/model';
 import {
-    facingToward, footprint, markerKind, freezeWorld, initialState, ITEMS, maxProfile, newId, tileAt, VEHICLES, wallBetween, worldFromBank, type CrewStart,
-    type Facing, type ItemId, type MarkerKind, type Pose, type Pos, type Profile, type ReadonlyWorld, type State, type Trait, type VehicleDef, type VehicleType
+    facingToward, footprint, markerKind, freezeWorld, initialState, ITEMS, maxProfile, newId, tileAt, VEHICLES, visibilityMap, wallBetween, worldFromBank, type CrewStart,
+    type Facing, type Intel, type ItemId, type MarkerKind, type Pose, type Pos, type Profile, type ReadonlyWorld, type State, type Trait, type VehicleDef, type VehicleType
 } from '../sim';
 import { crewStarts } from './heist';
+import { intelProblem, noIntel } from './intel';
 
 /*
  * Planning a heist (GAME_DESIGN §18, implementation plan M4-07): the crew and their loadouts, where each starts, where
@@ -17,7 +18,10 @@ import { crewStarts } from './heist';
  *   long gun once it is rented.
  * - **Vehicles** (§18.1, §15.4): the van always, the backup car and the ram truck when bought, each at its own getaway
  *   spot the generator offers, parked where its whole footprint fits nearest the spot (decision 320).
- * - **Assets** (§18.2) with their cash and favour costs: those the rules can carry out so far (`ASSETS`).
+ * - **Assets** (§18.2) with their cash and favour costs: those the rules can carry out so far (`ASSETS`). The intel
+ *   assets (Blueprints, Guard rota) are paid as they are bought, since the map shows what they tell at once (decision 401).
+ * - **Intel** (§17.8, M5-03): what the crew knows of the bank before it starts, from earlier heists in it and intel
+ *   bought then (src/game/intel.ts), which the heist starts knowing.
  */
 
 /** A member of the sandbox roster: §3's crew, their traits and the loadout they bring unless changed (decision 322). */
@@ -68,6 +72,8 @@ export interface CrewPlan { id: string; loadout: Loadout; start: StartPick }
 
 /** The planning assets the rules can carry out so far (§18.2), with their cost in cash and favours. */
 export const ASSETS = {
+    blueprints: { name: 'Blueprints', short: 'Plans', cost: 2000, favours: 1 },
+    guardRota: { name: 'Guard rota', short: 'Rota', cost: 3000, favours: 1 },
     ramTruck: { name: 'Ram truck', short: 'Ram', cost: 8000, favours: 2 },
     car: { name: 'Backup car', short: 'Car', cost: 6000, favours: 1 },
     nest: { name: 'Sniper nest rental', short: 'Nest', cost: 6000, favours: 2 },
@@ -75,6 +81,9 @@ export const ASSETS = {
 } as const satisfies Record<string, { name: string; short: string; cost: number; favours: number }>;
 
 export type AssetId = keyof typeof ASSETS;
+
+/** The assets that are knowledge (§18.2): what they tell shows on the planning map as soon as they are bought. */
+export const INTEL_ASSETS: readonly AssetId[] = ['blueprints', 'guardRota'];
 
 /** "You can only call in so many favours before someone notices" (§18.1). */
 export const FAVOUR_CAP = 8;
@@ -94,11 +103,18 @@ export interface HeistSetup {
     jammer: Pos | null;
     /** The sniper nest is rented (§18.2). */
     nest: boolean;
+    /** The Blueprints and the Guard rota bought for this heist (§18.2). */
+    blueprints: boolean;
+    guardRota: boolean;
+    /** What the crew knows of the bank from earlier heists in it (M5-03, src/game/intel.ts); `{}` for nothing. */
+    intel: Intel;
 }
 
 /** The assets a setup buys. */
 export function assetsOf(setup: HeistSetup): AssetId[] {
     const out: AssetId[] = [];
+    if (setup.blueprints) out.push('blueprints');
+    if (setup.guardRota) out.push('guardRota');
     if (setup.vehicles.ramTruck !== undefined) out.push('ramTruck');
     if (setup.vehicles.car !== undefined) out.push('car');
     if (setup.nest) out.push('nest');
@@ -204,19 +220,24 @@ export function jammerSpot(options: PlanOptions, p: Pos): boolean {
     return false;
 }
 
-/** The plan the screen opens with: §3's four, two walking up from the van, two waiting in it; nothing bought. */
-export function defaultSetup(options: PlanOptions): HeistSetup {
+/**
+ * The plan the screen opens with: §3's four, two walking up from the van, two waiting in it; nothing bought; what the
+ * crew knows of the bank already (`intel`, src/game/intel.ts `loadIntel`).
+ */
+export function defaultSetup(options: PlanOptions, intel: Intel = {}): HeistSetup {
     const van = options.spots.van[0];
     if (!van) throw new Error('This bank has no spot for the van');
     return {
         crew: ROSTER.map(m => ({ id: m.id, loadout: structuredClone(m.loadout), start: { at: 'van', aboard: m.id === 'dex' || m.id === 'sol' } })),
         vehicles: { van: van.id },
         jammer: null,
-        nest: false
+        nest: false,
+        blueprints: false,
+        guardRota: false,
+        intel: structuredClone(intel)
     };
 }
 
-/** Why a setup can't be played, as the screen says it; empty when it can. */
 /**
  * Why a value isn't a `HeistSetup` at all (one from the address may be anything), or undefined: exactly the fields of
  * the type, each of its type, two gadget slots (§7.3), the van always.
@@ -226,8 +247,8 @@ export function setupShapeProblem(value: unknown): string | undefined {
     const keys = (v: Record<string, unknown>, allowed: readonly string[]) => Object.keys(v).every(k => allowed.includes(k));
     const item = (v: unknown) => v === null || (typeof v === 'string' && Object.hasOwn(ITEMS, v));
     const whole = (v: unknown) => typeof v === 'number' && Number.isInteger(v);
-    if (!record(value) || !keys(value, ['crew', 'vehicles', 'jammer', 'nest'])) return 'not a plan';
-    const { crew, vehicles, jammer, nest } = value;
+    if (!record(value) || !keys(value, ['crew', 'vehicles', 'jammer', 'nest', 'blueprints', 'guardRota', 'intel'])) return 'not a plan';
+    const { crew, vehicles, jammer, nest, blueprints, guardRota, intel } = value;
     if (!Array.isArray(crew)) return 'no crew';
     for (const c of crew as unknown[]) {
         if (!record(c) || !keys(c, ['id', 'loadout', 'start']) || typeof c.id !== 'string') return 'a crew member who is no one';
@@ -242,9 +263,12 @@ export function setupShapeProblem(value: unknown): string | undefined {
     for (const [k, v] of Object.entries(vehicles)) if (!Object.hasOwn(VEHICLES, k) || typeof v !== 'string') return `no vehicle '${k}'`;
     if (jammer !== null && (!record(jammer) || !keys(jammer, ['x', 'y']) || !whole(jammer.x) || !whole(jammer.y))) return 'the jammer is nowhere';
     if (typeof nest !== 'boolean') return 'the nest is neither rented nor not';
+    if (typeof blueprints !== 'boolean' || typeof guardRota !== 'boolean') return 'the intel bought is neither bought nor not';
+    if (!record(intel)) return 'no intel';
     return undefined;
 }
 
+/** Why a setup can't be played, as the screen says it; empty when it can. */
 export function setupProblems(setup: HeistSetup, options: PlanOptions): string[] {
     const shape = setupShapeProblem(setup);
     if (shape) return [`The plan can't be read: ${shape}`];
@@ -279,7 +303,21 @@ export function setupProblems(setup: HeistSetup, options: PlanOptions): string[]
     if (setup.nest && inNest > options.nest.length) out.push('The nest has no room for everyone');
     if (setup.nest && !options.nestRoom) out.push('This bank has no nest to rent');
     if (setup.jammer && !jammerSpot(options, setup.jammer)) out.push('The jammer must stand outside, next to the building');
+    const intel = intelProblem(setup.intel, options.world);
+    if (intel) out.push(`The intel can't be read: ${intel}`);
+    else {
+        if (setup.blueprints && setup.intel.blueprints) out.push('The crew has the blueprints already');
+        if (setup.guardRota && setup.intel.guardRota) out.push('The crew has the guard rota already');
+    }
     return out;
+}
+
+/** What the heist starts knowing (§17.8): the intel of earlier heists and the intel bought for this one. */
+export function heistIntel(setup: HeistSetup): Intel {
+    const intel = structuredClone(setup.intel);
+    if (setup.blueprints) intel.blueprints = true;
+    if (setup.guardRota) intel.guardRota = true;
+    return intel;
 }
 
 /** The ids each crew vehicle has in the rules. */
@@ -297,7 +335,8 @@ export function heistFromSetup(bank: GeneratedBank, setup: HeistSetup, options: 
         const spot = options.spots[type].find(s => s.id === setup.vehicles[type])!, spec = VEHICLES[type];
         return { id: VEHICLE_IDS[type], type, name: spec.name, width: spec.width, length: spec.length, start: { ...spot.pose } };
     });
-    const world = freezeWorld({ ...built, vehicles } as typeof built);
+    const intel = heistIntel(setup);
+    const world = freezeWorld({ ...built, vehicles, ...(noIntel(intel) ? {} : { intel }) } as typeof built);
     const crew: CrewStart[] = [];
     const start = (c: CrewPlan, pos: Pos, facing: Facing, aboard?: string): void => {
         const m = rosterMember(c.id)!;
@@ -329,31 +368,45 @@ export function heistFromSetup(bank: GeneratedBank, setup: HeistSetup, options: 
     return { world, state };
 }
 
+/** What the planning map shows of a heist's start (`startView`). */
+export interface StartView {
+    /** Each NPC the crew sees or predicts at turn 1, by id, as play draws it. */
+    npcs: Record<string, MarkerKind>;
+    vehicles: State['vehicles'];
+    /** Each tile's visibility code at turn 1 (`visibilityMap`, row-major): hidden tiles are drawn as unknown. */
+    visibility: Uint8Array;
+}
+
 /**
- * What the planning map shows of a planned heist's start (§17.8, decision 328): each NPC the crew sees or predicts at
- * turn 1 from the free starts (`freeSetup`), by how the play scene draws it (`markerKind`), and the vehicles where
+ * What the planning map shows of a planned heist's start (§17.8, decisions 328 and 402): each NPC the crew sees or
+ * predicts at turn 1 from the free starts (`freeSetup`), by how the play scene draws it (`markerKind`), each tile as
+ * the crew knows it then (the blueprint's layout, the intel's casing, what the free starts see), and the vehicles where
  * the plan parks them.
  */
-export function startView(bank: GeneratedBank, setup: HeistSetup, options: PlanOptions): { npcs: Record<string, MarkerKind>; vehicles: State['vehicles'] } {
+export function startView(bank: GeneratedBank, setup: HeistSetup, options: PlanOptions): StartView {
     const { world, state } = heistFromSetup(bank, freeSetup(setup), options);
     const npcs: Record<string, MarkerKind> = {};
     for (const n of state.npcs) {
         const kind = markerKind(world, state, n.id);
         if (kind) npcs[n.id] = kind;
     }
-    return { npcs, vehicles: heistFromSetup(bank, setup, options).state.vehicles };
+    return { npcs, vehicles: heistFromSetup(bank, setup, options).state.vehicles, visibility: visibilityMap(world, state).slice() };
 }
 
 /**
- * The plan with nothing bought (decision 328): the van alone, no nest, no jammer, everyone who started by or in a
- * bought vehicle or the nest in the van. What the crew sees from the free starts is all planning may show; what a paid
- * start would reveal shows only once the heist starts, so renting and giving back scouts nothing.
+ * The plan with no start bought (decisions 328, 401): the van alone, no nest, no jammer, everyone who started by or in a
+ * bought vehicle or the nest in the van. What the crew sees from the free starts is all planning may show of the bank
+ * at turn 1; what a paid start would reveal shows only once the heist starts, so renting and giving back scouts
+ * nothing. The intel stays: the earlier heists' and the intel assets, paid as they are bought.
  */
 export function freeSetup(setup: HeistSetup): HeistSetup {
     return {
         crew: setup.crew.map(c => ({ ...c, start: c.start.at === 'van' ? c.start : { at: 'van', aboard: c.start.at === 'nest' || c.start.aboard } })),
         vehicles: { van: setup.vehicles.van },
         jammer: null,
-        nest: false
+        nest: false,
+        blueprints: setup.blueprints,
+        guardRota: setup.guardRota,
+        intel: setup.intel
     };
 }
