@@ -51,8 +51,11 @@ export interface Visit {
 export interface Job {
     /** The crew's ids: each takes their share of the take. */
     crew: string[];
-    /** The gear they carry in (item ids, a count each), out of the armoury until they come back with it. */
-    gear: string[];
+    /**
+     * The gear each of them carries in (item ids, a count each), by crew id: out of the armoury until they come back
+     * with it. Only their own comes back (decision 482): never what they picked up in the bank.
+     */
+    kits: Record<string, string[]>;
     stakes: Stakes;
 }
 
@@ -113,8 +116,11 @@ export type CampaignCommand =
     | { kind: 'layLow' }
     /** What the visit of `day` to `bank` has learned so far (the heist's whole intel; what was known before is left out). */
     | { kind: 'learn'; bank: string; day: number; intel: Intel }
-    /** The heist of `day` ended: the loot's value that left (`take`) and the gear that came back with those who escaped (`kept`). */
-    | { kind: 'heistOver'; day: number; result: HeistResult; take?: number; kept?: string[] }
+    /**
+     * The heist of `day` ended: the loot's value that left (`take`) and, by crew id, the gear each who escaped still
+     * carries unused (`kept`).
+     */
+    | { kind: 'heistOver'; day: number; result: HeistResult; take?: number; kept?: Record<string, string[]> }
     /** An intel asset bought on the planning screen for the bank's heist (decision 401): paid now, known from now. */
     | { kind: 'buyIntel'; bank: string; asset: IntelAsset; cost: number; favours: number }
     /** Gear from the black market, into the armoury. */
@@ -188,8 +194,13 @@ function jobRefusal(c: Campaign, job: Job | undefined, cost: number | undefined)
     if (!job) return undefined;
     if (!job.crew.length || new Set(job.crew).size !== job.crew.length || job.crew.some(id => !Object.hasOwn(c.shares, id))) return 'Not the crew';
     if (!STAKES.includes(job.stakes)) return 'No stakes';
-    return gearRefusal(c, job.gear);
+    const ids = Object.keys(job.kits);
+    if (ids.length !== job.crew.length || ids.some(id => !job.crew.includes(id))) return 'Not the crew';
+    return gearRefusal(c, jobGear(job));
 }
+
+/** All the gear a job takes in, every kit together. */
+export const jobGear = (job: DeepReadonly<Job>): string[] => job.crew.flatMap(id => job.kits[id] ?? []);
 
 /** The fence's cut now, in percent: more once the "Nervous fence" complication has landed (§19.2). */
 export const fenceCut = (c: DeepReadonly<Campaign>): number => FENCE_CUT + (landedComplications(c).includes('nervousFence') ? NERVOUS_FENCE_CUT : 0);
@@ -288,7 +299,7 @@ export function commitCampaign(campaign: Campaign, cmd: CampaignCommand): { camp
                 if (cmd.cost) spend(c, events, 'heist', cmd.cost);
                 if (cmd.job) {
                     visit!.job = structuredClone(cmd.job);
-                    takeGear(c, events, cmd.job.gear);
+                    takeGear(c, events, jobGear(cmd.job));
                 }
             }
             c.days.push({ day, action: cmd.kind, ...(cmd.kind !== 'layLow' ? { bank: cmd.bank } : {}) });
@@ -324,7 +335,7 @@ export function commitCampaign(campaign: Campaign, cmd: CampaignCommand): { camp
                 v.payout = Math.max(0, take - shares);
                 c.money.dirty += v.payout;
                 events.push({ type: 'paid', day: v.day, take, shares, dirty: c.money.dirty });
-                returnGear(c, events, v.job.gear, cmd.kept ?? []);
+                returnGear(c, events, v.job, cmd.kept ?? {});
                 if (cmd.result === 'success' && v.job.stakes === 'high') {
                     c.contacts += 1;
                     events.push({ type: 'contact', contacts: c.contacts });
@@ -402,16 +413,21 @@ function takeGear(c: Campaign, events: CampaignEvent[], gear: readonly string[])
 }
 
 /**
- * Puts back what came back of a heist's gear: what the crew who escaped still carry, never more of an item than went in
- * (gear picked up in the bank isn't the crew's to keep). The rest was used, dropped or taken with whoever stayed.
+ * Puts back what came back of a heist's gear: crew member by crew member, what each who escaped still carries of their
+ * own kit, never more of an item than they took in. A gun picked up in the bank isn't the crew's to keep, and doesn't
+ * stand in for one lost (decision 482). The rest was used, dropped or taken with whoever stayed.
  */
-function returnGear(c: Campaign, events: CampaignEvent[], brought: readonly string[], kept: readonly string[]): void {
-    const back = countItems(kept.filter(isItem)), added: Record<string, number> = {};
-    for (const [id, n] of Object.entries(countItems(brought))) {
-        const k = Math.min(n, back[id] ?? 0);
-        if (!k) continue;
-        c.armoury[id] = (c.armoury[id] ?? 0) + k;
-        added[id] = k;
+function returnGear(c: Campaign, events: CampaignEvent[], job: Job, kept: Readonly<Record<string, readonly string[]>>): void {
+    const added: Record<string, number> = {};
+    for (const who of job.crew) {
+        if (!Object.hasOwn(kept, who) || !Array.isArray(kept[who])) continue;
+        const back = countItems(kept[who]!.filter(isItem));
+        for (const [id, n] of Object.entries(countItems(job.kits[who] ?? []))) {
+            const k = Math.min(n, Object.hasOwn(back, id) ? back[id]! : 0);
+            if (!k) continue;
+            c.armoury[id] = (c.armoury[id] ?? 0) + k;
+            added[id] = (added[id] ?? 0) + k;
+        }
     }
     if (Object.keys(added).length) events.push({ type: 'gear', added, removed: {} });
 }

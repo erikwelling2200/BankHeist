@@ -93,10 +93,11 @@ describe('the campaign save', () => {
         expect(broken(v => { v.armoury = { pistol: 0 }; })).toBe('the armoury is not gear');
         expect(broken(v => { v.armoury = { goldBar: 1 }; })).toBe('the armoury is not gear');
         expect(broken(v => { v.shares = { mara: 101 }; })).toBe('the shares are not shares');
-        const job = { crew: ['mara'], gear: ['pistol'], stakes: 'low' };
+        const job = { crew: ['mara'], kits: { mara: ['pistol'] }, stakes: 'low' };
         let paid = commitCampaign(c, { kind: 'heist', bank: 'b', job: job as never }).campaign;
         expect(campaignProblem(paid)).toBeUndefined();
-        expect(campaignProblem({ ...paid, visit: { ...paid.visit!, job: { ...job, gear: ['mask'] } } } as never)).toBe("the visit's job is no job");
+        expect(campaignProblem({ ...paid, visit: { ...paid.visit!, job: { ...job, kits: { mara: ['mask'] } } } } as never)).toBe("the visit's job is no job");
+        expect(campaignProblem({ ...paid, visit: { ...paid.visit!, job: { ...job, kits: { jun: ['pistol'] } } } } as never)).toBe("the visit's job is no job");
         expect(campaignProblem({ ...paid, visit: { ...paid.visit!, payout: 10 } })).toBe('the payout is no payout');
         paid = commitCampaign(paid, { kind: 'heistOver', day: 1, result: 'success', take: 1000 }).campaign;
         expect(campaignProblem(paid)).toBeUndefined();
@@ -347,7 +348,9 @@ describe("the campaign's money in planning and play (M6-03)", () => {
         const { tag } = campaignHeist(storage, s => { s.nest = false; });
         expect(tag.day).toBe(1);
         const c = loadCampaign(storage)!;
-        expect(c.visit!.job).toEqual({ crew: ['mara', 'jun', 'dex', 'sol'], gear: gearOf(defaultSetup(options)), stakes: 'low' });
+        const setup = defaultSetup(options);
+        expect(c.visit!.job).toEqual({ crew: ['mara', 'jun', 'dex', 'sol'], kits: Object.fromEntries(setup.crew.map(m => [m.id, gearOf({ ...setup, crew: [m] })])), stakes: 'low' });
+        expect(c.visit!.job!.kits.dex).toEqual(['shotgun', 'mediumArmour', 'breachCharge', 'flashbang']);
         expect(c.armoury).toEqual({});
         expect(campaignAct(storage, { kind: 'layLow' })).toMatchObject({ campaign: { armoury: {}, money: { clean: 24000, dirty: 0 } } });
     });
@@ -356,13 +359,19 @@ describe("the campaign's money in planning and play (M6-03)", () => {
         const storage = started();
         const { session, tag } = campaignHeist(storage);
         const keep = campaignKeeper(storage, tag);
-        // Sol escaped with his kit; the rest were taken.
-        const sol = session.state.crew.find(c => c.id === 'sol')!;
+        // Sol escaped with his kit and a shotgun off a guard; the rest were taken, Dex's shotgun with them.
+        const sol = { ...session.state.crew.find(c => c.id === 'sol')! };
+        sol.loadout = { ...sol.loadout, items: [...sol.loadout.items, 'shotgun'] };
         const ended = {
-            ...session.state, crew: session.state.crew.filter(c => c !== sol), escaped: [{ crew: sol, vehicle: 'van', turn: 3 }],
+            ...session.state, crew: session.state.crew.filter(c => c.id !== 'sol'), escaped: [{ crew: sol, vehicle: 'van', turn: 3 }],
             outcome: { result: 'partial', turn: 3, vehicle: 'van', escaped: ['sol'], arrested: ['mara', 'jun', 'dex'], dead: [], loot: [], value: 50000, ruined: 0, target: 75000, heat: 2 }
         } as typeof session.state;
-        expect(gearKept(ended).sort()).toEqual(['dmr', 'lightVest', 'medkit', 'pistol']);
+        expect(gearKept(session.world, ended).sol!.sort()).toEqual(['dmr', 'lightVest', 'medkit', 'pistol', 'shotgun']);
+        // A medkit comes back only unused: one use spent and the kit is gone (2 uses a kit).
+        const used = (medkits: number) => ({ ...ended, escaped: [{ ...ended.escaped[0]!, crew: { ...sol, wounds: { ...sol.wounds, medkits } } }] }) as typeof ended;
+        expect(sol.wounds.medkits).toBe(2);
+        expect(gearKept(session.world, used(1)).sol).not.toContain('medkit');
+        expect(gearKept(session.world, used(0)).sol).not.toContain('medkit');
         keep(session.world, ended);
         let c = loadCampaign(storage)!;
         expect(c.visit).toMatchObject({ result: 'partial', payout: 30000 });

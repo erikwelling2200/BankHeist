@@ -1704,16 +1704,16 @@ M2 is complete: every package below has landed.
     M6-07); Notoriety's and a talking prisoner's Squeeze wired from the roster (M6-04; the rules' `squeeze` command
     takes them) and the false tip from its side job (M6-02); the case day action's visit mode (M6-07; the rules spend
     the day and take what it learns); contracts and their banks (M6-02: the campaign plans the pinned bank); money
-    (done in M6-03, decisions 480–487: the campaign's planning screen spends the campaign's money, and an intel asset
+    (done in M6-03, decisions 480–488: the campaign's planning screen spends the campaign's money, and an intel asset
     bought there is paid at once and kept); the city map and its timeline (M6-06); a
     routine seen again in a heist renewing its date (decision 442 is strict); a population that changes between days
     (the bank's people are its seed's; intel drops day-bound parts all the same); the sandbox's free casing (decision
     406, no clock there).
 - [ ] **M6-02** Contracts by stakes; chain escalation; side objectives placed through M5-04 (§19.3, §19.5).
 - [x] **M6-03** Money, laundering, the fence, crew shares, the black market and contacts (§19.4). **∥** M6-02. (partial: see Deferred)
-  - **Done:** decisions 480–487. `src/campaign/money.ts` (the laundering rate, fronts, the fence's cut, the starting
+  - **Done:** decisions 480–488. `src/campaign/money.ts` (the laundering rate, fronts, the fence's cut, the starting
     cash, shares and kit, stakes by tier, the black market's prices); `src/campaign/campaign.ts`: `Campaign.money`
-    (clean, dirty), `fronts`, `contacts`, `armoury`, `shares`; the visit's `job` and `payout`; commands `buyIntel`,
+    (clean, dirty), `fronts`, `contacts`, `armoury`, `shares`; the visit's `job` (its crew's kits by id) and `payout`; commands `buyIntel`,
     `buy`, `buyFront`, `fence`, and `heist` / `heistOver` carrying the job, its cost, its take and the gear kept;
     `fenceCut`, `launderPerDay`, `favoursToday`. `src/game/campaign.ts`: the save at format 2 with the new fields'
     checks, `campaignPurse`, `campaignJob`, `buyCampaignIntel`, `gearKept`, the keeper sending the take and the gear.
@@ -3364,12 +3364,14 @@ Later milestones: within each milestone, the `∥` notes in §3 apply. UI packag
     address takes nothing it can't pay for. It opens on the default plan cut to the armoury (`fitArmoury`), and its
     loadouts offer what the armoury holds. The sandbox's purse stays $24k with free gear.
 482. **The take comes in once, as dirty money less the shares (M6-03, §15.5, §19.4).** The keeper sends the heist's
-    end with `State.outcome.value` (the loot that left, dye-pack losses already out) and the gear the escaped crew
-    still carry (`gearKept`); `heistOver` is taken once per visit (it has a result after), and the keeper then drops
+    end with `State.outcome.value` (the loot that left, dye-pack losses already out) and, crew member by crew member,
+    the gear the escaped still carry (`gearKept`), a medkit only unused (a member's kits share their uses,
+    `wounds.medkits`: only whole kits' worth left come back); `heistOver` is taken once per visit (it has a result after), and the keeper then drops
     the heist, so saving again, resuming or reloading counts nothing twice. Every crew member who went takes their
     share (floored to the dollar), whatever became of them: shares are agreed going in, so losing crew never pays.
-    A failure, or an abandoned heist, brings nothing in and loses all the gear brought in (§19.3); otherwise what the
-    escaped carry comes back, never more of an item than went in (a guard's gun picked up isn't the crew's).
+    A failure, or an abandoned heist, brings nothing in and loses all the gear brought in (§19.3); otherwise each who
+    escaped brings back what they still carry of their own kit (`Job.kits`, by crew id), never more of an item than
+    they took in: a gun picked up in the bank isn't the crew's, and doesn't stand in for one lost (M6-03 review).
 483. **Laundering (M6-03, §19.4).** Each day spent launders up to $60k of dirty money, $60k more per front ($150k
     clean each), as the day is spent: a heist's take, coming in later that day, is laundered from the next day action.
     The fence launders any whole amount at once for 50% (floored to the dollar), 65% once the "Nervous fence"
@@ -3394,6 +3396,11 @@ Later milestones: within each milestone, the `∥` notes in §3 apply. UI packag
     keeper drops the heist); the address can neither claim intel (decision 405) nor buy beyond the purse, and the rules
     check the money and gear again at Start (another tab may have spent them); a sandbox heist never reaches the
     campaign's money; a take is whole and never negative.
+488. **Walking away empty-handed is a partial, not a failure (M6-03 review, §15.4 "never a failure screen").** A
+    campaign heist the crew drives off from with nothing (or with less than the target) is a Partial: no failed job's
+    Squeeze, the gear carried out comes back, and what it learned is kept. It still spends its day (+2) and brings no
+    money, so it is accepted as intended: a heist can serve as casing the bank while keeping its gear, which a real
+    casing visit (M6-07, no combat) will also offer. Its scouting is paid in the day, as decision 441 asks.
 
 ### Critical files for implementation
 

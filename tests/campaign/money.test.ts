@@ -21,7 +21,9 @@ const run = (c: Campaign, ...cmds: CampaignCommand[]): { campaign: Campaign; eve
     return { campaign: c, events };
 };
 
-const ALL: Job = { crew: ['mara', 'jun', 'dex', 'sol'], gear: ['pistol', 'shotgun', 'mediumArmour', 'breachCharge'], stakes: 'medium' };
+const ALL: Job = { crew: ['mara', 'jun', 'dex', 'sol'], kits: { mara: [], jun: ['pistol'], dex: ['shotgun', 'mediumArmour', 'breachCharge'], sol: [] }, stakes: 'medium' };
+/** Mara alone, carrying `gear`. */
+const alone = (gear: string[], stakes: Job['stakes'] = 'medium'): Job => ({ crew: ['mara'], kits: { mara: gear }, stakes });
 const heist = (job: Job = ALL, cost = 0): CampaignCommand => ({ kind: 'heist', bank: 'b', job, cost });
 /** A campaign with money to spend. */
 const rich = (clean: number, dirty = 0): Campaign => ({ ...newCampaign(9), money: { clean, dirty } });
@@ -54,11 +56,14 @@ describe('a heist pays as it starts and is paid as it ends', () => {
     it("refuses a heist beyond the money, the armoury or the crew", () => {
         const c = newCampaign(1);
         expect(campaignRefusal(c, heist(ALL, 25000))).toBe('Not enough money');
-        expect(campaignRefusal(c, heist({ ...ALL, gear: ['shotgun', 'shotgun'] }))).toBe('Not enough shotgun in the armoury');
-        expect(campaignRefusal(c, heist({ ...ALL, gear: ['lmg'] }))).toBe('Not enough lmg in the armoury');
-        expect(campaignRefusal(c, heist({ ...ALL, gear: ['zipTies'] }))).toBe('Not gear');
-        expect(campaignRefusal(c, heist({ ...ALL, gear: ['__proto__'] }))).toBe('Not gear');
+        expect(campaignRefusal(c, heist(alone(['shotgun', 'shotgun'])))).toBe('Not enough shotgun in the armoury');
+        expect(campaignRefusal(c, heist(alone(['lmg'])))).toBe('Not enough lmg in the armoury');
+        expect(campaignRefusal(c, heist(alone(['zipTies'])))).toBe('Not gear');
+        expect(campaignRefusal(c, heist(alone(['__proto__'])))).toBe('Not gear');
         expect(campaignRefusal(c, heist({ ...ALL, crew: ['mara', 'mara'] }))).toBe('Not the crew');
+        // Every kit is a crew member's, and every crew member has one.
+        expect(campaignRefusal(c, heist({ ...alone([]), kits: { mara: [], jun: ['pistol'] } }))).toBe('Not the crew');
+        expect(campaignRefusal(c, heist({ ...ALL, kits: { mara: [] } }))).toBe('Not the crew');
         expect(campaignRefusal(c, heist({ ...ALL, crew: ['eve'] }))).toBe('Not the crew');
         expect(campaignRefusal(c, heist({ ...ALL, crew: [] }))).toBe('Not the crew');
         expect(campaignRefusal(c, heist(ALL, -1))).toBe('No price');
@@ -70,13 +75,13 @@ describe('a heist pays as it starts and is paid as it ends', () => {
         const take = 123457, shares = sharesOf(take, ALL.crew, c.shares);
         // Each share floored to the dollar: 10%, 8%, 10% and 12%.
         expect(shares).toBe(12345 + 9876 + 12345 + 14814);
-        const r = run(c, { kind: 'heistOver', day: 1, result: 'partial', take, kept: ['pistol', 'shotgun', 'shotgun', 'lmg'] });
+        const r = run(c, { kind: 'heistOver', day: 1, result: 'partial', take, kept: { jun: ['pistol'], dex: ['shotgun', 'lmg'], sol: ['shotgun'] } });
         c = r.campaign;
         expect(c.money.dirty).toBe(take - shares);
         expect(c.visit?.payout).toBe(take - shares);
         expect(r.events).toContainEqual({ type: 'paid', day: 1, take, shares, dirty: take - shares });
-        // Back: what went in and came out, never more than went in (a guard's gun is no one's to keep); the armour and
-        // the charge stayed behind.
+        // Back: each one's own kit that came out with them, never what they picked up (Dex's guard LMG, Sol's shotgun
+        // off a guard); the armour and the charge stayed behind.
         expect(c.armoury.pistol).toBe(2);
         expect(c.armoury.shotgun).toBe(1);
         expect(c.armoury.lmg).toBeUndefined();
@@ -84,11 +89,15 @@ describe('a heist pays as it starts and is paid as it ends', () => {
         expect(c.armoury.breachCharge).toBeUndefined();
         // Never twice.
         expect(campaignRefusal(c, { kind: 'heistOver', day: 1, result: 'success', take })).toBe('The heist is over already');
+        // A gun picked up doesn't stand in for one lost (decision 482): Jun's pistol stayed, Sol came out with a guard's.
+        const lost = run(run(newCampaign(1), heist()).campaign, { kind: 'heistOver', day: 1, result: 'partial', take: 0, kept: { sol: ['pistol', 'shotgun'], jun: [] } }).campaign;
+        expect(lost.armoury.pistol).toBe(1);
+        expect(lost.armoury.shotgun).toBeUndefined();
         expect(campaignRefusal(run(newCampaign(1), heist()).campaign, { kind: 'heistOver', day: 1, result: 'success', take: -5 })).toBe('No take');
     });
 
     it('a failure brings nothing in and loses the gear brought in (§19.3)', () => {
-        const c = run(newCampaign(1), heist(), { kind: 'heistOver', day: 1, result: 'failure', take: 50000, kept: ['pistol'] }).campaign;
+        const c = run(newCampaign(1), heist(), { kind: 'heistOver', day: 1, result: 'failure', take: 50000, kept: { jun: ['pistol'] } }).campaign;
         expect(c.money).toEqual({ clean: STARTING_CASH, dirty: 0 });
         expect(c.visit?.payout).toBeUndefined();
         expect(c.armoury.shotgun).toBeUndefined();
@@ -107,9 +116,9 @@ describe('a heist pays as it starts and is paid as it ends', () => {
         // Squeeze 36 on day 18: the abandoned job's +2 lands the Raid, and the new heist doesn't start.
         let c = newCampaign(4);
         for (let i = 0; i < 17; i++) c = commitCampaign(c, { kind: 'layLow' }).campaign;
-        c = commitCampaign(c, heist({ ...ALL, gear: ['pistol'] })).campaign;
+        c = commitCampaign(c, heist(alone(['pistol']))).campaign;
         expect(c.squeeze).toBe(36);
-        const r = run(c, heist({ ...ALL, gear: ['dmr'] }, 5000));
+        const r = run(c, heist(alone(['dmr']), 5000));
         expect(r.events.some(e => e.type === 'stopped')).toBe(true);
         expect(r.campaign.money.clean).toBe(c.money.clean);
         expect(r.campaign.armoury.dmr).toBe(1);
@@ -128,7 +137,7 @@ describe('laundering (§19.4)', () => {
         r = run(c, { kind: 'layLow' }, { kind: 'layLow' });
         expect(r.campaign.money).toEqual({ clean: 50000 + 200000, dirty: 0 });
         // A heist's day launders too, before its take comes in (as the day starts).
-        expect(run(rich(0, 10000), heist({ ...ALL, gear: [] })).campaign.money).toEqual({ clean: 10000, dirty: 0 });
+        expect(run(rich(0, 10000), heist(alone([]))).campaign.money).toEqual({ clean: 10000, dirty: 0 });
     });
 
     it('a front needs its price in clean money', () => {
@@ -182,7 +191,7 @@ describe('the black market and contacts (§19.4)', () => {
     it('opens its higher tiers with the first contact: one per successful high-stakes job', () => {
         const c = rich(10 ** 6);
         for (const item of ['heavyArmour', 'dmr', 'lmg']) expect(campaignRefusal(c, { kind: 'buy', item })).toBe('Needs a contact');
-        const high: Job = { crew: ['mara'], gear: [], stakes: 'high' };
+        const high = alone([], 'high');
         // A partial success, or a medium-stakes success, makes no contact.
         expect(run(c, heist(high), { kind: 'heistOver', day: 1, result: 'partial', take: 1 }).campaign.contacts).toBe(0);
         expect(run(c, heist({ ...high, stakes: 'medium' }), { kind: 'heistOver', day: 1, result: 'success', take: 1 }).campaign.contacts).toBe(0);

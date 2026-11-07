@@ -77,8 +77,8 @@ export function campaignProblem(value: unknown): string | undefined {
         if (!isRecord(s) || !exactKeys(s, ['kind', 'day', 'bank', 'prior'], ['result', 'job', 'payout']) || !['heist', 'case'].includes(s.kind as string) || !isDay(s.day)
             || typeof s.bank !== 'string' || (s.result !== undefined && (s.kind !== 'heist' || !RESULTS.includes(s.result as string)))) return 'the visit is no visit';
         const j = s.job;
-        if (j !== undefined && (s.kind !== 'heist' || !isRecord(j) || !exactKeys(j, ['crew', 'gear', 'stakes']) || !strings(j.crew) || !gear(j.gear)
-            || !STAKES.includes(j.stakes as never))) return "the visit's job is no job";
+        if (j !== undefined && (s.kind !== 'heist' || !isRecord(j) || !exactKeys(j, ['crew', 'kits', 'stakes']) || !strings(j.crew) || !isRecord(j.kits)
+            || !exactKeys(j.kits, j.crew) || !Object.values(j.kits).every(gear) || !STAKES.includes(j.stakes as never))) return "the visit's job is no job";
         // A take is paid in once, as a job ends other than in failure.
         if (s.payout !== undefined && (!whole(s.payout) || j === undefined || s.result === undefined || s.result === 'failure')) return 'the payout is no payout';
         const spent = days[(s.day as number) - 1] as Record<string, unknown> | undefined;
@@ -176,7 +176,8 @@ export function campaignPurse(campaign: DeepReadonly<Campaign>, world: ReadonlyW
 
 /** What a plan takes on as the campaign's heist (§19.4): its crew, their gear, the stakes of the bank's tier, and its assets' cost. */
 export function campaignJob(setup: HeistSetup, tier: string): { job: Job; cost: number } {
-    return { job: { crew: setup.crew.map(c => c.id), gear: gearOf(setup), stakes: TIER_STAKES[tier] ?? 'low' }, cost: spent(setup).cash };
+    const kits = Object.fromEntries(setup.crew.map(c => [c.id, gearOf({ ...setup, crew: [c] })]));
+    return { job: { crew: setup.crew.map(c => c.id), kits, stakes: TIER_STAKES[tier] ?? 'low' }, cost: spent(setup).cash };
 }
 
 /**
@@ -193,9 +194,20 @@ const takeOf = (state: DeepReadonly<State>): number => {
     return Number.isFinite(value) ? Math.max(0, Math.floor(value)) : 0;
 };
 
-/** The gear the crew who escaped carry out of a heist (their loadouts but the fixed items): what comes back to the armoury. */
-export function gearKept(state: DeepReadonly<State>): string[] {
-    return state.escaped.flatMap(e => e.crew.loadout.items.filter(id => isItem(id) && ITEMS[id].slot !== 'fixed'));
+/**
+ * The gear each crew member who escaped carries out of a heist, by crew id (their loadouts but the fixed items): what
+ * may come back to the armoury (the campaign takes back only their own kit). A medkit comes back only unused: a crew
+ * member's medkits share their uses (`wounds.medkits`, `rules.medkitUses` a kit), so only the whole kits' worth left.
+ */
+export function gearKept(world: ReadonlyWorld, state: DeepReadonly<State>): Record<string, string[]> {
+    const out: Record<string, string[]> = {};
+    for (const { crew } of state.escaped) {
+        const items = crew.loadout.items.filter(id => isItem(id) && ITEMS[id].slot !== 'fixed');
+        const kits = items.filter(id => id === 'medkit').length;
+        const unused = Math.min(kits, Math.floor(crew.wounds.medkits / Math.max(1, world.rules.medkitUses)));
+        out[crew.id] = [...items.filter(id => id !== 'medkit'), ...Array.from({ length: unused }, () => 'medkit')];
+    }
+    return out;
 }
 
 /**
@@ -220,7 +232,7 @@ export function campaignKeeper(storage: SaveStorage, tag: CampaignTag): IntelKee
         if (text !== kept) next = commitCampaign(next, { kind: 'learn', bank, day: tag.day, intel }).campaign;
         // Its end, with its take and the gear that came back: once, since a visit with a result takes no other (and drops the heist).
         if (ended && next.visit?.kind === 'heist' && !next.visit.result) {
-            next = commitCampaign(next, { kind: 'heistOver', day: tag.day, result: ended, take: takeOf(state), kept: gearKept(state) }).campaign;
+            next = commitCampaign(next, { kind: 'heistOver', day: tag.day, result: ended, take: takeOf(state), kept: gearKept(world, state) }).campaign;
         }
         if (next !== campaign && saveCampaign(storage, next)) kept = text;
         return undefined;
