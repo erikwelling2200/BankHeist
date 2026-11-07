@@ -4,7 +4,7 @@ import {
     type Facing, type Intel, type ItemId, type MarkerKind, type Pose, type Pos, type Profile, type ReadonlyWorld, type State, type Trait, type VehicleDef, type VehicleType
 } from '../sim';
 import { crewStarts } from './heist';
-import { intelProblem, noIntel } from './intel';
+import { intelProblem } from './intel';
 
 /*
  * Planning a heist (GAME_DESIGN §18, implementation plan M4-07): the crew and their loadouts, where each starts, where
@@ -312,6 +312,22 @@ export function setupProblems(setup: HeistSetup, options: PlanOptions): string[]
     return out;
 }
 
+/**
+ * A plan from the address (decision 405), or undefined when it can't be read or played: its intel is never the
+ * address's but `kept`, what this device keeps for the bank (src/game/intel.ts `loadIntel`), so an edited address can
+ * claim no casing and no asset it hasn't paid for in this plan.
+ */
+export function setupFromAddress(text: string, options: PlanOptions, kept: Intel): HeistSetup | undefined {
+    try {
+        const setup = JSON.parse(text) as HeistSetup;
+        if (setupShapeProblem(setup)) return undefined;
+        setup.intel = structuredClone(kept);
+        return setupProblems(setup, options).length ? undefined : setup;
+    } catch {
+        return undefined;
+    }
+}
+
 /** What the heist starts knowing (§17.8): the intel of earlier heists and the intel bought for this one. */
 export function heistIntel(setup: HeistSetup): Intel {
     const intel = structuredClone(setup.intel);
@@ -336,7 +352,8 @@ export function heistFromSetup(bank: GeneratedBank, setup: HeistSetup, options: 
         return { id: VEHICLE_IDS[type], type, name: spec.name, width: spec.width, length: spec.length, start: { ...spot.pose } };
     });
     const intel = heistIntel(setup);
-    const world = freezeWorld({ ...built, vehicles, ...(noIntel(intel) ? {} : { intel }) } as typeof built);
+    // A planned heist always carries its intel, none included: it is what makes it add to the bank's (decision 406).
+    const world = freezeWorld({ ...built, vehicles, intel } as typeof built);
     const crew: CrewStart[] = [];
     const start = (c: CrewPlan, pos: Pos, facing: Facing, aboard?: string): void => {
         const m = rosterMember(c.id)!;

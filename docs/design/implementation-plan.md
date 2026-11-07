@@ -1624,7 +1624,7 @@ M2 is complete: every package below has landed.
   - **Covers:** §17.8.
   - **Work:** the Blueprints and Guard rota assets; casing persisting between days; intel shown on the planning screen.
   - **Depends on:** M4-07.
-  - **Done:** decisions 400–404. The rules' `Intel` (`World.intel`, rules/knowledge.ts) is all the crew knows of a bank
+  - **Done:** decisions 400–406. The rules' `Intel` (`World.intel`, rules/knowledge.ts) is all the crew knows of a bank
     before a heist: the Blueprints and the Guard rota, and the casing of earlier heists there (the tiles seen, the
     routines learned, the opportunities found, with how). A heist starts knowing it: the tiles seen stale (their
     layout, rooms and cameras), the routines predicted from turn 1 as the rota's are, the finds in the journal (turn 0);
@@ -1638,6 +1638,8 @@ M2 is complete: every package below has landed.
     both assets, starts, and plans the next heist with the intel (`screenshots/planning-intel-assets.png`,
     `planning-intel.png`). Save shape hash `6a302cf30755c37c`. No visual baseline changed (nothing new at the start of an
     unplanned heist or in the viewer).
+  - **Must-do for M6-01:** price casing in days. Today a planned heist played a turn and abandoned keeps its casing,
+    so repeating heists in a bank scouts it for free (decision 406).
   - **Deferred:** days (M6-01): a bank's intel only grows here; a rota or schedule that changes between days, a routine
     whose NPC isn't on today's roster and intel that goes stale are the campaign's to drop. The Guard rota's check-in
     times (the guards' radio check-ins shown in planning or the HUD); money that stays spent (an intel asset bought and the
@@ -1673,6 +1675,7 @@ M2 is complete: every package below has landed.
 ### M6: Campaign
 
 - [ ] **M6-01** Campaign state and save; days; the Squeeze, its thresholds and complications (§19.2). Pure, in `src/campaign/`.
+  Must price casing (M5-03, decision 406): a heist abandoned after a turn keeps its intel for free today.
 - [ ] **M6-02** Contracts by stakes; chain escalation; side objectives placed through M5-04 (§19.3, §19.5).
 - [ ] **M6-03** Money, laundering, the fence, crew shares, the black market and contacts (§19.4). **∥** M6-02.
 - [ ] **M6-04** The roster: recruits, trait growth, injuries, jail, Notoriety and its decay, motives (§19.6, §19.7). In the rules, Notoriety raises the crew member's profile in `profile.ts`.
@@ -3063,6 +3066,14 @@ Later milestones: within each milestone, the `∥` notes in §3 apply. UI packag
 404. **The plan carries its intel (M5-03).** `HeistSetup` gains `blueprints`, `guardRota` (bought now) and `intel` (known
     from before); the address carries them, `setupShapeProblem` refuses a plan without them (an older address goes back
     to planning) and `setupProblems` checks the intel against the bank. `heistIntel` is what the heist starts knowing.
+405. **The address is never a source of intel (M5-03 review).** A plan from the address (`setupFromAddress`) has its
+    `intel` replaced by what this device keeps for the bank (`loadIntel`) before it is checked, so an edited address
+    claims no casing; the intel assets it buys are paid in that plan, as the cash check counts them.
+406. **Only a planned heist, once its first turn is played, adds to the bank's intel (M5-03 review).** A planned heist's
+    World always carries its intel (`{}` for none); the Session keeps intel only for such a World and only from turn 2,
+    so the M1 crew's heists and a heist started and left at once (a rented nest looked through and given back) scout
+    nothing. **Accepted until M6-01:** a planned heist played a turn or more, then abandoned with New heist, still keeps
+    its casing for nothing: repeating heists scouts for free.
 340. **Validation sees with the rules (M5-01, §17.7).** The checks of what is seen run on the World the game builds from
     the bank (`worldFromBank`) in its state on turn 1 (`initialState`: everyone where they start, the doors as they
     start), through `src/sim/geo`: §8.3's arcs and ranges, darkness halving them, cameras blind on an unlit tile, the

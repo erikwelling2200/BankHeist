@@ -9,10 +9,10 @@ import { BankScene } from './scenes/BankScene';
 import { OfficerScene } from './scenes/OfficerScene';
 import { PropSheetScene } from './scenes/PropSheetScene';
 import { Fullscreen } from './ui/Fullscreen';
-import { installDebugHandle, MemoryStorage, Session, webStorage } from './game';
+import { installDebugHandle, MemoryStorage, Session, webStorage, type SaveStorage } from './game';
 import { bankAddress, playPlan, sameAddress, savedHeist, startHeist } from './game/heist';
 import { loadIntel } from './game/intel';
-import { defaultSetup, planOptions, setupProblems, type HeistSetup } from './game/plan';
+import { defaultSetup, planOptions, setupFromAddress, type HeistSetup } from './game/plan';
 import { Planner } from './ui/planning/Planner';
 import type { BankData } from './level/bankData';
 import type { PlaySetup } from './scenes/BankScene';
@@ -219,7 +219,7 @@ async function preparePlay(params: URLSearchParams): Promise<{ bank: ReturnType<
     let target = storage;
     // A heist planned on the planning screen (`&setup=`, M4-07): started here, asking first if one is saved; a plan
     // that can't be read or played goes back to planning.
-    const planned = params.has('setup') ? plannedSetup(params.get('setup')!, generated) : undefined;
+    const planned = params.has('setup') ? plannedSetup(params.get('setup')!, generated, storage) : undefined;
     if (params.has('setup')) {
         const back = () => {
             location.replace(planAddress(generated));
@@ -259,14 +259,13 @@ async function preparePlay(params: URLSearchParams): Promise<{ bank: ReturnType<
     return { bank, setup: { session, bank: generated, resumed, setupMs } };
 }
 
-/** The plan in the address, if it reads as a setup this bank can play. */
-function plannedSetup(text: string, bank: GeneratedBank): HeistSetup | undefined {
-    try {
-        const setup = JSON.parse(text) as HeistSetup;
-        return setupProblems(setup, planOptions(bank)).length ? undefined : setup;
-    } catch {
-        return undefined;
-    }
+/**
+ * The plan in the address, if it reads as a setup this bank can play, knowing only the intel kept for the bank on this
+ * device: the address is never a source of intel (decision 405).
+ */
+function plannedSetup(text: string, bank: GeneratedBank, storage: SaveStorage): HeistSetup | undefined {
+    const options = planOptions(bank);
+    return setupFromAddress(text, options, loadIntel(storage, options.world));
 }
 
 /** The planning screen's address for a bank, keeping `still`. */

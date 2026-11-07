@@ -1,10 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import { startHeist } from '../../src/game/heist';
 import { bankPrint, intelKey, intelProblem, intelSummary, loadIntel, mergeIntel, noIntel, recordIntel } from '../../src/game/intel';
-import { ASSETS, defaultSetup, freeSetup, heistFromSetup, planOptions, setupProblems, spent, startView, type HeistSetup } from '../../src/game/plan';
+import { ASSETS, defaultSetup, heistFromSetup, setupFromAddress, planOptions, setupProblems, spent, startView, type HeistSetup } from '../../src/game/plan';
 import { MemoryStorage, Session } from '../../src/game';
 import {
-    commit, decodeBits, encodeBits, intelOf, markerKind, opportunitiesOf, preview, tileVisibility, VISIBILITY, type Intel, type ReadonlyWorld, type State
+    commit, crewPicture, dashBudget, decodeBits, moveBudget, encodeBits, intelOf, markerKind, opportunitiesOf, pathTo, preview, reachable, tileVisibility, visibilityMap, VISIBILITY, type Intel, type ReadonlyWorld, type State
 } from '../../src/sim';
 import { cachedBank } from '../bankCache';
 
@@ -49,6 +49,7 @@ describe('the intel assets (§18.2)', () => {
         expect(hidden(withIt.visibility)).toBe(0);
         const { world, state } = heistFromSetup(bank, plan(s => { s.blueprints = true; }));
         expect(world.intel).toEqual({ blueprints: true });
+        expect(heistFromSetup(bank, plan()).world.intel).toEqual({});
         expect(state.knowledge.rooms).toEqual(before(s => { s.blueprints = false; }).state.knowledge.rooms);
         // The layout, never who is in it: the same NPCs as without.
         expect(Object.keys(withIt.npcs).sort()).toEqual(Object.keys(without.npcs).sort());
@@ -67,12 +68,21 @@ describe('the intel assets (§18.2)', () => {
         const intel: Intel = { routines: [guards[0]!] };
         const paid = plan(s => {
             s.nest = true;
-            s.blueprints = true;
+            s.guardRota = true;
             for (const c of s.crew) c.start = c.id === 'sol' ? { at: 'nest' } : { at: 'van', aboard: true };
         }, intel);
-        const view = startView(bank, paid, options), free = heistFromSetup(bank, freeSetup(paid));
+        const view = startView(bank, paid, options);
+        // Worked out apart: the same crew all in the van, nothing rented, the same intel and the rota.
+        const free = heistFromSetup(bank, plan(s => {
+            s.guardRota = true;
+            for (const c of s.crew) c.start = { at: 'van', aboard: true };
+        }, intel));
         expect(Object.keys(view.npcs).sort()).toEqual(known(free.world, free.state));
-        expect(free.world.intel).toEqual({ blueprints: true, routines: [guards[0]] });
+        expect([...view.visibility]).toEqual([...visibilityMap(free.world, free.state)]);
+        // The heist itself, from the nest, knows more at once: what the map must not show before Start.
+        const real = heistFromSetup(bank, paid);
+        expect([...visibilityMap(real.world, real.state)]).not.toEqual([...view.visibility]);
+        expect(free.world.intel).toEqual({ guardRota: true, routines: [guards[0]] });
     });
 });
 
@@ -134,8 +144,42 @@ describe('intel across heists (M5-03)', () => {
     it('previews still agree with the outcome on a heist that starts with intel', () => {
         const intel: Intel = { seen: all(() => true), routines: guards.slice(0, 1), blueprints: true };
         const { world, state } = heistFromSetup(bank, plan(s => { s.guardRota = true; }, intel));
-        const cmd = { type: 'wait' as const, crew: 'mara' };
-        expect(preview(world, state, cmd).state).toEqual(commit(world, state, cmd).state);
+        const wait = { type: 'wait' as const, crew: 'mara' };
+        expect(preview(world, state, wait).state).toEqual(commit(world, state, wait).state);
+        // A move as far as Mara goes through tiles the intel knows only as stale: the preview is the outcome.
+        const mara = state.crew.find(c => c.id === 'mara')!, reach = reachable(world, crewPicture(world, state), mara.pos, dashBudget(world), { mover: 'mara' });
+        const far = [...reach.tiles].filter(t => t.canEnd && tileVisibility(world, state, t.pos) === 'stale').sort((a, b) => b.cost - a.cost)[0]!;
+        const move = { type: far.cost > moveBudget(world, mara) ? 'dash' as const : 'move' as const, crew: 'mara', path: pathTo(reach, far.pos)! };
+        expect(move.path.length).toBeGreaterThan(1);
+        const previewed = preview(world, state, move), done = commit(world, state, move);
+        expect(previewed.state).toEqual(done.state);
+        expect(done.state.crew.find(c => c.id === 'mara')!.pos).toEqual(far.pos);
+    });
+
+    it('the address is never a source of intel: only what this device keeps for the bank counts', () => {
+        const forged = plan(s => { s.intel = { blueprints: true, guardRota: true, seen: all(() => true), routines: bare.people.map(p => p.id) }; });
+        const text = JSON.stringify(forged);
+        // Nothing kept: the claim is ignored, and the heist starts knowing nothing it didn't pay for here.
+        const setup = setupFromAddress(text, options, {})!;
+        expect(setup.intel).toEqual({});
+        expect(heistFromSetup(bank, setup).world.intel).toEqual({});
+        // What is kept is what counts, whatever the address says.
+        const kept: Intel = { routines: [guards[0]!] };
+        expect(setupFromAddress(text, options, kept)!.intel).toEqual(kept);
+        // Assets bought in the plan are paid in it.
+        expect(spent(setupFromAddress(JSON.stringify(plan(s => { s.blueprints = true; })), options, {})!)).toEqual({ cash: 2000, favours: 1 });
+        expect(setupFromAddress('{', options, {})).toBeUndefined();
+    });
+
+    it('only a planned heist, once its first turn is played, adds to the bank\'s intel', () => {
+        const storage = new MemoryStorage();
+        const unplanned = startHeist(bank, storage);
+        unplanned.commit({ type: 'endTurn' });
+        expect(storage.get(intelKey(unplanned.world))).toBeNull();
+        const planned = startHeist(bank, storage, {}, plan());
+        expect(storage.get(intelKey(planned.world))).toBeNull();
+        planned.commit({ type: 'endTurn' });
+        expect(loadIntel(storage, planned.world).seen).toBe(planned.state.knowledge.seen);
     });
 
     it('merges records: bought once, bought; every tile, routine and find of either, in order', () => {

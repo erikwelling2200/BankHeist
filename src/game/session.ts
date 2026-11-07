@@ -636,9 +636,11 @@ export class Session {
 
     /**
      * Keeps what the crew has learned of this bank for later heists in it (M5-03, src/game/intel.ts), when it has
-     * grown since last kept. A failure to store it never fails the save.
+     * grown since last kept: only a planned heist's (its World carries intel, decision 406), and only once its first
+     * turn is played, so starting a heist and leaving at once scouts nothing. A failure to store it never fails the save.
      */
     private keepIntel(): void {
+        if (this.world.intel === undefined || this._state.turn <= 1) return;
         const intel = intelOf(this.world, this._state), text = stableJson(intel);
         if (text === this.intelKept) return;
         if (recordIntel(this.storage, this.world, intel) !== null) this.intelKept = text;
