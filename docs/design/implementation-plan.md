@@ -1595,7 +1595,8 @@ M2 is complete: every package below has landed.
   - **Work:** discovery triggers (eavesdropping within 2 tiles for 1 turn, document objects, intel); effects wired in (the keycard in the drawer, the propped fire door, the bribe, the IT tech's card, the vault code note); the Intel journal UI with Full, Minimal or Off guidance.
   - **Done:** `src/sim/rules/opportunities.ts` (decisions 380–388). `worldFromBank` makes each generated opportunity an
     `OpportunityDef` (`World.opportunities`: its speakers, its document, where and when it plays out, what it wires
-    in) and three `document` objects (the note by a monitor, the manager's papers, the records); the drawer keycard
+    in) and `document` objects (every stack of papers on the staff side, the note among them; the manager's papers;
+    the records); the drawer keycard
     object is in every bank with a manager's desk. Found ones are `State.opportunitiesFound` (in order, with how and
     when). Found by **eavesdropping** (a conversation in earshot for a whole turn: always chatter, the topic by
     chance), by
@@ -2953,17 +2954,23 @@ Later milestones: within each milestone, the `∥` notes in §3 apply. UI packag
     generated opportunity into an `OpportunityDef`; the crew's finds are `State.opportunitiesFound` (`{ id, how,
     turn }`, in order). The journal, the grid and the barks read only the finds; `opportunityFound` is a preview
     secret and blocks undo. Every heist has its journal button, whatever the bank holds.
-381. **Documents (M5-02).** Three `document` objects: the note by a monitor (the story's `sticky-note`), the manager's
-    papers (on his desk) and the records (the records room's first filing cabinet). A written opportunity is in the
-    note (its own), the records (`records`), else the papers, else the records. Every document can be read (1 action,
-    no illegal act: the zone judges being there), whether or not it tells anything, and reading is always final
-    (`documentRead`), so neither the offer, the refusal ("Read already") nor an undo tells what it held. The grid has
-    its own Read entry, so a document never hides behind the desk it lies on.
+381. **Documents (M5-02; re-review).** Every stack of papers on the staff side (`paperStack` props in Staff and Secure
+    rooms, all named "Papers": the sticky note is the one nearest the `sticky-note` vignette, among the coffee-stained
+    files and meeting notes the other vignettes leave), the manager's papers (on his desk) and the records (the records
+    room's first filing cabinet) are `document` objects, whether or not anything is written in them: a document that
+    existed only with its opportunity would give it away by being offered. A written opportunity is in the note (its
+    own), the records (`records`), else the manager's papers, else the records. Reading is 1 action, no illegal act
+    (the zone judges being there), and always final (`documentRead`), so neither the offer, the refusal ("Read
+    already") nor an undo tells what it held. The grid has its own Read entry, so a document never hides behind the
+    desk it lies on.
 382. **Eavesdropping (M5-02; review, re-review).** NPCs talk in conversations, as far as the crew can tell: a calm NPC
     on its feet, not under the crew's control, that the crew sees or predicts, with another such NPC in earshot, or at
     its own desk phone (the manager on the line). Someone the crew doesn't know of neither talks nor makes another
     talk, so chatter or its absence never tells of an unseen NPC (the first review's version found partners in the
-    truth, and sound turns corners: a hidden clerk round a wall made a seen teller talk). Talk reaches
+    truth, and sound turns corners: a hidden clerk round a wall made a seen teller talk). Known is judged on sight as
+    things stand at each sample (`knownAsNow`: in the crew's sight now, or on a routine it knows and still on it), not
+    on the stored knowledge, which a world phase brings up to date only once it is over (a talker who walked round a
+    wall in the phase would otherwise still count as seen). Talk reaches
     `rules.eavesdropRange` (2) steps (a diagonal where either way round the corner is open) through open air and open
     doors only: no wall, no glass, no shut door (sound, not sight). A crew member able to act who is in earshot of the
     same talker as one world phase ends, as the next begins and as it ends (a whole turn) overhears the conversation:
@@ -2980,12 +2987,13 @@ Later milestones: within each milestone, the `∥` notes in §3 apply. UI packag
     found; until then the grid has no entry and a take is refused as if there were no card. The card object is in
     every bank with a manager and his desk (`from`/`until` only when he leaves it), so a refusal by id tells nothing
     either.
-385. **The propped fire door (M5-02; review, re-review).** On his smoke break, calm and at his spot outside the back
-    door (the door whose edge touches it), the operator wedges it open (`propped`, `proppedBy`, `doorPropped`) once a
-    break (`wedgedOn`: a door the crew shuts again stays shut); it stays open while he is out, and if he never comes
-    back in. He pulls the wedge as his walk takes him in through that door (from its outside tile to its inside one);
-    back inside some other way after his break, he pulls it then; down outside, never. It then swings shut and locks as
-    doors do. A door an NPC propped is still doubtful to the crew (knowledge.ts `isDoubted`).
+385. **The propped fire door (M5-02; reviews).** On his smoke break, calm and at his spot outside the back door (the
+    door whose edge touches it), the operator wedges it open (`propped`, `proppedBy`, `doorPropped`) once a break
+    (`wedgedOn`: a door the crew shuts again stays shut); it stays open while he is out, and if he never comes back in.
+    He pulls the wedge as his walk takes him in through that door (from its outside tile to its inside one), whatever
+    his state; back inside some other way, only once his break is over and he passes within a tile of it on the inside
+    (never from across the bank); down outside, never. It then swings shut and locks as doors do. A door an NPC
+    propped is still doubtful to the crew (knowledge.ts `isDoubted`).
 386. **The bribe (M5-02, §7.2; review).** `bribe { crew, npc }`, 1 action, in reach, a Smooth Talker, once `bribe` is
     found, on the teller in debt while she is calm. Cash changing hands is the illegal act 'pickPocket' (seen on both
     tiles): anyone who sees it Exposes the crew member, so it is done out of others' sight. She stays off the alarm:

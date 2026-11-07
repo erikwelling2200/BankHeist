@@ -306,10 +306,14 @@ export function worldFromBank(bank: GeneratedBank): ReadonlyWorld {
             name: "The manager's keycard", holder: manager.id, ...(lunch?.duration !== undefined ? { from: lunch.turn, until: lunch.turn + lunch.duration } : {})
         });
     }
-    // The documents (§17.6, rules/opportunities.ts): the note by a monitor, the papers on the manager's desk, the records
-    // room's files. Each is there whether or not it tells anything.
-    const note = bank.stories.find(s => s.id === 'sticky-note');
-    if (note) add('document', note.tx, note.ty, 's', { name: 'A note by a monitor' });
+    // The documents (§17.6, rules/opportunities.ts): every stack of papers on the staff side (the note by a monitor is
+    // one of them, among the coffee-stained files and the meeting notes: all named alike), the papers on the manager's
+    // desk and the records room's files. Each is there whether or not it tells anything, so offering Read tells nothing.
+    for (const prop of bank.props) {
+        if (prop.kind !== 'paperStack') continue;
+        const zone = bank.rooms.find(r => r.id === roomAt(prop.tx, prop.ty))?.zone;
+        if (zone === 'staff' || zone === 'secure') add('document', prop.tx, prop.ty, 's', { name: 'Papers' });
+    }
     if (pc) add('document', pc.pos.x, pc.pos.y, pc.facing, { name: "The manager's papers" });
     const files = objects.find(o => o.kind === 'filingCabinet' && bank.rooms.find(r => r.id === o.room)?.type === 'recordsRoom');
     if (files) add('document', files.pos.x, files.pos.y, files.facing, { name: 'The records' });
@@ -390,7 +394,10 @@ function bankOpportunities(
 ): OpportunityDef[] {
     const docs = objects.filter(o => o.kind === 'document');
     const doc = (name: string) => docs.find(o => o.name === name);
-    const note = doc('A note by a monitor'), papers = doc("The manager's papers"), records = doc('The records');
+    // The note: the stack of papers the sticky-note vignette left, nearest its spot in its room.
+    const story = bank.stories.find(x => x.id === 'sticky-note'), d = (o: WorldObject) => (story ? Math.max(Math.abs(o.pos.x - story.tx), Math.abs(o.pos.y - story.ty)) : Infinity);
+    const note = docs.filter(o => o.name === 'Papers' && story && o.room === story.room && d(o) <= 2).sort((a, b) => d(a) - d(b))[0];
+    const papers = doc("The manager's papers"), records = doc('The records');
     const block = (role: string, activity: string) => {
         const person = people.find(p => p.role === role);
         const b = person?.schedule.find(x => x.activity === activity);

@@ -612,6 +612,23 @@ function crewFields(world: ReadonlyWorld, state: State, sight: SightMap): SightF
 
 const seenBy = (fields: readonly SightField[], p: Pos): boolean => fields.some(f => bandAt(f, p) !== null);
 
+/**
+ * Whether the crew sees a tile now, from where everyone stands in `state` (not the stored knowledge, which a world phase
+ * brings up to date only once it is over): for a rule that must judge by sight mid-command (rules/opportunities.ts).
+ */
+export const crewSeesNow = (world: ReadonlyWorld, state: State, p: Pos): boolean => seenBy(crewFields(world, state, sightMap(world, state)), p);
+
+/**
+ * Whether the crew would know an NPC as things stand now: in its sight, or on a routine it knows and still on it in
+ * stealth (predicted). Never more than the knowledge update at the end of the command grants.
+ */
+export function knownAsNow(world: ReadonlyWorld, state: State, npc: DeepReadonly<NpcState>): boolean {
+    if (!isPresent(npc)) return false;
+    if (crewSeesNow(world, state, npc.pos)) return true;
+    const rec = Object.hasOwn(state.knowledge.npcs, npc.id) ? state.knowledge.npcs[npc.id]! : undefined;
+    return !!rec?.routine && onRoutine(npc) && inStealth(state);
+}
+
 /** ORs the fields into the bits. */
 function mark(bits: Uint8Array, fields: readonly SightField[], width: number): void {
     for (const f of fields) for (const p of f.tiles) bits[p.y * width + p.x] = 1;

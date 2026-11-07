@@ -11,7 +11,7 @@ import { inReach, lacksActions, registerAction } from './actions/act';
 import { registerInteraction } from './actions/interact';
 import { hasTrait } from './alarms';
 import { isEyesDown } from './suspicion';
-import { crewPicture, isKnownNow, registerPreviewSecret } from './knowledge';
+import { crewPicture, isKnownNow, knownAsNow, registerPreviewSecret } from './knowledge';
 import { activityAt } from './npc/schedule';
 import { isPresent } from './npc/walk';
 
@@ -30,8 +30,8 @@ import { isPresent } from './npc/walk';
  *   chatter (`overheard`), whoever talks, and with `rules.overhearChance` (½, rolled for every conversation overheard
  *   whatever it is about, as the next crew phase begins after every other rule: decision 49) the first unfound
  *   opportunity the talker knows. So a turn of small talk tells nothing for certain about what is still to find.
- * - **Documents** (`document`): `interact … read` at a `document` object (the note by a monitor, the papers on the
- *   manager's desk, the records room's files; 1 action, no illegal act: being there is what the zones judge). Every
+ * - **Documents** (`document`): `interact … read` at a `document` object (every stack of papers on the staff side, the
+ *   note among them; the papers on the manager's desk; the records room's files; 1 action, no illegal act: being there is what the zones judge). Every
  *   document can be read, whether or not it tells anything, and reading is always final (`documentRead`), so neither
  *   the offer nor an undo tells whether it held anything (decision 381).
  * - **Intel** (§17.4): the deposit box that holds the bank's intel (rules/vault.ts `findIntel`) tells every
@@ -42,8 +42,8 @@ import { isPresent } from './npc/walk';
  *   crew doesn't know to look); the card object exists in every bank with a manager's desk, so its refusals are alike.
  * - The propped fire door (`smoke-break`): when the operator, calm, reaches his smoke spot outside the back door, he
  *   wedges it open, once a break (`DoorState.propped`, `proppedBy`, `wedgedOn`); it stays open while he is out, even if
- *   he never comes back, and he pulls the wedge as his walk takes him back in through it (`crossedIn`), or once back
- *   inside some other way after his break. A door an NPC propped can be unpropped unseen, so it stays doubtful
+ *   he never comes back, and he pulls the wedge as his walk takes him back in through it (`crossedIn`, whatever his
+ *   state), or after his break when he passes by it on the inside. A door an NPC propped can be unpropped unseen, so it stays doubtful
  *   (knowledge.ts `isDoubted`).
  * - The bribe (`bribe { crew, npc }`, 1 action, in reach, a Smooth Talker, §7.2; decision 386): once `bribe` is found,
  *   the teller in debt, calm and about, takes it and stays off the alarm (`NpcState.bribed`: she watches instead of
@@ -212,7 +212,8 @@ function earshot(world: ReadonlyWorld, state: State, from: Pos): Set<string> {
  * talk, so whether chatter is heard never tells of an unseen NPC.
  */
 function talkers(world: ReadonlyWorld, state: State): Map<string, Set<string>> {
-    const out = new Map<string, Set<string>>(), able = state.npcs.filter(n => canTalk(n) && isKnownNow(world, state, n.id));
+    // Judged on sight as things stand (`knownAsNow`), not on the stored knowledge, which is a world phase behind at its end.
+    const out = new Map<string, Set<string>>(), able = state.npcs.filter(n => canTalk(n) && knownAsNow(world, state, n));
     const ears = new Map(able.map(n => [n.id, earshot(world, state, n.pos)]));
     for (const n of able) {
         const ear = ears.get(n.id)!;
@@ -343,6 +344,18 @@ registerAction('bribe', {
 
 // The operator wedges the back door open on his smoke break and pulls the wedge as he goes back in (see the header).
 // Before the doors swing shut.
+/** On its feet and awake (not down, held or gone). */
+const awake = (npc: DeepReadonly<NpcState>): boolean => isPresent(npc) && !isEyesDown(npc) && npc.status !== 'unconscious' && npc.status !== 'dead';
+
+/** Whether `p` is inside, within a tile of the door's inside tile. */
+function besideInside(world: ReadonlyWorld, p: Pos, o: DeepReadonly<OpportunityDef>): boolean {
+    const def = world.doors[o.door!], edge = def ? world.edges[def.edge] : undefined;
+    if (!edge || onSide(world, p, o)) return false;
+    const a = edge.run === 'eastWest' ? { x: edge.tx, y: edge.ty - 1 } : { x: edge.tx - 1, y: edge.ty }, b = { x: edge.tx, y: edge.ty };
+    const inside = onSide(world, a, o) ? b : a;
+    return Math.max(Math.abs(p.x - inside.x), Math.abs(p.y - inside.y)) <= 1;
+}
+
 /** Whether `p` is on the smoke spot's side of the door (the spot's room). */
 const onSide = (world: ReadonlyWorld, p: Pos, o: DeepReadonly<OpportunityDef>): boolean => !!o.at && tileAt(world, p)?.room === tileAt(world, o.at)?.room;
 
@@ -372,9 +385,9 @@ registerWorldHook('devices', 'opportunities.fireDoor', (ctx, phase) => {
         if (calm && out && !door.propped && door.wedgedOn !== block!.from) {
             state.doors[o.door] = { ...door, status: 'open', propped: true, proppedBy: npc.id, wedgedOn: block!.from };
             ctx.emit({ type: 'doorPropped', door: o.door, by: npc.id });
-        } else if (calm && door.proppedBy === npc.id && (crossedIn(ctx, phase, npc, o) || (block?.activity !== 'smokeBreak' && !onSide(world, npc.pos, o)))) {
-            // He pulls the wedge as he walks back in through it; back inside some other way after his break, he
-            // pulls it then. Down outside, he never does.
+        } else if (door.proppedBy === npc.id && (crossedIn(ctx, phase, npc, o) || (awake(npc) && block?.activity !== 'smokeBreak' && besideInside(world, npc.pos, o)))) {
+            // He pulls the wedge as he walks back in through it, whatever his state; back inside some other way, only
+            // once his break is over and he passes by it on the inside. Down outside, or elsewhere, he never does.
             const next = { ...door };
             delete next.propped;
             delete next.proppedBy;

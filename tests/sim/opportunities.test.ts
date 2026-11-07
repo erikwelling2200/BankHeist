@@ -4,6 +4,7 @@ import {
     type CrewStart, type FixtureWall, type OpportunityDef, type PersonDef, type Pos, type ReadonlyWorld, type SimEvent, type State, type WorldObject
 } from '../../src/sim';
 import { behaviourGoal, reactionOf } from '../../src/sim/rules/npc/behaviour';
+import { crewSeesNow } from '../../src/sim/rules/knowledge';
 import { actionMenu } from '../../src/game/actions';
 import { describeEvent, journalView } from '../../src/game/views';
 import { scouted, step } from './helpers';
@@ -111,6 +112,34 @@ describe('eavesdropping (§17.6, decision 382)', () => {
         expect(told(hidden, sHidden)).toEqual(told(none, sNone));
         // Not for want of a conversation: once the crew knows of him, it is overheard.
         expect(told(hidden, scouted(hidden, sHidden)).said.some(e => e.type === 'overheard')).toBe(true);
+    });
+
+    it('judges who talks on the crew\'s sight as the phase ends: a talker gone round a wall is no partner', () => {
+        // The clerk at (4, 1) talks with Tess at (3, 1), both seen; in turn 2 Tess walks round the wall to (5, 0), still in
+        // the clerk's earshot by the corner but out of Mara's sight, or away to (7, 3), out of it.
+        const walls: FixtureWall[] = [1, 2, 3].map(y => ({ between: [P(4, y), P(5, y)] }));
+        const make = (to: Pos) => world(FLOOR, {
+            rules: { overhearChance: 1 }, walls,
+            people: [
+                person('tess', 'teller', P(3, 1), {
+                    schedule: [
+                        { from: 1, activity: 'post', label: 'at post', room: '', at: P(3, 1), facing: 's' },
+                        { from: 2, activity: 'post', label: 'elsewhere', room: '', at: to, facing: 's' }
+                    ]
+                }),
+                person('clerk', 'clerk', P(4, 1))
+            ]
+        }, [BRIBE]);
+        const run = (w: ReadonlyWorld) => {
+            const r = turns(w, start(w, [{ id: 'mara', pos: P(4, 3) }]), 2);
+            return { said: r.events.filter(e => e.type === 'overheard' || e.type === 'opportunityFound'), earshot: r.state.earshot, state: r.state };
+        };
+        const round = make(P(5, 0)), away = make(P(7, 3));
+        const a = run(round), b = run(away);
+        // Out of sight where she stands (the crew may still picture her where it last saw her on her way).
+        expect([npc(a.state, 'tess').pos, crewSeesNow(round, a.state, P(5, 0))]).toEqual([P(5, 0), false]);
+        expect({ said: a.said, earshot: a.earshot }).toEqual({ said: b.said, earshot: b.earshot });
+        expect(a.said).toEqual([]);
     });
 
     it('hears nothing from 3 tiles, through a wall or glass, from someone talking to nobody, or from speakers who aren\'t calm', () => {
