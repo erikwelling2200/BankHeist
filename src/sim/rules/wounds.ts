@@ -58,6 +58,8 @@ export interface CrewWounds {
     downed: { left: number; turn: number; phase: Phase } | null;
     /** Bled out or killed. */
     dead: boolean;
+    /** Went down at least once this heist, revived or not: the campaign counts them injured (§19.6). */
+    wentDown: boolean;
     /** Medkit uses left (2 per kit carried). */
     medkits: number;
 }
@@ -129,7 +131,7 @@ registerRuleDefaults({
 
 registerCrewInit('wounds', (world, _start, member) => {
     const kits = [...member.loadout.items, ...member.loadout.packed].filter(i => i === 'medkit').length;
-    member.wounds = { hp: world.rules.crewHp, bandaged: false, bleed: 0, downed: null, dead: false, medkits: kits * world.rules.medkitUses };
+    member.wounds = { hp: world.rules.crewHp, bandaged: false, bleed: 0, downed: null, dead: false, wentDown: false, medkits: kits * world.rules.medkitUses };
 });
 
 registerNpcInit('wounds', (world, person, npc) => {
@@ -185,6 +187,7 @@ function goDown(ctx: Ctx, member: CrewState): void {
     member.wounds.hp = 0;
     member.wounds.bleed = 0;
     member.wounds.downed = { left: world.rules.bleedOutPhases, turn: state.turn, phase: state.phase };
+    member.wounds.wentDown = true;
     member.actionsLeft = 0;
     // Whatever they held goes: the body or hostage, the lean, the Watch, the brace, the aim.
     releaseBody(world, state, member);

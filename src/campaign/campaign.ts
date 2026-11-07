@@ -1,8 +1,12 @@
-import { isItem, ITEMS, type DeepReadonly, type Intel } from '../sim';
+import { isItem, ITEMS, type DeepReadonly, type Intel, type Trait } from '../sim';
 import type { SideObjectiveKind } from '../gen/objectives';
 import { COMPLICATIONS, drawComplications, type ComplicationId } from './complications';
 import { escalateChain, refreshContracts, type Contract } from './contracts';
-import { countItems, FENCE_CUT, fenced, FRONT_COST, LAUNDER_PER_DAY, MARKET, NERVOUS_FENCE_CUT, sharesOf, STAKES, STARTER_KIT, STARTING_CASH, STARTING_SHARES, type Stakes } from './money';
+import { countItems, FENCE_CUT, fenced, FRONT_COST, LAUNDER_PER_DAY, MARKET, NERVOUS_FENCE_CUT, sharesOf, STAKES, STARTER_KIT, STARTING_CASH, type Stakes } from './money';
+import {
+    ARREST_NOTORIETY, CREW_BY_STAKES, DECAY_DAYS, drawRecruits, gainNotoriety, hired, INJURY_DAYS, LAWYER_COST, LAWYER_DAYS, LAY_LOW_HEALS, livingCrew, NAMED_NOTORIETY,
+    NEVER_KILL_JOBS, ROSTER_MAX, sharesOfRoster, STARTING_ROSTER, talks, TRAIT_EVERY, traitOffer, type CrewMember, type MotiveKind
+} from './roster';
 import { ALL_THRESHOLDS, projectedDay, SQUEEZE, THRESHOLDS, type SqueezeSource } from './squeeze';
 
 /*
@@ -22,6 +26,10 @@ import { ALL_THRESHOLDS, projectedDay, SQUEEZE, THRESHOLDS, type SqueezeSource }
  * Contracts (§19.3, §19.5, M6-02, src/campaign/contracts.ts): a heist is always one of the day's offers, which names its
  * bank and stakes; it comes off the board as it starts, the chain's other branches add a security step, and its end
  * pays the client's bonus on a Success and counts the side objective it held once its carrier got out.
+ *
+ * The roster (§19.6, §19.7, M6-04, src/campaign/roster.ts): who is on the crew, their shares, traits, Notoriety and
+ * motives. A heist's job is a contract's crew size of those free to go; its end hurts, jails or kills them, grows their
+ * traits and Notoriety; the days heal them, wear their Notoriety down and may make a prisoner talk.
  */
 
 /** What spends a day (§19.3). */
@@ -111,8 +119,8 @@ export interface Campaign {
     contacts: number;
     /** The gear the crew owns and has at the safehouse, by item id: how many. */
     armoury: Record<string, number>;
-    /** Each crew member's share of a job, in percent, by id (set at recruitment). */
-    shares: Record<string, number>;
+    /** The crew (§19.6): the four of §3 and whoever was recruited, the dead included, in the order they joined. */
+    roster: CrewMember[];
     /** The offers on the board today, by stakes (§19.3). */
     contracts: Contract[];
     /** Heists started per bank chain: each puts the chain's other branches a security step up. */
@@ -136,7 +144,7 @@ export type CampaignCommand =
      * The heist of `day` ended: the loot's value that left (`take`), by crew id the gear each who escaped still carries
      * unused (`kept`), and the side objectives that left with them (`objectives`).
      */
-    | { kind: 'heistOver'; day: number; result: HeistResult; take?: number; kept?: Record<string, string[]>; objectives?: string[] }
+    | { kind: 'heistOver'; day: number; result: HeistResult; take?: number; kept?: Record<string, string[]>; objectives?: string[]; crew?: CrewFates }
     /** An intel asset bought on the planning screen for the bank's heist (decision 401): paid now, known from now. */
     | { kind: 'buyIntel'; bank: string; asset: IntelAsset; cost: number; favours: number }
     /** Gear from the black market, into the armoury. */
@@ -145,6 +153,14 @@ export type CampaignCommand =
     | { kind: 'buyFront' }
     /** Dirty money through the fence, clean at once less its cut. */
     | { kind: 'fence'; amount: number }
+    /** A recruit on offer today (§19.6), for their signing fee: no time. */
+    | { kind: 'recruit'; id: string }
+    /** A crew member picks one of the traits on offer to them (§7.2). */
+    | { kind: 'pickTrait'; crew: string; trait: string }
+    /** A lawyer for a crew member in jail: paid now, out in `LAWYER_DAYS` days, and nobody talks (§19.6). */
+    | { kind: 'lawyer'; crew: string }
+    /** Pays off a crew member's debt, their motive (§19.6). */
+    | { kind: 'payDebt'; crew: string }
     /** Squeeze from elsewhere: crew members who gained Notoriety (`count`), a prisoner who talked, the false tip. */
     | { kind: 'squeeze'; source: Exclude<SqueezeSource, 'day' | 'failedJob'>; count?: number }
     /** The Raid was played. */
@@ -162,8 +178,8 @@ export type CampaignEvent =
     | { type: 'phase'; phase: CampaignPhase }
     /** The day action didn't happen: the heist it abandoned landed the Raid (decision 446). No day was spent. */
     | { type: 'stopped'; action: DayAction; reason: string }
-    /** Clean money went: on a heist's assets, intel, gear or a front. */
-    | { type: 'spent'; on: 'heist' | 'intel' | 'gear' | 'front'; amount: number; clean: number }
+    /** Clean money went: on a heist's assets, intel, gear, a front, a recruit's fee, a lawyer or a debt. */
+    | { type: 'spent'; on: SpentOn; amount: number; clean: number }
     /** A heist's take came in: its value, the client's bonus, the crew's shares, and the dirty money left. */
     | { type: 'paid'; day: number; take: number; bonus: number; shares: number; dirty: number }
     /** The board changed as a day came: offers posted and offers expired, by id. */
@@ -174,7 +190,35 @@ export type CampaignEvent =
     | { type: 'fenced'; amount: number; paid: number; cut: number }
     | { type: 'contact'; contacts: number }
     /** The armoury changed: gear bought or back from a heist (`added`), or taken into one (`removed`). */
-    | { type: 'gear'; added: Record<string, number>; removed: Record<string, number> };
+    | { type: 'gear'; added: Record<string, number>; removed: Record<string, number> }
+    /** The roster (M6-04): a recruit joined, a trait was offered or picked, Notoriety went up or down. */
+    | { type: 'recruited'; crew: string }
+    | { type: 'traitOffered'; crew: string; traits: Trait[] }
+    | { type: 'trait'; crew: string; trait: Trait }
+    | { type: 'notoriety'; crew: string; notoriety: number; change: number }
+    /** A crew member's fate: out injured, healed, jailed, out of jail, talked (naming `named`), killed. */
+    | { type: 'injured'; crew: string; days: number }
+    | { type: 'healed'; crew: string }
+    | { type: 'jailed'; crew: string }
+    | { type: 'released'; crew: string }
+    | { type: 'talked'; crew: string; named: string[] }
+    | { type: 'killed'; crew: string }
+    /** A motive was met (a contact came with it) or broken for good. */
+    | { type: 'motive'; crew: string; motive: MotiveKind; met: boolean };
+
+export type SpentOn = 'heist' | 'intel' | 'gear' | 'front' | 'recruit' | 'lawyer' | 'debt';
+
+/**
+ * What became of a heist's crew (§15.5's debrief, §19.6), by crew id: who got away, was arrested or died, who went down
+ * on the way (revived or not), and how many people died there (the "never kill anyone" motive).
+ */
+export interface CrewFates {
+    escaped: string[];
+    arrested: string[];
+    dead: string[];
+    downed: string[];
+    killed: number;
+}
 
 /** The intel assets (§18.2) the campaign pays for as they are bought. */
 export type IntelAsset = 'blueprints' | 'guardRota';
@@ -194,7 +238,7 @@ export function newCampaign(seed: number): Campaign {
     const c: Campaign = {
         seed: seed >>> 0, day: 1, squeeze: 0, complications: drawComplications(seed >>> 0), landed: [], falseTip: false, phase: 'open',
         days: [], visit: null, intel: {},
-        money: { clean: STARTING_CASH, dirty: 0 }, fronts: 0, contacts: 0, armoury: { ...STARTER_KIT } as Record<string, number>, shares: { ...STARTING_SHARES },
+        money: { clean: STARTING_CASH, dirty: 0 }, fronts: 0, contacts: 0, armoury: { ...STARTER_KIT } as Record<string, number>, roster: structuredClone(STARTING_ROSTER) as CrewMember[],
         contracts: [], hits: {}, advantages: [], objectiveOffers: {}
     };
     refreshContracts(c);
@@ -213,9 +257,18 @@ function gearRefusal(c: Campaign, gear: readonly string[]): string | undefined {
     return undefined;
 }
 
+/** The crew member with this id, or undefined. */
+export const crewMember = (c: DeepReadonly<Campaign>, id: string): DeepReadonly<CrewMember> | undefined => c.roster.find(m => m.id === id);
+
+/** Why a crew member can't go on a job now, or undefined. */
+function unready(m: DeepReadonly<CrewMember> | undefined): string | undefined {
+    if (!m) return 'Not the crew';
+    return m.status === 'ready' ? undefined : `${m.name} is ${m.status === 'injured' ? 'injured' : m.status === 'jailed' ? 'in jail' : 'dead'}`;
+}
+
 /**
- * Why a heist's job can't be taken on, or undefined: an offer on today's board, at its stakes; the crew who have shares,
- * the gear in the armoury, the cash.
+ * Why a heist's job can't be taken on, or undefined: an offer on today's board, at its stakes; a crew of its size
+ * (§19.3) of those on the roster free to go, the gear in the armoury, the cash.
  */
 function jobRefusal(c: Campaign, contract: string, job: Job | undefined, cost: number | undefined): string | undefined {
     const offer = offered(c, contract);
@@ -223,9 +276,15 @@ function jobRefusal(c: Campaign, contract: string, job: Job | undefined, cost: n
     if (cost !== undefined && !whole(cost)) return 'No price';
     if ((cost ?? 0) > c.money.clean) return 'Not enough money';
     if (!job) return undefined;
-    if (!job.crew.length || new Set(job.crew).size !== job.crew.length || job.crew.some(id => !Object.hasOwn(c.shares, id))) return 'Not the crew';
+    if (!job.crew.length || new Set(job.crew).size !== job.crew.length) return 'Not the crew';
+    for (const id of job.crew) {
+        const why = unready(crewMember(c, id));
+        if (why) return why;
+    }
     if (!STAKES.includes(job.stakes)) return 'No stakes';
     if (job.stakes !== offer.stakes) return "Not the contract's stakes";
+    const [fewest, most] = CREW_BY_STAKES[offer.stakes];
+    if (job.crew.length < fewest || job.crew.length > most) return `The contract takes ${fewest}–${most}`;
     const ids = Object.keys(job.kits);
     if (ids.length !== job.crew.length || ids.some(id => !job.crew.includes(id))) return 'Not the crew';
     return gearRefusal(c, jobGear(job));
@@ -262,6 +321,7 @@ export function campaignRefusal(c: Campaign, cmd: CampaignCommand): string | und
             if (c.visit.result) return 'The heist is over already';
             if (cmd.take !== undefined && !whole(cmd.take)) return 'No take';
             if (cmd.objectives !== undefined && !(Array.isArray(cmd.objectives) && cmd.objectives.every(k => typeof k === 'string'))) return 'No objectives';
+            if (cmd.crew !== undefined && !fatesOk(cmd.crew)) return 'No fates';
             return undefined;
         case 'buyIntel': {
             if (c.phase !== 'open') return 'No heist to plan';
@@ -283,6 +343,34 @@ export function campaignRefusal(c: Campaign, cmd: CampaignCommand): string | und
         case 'buyFront':
             if (c.phase === 'over') return 'The campaign is over';
             return FRONT_COST > c.money.clean ? 'Not enough money' : undefined;
+        case 'recruit': {
+            if (c.phase === 'over') return 'The campaign is over';
+            const r = drawRecruits(c.seed, c.day).find(x => x.id === cmd.id);
+            if (!r) return 'Not on offer';
+            if (crewMember(c, r.id)) return 'Hired already';
+            if (livingCrew(c.roster).length >= ROSTER_MAX) return 'The roster is full';
+            return r.fee > c.money.clean ? 'Not enough money' : undefined;
+        }
+        case 'pickTrait': {
+            if (c.phase === 'over') return 'The campaign is over';
+            const m = crewMember(c, cmd.crew);
+            if (!m || m.status === 'dead') return 'Not the crew';
+            return m.traitOffers[0]?.includes(cmd.trait as Trait) ? undefined : 'Not offered';
+        }
+        case 'lawyer': {
+            if (c.phase === 'over') return 'The campaign is over';
+            const m = crewMember(c, cmd.crew);
+            if (!m || m.status !== 'jailed') return 'Not in jail';
+            if (m.jail!.out !== undefined) return 'A lawyer is on it';
+            return LAWYER_COST > c.money.clean ? 'Not enough money' : undefined;
+        }
+        case 'payDebt': {
+            if (c.phase === 'over') return 'The campaign is over';
+            const m = crewMember(c, cmd.crew), motive = m?.motive;
+            if (!m || m.status === 'dead' || motive?.kind !== 'debt') return 'No debt';
+            if (motive.met) return 'Paid already';
+            return motive.amount > c.money.clean ? 'Not enough money' : undefined;
+        }
         case 'fence':
             if (c.phase === 'over') return 'The campaign is over';
             if (!Number.isInteger(cmd.amount) || cmd.amount < 1) return 'Nothing to fence';
@@ -345,6 +433,7 @@ export function commitCampaign(campaign: Campaign, cmd: CampaignCommand): { camp
             add('day', SQUEEZE.day);
             launder(c, events);
             c.day = day + 1;
+            passRosterDay(c, events, day, cmd.kind === 'heist' ? cmd.job?.crew ?? [] : [], cmd.kind === 'layLow', add);
             pruneIntel(c);
             const board = refreshContracts(c);
             if (board.posted.length || board.expired.length) events.push({ type: 'offers', ...board });
@@ -378,16 +467,14 @@ export function commitCampaign(campaign: Campaign, cmd: CampaignCommand): { camp
                 add('failedJob', SQUEEZE.failedJob);
             } else if (v.job) {
                 // The client's bonus on a Success (decision 503): part of the job, so the crew take their shares of it too.
-                const take = cmd.take ?? 0, bonus = cmd.result === 'success' ? v.contract?.bonus ?? 0 : 0, shares = sharesOf(take + bonus, v.job.crew, c.shares);
+                const take = cmd.take ?? 0, bonus = cmd.result === 'success' ? v.contract?.bonus ?? 0 : 0, shares = sharesOf(take + bonus, v.job.crew, sharesOfRoster(c.roster));
                 v.payout = Math.max(0, take + bonus - shares);
                 c.money.dirty += v.payout;
                 events.push({ type: 'paid', day: v.day, take, bonus, shares, dirty: c.money.dirty });
                 returnGear(c, events, v.job, cmd.kept ?? {});
-                if (cmd.result === 'success' && v.job.stakes === 'high') {
-                    c.contacts += 1;
-                    events.push({ type: 'contact', contacts: c.contacts });
-                }
+                if (cmd.result === 'success' && v.job.stakes === 'high') addContact(c, events);
             }
+            if (v.job && cmd.crew) settleCrew(c, events, v, cmd.result, cmd.crew, add);
             break;
         }
         case 'buyIntel': {
@@ -414,6 +501,32 @@ export function commitCampaign(campaign: Campaign, cmd: CampaignCommand): { camp
             spend(c, events, 'front', FRONT_COST);
             c.fronts += 1;
             break;
+        case 'recruit': {
+            const r = drawRecruits(c.seed, c.day).find(x => x.id === cmd.id)!;
+            spend(c, events, 'recruit', r.fee);
+            c.roster.push(hired(r));
+            events.push({ type: 'recruited', crew: r.id });
+            break;
+        }
+        case 'pickTrait': {
+            const m = c.roster.find(x => x.id === cmd.crew)!;
+            m.traitOffers.shift();
+            m.traits.push(cmd.trait as Trait);
+            events.push({ type: 'trait', crew: m.id, trait: cmd.trait as Trait });
+            break;
+        }
+        case 'lawyer': {
+            const m = c.roster.find(x => x.id === cmd.crew)!;
+            spend(c, events, 'lawyer', LAWYER_COST);
+            m.jail!.out = c.day + LAWYER_DAYS;
+            break;
+        }
+        case 'payDebt': {
+            const m = c.roster.find(x => x.id === cmd.crew)!;
+            spend(c, events, 'debt', (m.motive as { amount: number }).amount);
+            meetMotive(c, events, m);
+            break;
+        }
         case 'fence': {
             const cut = fenceCut(c), paid = fenced(cmd.amount, cut);
             c.money.dirty -= cmd.amount;
@@ -435,7 +548,7 @@ export function commitCampaign(campaign: Campaign, cmd: CampaignCommand): { camp
     return { campaign: c, events };
 }
 
-function spend(c: Campaign, events: CampaignEvent[], on: 'heist' | 'intel' | 'gear' | 'front', amount: number): void {
+function spend(c: Campaign, events: CampaignEvent[], on: SpentOn, amount: number): void {
     c.money.clean -= amount;
     events.push({ type: 'spent', on, amount, clean: c.money.clean });
 }
@@ -477,6 +590,127 @@ function returnGear(c: Campaign, events: CampaignEvent[], job: Job, kept: Readon
         }
     }
     if (Object.keys(added).length) events.push({ type: 'gear', added, removed: {} });
+}
+
+type AddSqueeze = (source: SqueezeSource, points: number) => void;
+
+const ids = (v: unknown): v is string[] => Array.isArray(v) && v.every(x => typeof x === 'string');
+const fatesOk = (f: CrewFates): boolean =>
+    typeof f === 'object' && f !== null && ids(f.escaped) && ids(f.arrested) && ids(f.dead) && ids(f.downed) && whole(f.killed);
+
+function addContact(c: Campaign, events: CampaignEvent[]): void {
+    c.contacts += 1;
+    events.push({ type: 'contact', contacts: c.contacts });
+}
+
+/** A motive met (§19.6): its one-time bonus, a contact (decision 514). */
+function meetMotive(c: Campaign, events: CampaignEvent[], m: CrewMember): void {
+    m.motive!.met = true;
+    events.push({ type: 'motive', crew: m.id, motive: m.motive!.kind, met: true });
+    addContact(c, events);
+}
+
+/** Notoriety gained by a crew member, and the Squeeze it adds (§19.2: +1 for each crew member who gained). */
+function notoriety(events: CampaignEvent[], m: CrewMember, amount: number, add: AddSqueeze): void {
+    const gain = gainNotoriety(m, amount);
+    if (!gain) return;
+    events.push({ type: 'notoriety', crew: m.id, notoriety: m.notoriety, change: gain });
+    add('notoriety', SQUEEZE.notoriety);
+}
+
+/**
+ * What a heist's end does to its crew (§19.6, §19.7): the dead are gone; the others survived a job (every second offers
+ * a trait) and their motives may be met or broken; the arrested go to jail with +2 Notoriety; those who got away but
+ * went down are out injured. Only the job's own crew, by what the rules' outcome says of them.
+ */
+function settleCrew(c: Campaign, events: CampaignEvent[], v: Visit, result: HeistResult, fates: CrewFates, add: AddSqueeze): void {
+    for (const id of v.job!.crew) {
+        const m = c.roster.find(x => x.id === id);
+        if (!m) continue;
+        if (fates.dead.includes(id)) {
+            m.status = 'dead';
+            m.died = v.day;
+            delete m.injured;
+            events.push({ type: 'killed', crew: id });
+            continue;
+        }
+        m.jobs += 1;
+        if (m.jobs % TRAIT_EVERY === 0) {
+            const traits = traitOffer(c.seed, m, m.jobs / TRAIT_EVERY);
+            if (traits.length) {
+                m.traitOffers.push(traits);
+                events.push({ type: 'traitOffered', crew: id, traits });
+            }
+        }
+        const motive = m.motive;
+        if (motive && !motive.met) {
+            if (motive.kind === 'neverKill' && !motive.broken) {
+                if (fates.killed > 0) {
+                    motive.broken = true;
+                    events.push({ type: 'motive', crew: id, motive: 'neverKill', met: false });
+                } else if (++motive.jobs >= NEVER_KILL_JOBS) meetMotive(c, events, m);
+            } else if (motive.kind === 'getEven' && result === 'success' && v.contract?.chain === motive.chain) meetMotive(c, events, m);
+        }
+        if (fates.arrested.includes(id)) {
+            m.status = 'jailed';
+            m.jail = { day: v.day, named: v.job!.crew.filter(x => x !== id), talked: false };
+            delete m.injured;
+            events.push({ type: 'jailed', crew: id });
+            notoriety(events, m, ARREST_NOTORIETY, add);
+        } else if (fates.downed.includes(id)) {
+            m.status = 'injured';
+            m.injured = INJURY_DAYS;
+            events.push({ type: 'injured', crew: id, days: INJURY_DAYS });
+        }
+    }
+}
+
+/**
+ * What a day spent (`day`, now over) does to the roster: those deployed on it start resting afresh, the others at
+ * liberty rest a day (every `DECAY_DAYS` take a point of Notoriety off, §19.7); the injured heal a day, two laying low;
+ * a prisoner whose lawyer's day has come is out, and one without a lawyer may talk (§19.6): +4 Squeeze, and +1
+ * Notoriety for each of the others on that job still alive.
+ */
+function passRosterDay(c: Campaign, events: CampaignEvent[], day: number, deployed: readonly string[], layLow: boolean, add: AddSqueeze): void {
+    for (const m of c.roster) {
+        if (m.status === 'dead') continue;
+        if (m.status === 'jailed') {
+            const jail = m.jail!;
+            if (jail.out !== undefined) {
+                if (c.day >= jail.out) {
+                    m.status = 'ready';
+                    delete m.jail;
+                    m.rested = 0;
+                    events.push({ type: 'released', crew: m.id });
+                }
+            } else if (!jail.talked && talks(c.seed, m.id, day)) {
+                jail.talked = true;
+                events.push({ type: 'talked', crew: m.id, named: [...jail.named] });
+                add('talked', SQUEEZE.talked);
+                for (const id of jail.named) {
+                    const named = c.roster.find(x => x.id === id);
+                    if (named && named.status !== 'dead') notoriety(events, named, NAMED_NOTORIETY, add);
+                }
+            }
+            continue;
+        }
+        if (deployed.includes(m.id)) m.rested = 0;
+        else if (++m.rested >= DECAY_DAYS) {
+            m.rested = 0;
+            if (m.notoriety > 0) {
+                m.notoriety -= 1;
+                events.push({ type: 'notoriety', crew: m.id, notoriety: m.notoriety, change: -1 });
+            }
+        }
+        if (m.status === 'injured') {
+            m.injured = m.injured! - (layLow ? LAY_LOW_HEALS : 1);
+            if (m.injured <= 0) {
+                m.status = 'ready';
+                delete m.injured;
+                events.push({ type: 'healed', crew: m.id });
+            }
+        }
+    }
 }
 
 function setPhase(c: Campaign, events: CampaignEvent[], phase: CampaignPhase): void {

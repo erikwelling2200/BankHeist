@@ -16,12 +16,6 @@ export const NERVOUS_FENCE_CUT = 15;
 /** The clean money a campaign starts with: the sandbox's planning cash (decision 323), so day 1 plans as the sandbox does. */
 export const STARTING_CASH = 24000;
 
-/**
- * Each crew member's share of a job, in percent (§19.4: 8–20% each, set at recruitment). The sandbox roster's four
- * until the roster is the campaign's (M6-04): 40% for all four, so a bigger crew means smaller takes.
- */
-export const STARTING_SHARES: Readonly<Record<string, number>> = { mara: 10, jun: 8, dex: 10, sol: 12 };
-
 /** The gear a campaign starts with: what the sandbox roster brings by default (src/game/plan.ts `ROSTER`). */
 export const STARTER_KIT: Readonly<Partial<Record<ItemId, number>>> = {
     pistol: 2, shotgun: 1, dmr: 1, lightVest: 1, mediumArmour: 1, hackingKit: 1, jammer: 1, breachCharge: 1, flashbang: 1, medkit: 1

@@ -1,11 +1,12 @@
 import {
-    campaignRefusal, CHAINS, offered, commitCampaign, COMPLICATION_IDS, favoursToday, knownIntel, MAX_ESCALATION, OBJECTIVE_KINDS, OBJECTIVE_OFFERS, STAKES, THRESHOLDS,
-    ALL_THRESHOLDS, type Campaign, type CampaignCommand, type CampaignEvent, type Contract, type IntelAsset, type Job, type Stakes
+    campaignRefusal, CHAINS, offered, commitCampaign, COMPLICATION_IDS, CREW_BY_STAKES, DECAY_DAYS, favoursToday, knownIntel, MAX_ESCALATION, MAX_NOTORIETY, OBJECTIVE_KINDS,
+    OBJECTIVE_OFFERS, readyCrew, ROSTER_MAX, STAKES, THRESHOLDS, ALL_THRESHOLDS, type Campaign, type CampaignCommand, type CampaignEvent, type Contract, type CrewFates,
+    type CrewMember, type IntelAsset, type Job, type Stakes
 } from '../campaign';
 import { ARCHETYPES, PLOTS, TIERS, type GeneratedBank } from '../gen/model';
-import { intelOf, isItem, ITEMS, SaveFormatError, stableJson, type DeepReadonly, type Intel, type ReadonlyWorld, type State } from '../sim';
+import { intelOf, isItem, ITEMS, SaveFormatError, stableJson, TRAITS, type DeepReadonly, type Intel, type ReadonlyWorld, type State } from '../sim';
 import { bankAddress, sameAddress, savedHeist, type BankAddress, type CampaignTag } from './heist';
-import { ASSETS, FAVOUR_CAP, gearOf, spent, type HeistSetup, type Purse } from './plan';
+import { ASSETS, FAVOUR_CAP, gearOf, rosterMember, spent, type CrewPool, type HeistSetup, type Purse, type RosterMember } from './plan';
 import { Session, type IntelKeeper } from './session';
 import { campaignPrint, intelProblem, mergeIntel } from './intel';
 import type { SaveStorage } from './storage';
@@ -22,8 +23,11 @@ import type { SaveStorage } from './storage';
 
 /** The storage key of the campaign in progress. */
 export const CAMPAIGN_KEY = 'campaign';
-/** The campaign save's format: a save of another format is refused, as the rules' saves are. 2: money (M6-03); 3: contracts (M6-02). */
-export const CAMPAIGN_FORMAT = 3;
+/**
+ * The campaign save's format: a save of another format is refused, as the rules' saves are. 2: money (M6-03); 3:
+ * contracts (M6-02); 4: the roster (M6-04).
+ */
+export const CAMPAIGN_FORMAT = 4;
 
 const PHASES = ['open', 'raid', 'finaleDue', 'over'];
 const ACTIONS = ['heist', 'case', 'layLow'];
@@ -51,6 +55,49 @@ function contractProblem(value: unknown): string | undefined {
     return undefined;
 }
 
+const STATUSES = ['ready', 'injured', 'jailed', 'dead'];
+const traits = (v: unknown): boolean => strings(v) && v.every(t => (TRAITS as readonly string[]).includes(t)) && new Set(v).size === v.length;
+
+/** Why `value` isn't a crew member (src/campaign/roster.ts), or undefined. */
+function memberProblem(value: unknown, day: number): string | undefined {
+    if (!isRecord(value) || !exactKeys(value, ['id', 'name', 'look', 'traits', 'share', 'notoriety', 'rested', 'jobs', 'traitOffers', 'motive', 'status'],
+        ['injured', 'jail', 'died'])) return 'a crew member with other fields';
+    const m = value;
+    if (typeof m.id !== 'string' || !m.id || typeof m.name !== 'string' || typeof m.look !== 'string') return 'a crew member is no one';
+    if (!traits(m.traits) || !Array.isArray(m.traitOffers) || !m.traitOffers.every(o => traits(o) && (o as string[]).length > 0)) return `${m.name}'s traits are not traits`;
+    if (!whole(m.share) || (m.share as number) > 100) return `${m.name}'s share is no share`;
+    if (!whole(m.notoriety) || (m.notoriety as number) > MAX_NOTORIETY || !whole(m.rested) || (m.rested as number) >= DECAY_DAYS || !whole(m.jobs)) return `${m.name}'s record is no record`;
+    if (!STATUSES.includes(m.status as string)) return `${m.name} is nowhere`;
+    if ((m.status === 'injured') !== (m.injured !== undefined) || (m.injured !== undefined && !isDay(m.injured))) return `${m.name}'s injury is no injury`;
+    if ((m.status === 'dead') !== (m.died !== undefined) || (m.died !== undefined && !(isDay(m.died) && (m.died as number) < day))) return `${m.name}'s death is no death`;
+    if ((m.status === 'jailed') !== (m.jail !== undefined)) return `${m.name}'s jail is no jail`;
+    const j = m.jail;
+    if (j !== undefined && (!isRecord(j) || !exactKeys(j, ['day', 'named', 'talked'], ['out']) || !isDay(j.day) || (j.day as number) >= day || !strings(j.named)
+        || typeof j.talked !== 'boolean' || (j.out !== undefined && !isDay(j.out)))) return `${m.name}'s jail is no jail`;
+    const o = m.motive;
+    if (o !== null) {
+        if (!isRecord(o) || typeof o.met !== 'boolean') return `${m.name}'s motive is none`;
+        const ok = o.kind === 'debt' ? exactKeys(o, ['kind', 'amount', 'met']) && whole(o.amount) && (o.amount as number) > 0
+            : o.kind === 'neverKill' ? exactKeys(o, ['kind', 'jobs', 'met', 'broken']) && whole(o.jobs) && typeof o.broken === 'boolean' && !(o.met && o.broken)
+                : o.kind === 'getEven' ? exactKeys(o, ['kind', 'chain', 'met']) && among(CHAINS, o.chain) : false;
+        if (!ok) return `${m.name}'s motive is none`;
+    }
+    return undefined;
+}
+
+/** Why `value` isn't a roster, or undefined: crew members, each once, no more alive than `ROSTER_MAX`. */
+function rosterProblem(value: unknown, day: number): string | undefined {
+    if (!Array.isArray(value)) return 'the roster is no roster';
+    for (const m of value) {
+        const problem = memberProblem(m, day);
+        if (problem) return problem;
+    }
+    const roster = value as CrewMember[];
+    if (new Set(roster.map(m => m.id)).size !== roster.length) return 'two crew members are one';
+    if (roster.filter(m => m.status !== 'dead').length > ROSTER_MAX) return 'the roster is over full';
+    return undefined;
+}
+
 /**
  * Why `value` isn't a campaign, or undefined: exactly a `Campaign`'s fields, each of its type, and a story that holds
  * together (the days spent before today, the thresholds landed those the Squeeze reached, the phase they make). The
@@ -59,7 +106,7 @@ function contractProblem(value: unknown): string | undefined {
 export function campaignProblem(value: unknown): string | undefined {
     if (!isRecord(value)) return 'not a campaign';
     const v = value;
-    if (!exactKeys(v, ['seed', 'day', 'squeeze', 'complications', 'landed', 'falseTip', 'phase', 'days', 'visit', 'intel', 'money', 'fronts', 'contacts', 'armoury', 'shares',
+    if (!exactKeys(v, ['seed', 'day', 'squeeze', 'complications', 'landed', 'falseTip', 'phase', 'days', 'visit', 'intel', 'money', 'fronts', 'contacts', 'armoury', 'roster',
         'contracts', 'hits', 'advantages', 'objectiveOffers'])) {
         return 'a campaign with other fields';
     }
@@ -122,7 +169,11 @@ export function campaignProblem(value: unknown): string | undefined {
     if (!isRecord(m) || !exactKeys(m, ['clean', 'dirty']) || !whole(m.clean) || !whole(m.dirty)) return 'the money is no money';
     if (!whole(v.fronts) || !whole(v.contacts)) return 'the fronts or contacts are no count';
     if (!isRecord(v.armoury) || !Object.entries(v.armoury).every(([id, n]) => gear([id]) && Number.isInteger(n) && (n as number) >= 1)) return 'the armoury is not gear';
-    if (!isRecord(v.shares) || !Object.values(v.shares).every(n => whole(n) && n <= 100)) return 'the shares are not shares';
+    const roster = rosterProblem(v.roster, v.day as number);
+    if (roster) return roster;
+    // A heist's crew are on the roster.
+    const crew = isRecord(v.visit) && isRecord(v.visit.job) ? v.visit.job.crew as string[] : [];
+    if (crew.some(id => !(v.roster as CrewMember[]).some(m => m.id === id))) return "the visit's crew are not the roster's";
     // The board (M6-02): today's offers, one per stakes at most, each with its own id.
     const board = v.contracts;
     if (!Array.isArray(board)) return 'the contracts are no board';
@@ -208,10 +259,26 @@ export function campaignIntel(campaign: DeepReadonly<Campaign>, world: ReadonlyW
 
 /**
  * What the campaign's plan of the day may spend in a bank (M6-03): its clean money, the favours the intel bought there
- * today left under the cap (§18.1), and the armoury's gear.
+ * today left under the cap (§18.1), the armoury's gear, and its crew (M6-04): the roster's members free to go, a
+ * contract's size of them (`stakes`; any number without).
  */
-export function campaignPurse(campaign: DeepReadonly<Campaign>, world: ReadonlyWorld): Purse {
-    return { cash: campaign.money.clean, favours: FAVOUR_CAP - favoursToday(campaign, campaignPrint(world)), armoury: { ...campaign.armoury } };
+export function campaignPurse(campaign: DeepReadonly<Campaign>, world: ReadonlyWorld, stakes?: Stakes): Purse {
+    return { cash: campaign.money.clean, favours: FAVOUR_CAP - favoursToday(campaign, campaignPrint(world)), armoury: { ...campaign.armoury }, crew: campaignCrew(campaign, stakes) };
+}
+
+/** An empty loadout: what a recruit brings (§19.4: gear is the armoury's). */
+const EMPTY_LOADOUT = { primary: null, sidearm: null, armour: null, gadgets: [null, null] as [null, null] };
+
+/**
+ * The campaign's crew as the planning screen and the heist take them (M6-04): those on the roster free to go, with their
+ * traits and Notoriety (which the rules read, src/sim/rules/profile.ts), each of the four of §3 with the loadout they
+ * bring by default, a recruit with none; a contract's size of them.
+ */
+export function campaignCrew(campaign: DeepReadonly<Campaign>, stakes?: Stakes): CrewPool {
+    const roster: RosterMember[] = readyCrew(campaign.roster as CrewMember[]).map(m => ({
+        id: m.id, name: m.name, look: m.look, traits: [...m.traits], loadout: structuredClone(rosterMember(m.id)?.loadout ?? EMPTY_LOADOUT), notoriety: m.notoriety
+    }));
+    return { roster, size: stakes ? CREW_BY_STAKES[stakes] : [1, ROSTER_MAX] };
 }
 
 /** What a plan takes on as the campaign's heist (§19.4): its crew, their gear, its contract's stakes, and its assets' cost. */
@@ -246,6 +313,21 @@ const takeOf = (state: DeepReadonly<State>): number => {
 export function objectivesOut(world: ReadonlyWorld, state: DeepReadonly<State>): string[] {
     const out = new Set(state.outcome?.loot ?? []);
     return world.objects.flatMap(o => (out.has(o.id) && o.loot?.objective !== undefined ? [o.loot.objective] : []));
+}
+
+/**
+ * What became of the heist's crew (§19.6), from the rules' outcome: who got away, was arrested or died, who among those
+ * who got away went down on the way (`wounds.wentDown`, revived or not), and how many NPCs died.
+ */
+export function crewFates(state: DeepReadonly<State>): CrewFates {
+    const o = state.outcome;
+    const everyone = [...state.crew, ...state.escaped.map(e => e.crew), ...state.custody.map(c => c.crew)];
+    const escaped = [...(o?.escaped ?? [])];
+    return {
+        escaped, arrested: [...(o?.arrested ?? [])], dead: [...(o?.dead ?? [])],
+        downed: [...new Set(everyone.filter(c => c.wounds.wentDown === true && escaped.includes(c.id)).map(c => c.id))],
+        killed: state.npcs.filter(n => n.status === 'dead').length
+    };
 }
 
 /**
@@ -287,7 +369,8 @@ export function campaignKeeper(storage: SaveStorage, tag: CampaignTag): IntelKee
         // Its end, with its take and the gear that came back: once, since a visit with a result takes no other (and drops the heist).
         if (ended && next.visit?.kind === 'heist' && !next.visit.result) {
             next = commitCampaign(next, {
-                kind: 'heistOver', day: tag.day, result: ended, take: takeOf(state), kept: gearKept(world, state), objectives: objectivesOut(world, state)
+                kind: 'heistOver', day: tag.day, result: ended, take: takeOf(state), kept: gearKept(world, state), objectives: objectivesOut(world, state),
+                crew: crewFates(state)
             }).campaign;
         }
         if (next !== campaign && saveCampaign(storage, next)) kept = text;

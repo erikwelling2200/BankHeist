@@ -11,13 +11,13 @@ import { PropSheetScene } from './scenes/PropSheetScene';
 import { Fullscreen } from './ui/Fullscreen';
 import { installDebugHandle, MemoryStorage, Session, webStorage, type SaveStorage } from './game';
 import { ADDRESS_KEYS, bankAddress, playPlan, sameAddress, savedHeist, startHeist, type CampaignTag } from './game/heist';
-import { offered, type Campaign, type IntelAsset } from './campaign';
+import { offered, type Campaign, type IntelAsset, type Stakes } from './campaign';
 import { loadIntel } from './game/intel';
 import {
-    buyCampaignIntel, campaignIntel, campaignKeeper, campaignPurse, contractAddress, contractBankRefusal, dropCampaignHeist, heistUnfinished, startContractHeist,
+    buyCampaignIntel, campaignCrew, campaignIntel, campaignKeeper, campaignPurse, contractAddress, contractBankRefusal, dropCampaignHeist, heistUnfinished, startContractHeist,
     loadCampaign, untaggedKeeper
 } from './game/campaign';
-import { defaultSetup, fitArmoury, planOptions, setupFromAddress, type HeistSetup } from './game/plan';
+import { defaultSetup, fitArmoury, planOptions, setupFromAddress, type CrewPool, type HeistSetup } from './game/plan';
 import { Planner } from './ui/planning/Planner';
 import { askPlayer } from './ui/askPlayer';
 import type { BankData } from './level/bankData';
@@ -186,15 +186,16 @@ function plan(params: URLSearchParams): void {
     // What the crew knows of this bank from earlier heists in it (M5-03): the plan starts with it.
     const intel = campaign ? campaignIntel(campaign, options.world) : loadIntel(storage, options.world);
     // The campaign plans with its own money and armoury, and pays for intel as it is bought (M6-03).
-    const purse = campaign ? campaignPurse(campaign, options.world) : undefined;
+    // Its crew (M6-04): the roster's members free to go, as many as the contract takes.
+    const purse = campaign ? campaignPurse(campaign, options.world, contract!.stakes) : undefined;
     const funds = purse ? {
         purse,
         buyIntel: (asset: IntelAsset) => {
             const done = buyCampaignIntel(storage, options.world, asset);
-            return 'refused' in done ? done.refused : { intel: campaignIntel(done.campaign, options.world), purse: campaignPurse(done.campaign, options.world) };
+            return 'refused' in done ? done.refused : { intel: campaignIntel(done.campaign, options.world), purse: campaignPurse(done.campaign, options.world, contract!.stakes) };
         }
     } : undefined;
-    const planner = new Planner(generated, options, fitArmoury(defaultSetup(options, intel), purse), map, setup => {
+    const planner = new Planner(generated, options, fitArmoury(defaultSetup(options, intel, purse?.crew), purse), map, setup => {
         const keep = [...new URLSearchParams(location.search)].filter(([k]) => !['plan', 'new', 'play', ...ADDRESS_KEYS, 'setup'].includes(k));
         const query = new URLSearchParams([['play', ''], ...Object.entries(bankAddress(generated)), ['setup', JSON.stringify(setup)], ...keep]);
         location.assign(`${location.pathname}?${query.toString().replace(/(^|&)(play|campaign)=(?=&|$)/g, '$1$2')}`);
@@ -258,8 +259,8 @@ async function preparePlay(params: URLSearchParams): Promise<{ bank: ReturnType<
         location.replace(campaignAddress());
         return new Promise<never>(() => undefined);
     }
-    const planned = params.has('setup') ? plannedSetup(params.get('setup')!, generated, storage, campaign ?? undefined) : undefined;
-    let tag: CampaignTag | undefined;
+    const planned = params.has('setup') ? plannedSetup(params.get('setup')!, generated, storage, campaign && contract ? { campaign, stakes: contract.stakes } : undefined) : undefined;
+    let tag: CampaignTag | undefined, crew: CrewPool | undefined;
     if (params.has('setup')) {
         const back = () => {
             location.replace(planAddress(generated));
@@ -285,6 +286,8 @@ async function preparePlay(params: URLSearchParams): Promise<{ bank: ReturnType<
                 return new Promise<never>(() => undefined);
             }
             tag = { seed: done.campaign.seed, day: done.campaign.visit!.day };
+            // The crew as the campaign has them now: their traits and Notoriety go into the rules (M6-04).
+            crew = campaignCrew(done.campaign, contract!.stakes);
         }
         plan = 'new';
     }
@@ -306,7 +309,7 @@ async function preparePlay(params: URLSearchParams): Promise<{ bank: ReturnType<
     }
     const resumed = !!session;
     try {
-        session ??= startHeist(generated, target, tag ? { keepIntel: campaignKeeper(target, tag) } : {}, planned, tag);
+        session ??= startHeist(generated, target, tag ? { keepIntel: campaignKeeper(target, tag) } : {}, planned, tag, crew);
     } catch (e) {
         // A campaign heist that can't be saved with its tag (a full quota) doesn't start: back to the campaign.
         console.warn("The campaign's heist couldn't be saved", e);
@@ -329,10 +332,10 @@ async function preparePlay(params: URLSearchParams): Promise<{ bank: ReturnType<
  * The plan in the address, if it reads as a setup this bank can play, knowing only the intel kept for the bank on this
  * device: the address is never a source of intel (decision 405).
  */
-function plannedSetup(text: string, bank: GeneratedBank, storage: SaveStorage, campaign?: Campaign): HeistSetup | undefined {
+function plannedSetup(text: string, bank: GeneratedBank, storage: SaveStorage, campaign?: { campaign: Campaign; stakes: Stakes }): HeistSetup | undefined {
     const options = planOptions(bank);
     return campaign
-        ? setupFromAddress(text, options, campaignIntel(campaign, options.world), campaignPurse(campaign, options.world))
+        ? setupFromAddress(text, options, campaignIntel(campaign.campaign, options.world), campaignPurse(campaign.campaign, options.world, campaign.stakes))
         : setupFromAddress(text, options, loadIntel(storage, options.world));
 }
 

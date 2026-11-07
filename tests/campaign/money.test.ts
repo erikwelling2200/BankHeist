@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
     campaignRefusal, CampaignRefused, drawComplications, favoursToday, fenceCut, FRONT_COST, knownBefore, knownIntel, LAUNDER_PER_DAY, MARKET, newCampaign,
-    sharesOf, STARTER_KIT, STARTING_CASH, STARTING_SHARES, type Campaign, type CampaignCommand, type CampaignEvent, type Job
+    CREW_BY_STAKES, sharesOf, sharesOfRoster, STARTER_KIT, STARTING_CASH, type Campaign, type CampaignCommand, type CampaignEvent, type Job
 } from '../../src/campaign';
 import { commit, contracted, type TestCommand } from './contracted';
 import { FIXED_ITEMS, loadoutItems, ROSTER } from '../../src/game/plan';
@@ -23,8 +23,11 @@ const run = (c: Campaign, ...cmds: TestCommand[]): { campaign: Campaign; events:
 };
 
 const ALL: Job = { crew: ['mara', 'jun', 'dex', 'sol'], kits: { mara: [], jun: ['pistol'], dex: ['shotgun', 'mediumArmour', 'breachCharge'], sol: [] }, stakes: 'medium' };
-/** Mara alone, carrying `gear`. */
-const alone = (gear: string[], stakes: Job['stakes'] = 'medium'): Job => ({ crew: ['mara'], kits: { mara: gear }, stakes });
+/** Mara carrying `gear`, with as few of the others empty-handed as the stakes take (§19.3). */
+const alone = (gear: string[], stakes: Job['stakes'] = 'medium'): Job => {
+    const crew = ['mara', 'jun', 'dex', 'sol'].slice(0, CREW_BY_STAKES[stakes][0]);
+    return { crew, kits: Object.fromEntries(crew.map(id => [id, id === 'mara' ? gear : []])), stakes };
+};
 const heist = (job: Job = ALL, cost = 0): TestCommand => ({ kind: 'heist', bank: 'b', job, cost });
 /** A campaign with money to spend. */
 const rich = (clean: number, dirty = 0): Campaign => ({ ...newCampaign(9), money: { clean, dirty } });
@@ -40,8 +43,8 @@ describe('a new campaign', () => {
         for (const m of ROSTER) for (const id of loadoutItems(m.loadout).filter(id => !FIXED_ITEMS.includes(id))) kit[id] = (kit[id] ?? 0) + 1;
         expect(c.armoury).toEqual(kit);
         expect(STARTER_KIT).toEqual(kit);
-        expect(Object.keys(c.shares).sort()).toEqual(ROSTER.map(m => m.id).sort());
-        expect(Object.values(STARTING_SHARES).every(n => n >= 8 && n <= 20)).toBe(true);
+        expect(c.roster.map(m => m.id)).toEqual(ROSTER.map(m => m.id));
+        expect(c.roster.every(m => m.share >= 8 && m.share <= 20)).toBe(true);
     });
 });
 
@@ -73,7 +76,7 @@ describe('a heist pays as it starts and is paid as it ends', () => {
 
     it("brings its take in once, as dirty money less every crew member's share, and the gear that came back", () => {
         let c = run(newCampaign(1), heist()).campaign;
-        const take = 123457, shares = sharesOf(take, ALL.crew, c.shares);
+        const take = 123457, shares = sharesOf(take, ALL.crew, sharesOfRoster(c.roster));
         // Each share floored to the dollar: 10%, 8%, 10% and 12%.
         expect(shares).toBe(12345 + 9876 + 12345 + 14814);
         const r = run(c, { kind: 'heistOver', day: 1, result: 'partial', take, kept: { jun: ['pistol'], dex: ['shotgun', 'lmg'], sol: ['shotgun'] } });
