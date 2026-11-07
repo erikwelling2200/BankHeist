@@ -141,7 +141,7 @@ export function generateBank(opts: GenerateOptions): GeneratedBank {
         const roll = rng.fork(`attempt-${attempt}`);
         const shell = buildShell(roll, shape);
         if (!shell) continue;
-        const bank = finishBank(shell, roll, new Rng(opts.population ^ (attempt * 0x9e3779b1)), spec, opts);
+        const bank = finishBank(shell, roll, new Rng(opts.population ^ (attempt * 0x9e3779b1)), spec, opts, relaxed);
         bank.validation.attempts = attempt + 1;
         // Only the relaxed rules this bank actually breaks: relaxing goes by the attempt count, not by which rule failed.
         bank.validation.relaxed = relaxed.map(r => RULES[r]).filter(rule => bank.validation.results.some(x => x.rule === rule && !x.ok));
@@ -154,7 +154,7 @@ export function generateBank(opts: GenerateOptions): GeneratedBank {
 }
 
 /** The stages after the shell (§17.2 steps 4–8): furnish, secure, open the ways in, populate, check. */
-function finishBank(shell: Shell, rng: Rng, people: Rng, spec: TierSpec, opts: GenerateOptions): GeneratedBank {
+function finishBank(shell: Shell, rng: Rng, people: Rng, spec: TierSpec, opts: GenerateOptions, relaxed: readonly Rule[] = []): GeneratedBank {
     const { site, plot, bank, furnish, tier, archetype, headlines } = shell;
     const vaultClass = rng.fork('vault').pick(spec.vaultClasses);
     const timeLock = archetype === 'threeKeys' || headlines.includes('armouredCar') || rng.fork('timelock').chance(spec.timeLock);
@@ -198,7 +198,7 @@ function finishBank(shell: Shell, rng: Rng, people: Rng, spec: TierSpec, opts: G
     // Checked on the rules' own World of the bank, as the game will build it (M5-01).
     generated.validation.results = validate({
         site, nav, bank, doors: site.doors, approaches: ways.approaches, routes: ways.routes, cameras, guards, furnished, getaways: ways.getaways,
-        exits: ways.exits, traffic, world: worldFromBank(generated)
+        exits: ways.exits, traffic, world: worldFromBank(generated), relaxed
     });
     return generated;
 }

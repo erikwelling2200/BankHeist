@@ -2998,36 +2998,38 @@ Later milestones: within each milestone, the `∥` notes in §3 apply. UI packag
     turn it 45° off its own facing, so a pan could leave it covering nothing. The generator's own `cone` and its range
     and angle constants are gone.
 342. **The Clean route is green on the safe floor and walks (M5-01, §17.7, §8.8; review).** From the lobby to the CCTV
-    room or the alarm closet, Moves each green for a Clean crew member (nothing on them) from turn 1 on, played through
-    the rules (`commit`): two Moves a turn, the end of each turn played, the world phase after the last Move too. It
-    counts only if nobody Exposes or challenges the walker, no camera sees them, no alarm starts and no Move is refused
-    or cut short. The walker never waits for a patrol to pass (a scripted infiltrator that waits is M5-05's bot). The
-    route is the bank's, not a crew's: the walker knows the whole bank (every tile seen, every NPC and camera, the
-    feeds), so the floor judges the truth, not the turn-1 picture (where every staff room is still an outline, grey).
-    It holds the key graph's keys to every lock on the way but the vault door's and the mantrap's (§15.2: the keys
-    exist), so a locked door is opened, not picked: picking one in the lobby is an illegal act every customer sees.
-    Secure rooms on the way are no longer barred as such: the rules decide. The search: the tiles nobody reacts to on
-    turn 1 (`assessEnd`), walked out from the goal with `stepCost`, are a guide; without such a way from the lobby the
-    roll is drawn again (stricter than it need be, since a tile watched on turn 1 may be clear later). The shortest
-    such way is walked turn by turn, each Move the longest start the path under the finger (`pathSafety`) shows green
-    on the bank as it stands then; where that fails, `safeFloor` on the turn-1 state finds other candidates best first
-    along the quiet tiles (20 floors at most), each played the same way. The first version judged every Move on the
-    turn-1 state alone, and a review replaying its routes found 5 of 25 that a patrol, the manager or an NPC walking
-    onto the route stopped.
+    room or the alarm closet, a Clean crew member (nothing on them) walks through the rules (`commit`) from turn 1:
+    each Move the longest the path under the finger (`pathSafety`) shows green on the bank as it stands then, two a
+    turn, every turn's end played, the world phase after the last Move too. It counts only if nobody Exposes or
+    challenges the walker, no camera sees them, no alarm starts and no Move is refused or cut short. Where nothing down
+    its way is green, the walker does what a player would: it **waits** (ends the turn where it stands) if the safe
+    floor (`safeFloor`) shows staying green, or else steps aside to the green tile nearest the goal; at most 6 turns
+    in a row without a Move down the way (`ROUTE_WAITS`) and 20 turns in all (`ROUTE_TURNS`). The route is the bank's,
+    not a crew's: the walker knows the whole bank (every tile seen, every NPC and camera, the feeds), so the floor
+    judges the truth, not the turn-1 picture (where every staff room is still an outline, grey). It holds everyone's
+    card (§15.2: the keys exist), so a locked door is opened with its key, not picked (picking one in the lobby is an
+    illegal act every customer sees); the vault and the mantrap stay off its way. Its way is the shortest over the
+    tiles nobody reacts to on turn 1 (`assessEnd`, walked out from the goal with `stepCost`), counting a panning
+    camera's both facings and judging the goal's own tiles with its doors open (a camera that looks through the
+    closet's door when it opens). Without such a way from the lobby the roll is drawn again at once, before any walk:
+    stricter than it need be (a tile watched on turn 1 may be clear later), and the cheap rejection. The check is the
+    last of §17.7 and is skipped when another check (one not relaxed) already rejects the roll. The first version
+    judged every Move on the turn-1 state alone, and a review replaying its routes found 5 of 25 that a patrol, the
+    manager or an NPC walking onto the route stopped.
 343. **What the rules' vision changed in the sweep (M5-01 review).** The sweep still builds all 224 banks with no
-    relaxed rule, at 2.11 attempts a bank instead of 1.15 (2.14 with M5-04's content on top) (249 rolls rejected instead of 34); the Clean route is among
-    the reasons in 215 of them. The rules see far more than the old door-graph check did (tellers facing the counter
-    gate, clerks in the staff offices, the operator in the CCTV room, a patrol or the cleaner walking a corridor), and
-    the route must survive the NPCs' walks. Rolls a bank (16 banks each), before → after: small twoWing 1.4 → 1.8,
-    atrium 1.0 → 2.1, threeKeys 1.4 → 2.4, fortress 1.6 → 2.3; city twoWing, atrium, fortress and mezzanineWatch 1.1 →
-    1.3, 1.3, 1.9, 1.6, threeKeys 1.1 → 1.5; HQ twoWing 1.1 → 3.6, atrium 1.1 → 2.1, threeKeys 1.1 → 3.3, fortress 1.1
-    → 2.4, mezzanineWatch 1.1 → 2.1. Guard overlap rejects one roll, the cameras none (they are hung by the same sight,
-    decision 341). A bank takes about three times as long on average, most of it in HQ rerolls (HQ twoWing about
-    3.7 s); each roll builds two Worlds of the bank (the bare one for the cameras depends on the roll, so it can't be
-    shared). The pinned M1 bank `31-2` is unchanged by M5-01 (M5-04's new props change it, on its first roll still), and tests/validate.test.ts pins its hash; the visual baseline
-    city-twoWing (`31-2` as a city branch) changed on purpose, its sixth camera hung elsewhere by the rules' sight. The
-    bank cache's key follows the generator's imports, so it now covers `src/sim` too: a change to the rules builds the
-    test banks afresh (tests/bankCache.test.ts).
+    relaxed rule. Rolls a bank (16 banks each), before → after: small twoWing 1.4 → 1.6, atrium 1.0 → 2.1, threeKeys
+    1.4 → 1.9, fortress 1.6 → 1.7; city twoWing 1.1 → 1.2, atrium 1.1 → 1.3, threeKeys 1.1 → 1.2, fortress 1.1 → 1.6,
+    mezzanineWatch 1.1 → 1.1; HQ twoWing 1.1 → 1.9, atrium 1.1 → 1.1, threeKeys 1.1 → 2.1, fortress 1.1 → 1.5,
+    mezzanineWatch 1.1 → 1.6; in all 1.15 → 1.55. The rules see far more than the old door-graph check did (tellers
+    facing the counter gate, clerks in the staff offices, the operator, a patrol or the cleaner in a corridor). Time a
+    bank, measured back to back under the same load (with M5-04's content on top after): mean 609 → 1098 ms, small
+    396 → 768, city 530 → 860, HQ 859 → 1600, the slowest 1.8 → 4.9 s (an HQ bank on its fifth roll). Guard overlap
+    rejects a roll now and then, the cameras none (they are hung by the same sight, decision 341). Each roll builds
+    two Worlds of the bank: the bare one the cameras are hung by depends on the roll, so it can't be shared. The pinned
+    M1 bank `31-2` is unchanged by M5-01 (M5-04's new props change it, on its first roll still), and
+    tests/validate.test.ts pins its hash; the visual baseline city-twoWing (`31-2` as a city branch) changed on
+    purpose, its sixth camera hung elsewhere by the rules' sight. The bank cache's key follows the generator's imports,
+    so it now covers `src/sim` too: a change to the rules builds the test banks afresh (tests/bankCache.test.ts).
 344. **Banks the stricter checks roll found two old faults (M5-01 review).** An event's set-off (`routines.ts`) counted
     the walk from the NPC's post and from its last event, but not from the far end of the route it walks in between: a
     cleaner sweeping the corridors could reach the break room a turn late for the shift change. It now counts the walk

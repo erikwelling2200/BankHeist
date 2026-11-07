@@ -64,6 +64,8 @@ interface Ctx {
     traffic: Set<string>;
     /** The rules' World of this bank (`worldFromBank`): what the checks of sight run on. */
     world: ReadonlyWorld;
+    /** The rules relaxed so far (`RELAX_ORDER`): one of them failing doesn't spare the Clean route its walk. */
+    relaxed?: readonly Rule[];
 }
 
 export function validate(ctx: Ctx): RuleResult[] {
@@ -91,10 +93,7 @@ export function validate(ctx: Ctx): RuleResult[] {
     const sewer = ctx.routes.find(r => r.kind === 'sewer' && at({ x: r.inside.tx, y: r.inside.ty }) >= 0);
     results.push(result('sewerExit', !!sewer, sewer ? 'a sewer route from the vault side' : 'no sewer route the crew can reach'));
 
-    // A Clean-profile route, on the turn-1 safe floor (see `cleanRoute`).
     const turnOne = initialState(ctx.world, { seed: 0, crew: [] });
-    const route = cleanRoute(ctx.world, bank, doors);
-    results.push(result('cleanRoute', !!route, route ? `walks to the ${route.to} in ${route.moves.length} moves the safe floor shows green` : 'no route the safe floor shows green and the rules let a Clean crew member walk'));
 
     // Loops: two door-disjoint ways from the Public rooms to the Secure ones, and every zone connected at least twice.
     const flow = maxFlow(bank, doors, r => r.zone === 'public', r => r.zone === 'secure');
@@ -178,6 +177,13 @@ export function validate(ctx: Ctx): RuleResult[] {
     ];
     const cutOff = things.filter(t => !takeable(t));
     results.push(result('objectsReachable', !cutOff.length, `${things.length} pieces of loot and objects${cutOff.length ? `; out of reach: ${cutOff.map(t => `${t.what} in ${t.room} at ${t.x},${t.y}`).join(', ')}` : ''}`));
+
+    // The Clean route (see `cleanRoute`), the dearest check, last: not walked when another check already rejects the
+    // roll (one that isn't relaxed), and reported in its place among the rules.
+    const rejected = results.find(r => !r.ok && !(ctx.relaxed ?? []).some(x => RULES[x] === r.rule));
+    const route = rejected ? null : cleanRoute(ctx.world, bank, doors);
+    results.splice(2, 0, result('cleanRoute', !!route, route ? `walks to the ${route.to} in ${route.moves.length} moves the safe floor shows green`
+        : rejected ? 'not walked: another check rejects this roll' : 'no route the safe floor shows green and the rules let a Clean crew member walk'));
     return results;
 }
 
@@ -210,8 +216,9 @@ function guardPoses(g: GuardPlan): { pos: Pos; facing: Facing }[] {
 /** The crew member who walks the Clean route: nothing on them, so Clean (§7.4). */
 const WALKER = 'walker';
 
-/** How many floors the Clean route's search tries before it gives up. */
-const ROUTE_TRIES = 20;
+/** How many turns in a row the Clean route's walker may go without a Move down its way, and how many turns the walk may take. */
+const ROUTE_WAITS = 6;
+const ROUTE_TURNS = 20;
 
 /** The eight steps round a tile. */
 const AROUND = [[1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [1, -1], [-1, 1], [-1, -1]] as const;
@@ -224,19 +231,15 @@ export interface CleanRoute { to: string; from: Pos; moves: Pos[][] }
 
 /**
  * The Clean route (§17.7, decision 342): from the lobby to the CCTV room or the alarm closet, Moves the safe floor
- * (§8.8) shows green for a Clean crew member from turn 1 on, played through the rules. The route is the bank's, not a
+ * (§8.8) shows green for a Clean crew member from turn 1 on, played through the rules (`commit`): nobody Exposes or
+ * challenges them, no camera sees them, no alarm starts and no Move is refused or cut short. The route is the bank's, not a
  * crew's: the walker knows the whole bank (every tile seen, every NPC, the cameras and their feeds), so the floor judges
  * the truth, and holds the key graph's keys (§15.2) to every lock on the way but the vault's and the mantrap's.
  *
- * The quiet tiles of turn 1 (nobody reacts to the walker standing there then, `assessEnd`) are only a guide: the search
+ * The quiet tiles of turn 1 (nobody reacts to the walker standing there then, `assessEnd`) guide it: the search
  * walks out from the goal over them (the rules' `stepCost`), and without such a way from the lobby it gives up (stricter
- * than it need be: a tile watched on turn 1 may be clear a turn later, so such a bank is rolled again).
- * The shortest such way is then walked through the rules (`commit`), turn by turn: each Move the longest start of what
- * is left that the path under the finger (`pathSafety`) shows green on the bank as it stands then, two a turn, and the
- * end of each turn played. Where that fails, floors (`safeFloor`) on the turn-1 state find other candidates, best first
- * along the quiet tiles (`ROUTE_TRIES` at most), each played through the rules the same way. A route counts only if
- * nobody Exposes or challenges the walker, no camera sees them, no alarm starts and no Move is refused or cut short,
- * up to the world phase after its last Move.
+ * than it need be: a tile watched on turn 1 may be clear a turn later, so such a bank is rolled again). The walker then
+ * walks that way through the rules (`walk`), waiting or stepping aside where a player would.
  */
 export function cleanRoute(world: ReadonlyWorld, rooms: readonly GenRoom[], doors: readonly Door[]): CleanRoute | null {
     const width = world.width;
@@ -250,20 +253,30 @@ export function cleanRoute(world: ReadonlyWorld, rooms: readonly GenRoom[], door
     const lobby = tilesOf(['lobby']).filter(p => !tileAt(world, p)!.raised && !npcAt.has(p.y * width + p.x));
     if (!goal.size || !lobby.length) return null;
     const base = initialState(world, { seed: 0, crew: [{ id: WALKER, pos: lobby[0]! }] });
-    const mantraps = new Set(rooms.filter(r => r.type === 'mantrap').map(r => r.id));
-    const kept = new Set(doors.filter(d => d.lock === 'vault' || mantraps.has(d.a) || mantraps.has(d.b)).map(d => d.id));
-    for (const id of Object.keys(base.doors)) if (base.doors[id]!.status === 'locked' && !kept.has(id)) base.doors[id]!.status = 'closed';
+    // The walker holds everyone's card (the key graph's keys exist, §15.2); the vault and the mantrap stay off its way.
+    base.crew[0]!.keycards = world.people.map(p => p.id).sort();
+    const shut = new Set(rooms.filter(r => r.type === 'vault' || r.type === 'mantrap').map(r => r.id));
     knowAll(world, base);
     // The quiet tiles on turn 1 (nobody reacts to the walker there), and the steps from each to the goal over them.
     const sight = sightMap(world, base), options = planMoveOptions(world, base, crewMember(base, WALKER));
     // Only a tile someone or something looks at can draw a reaction: the rest need no asking.
     const watched = new Uint8Array(world.width * world.height);
-    const looks = [...base.npcs.map(n => npcObserver(world, n)), ...world.cameras.map(c => cameraObserver(world, base, c.id))];
+    // A panning camera turns every world phase, so a tile it sees in either facing is watched (`panned`: the next one);
+    // and the goal is entered through its door, so its tiles are judged with the goal's doors open (`entered`).
+    const panned: State = { ...base, cameras: Object.fromEntries(Object.entries(base.cameras).map(([id, c]) => [id, { ...c, facing: c.facing + 1 }])) };
+    const goalDoors = new Set(doors.filter(d => goal.has(d.a) || goal.has(d.b)).map(d => d.id));
+    const entered: State = { ...base, doors: Object.fromEntries(Object.entries(base.doors).map(([id, d]) => [id, goalDoors.has(id) ? { ...d, status: 'open' as const } : d])) };
+    const enteredPanned: State = { ...entered, cameras: panned.cameras };
+    const enteredSight = sightMap(world, entered);
+    const looks = [...base.npcs.map(n => npcObserver(world, n)), ...world.cameras.flatMap(c => [cameraObserver(world, base, c.id), cameraObserver(world, panned, c.id)])];
     for (const o of looks) if (o) for (const t of fieldOn(sight, o).tiles) watched[t.y * width + t.x] = 1;
     const known = new Int8Array(world.width * world.height).fill(-1);
     const quiet = (p: Pos) => {
         const i = p.y * width + p.x;
-        if (known[i] === -1) known[i] = tileAt(world, p)?.room && (!watched[i] || !assessEnd(world, base, sight, WALKER, p).length) ? 1 : 0;
+        if (known[i] === -1) {
+            const room = tileAt(world, p)?.room, [a, b, m] = room && goal.has(room) ? [entered, enteredPanned, enteredSight] : [base, panned, sight];
+            known[i] = room && !shut.has(room) && (!(watched[i] || goal.has(room)) || (!assessEnd(world, a, m, WALKER, p).length && !assessEnd(world, b, m, WALKER, p).length)) ? 1 : 0;
+        }
         return known[i] === 1;
     };
     const toGoal = new Int32Array(world.width * world.height).fill(-1), queue: Pos[] = [];
@@ -281,42 +294,19 @@ export function cleanRoute(world: ReadonlyWorld, rooms: readonly GenRoom[], door
     const first = lobby.filter(p => cost(p) >= 0).sort((a, b) => cost(a) - cost(b))[0];
     if (!first) return null;
     const goalAt = (p: Pos) => goal.get(tileAt(world, p)!.room ?? '');
-    const walked = (moves: Pos[][]): CleanRoute | null => (walks(world, placeCrew(base, WALKER, first), moves) ? { to: goalAt(moves.at(-1)!.at(-1)!)!, from: first, moves } : null);
-    // First the shortest quiet way, walked through the rules turn by turn, each Move the longest the path under the
-    // finger shows green as the bank stands then.
-    const way: Pos[] = [];
-    for (let at = first; cost(at) > 0;) {
-        const next = AROUND.map(([dx, dy]) => ({ x: at.x + dx, y: at.y + dy }))
-            .find(p => tileAt(world, p) && cost(p) === cost(at) - 1 && stepCost(world, base, at, p, options) !== undefined)!;
-        way.push(next);
-        at = next;
-    }
-    const straight = walkWay(world, placeCrew(base, WALKER, first), way);
-    if (straight) return { to: goalAt(straight.at(-1)!.at(-1)!)!, from: first, moves: straight };
-    // Otherwise floor by floor, best first along the quiet tiles: each tile a green Move reaches, by index, with the
-    // Move that reached it and where that Move set off.
-    const open = [first], via = new Map<number, { from: number; path: Pos[] } | null>([[first.y * width + first.x, null]]);
-    const movesTo = (i: number): Pos[][] => {
-        const out: Pos[][] = [];
-        for (let step = via.get(i); step; step = via.get(step.from)) out.unshift(step.path);
-        return out;
-    };
-    for (let tries = 0; tries < ROUTE_TRIES && open.length; tries++) {
-        open.sort((a, b) => cost(a) - cost(b));
-        const from = open.shift()!, fromIndex = from.y * width + from.x;
-        for (const t of safeFloor(world, placeCrew(base, WALKER, from), WALKER, { dash: false, bands: ['move'] }).tiles) {
-            const i = t.pos.y * width + t.pos.x;
-            if (t.tint.kind !== 'safe' || via.has(i) || cost(t.pos) < 0) continue;
-            via.set(i, { from: fromIndex, path: t.path.map(p => ({ x: p.x, y: p.y })) });
-            if (!goalAt(t.pos)) open.push(t.pos);
-            else {
-                // The next candidate if this one can't be walked.
-                const route = walked(movesTo(i));
-                if (route) return route;
-            }
+    // The quiet way down to the goal from a tile (the steps whose cost falls by one), or none off the quiet tiles.
+    const wayFrom = (from: Pos): Pos[] => {
+        const way: Pos[] = [];
+        for (let at = from; cost(at) > 0;) {
+            const next = AROUND.map(([dx, dy]) => ({ x: at.x + dx, y: at.y + dy }))
+                .find(p => tileAt(world, p) && cost(p) === cost(at) - 1 && stepCost(world, base, at, p, options) !== undefined)!;
+            way.push(next);
+            at = next;
         }
-    }
-    return null;
+        return way;
+    };
+    const moves = walk(world, placeCrew(base, WALKER, first), cost, wayFrom, p => !!goalAt(p));
+    return moves ? { to: goalAt(moves.at(-1)!.at(-1)!)!, from: first, moves } : null;
 }
 
 /** The walker knows everything, the state as it is now (as the preview property test's omniscient runs). */
@@ -331,35 +321,57 @@ function knowAll(world: ReadonlyWorld, state: State): State {
 }
 
 /**
- * Walks `way` from where the walker stands in `state` through the rules, Move by Move, each the longest start of what is
- * left that the path under the finger (`pathSafety`) shows green on the bank as it stands then, ending the turn after
- * two; the Moves, or null when one would not be green or the walk is spotted or stopped (`walks`).
+ * The walker's walk to the goal through the rules (decision 342), from where it stands in `state`, turn by turn: each
+ * Move the longest start of the quiet way down from where it stands that the path under the finger (`pathSafety`) shows
+ * green on the bank as it is then. When none is, it does what a player would: waits (ends the turn where it stands)
+ * if the safe floor (`safeFloor`) shows staying green, or else takes the green Move that leaves it nearest the goal,
+ * at most `ROUTE_WAITS` turns in a row without a Move down the way, and `ROUTE_TURNS` turns in all. Stops at the first
+ * failure: a refused or cut Move, or anything `SPOTTED` (the world phase after the last Move included). The Moves, or
+ * null.
  */
-function walkWay(world: ReadonlyWorld, state: State, way: readonly Pos[]): Pos[][] | null {
-    const longest = Math.floor(crewBudget(world, crewMember(state, WALKER), 'move') / 2), moves: Pos[][] = [];
-    let left = [...way];
-    while (left.length) {
+function walk(world: ReadonlyWorld, state: State, cost: (p: Pos) => number, wayFrom: (p: Pos) => Pos[], done: (p: Pos) => boolean): Pos[][] | null {
+    const longest = Math.floor(crewBudget(world, crewMember(state, WALKER), 'move') / 2), moves: Pos[][] = [], start = state.turn;
+    const move = (path: Pos[]): boolean => {
+        const next = played(world, state, { type: 'move', crew: WALKER, path }), there = next && crewMember(next, WALKER).pos;
+        if (!next || there!.x !== path.at(-1)!.x || there!.y !== path.at(-1)!.y) return false;
+        state = next;
+        moves.push(path);
+        return true;
+    };
+    let stalled = 0;
+    while (!done(crewMember(state, WALKER).pos)) {
+        if (state.turn - start >= ROUTE_TURNS) return null;
         if (crewMember(state, WALKER).actionsLeft < MOVE_ACTIONS) {
             const ended = played(world, state, { type: 'endTurn' });
             if (!ended) return null;
             state = ended;
         }
-        const now = knowAll(world, clonePlain(state));
-        let n = Math.min(longest, left.length);
+        const now = knowAll(world, clonePlain(state)), way = wayFrom(crewMember(state, WALKER).pos);
+        let n = Math.min(longest, way.length);
         for (; n > 0; n--) {
-            const judged = pathSafety(world, now, WALKER, left.slice(0, n), { mode: 'move', stops: false, dash: false });
+            const judged = pathSafety(world, now, WALKER, way.slice(0, n), { mode: 'move', stops: false, dash: false });
             // Green, and not cut short by someone standing at its end.
-            const end = left[n - 1]!;
+            const end = way[n - 1]!;
             if (judged.ok && judged.firstUnsafe === null && judged.end.tint.kind === 'safe' && judged.end.pos.x === end.x && judged.end.pos.y === end.y) break;
         }
-        if (!n) return null;
-        const path = left.slice(0, n), next = played(world, state, { type: 'move', crew: WALKER, path });
-        const there = next && crewMember(next, WALKER).pos;
-        if (!next || there!.x !== path.at(-1)!.x || there!.y !== path.at(-1)!.y) return null;
-        state = next;
-        moves.push(path);
-        left = left.slice(n);
+        if (n) {
+            if (!move(way.slice(0, n))) return null;
+            stalled = 0;
+            continue;
+        }
+        // Nothing green down the way: wait where it is green to, or step aside to the green tile nearest the goal.
+        if (++stalled > ROUTE_WAITS) return null;
+        const floor = safeFloor(world, now, WALKER, { dash: false, bands: ['stay', 'move'] }).tiles.filter(t => t.tint.kind === 'safe');
+        if (floor.some(t => t.band === 'stay')) {
+            const waited = played(world, state, { type: 'endTurn' });
+            if (!waited) return null;
+            state = waited;
+            continue;
+        }
+        const aside = floor.filter(t => cost(t.pos) >= 0).sort((a, b) => cost(a.pos) - cost(b.pos) || a.cost - b.cost)[0];
+        if (!aside || !move(aside.path.map(p => ({ x: p.x, y: p.y })))) return null;
     }
+    // The world phase after the last Move too.
     return played(world, state, { type: 'endTurn' }) ? moves : null;
 }
 
@@ -372,17 +384,6 @@ function played(world: ReadonlyWorld, state: State, cmd: Command): State | null 
         if (e instanceof IllegalCommand) return null;
         throw e;
     }
-}
-
-/** Whether the walker, from where it stands in `state`, walks `moves` through the rules without being spotted or stopped. */
-function walks(world: ReadonlyWorld, state: State | null, moves: readonly Pos[][]): boolean {
-    for (const path of moves) {
-        if (state && crewMember(state, WALKER).actionsLeft < MOVE_ACTIONS) state = played(world, state, { type: 'endTurn' });
-        state = state && played(world, state, { type: 'move', crew: WALKER, path });
-        const at = state && crewMember(state, WALKER).pos, end = path.at(-1)!;
-        if (!at || at.x !== end.x || at.y !== end.y) return false;
-    }
-    return !!state && !!played(world, state, { type: 'endTurn' });
 }
 
 /** Where the crew starts (`crewOrigin` in `src/game/heist.ts`): by the van at the curb, the first getaway, or the lobby. */
