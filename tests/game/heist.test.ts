@@ -73,6 +73,6 @@ describe('a heist in a generated bank', () => {
         expect(playPlan(saved, { seeded: false, fresh: true }, here)).toBe('ask');
         expect(Session.resume(storage)!.state.crew[0]!.actionsLeft).toBe(0);
         storage.set(BANK_KEY, '{oops');
-        expect(savedHeist(storage)).toEqual({ address: null, name: null });
+        expect(savedHeist(storage)).toEqual({ address: null, name: null, campaign: null });
     });
 });

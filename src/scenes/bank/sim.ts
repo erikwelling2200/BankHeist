@@ -126,6 +126,8 @@ export interface PlayParts {
     power: PowerCut;
     /** The heist was resumed: show the recap card first (§20.6). */
     resumed: boolean;
+    /** Where the outcome's New heist goes, if not to planning the next heist in this bank: a campaign heist's campaign (M6-01). */
+    next?: string;
 }
 
 export class PlayMode {
@@ -239,6 +241,8 @@ export class PlayMode {
 
     /** The bank's address, for planning the next heist in it. */
     private readonly address: BankAddress;
+    /** Where New heist goes instead (`PlayParts.next`). */
+    private readonly next?: string;
 
     constructor(private readonly scene: Phaser.Scene, parts: PlayParts) {
         const { session, bank, people, walls, camera, knowledge } = parts;
@@ -251,6 +255,7 @@ export class PlayMode {
         this.power = parts.power;
         this.recap = parts.resumed && session.recent.length > 0;
         this.address = bankAddress(bank);
+        this.next = parts.next;
         this.lastStop = session.ui.autoStop ?? null;
         bank.people.forEach((p, i) => {
             this.sprite.set(p.id, i);
@@ -315,7 +320,7 @@ export class PlayMode {
                 this.session.retire();
                 this.session.storage.remove(HEIST_KEY);
                 const still = new URLSearchParams(location.search).has('still') ? '&still' : '';
-                window.location.assign(`${location.pathname}?plan&${new URLSearchParams({ ...this.address })}${still}`);
+                window.location.assign(this.next ?? `${location.pathname}?plan&${new URLSearchParams({ ...this.address })}${still}`);
             }
         });
         this.autoBar = mountAutoBar(document.body, {

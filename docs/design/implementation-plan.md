@@ -1674,8 +1674,29 @@ M2 is complete: every package below has landed.
 
 ### M6: Campaign
 
-- [ ] **M6-01** Campaign state and save; days; the Squeeze, its thresholds and complications (§19.2). Pure, in `src/campaign/`.
+- [x] **M6-01** Campaign state and save; days; the Squeeze, its thresholds and complications (§19.2). Pure, in `src/campaign/`. (partial: see Deferred)
   Must price casing (M5-03, decision 406): a heist abandoned after a turn keeps its intel for free today.
+  - **Done:** decisions 440–445. `src/campaign/` (`campaign.ts`: `Campaign`, `commitCampaign`, `campaignRefusal`,
+    `timeline`, intel by the day; `squeeze.ts`: the thresholds, the Raid, the gains; `complications.ts`: the pool and its
+    seeded draw). `src/game/campaign.ts`: the save (`CAMPAIGN_KEY`, `CAMPAIGN_FORMAT`, `campaignProblem`), `campaignAct`,
+    `campaignIntel`, `campaignKeeper`. The Session takes `keepIntel`; `startHeist` tags a campaign heist
+    (`savedHeist().campaign`); `?campaign` (`src/ui/campaign/CampaignPage.ts`), `?plan&campaign` and its heist in
+    `src/boot.ts`; `askPlayer` moved to `src/ui/askPlayer.ts`. Casing is paid: a heist spends its day as it starts.
+  - **Tests:** `tests/campaign/campaign.test.ts` (thresholds and their days, complications drawn and landed, the false
+    tip, days, failed and abandoned jobs, the Raid and the phases, intel ageing); `tests/game/campaign.test.ts` (the save's
+    round trip and refusals, a campaign heist paying its day, its intel kept in the campaign only, a sandbox heist and an
+    old day's heist sending nothing, a failure counted once); `e2e/campaign.spec.ts` (start, lay low, plan and play a
+    heist that spends its day, New heist back to the campaign; `screenshots/campaign.png`). No sim state change: the save
+    shape hash is unchanged; no visual baseline changed.
+  - **Deferred:** what the complications, the Raid and the finale do (M7); difficulty's Squeeze per day (×0.75, ×1.25:
+    M6-07); Notoriety's and a talking prisoner's Squeeze wired from the roster (M6-04; the rules' `squeeze` command
+    takes them) and the false tip from its side job (M6-02); the case day action's visit mode (M6-07; the rules spend
+    the day and take what it learns); contracts and their banks (M6-02: the campaign plans the pinned bank); money
+    (M6-03): an intel asset bought on the campaign's planning screen and not started shows what it shows for nothing
+    (decision 401's accepted gap), and the plan's cash is the sandbox's; the city map and its timeline (M6-06); a
+    routine seen again in a heist renewing its date (decision 442 is strict); a population that changes between days
+    (the bank's people are its seed's; intel drops day-bound parts all the same); the sandbox's free casing (decision
+    406, no clock there).
 - [ ] **M6-02** Contracts by stakes; chain escalation; side objectives placed through M5-04 (§19.3, §19.5).
 - [ ] **M6-03** Money, laundering, the fence, crew shares, the black market and contacts (§19.4). **∥** M6-02.
 - [ ] **M6-04** The roster: recruits, trait growth, injuries, jail, Notoriety and its decay, motives (§19.6, §19.7). In the rules, Notoriety raises the crew member's profile in `profile.ts`.
@@ -3073,7 +3094,52 @@ Later milestones: within each milestone, the `∥` notes in §3 apply. UI packag
     World always carries its intel (`{}` for none); the Session keeps intel only for such a World and only from turn 2,
     so the M1 crew's heists and a heist started and left at once (a rented nest looked through and given back) scout
     nothing. **Accepted until M6-01:** a planned heist played a turn or more, then abandoned with New heist, still keeps
-    its casing for nothing: repeating heists scouts for free.
+    its casing for nothing: repeating heists scouts for free. **M6-01:** in the campaign a heist spends its day as it
+    starts (decision 441); the sandbox (`?plan`) has no days and keeps this, its intel never reaching a campaign.
+440. **The campaign is pure, and saved beside the heist (M6-01, §19).** `src/campaign/`: a plain-JSON `Campaign` (seed,
+    the day not yet spent, the Squeeze, the drawn complications, the day each threshold landed, the false tip, the
+    phase, the days spent, the day's visit, intel per bank print) changed only by a `CampaignCommand` through
+    `commitCampaign` (a copy and its `CampaignEvent`s; `campaignRefusal` says why not, `CampaignRefused` is thrown), as
+    the rules' commit does. No clock, no `Math.random`: the complications are drawn from the campaign's seed
+    (`drawComplications`, the generator's `Rng`), 7 of §19.2's 10, one per threshold before the Raid, so the timeline is
+    whole from day 1. `src/game/campaign.ts` saves it under `campaign` as `{ format: CAMPAIGN_FORMAT, campaign }`;
+    another format, or anything `campaignProblem` doesn't read as a campaign (exact fields and types, the days spent
+    exactly those before today, every threshold the points reached landed, the phase the landings make, the visit a
+    day spent), is refused as the rules' saves are (`SaveFormatError`), and the page says it can't be read.
+441. **A heist spends its day as it starts (M6-01, §19.3; decision 406's must-do).** Start on `?plan&campaign` commits
+    the campaign's `heist` and saves it before the heist exists, so a heist left after one turn, or none, has cost its
+    day (+2 Squeeze). The heist is tagged with its campaign's seed and day (`CampaignTag`, kept with the saved heist's
+    bank entry); its Session sends what it learns to that day through `SessionOptions.keepIntel` (`campaignKeeper`)
+    from the first save, never to the device's `intel:` store, and a sandbox heist never reaches a campaign. A tagged
+    heist whose day's visit is no longer the campaign's (a later day action came) sends nothing; a day action from the
+    campaign page drops it from the save slot. Casing is a day action in the rules too (`case`, a visit like a heist's;
+    its no-combat visit mode is M6-07's).
+442. **Intel ages by the day (M6-01, §17.8; M5-03's deferral).** The campaign keeps what each visit learned, per bank
+    and dated (`DatedIntel`, one record per visit, replaced as the heist learns more). The layout (the Blueprints, the
+    tiles seen) holds for good: the building doesn't change. The day-bound parts (the Guard rota, the routines, the
+    opportunities found) hold for `INTEL_FRESH_DAYS` = 3 days after the day learned, then go, from the save too
+    (`pruneIntel`): rotas are redrawn and staff rotate, and stale intel is dropped, never shown wrong. A visit's record
+    leaves out the day-bound parts it started knowing (`learnedOf` against `Visit.prior`), so carrying a routine into a
+    heist doesn't re-date it: it ages from the day it was learned (strict: one seen again in that heist isn't renewed).
+    `campaignIntel` merges the fresh records, each checked against the bank (`intelProblem`), into the plan's intel.
+443. **An abandoned heist is a failed job (M6-01, §19.2).** A heist that ends in failure adds the failed job's +2 once
+    (`heistOver`, sent by the keeper at the outcome); a partial success is no failure. A heist still unfinished when the
+    next day action comes (laying low, the next heist) was abandoned: +2 too, asked first. Otherwise leaving a heist
+    going wrong would dodge the failure.
+444. **Days and thresholds (M6-01, §19.2).** Day 1 starts at 0. A day action spends the day now: +2, then every
+    threshold reached lands on that day, so the daily gain alone lands them on days 4, 8, 11, 13, 15, 17 and 18 and the
+    Raid on day 19 (`timeline`, `projectedDay`: the day each lands if nothing but the days adds, moving forward on the
+    spot when something does). Squeeze from elsewhere (`squeeze`: Notoriety gained per crew member, a prisoner who
+    talks, the false tip once) lands on the last day spent. A landed complication is never taken back: the false tip
+    lowers the points (never below 0), and climbing past a landed threshold again lands nothing. At 38 the Raid stops
+    the day actions: `raid` until `raidOver` (survived: `finaleDue`, else `over`); `finale` ends the campaign from
+    `open` or `finaleDue`. What each complication, the Raid and the finale do is M7's.
+445. **Reaching the campaign (M6-01).** `?campaign` is a plain HTML readout (`src/ui/campaign/`, no Phaser): the day,
+    the Squeeze, the whole timeline with each step's day, the day's heist and the days spent, and the day actions so
+    far: Plan a heist (`?plan&campaign`, the pinned bank until contracts, M6-02) and Lay low; New campaign asks first.
+    A campaign heist's New heist comes back to it, and its address drops `campaign` once started so a reload resumes the
+    heist. The planning screen's cash stays the sandbox's $24k (decision 323): the campaign's money is M6-03's, which
+    this doesn't need. `window.campaign` (`get`, `act`, `start`) on that page is for tests and the console.
 340. **Validation sees with the rules (M5-01, §17.7).** The checks of what is seen run on the World the game builds from
     the bank (`worldFromBank`) in its state on turn 1 (`initialState`: everyone where they start, the doors as they
     start), through `src/sim/geo`: §8.3's arcs and ranges, darkness halving them, cameras blind on an unlit tile, the

@@ -1,0 +1,30 @@
+/*
+ * The campaign's readout (`?campaign`, M6-01): one panel in the play dialog's look over the page, scrolling when it
+ * must. The city map is M6-06's.
+ */
+html.campaign-page, html.campaign-page body { overflow: auto; touch-action: auto; }
+html.campaign-page #game, html.campaign-page .rotate-hint { display: none; }
+.cp { box-sizing: border-box; min-height: 100%; padding: max(16px, env(safe-area-inset-top)) max(16px, env(safe-area-inset-right)) 24px max(16px, env(safe-area-inset-left));
+  color: #f2e6c8; font: 500 14px/1.45 ui-sans-serif, system-ui, sans-serif; }
+.cp-panel { max-width: 560px; margin: 0 auto; padding: 14px 16px; border: 1px solid rgba(242, 230, 200, 0.25); border-radius: 8px; background: rgba(11, 13, 23, 0.9); }
+.cp p { margin: 6px 0; }
+.cp-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
+.cp-title { margin: 0; font: 600 20px ui-monospace, Menlo, Consolas, monospace; letter-spacing: 0.06em; color: #f2c94c; }
+.cp-squeeze { display: flex; align-items: baseline; gap: 6px; }
+.cp-label, .cp-sub { font: 600 12px ui-monospace, Menlo, Consolas, monospace; text-transform: uppercase; letter-spacing: 0.1em; color: #c9b98f; }
+.cp-sub { margin: 14px 0 4px; }
+.cp-num { font: 600 24px ui-monospace, Menlo, Consolas, monospace; color: #e2a240; }
+.cp-phase.cp-raid, .cp-warn { color: #d44638; }
+.cp-timeline { margin: 0; padding: 0; list-style: none; }
+.cp-step { display: grid; grid-template-columns: 32px 1fr auto; gap: 8px; padding: 4px 0; border-top: 1px solid rgba(242, 230, 200, 0.1); }
+.cp-step.landed { color: #8f866f; }
+.cp-step.landed .cp-name { text-decoration: line-through; }
+.cp-step.raid { color: #d44638; font-weight: 600; }
+.cp-at { font-family: ui-monospace, Menlo, Consolas, monospace; color: #e2a240; }
+.cp-day { color: #b5a98a; font-size: 12px; white-space: nowrap; }
+.cp-days, .cp-landed { color: #b5a98a; font-size: 12px; }
+.cp-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 14px; }
+.cp button { min-width: 44px; min-height: 44px; padding: 0 14px; border-radius: 6px; font: 600 13px ui-monospace, Menlo, Consolas, monospace; letter-spacing: 0.06em; cursor: pointer; touch-action: manipulation; }
+.cp-go { border: 0; background: #e2a240; color: #0b0d17; }
+.cp-act, .cp-link { border: 1px solid rgba(242, 230, 200, 0.35); background: rgba(242, 230, 200, 0.08); color: #f2e6c8; }
+.cp-link { min-height: 32px; }

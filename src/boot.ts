@@ -10,10 +10,13 @@ import { OfficerScene } from './scenes/OfficerScene';
 import { PropSheetScene } from './scenes/PropSheetScene';
 import { Fullscreen } from './ui/Fullscreen';
 import { installDebugHandle, MemoryStorage, Session, webStorage, type SaveStorage } from './game';
-import { bankAddress, playPlan, sameAddress, savedHeist, startHeist } from './game/heist';
-import { loadIntel } from './game/intel';
+import { bankAddress, playPlan, sameAddress, savedHeist, startHeist, type CampaignTag } from './game/heist';
+import type { Campaign } from './campaign';
+import { bankPrint, loadIntel } from './game/intel';
+import { campaignAct, campaignHeistRefusal, campaignIntel, campaignKeeper, heistUnfinished, loadCampaign } from './game/campaign';
 import { defaultSetup, planOptions, setupFromAddress, type HeistSetup } from './game/plan';
 import { Planner } from './ui/planning/Planner';
+import { askPlayer } from './ui/askPlayer';
 import type { BankData } from './level/bankData';
 import type { PlaySetup } from './scenes/BankScene';
 
@@ -33,7 +36,7 @@ const SCENES = ['bank', 'lobby', 'rooms', 'props', 'officer'];
  * start and autosave one in a random bank that `/` then resumes.
  */
 export const playsTheGame = (params: URLSearchParams): boolean =>
-    !params.has('scene') && !params.has('view') && !params.has('plan') && params.get('bank') !== 'example' && (!params.has('seed') || params.has('play') || params.has('new'));
+    !(params.has('campaign') && !params.has('play')) && !params.has('scene') && !params.has('view') && !params.has('plan') && params.get('bank') !== 'example' && (!params.has('seed') || params.has('play') || params.has('new'));
 
 /** Replaces the address's query with `params`, a bare flag (`view`, `play`) staying bare rather than `view=`. */
 function replaceQuery(params: URLSearchParams): void {
@@ -154,8 +157,16 @@ function plan(params: URLSearchParams): void {
         replaceQuery(next);
     }
     const bank = generateAddressed(), generated = bank.generated!;
-    const game = launch(params, 'bank', bank, undefined, undefined, true);
     const options = planOptions(generated);
+    // `?plan&campaign` plans the campaign's heist of the day (M6-01): with what its crew knows of the bank today, never
+    // the sandbox's intel; back to the campaign when there is none or no heist can be planned today.
+    const storage = webStorage() ?? new MemoryStorage();
+    const campaign = params.has('campaign') ? loadCampaign(storage) : undefined;
+    if (campaign !== undefined && campaignHeistRefusal(campaign, options.world)) {
+        location.replace(campaignAddress());
+        return;
+    }
+    const game = launch(params, 'bank', bank, undefined, undefined, true);
     const map = () => {
         const scene = game.scene.getScene('bank') as BankScene | null;
         return scene?.sys.isActive() ? scene : undefined;
@@ -163,11 +174,11 @@ function plan(params: URLSearchParams): void {
     // Start opens the game with the plan in its address (`&setup=`): it starts the heist there, asking first if one is
     // saved, so the plan survives the page change even with no storage, and never carries `new` along.
     // What the crew knows of this bank from earlier heists in it (M5-03): the plan starts with it.
-    const intel = loadIntel(webStorage() ?? new MemoryStorage(), options.world);
+    const intel = campaign ? campaignIntel(campaign, options.world) : loadIntel(storage, options.world);
     const planner = new Planner(generated, options, defaultSetup(options, intel), map, setup => {
         const keep = [...new URLSearchParams(location.search)].filter(([k]) => !['plan', 'new', 'play', 'seed', 'tier', 'archetype', 'plot', 'setup'].includes(k));
         const query = new URLSearchParams([['play', ''], ...Object.entries(bankAddress(generated)), ['setup', JSON.stringify(setup)], ...keep]);
-        location.assign(`${location.pathname}?${query.toString().replace(/(^|&)(play)=(?=&|$)/g, '$1$2')}`);
+        location.assign(`${location.pathname}?${query.toString().replace(/(^|&)(play|campaign)=(?=&|$)/g, '$1$2')}`);
     });
     Object.assign(window, { planner, generated });
 }
@@ -188,7 +199,7 @@ function writePlayAddress(bank: GeneratedBank, saved: ReturnType<typeof savedHei
     const here = bankAddress(bank);
     const pinned = here.seed === PLAY_BANK.seed && here.tier === PLAY_BANK.tier && here.archetype === PLAY_BANK.archetype;
     const params = new URLSearchParams(location.search);
-    for (const k of ['play', 'new', 'seed', 'tier', 'archetype', 'plot', 'setup']) params.delete(k);
+    for (const k of ['play', 'new', 'seed', 'tier', 'archetype', 'plot', 'setup', 'campaign']) params.delete(k);
     const rest = [...params];
     replaceQuery(new URLSearchParams(pinned || sameAddress(saved?.address, here) ? rest : [['play', ''], ...Object.entries(here), ...rest]));
 }
@@ -219,16 +230,34 @@ async function preparePlay(params: URLSearchParams): Promise<{ bank: ReturnType<
     let target = storage;
     // A heist planned on the planning screen (`&setup=`, M4-07): started here, asking first if one is saved; a plan
     // that can't be read or played goes back to planning.
-    const planned = params.has('setup') ? plannedSetup(params.get('setup')!, generated, storage) : undefined;
+    // `&campaign` with a plan: the campaign's heist of the day (M6-01), planned with what its crew knows today; it
+    // spends the day as it starts. No campaign, or no heist today: back to the campaign.
+    const campaign = params.has('setup') && params.has('campaign') ? loadCampaign(storage) : undefined;
+    if (campaign !== undefined && campaignHeistRefusal(campaign, planOptions(generated).world)) {
+        location.replace(campaignAddress());
+        return new Promise<never>(() => undefined);
+    }
+    const planned = params.has('setup') ? plannedSetup(params.get('setup')!, generated, storage, campaign ?? undefined) : undefined;
+    let tag: CampaignTag | undefined;
     if (params.has('setup')) {
         const back = () => {
             location.replace(planAddress(generated));
             return new Promise<never>(() => undefined);
         };
         if (!planned) return back();
+        const abandons = campaign && heistUnfinished(campaign) ? `Day ${campaign.visit!.day}'s heist is abandoned: a failed job (+2 Squeeze).` : '';
         if (saved) {
             const name = saved.name ? `in ${saved.name}` : 'in another bank';
-            if (!(await askPlayer(`A heist ${name} is saved on this device.`, 'Starting the planned one overwrites it.', 'Start new', 'Keep planning'))) return back();
+            if (!(await askPlayer(`A heist ${name} is saved on this device.`, `Starting the planned one overwrites it.${abandons ? ` ${abandons}` : ''}`, 'Start new', 'Keep planning'))) return back();
+        } else if (abandons && !(await askPlayer(`Day ${campaign!.visit!.day}'s heist isn't over.`, abandons, 'Start new', 'Keep planning'))) return back();
+        if (campaign) {
+            // The day is spent, and saved, before the heist starts: leaving it after a turn has still cost the day.
+            const done = campaignAct(storage, { kind: 'heist', bank: bankPrint(planOptions(generated).world) });
+            if ('refused' in done) {
+                location.replace(campaignAddress());
+                return new Promise<never>(() => undefined);
+            }
+            tag = { seed: done.campaign.seed, day: done.campaign.visit!.day };
         }
         plan = 'new';
     }
@@ -241,14 +270,17 @@ async function preparePlay(params: URLSearchParams): Promise<{ bank: ReturnType<
         plan = 'new';
     }
     if (plan === 'resume') {
-        session = Session.resume(storage);
+        // A campaign's heist sends what it learns to its campaign day, as when it started.
+        session = Session.resume(storage, saved?.campaign ? { keepIntel: campaignKeeper(storage, saved.campaign) } : {});
         if (!session) {
             console.warn("The saved heist can't be resumed", Session.lastResumeError);
             if (!(await askPlayer("The saved heist can't be read.", 'Start a new one in its place?', 'Start new', 'Play without saving'))) target = new MemoryStorage();
         }
     }
     const resumed = !!session;
-    session ??= startHeist(generated, target, {}, planned);
+    session ??= startHeist(generated, target, tag ? { keepIntel: campaignKeeper(target, tag) } : {}, planned, tag);
+    // A campaign heist's New heist goes back to the campaign.
+    const next = (tag ?? (resumed ? saved?.campaign : undefined)) ? campaignAddress() : undefined;
     writePlayAddress(generated, savedHeist(target));
     const setupMs = performance.measure('bank: heist', { start: started }).duration;
     installDebugHandle(session);
@@ -256,53 +288,26 @@ async function preparePlay(params: URLSearchParams): Promise<{ bank: ReturnType<
     document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') s.save(); });
     window.addEventListener('pagehide', () => s.save());
     Object.assign(window, { generated });
-    return { bank, setup: { session, bank: generated, resumed, setupMs } };
+    return { bank, setup: { session, bank: generated, resumed, setupMs, ...(next ? { next } : {}) } };
 }
 
 /**
  * The plan in the address, if it reads as a setup this bank can play, knowing only the intel kept for the bank on this
  * device: the address is never a source of intel (decision 405).
  */
-function plannedSetup(text: string, bank: GeneratedBank, storage: SaveStorage): HeistSetup | undefined {
+function plannedSetup(text: string, bank: GeneratedBank, storage: SaveStorage, campaign?: Campaign): HeistSetup | undefined {
     const options = planOptions(bank);
-    return setupFromAddress(text, options, loadIntel(storage, options.world));
+    return setupFromAddress(text, options, campaign ? campaignIntel(campaign, options.world) : loadIntel(storage, options.world));
 }
 
-/** The planning screen's address for a bank, keeping `still`. */
+/** The planning screen's address for a bank, keeping `still` (and `campaign`, planning the campaign's heist). */
 function planAddress(bank: GeneratedBank): string {
-    const still = new URLSearchParams(location.search).has('still') ? '&still' : '';
-    return `${location.pathname}?plan&${new URLSearchParams({ ...bankAddress(bank) })}${still}`;
+    const here = new URLSearchParams(location.search);
+    const still = here.has('still') ? '&still' : '', campaign = here.has('campaign') ? '&campaign' : '';
+    return `${location.pathname}?plan&${new URLSearchParams({ ...bankAddress(bank) })}${campaign}${still}`;
 }
 
-/** A small dialog in the HUD's style; resolves true for `yes`. */
-function askPlayer(title: string, text: string, yes: string, no: string): Promise<boolean> {
-    return new Promise(resolve => {
-        const back = document.createElement('div');
-        back.className = 'play-dialog-back';
-        const box = document.createElement('div');
-        box.className = 'play-dialog';
-        box.setAttribute('role', 'alertdialog');
-        box.setAttribute('aria-modal', 'true');
-        const h = document.createElement('p');
-        h.className = 'play-dialog-title';
-        h.textContent = title;
-        const p = document.createElement('p');
-        p.textContent = text;
-        const row = document.createElement('div');
-        row.className = 'play-dialog-buttons';
-        const button = (label: string, answer: boolean, cls: string) => {
-            const b = document.createElement('button');
-            b.className = cls;
-            b.textContent = label;
-            b.addEventListener('click', () => { back.remove(); resolve(answer); });
-            row.append(b);
-            return b;
-        };
-        const keep = button(no, false, 'play-dialog-keep');
-        button(yes, true, 'play-dialog-new');
-        box.append(h, p, row);
-        back.append(box);
-        document.body.append(back);
-        keep.focus();
-    });
+/** The campaign's readout's address (M6-01), keeping `still`. */
+function campaignAddress(): string {
+    return `${location.pathname}?campaign${new URLSearchParams(location.search).has('still') ? '&still' : ''}`;
 }

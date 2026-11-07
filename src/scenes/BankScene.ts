@@ -23,7 +23,7 @@ import { crewColour } from '../ui/hud/viewModels';
 import { rosterMember } from '../game/plan';
 
 /** What the game (`/`) hands the scene through the registry (`play`): the Session and the bank it is played in. */
-export type PlaySetup = Pick<PlayParts, 'session' | 'bank' | 'resumed'> & { /** How long finding or making the heist took (ms). */ setupMs?: number };
+export type PlaySetup = Pick<PlayParts, 'session' | 'bank' | 'resumed' | 'next'> & { /** How long finding or making the heist took (ms). */ setupMs?: number };
 
 /**
  * The example bank and its block (bank.ts), or a generated one: the street, the bank with its neighbours, the alley

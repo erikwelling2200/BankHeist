@@ -94,9 +94,14 @@ export interface SessionOptions {
     uiSaveDelay?: number;
     /** Gets errors a listener threw (default console.error); they never reach the caller of commit or undo. */
     onListenerError?: (error: unknown) => void;
+    /**
+     * Keeps what the heist has learned after each save, in place of the bank's intel on this device (M5-03): a campaign
+     * heist's goes to its campaign instead (M6-01, src/game/campaign.ts). What it throws never fails the save.
+     */
+    keepIntel?: (world: ReadonlyWorld, state: State) => void;
 }
 
-export type ResumeOptions = Pick<SessionOptions, 'uiSaveDelay' | 'onListenerError'>;
+export type ResumeOptions = Pick<SessionOptions, 'uiSaveDelay' | 'onListenerError' | 'keepIntel'>;
 
 /**
  * The undo stack's companion: the recent events (and their turns) before each undoable action, and the playback items it
@@ -178,6 +183,8 @@ export class Session {
     private retired = false;
     /** The intel last kept for this bank (`keepIntel`), as JSON. */
     private intelKept: string | null = null;
+    /** Where what the heist learns goes, if not to the bank's intel on this device (`SessionOptions.keepIntel`). */
+    private readonly intelKeeper?: (world: ReadonlyWorld, state: State) => void;
     /** Auto-advance is committing: its moves keep their crew member's route. */
     private autoPlaying = false;
     /** The stop the last auto-advance step ended with: the same evidence stop doesn't hold the next Go again. */
@@ -218,6 +225,7 @@ export class Session {
         this.seq = init.seq;
         this.uiSaveDelay = init.options.uiSaveDelay ?? 500;
         this.onListenerError = init.options.onListenerError ?? (e => console.error('Session listener failed', e));
+        this.intelKeeper = init.options.keepIntel;
     }
 
     /** A new heist: replaces any heist in progress in `storage`, and saves at once. */
@@ -640,6 +648,14 @@ export class Session {
      * turn is played, so starting a heist and leaving at once scouts nothing. A failure to store it never fails the save.
      */
     private keepIntel(): void {
+        if (this.intelKeeper) {
+            try {
+                this.intelKeeper(this.world, this._state);
+            } catch (e) {
+                console.warn("The heist's intel couldn't be kept", e);
+            }
+            return;
+        }
         if (this.world.intel === undefined || this._state.turn <= 1) return;
         const intel = intelOf(this.world, this._state), text = stableJson(intel);
         if (text === this.intelKept) return;

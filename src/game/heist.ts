@@ -96,25 +96,42 @@ export const bankAddress = (bank: GeneratedBank): BankAddress =>
 export const sameAddress = (a: BankAddress | null | undefined, b: BankAddress | null | undefined): boolean =>
     !!a && !!b && a.seed === b.seed && a.tier === b.tier && a.archetype === b.archetype && a.plot === b.plot;
 
-/** The heist saved in `storage`, if there is one: its bank's address and name (null for a save from before they were kept). */
-export function savedHeist(storage: SaveStorage): { address: BankAddress | null; name: string | null } | null {
+/** Which campaign's day a heist belongs to (M6-01, src/game/campaign.ts): its campaign's seed and the day it was spent on. */
+export interface CampaignTag { seed: number; day: number }
+
+/**
+ * The heist saved in `storage`, if there is one: its bank's address and name (null for a save from before they were
+ * kept), and the campaign day it is played on (null for a heist outside the campaign).
+ */
+export function savedHeist(storage: SaveStorage): { address: BankAddress | null; name: string | null; campaign: CampaignTag | null } | null {
     if (storage.get(HEIST_KEY) === null) return null;
     try {
-        const data = JSON.parse(storage.get(BANK_KEY) ?? 'null') as { address?: BankAddress; name?: string } | null;
-        const a = data?.address;
+        const data = JSON.parse(storage.get(BANK_KEY) ?? 'null') as { address?: BankAddress; name?: string; campaign?: CampaignTag } | null;
+        const a = data?.address, t = data?.campaign;
         const ok = !!a && ['seed', 'tier', 'archetype', 'plot'].every(k => typeof (a as unknown as Record<string, unknown>)[k] === 'string');
-        return { address: ok ? { seed: a!.seed, tier: a!.tier, archetype: a!.archetype, plot: a!.plot } : null, name: typeof data?.name === 'string' ? data.name : null };
+        const tagged = !!t && Number.isInteger(t.seed) && Number.isInteger(t.day);
+        return {
+            address: ok ? { seed: a!.seed, tier: a!.tier, archetype: a!.archetype, plot: a!.plot } : null, name: typeof data?.name === 'string' ? data.name : null,
+            campaign: tagged ? { seed: t!.seed, day: t!.day } : null
+        };
     } catch {
-        return { address: null, name: null };
+        return { address: null, name: null, campaign: null };
     }
 }
 
-/** A new heist in `bank` (as planned, with `setup`), replacing any heist saved in `storage`; call it only with the player's consent if there is one. */
-export function startHeist(bank: GeneratedBank, storage: SaveStorage, options: ResumeOptions = {}, setup?: HeistSetup): Session {
+/**
+ * A new heist in `bank` (as planned, with `setup`), replacing any heist saved in `storage`; call it only with the
+ * player's consent if there is one. `campaign` tags it as that campaign day's heist.
+ */
+export function startHeist(bank: GeneratedBank, storage: SaveStorage, options: ResumeOptions = {}, setup?: HeistSetup, campaign?: CampaignTag): Session {
     const { world, state } = newHeist(bank, setup);
+    // The tag goes first: a heist saved under an older tag would send what this one learns to the wrong campaign day.
+    try {
+        storage.remove(BANK_KEY);
+    } catch { /* nothing to remove */ }
     const session = Session.start({ world, state, storage, genVersion: GEN_VERSION, ...options });
     try {
-        storage.set(BANK_KEY, JSON.stringify({ address: bankAddress(bank), name: bank.name }));
+        storage.set(BANK_KEY, JSON.stringify({ address: bankAddress(bank), name: bank.name, ...(campaign ? { campaign } : {}) }));
     } catch { /* a full quota: the heist is saved, only rebuilding its bank without a seed in the address fails */ }
     return session;
 }
