@@ -2959,27 +2959,33 @@ Later milestones: within each milestone, the `∥` notes in §3 apply. UI packag
     no illegal act: the zone judges being there), whether or not it tells anything, and reading is always final
     (`documentRead`), so neither the offer, the refusal ("Read already") nor an undo tells what it held. The grid has
     its own Read entry, so a document never hides behind the desk it lies on.
-382. **Eavesdropping (M5-02; review).** NPCs talk in conversations: a calm NPC on its feet, not under the crew's
-    control, with another such NPC in earshot, or at its own desk phone (the manager on the line). Talk reaches
+382. **Eavesdropping (M5-02; review, re-review).** NPCs talk in conversations, as far as the crew can tell: a calm NPC
+    on its feet, not under the crew's control, that the crew sees or predicts, with another such NPC in earshot, or at
+    its own desk phone (the manager on the line). Someone the crew doesn't know of neither talks nor makes another
+    talk, so chatter or its absence never tells of an unseen NPC (the first review's version found partners in the
+    truth, and sound turns corners: a hidden clerk round a wall made a seen teller talk). Talk reaches
     `rules.eavesdropRange` (2) steps (a diagonal where either way round the corner is open) through open air and open
     doors only: no wall, no glass, no shut door (sound, not sight). A crew member able to act who is in earshot of the
     same talker as one world phase ends, as the next begins and as it ends (a whole turn) overhears the conversation:
-    always some chatter (`overheard`, whoever talks, opportunity or not), and with `rules.overhearChance` (½) the first
-    unfound opportunity that talker knows. The roll is made for every conversation overheard, whatever it is about, so
-    neither the chatter, the dice nor a turn of silence tells whether there is anything to find (the first version let
-    any calm speaker talk alone and always tell: one turn beside the manager proved the drawer wasn't rolled). Both
-    `overheard` and `opportunityFound` are preview secrets.
+    always some chatter (`overheard`, opportunity or not), and with `rules.overhearChance` (½) the first unfound
+    opportunity that talker knows. The roll is made for every conversation overheard, whatever it is about, as the next
+    crew phase begins after every other rule (`crewPhase`, last: decision 49), so a preview of the world phase runs whole
+    before it stops there. Both `overheard` and `opportunityFound` are preview secrets. **Accepted:** absence still
+    tells by probability (five silent turns beside someone leave a 1-in-32 chance they knew something). Chance is the
+    point: any rule that found an opportunity for certain after some turns would make absence certain, and none at
+    all would make eavesdropping no way to find anything. Listening longer is the cost, paid in turns.
 383. **What the intel tells (M5-02, §17.4).** The intel box tells every opportunity found by intel, and any this bank
     gives no other way to find (no speaker in its population, no document).
 384. **The drawer keycard needs the opportunity (M5-02).** The crew doesn't know to look until `keycard-drawer` is
     found; until then the grid has no entry and a take is refused as if there were no card. The card object is in
     every bank with a manager and his desk (`from`/`until` only when he leaves it), so a refusal by id tells nothing
     either.
-385. **The propped fire door (M5-02; review).** On his smoke break, calm and at his spot outside the back door (the
-    door whose edge touches it), the operator wedges it open (`propped`, `proppedBy`, `doorPropped`) once a break
-    (`wedgedOn`: a door the crew shuts again stays shut); it stays open while he is out, and if he never comes back in.
-    He pulls the wedge as he walks back through it (calm, off his break, on the inside); it then swings shut and locks
-    as doors do. A door an NPC propped is still doubtful to the crew (knowledge.ts `isDoubted`).
+385. **The propped fire door (M5-02; review, re-review).** On his smoke break, calm and at his spot outside the back
+    door (the door whose edge touches it), the operator wedges it open (`propped`, `proppedBy`, `doorPropped`) once a
+    break (`wedgedOn`: a door the crew shuts again stays shut); it stays open while he is out, and if he never comes
+    back in. He pulls the wedge as his walk takes him in through that door (from its outside tile to its inside one);
+    back inside some other way after his break, he pulls it then; down outside, never. It then swings shut and locks as
+    doors do. A door an NPC propped is still doubtful to the crew (knowledge.ts `isDoubted`).
 386. **The bribe (M5-02, §7.2; review).** `bribe { crew, npc }`, 1 action, in reach, a Smooth Talker, once `bribe` is
     found, on the teller in debt while she is calm. Cash changing hands is the illegal act 'pickPocket' (seen on both
     tiles): anyone who sees it Exposes the crew member, so it is done out of others' sight. She stays off the alarm:

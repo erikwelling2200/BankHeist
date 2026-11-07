@@ -1,4 +1,4 @@
-import { registerWorldHook, type Ctx } from '../core/engine';
+import { registerWorldHook, type Ctx, type WorldPhase } from '../core/engine';
 import { edgeBetween, edgeKey, samePos, tileAt } from '../core/grid';
 import { registerStateCheck } from '../core/save';
 import { actorRefusal, crewMember, registerNpcInit, registerRuleDefaults, registerStateInit } from '../core/state';
@@ -22,13 +22,14 @@ import { isPresent } from './npc/walk';
  * `journalView`); nothing else of an opportunity reaches the player until it is found.
  *
  * **Finding one** (`opportunityFound`, a preview secret that blocks undo):
- * - **Eavesdropping** (`speakers`, decision 382): NPCs talk in **conversations**: a calm NPC on its feet with another
- *   within `rules.eavesdropRange` (2) tiles, or at its own desk phone. Talk carries only through open air and open
+ * - **Eavesdropping** (`speakers`, decision 382): NPCs the crew sees or predicts talk in **conversations**: a calm NPC on
+ *   its feet with another the crew knows of within `rules.eavesdropRange` (2) steps, or at its own desk phone (nobody
+ *   unseen talks or makes another talk, so chatter never tells of them). Talk carries only through open air and open
  *   doors (`earshot`: no wall, no glass, no shut door; sound, not sight). A crew member in earshot of a talker at the
  *   end of one world phase, as the next begins and as it ends (a whole turn), overhears the conversation: always some
  *   chatter (`overheard`), whoever talks, and with `rules.overhearChance` (½, rolled for every conversation overheard
- *   whatever it is about) the first unfound opportunity the talker knows. So a turn of small talk tells nothing about
- *   what is still to find. Checked in the world phase, which is final anyway.
+ *   whatever it is about, as the next crew phase begins after every other rule: decision 49) the first unfound
+ *   opportunity the talker knows. So a turn of small talk tells nothing for certain about what is still to find.
  * - **Documents** (`document`): `interact … read` at a `document` object (the note by a monitor, the papers on the
  *   manager's desk, the records room's files; 1 action, no illegal act: being there is what the zones judge). Every
  *   document can be read, whether or not it tells anything, and reading is always final (`documentRead`), so neither
@@ -41,7 +42,8 @@ import { isPresent } from './npc/walk';
  *   crew doesn't know to look); the card object exists in every bank with a manager's desk, so its refusals are alike.
  * - The propped fire door (`smoke-break`): when the operator, calm, reaches his smoke spot outside the back door, he
  *   wedges it open, once a break (`DoorState.propped`, `proppedBy`, `wedgedOn`); it stays open while he is out, even if
- *   he never comes back, and he pulls the wedge as he walks back in through it. A door an NPC propped can be unpropped unseen, so it stays doubtful
+ *   he never comes back, and he pulls the wedge as his walk takes him back in through it (`crossedIn`), or once back
+ *   inside some other way after his break. A door an NPC propped can be unpropped unseen, so it stays doubtful
  *   (knowledge.ts `isDoubted`).
  * - The bribe (`bribe { crew, npc }`, 1 action, in reach, a Smooth Talker, §7.2; decision 386): once `bribe` is found,
  *   the teller in debt, calm and about, takes it and stays off the alarm (`NpcState.bribed`: she watches instead of
@@ -204,9 +206,13 @@ function earshot(world: ReadonlyWorld, state: State, from: Pos): Set<string> {
     return seen;
 }
 
-/** Who is talking now: NPCs in a conversation (another NPC talking in earshot, or at their own desk phone). */
+/**
+ * Who is talking now, as far as the crew can tell: NPCs it sees or predicts in a conversation with another it sees or
+ * predicts in earshot, or at their own desk phone. Someone the crew doesn't know of neither talks nor makes another
+ * talk, so whether chatter is heard never tells of an unseen NPC.
+ */
 function talkers(world: ReadonlyWorld, state: State): Map<string, Set<string>> {
-    const out = new Map<string, Set<string>>(), able = state.npcs.filter(canTalk);
+    const out = new Map<string, Set<string>>(), able = state.npcs.filter(n => canTalk(n) && isKnownNow(world, state, n.id));
     const ears = new Map(able.map(n => [n.id, earshot(world, state, n.pos)]));
     for (const n of able) {
         const ear = ears.get(n.id)!;
@@ -229,13 +235,18 @@ function inEarshot(world: ReadonlyWorld, state: State): Set<string> {
 /** Who was in earshot as each world phase began (per command: dropped with it). */
 const EARSHOT = new WeakMap<Ctx, Set<string>>();
 
+/** Where each NPC stood as the world phase began (per command), for the operator's walk back in. */
+const STARTS = new WeakMap<Ctx, Map<string, Pos>>();
+
 registerWorldHook('fuses', 'opportunities.listen', ctx => {
     EARSHOT.set(ctx, inEarshot(ctx.world, ctx.state));
+    STARTS.set(ctx, new Map(ctx.state.npcs.map(n => [n.id, { x: n.pos.x, y: n.pos.y }])));
 }, { order: -100 });
 
-// After everyone has acted and the doors have swung shut: in earshot of the same talker since the last world phase
-// ended, as this one began and as it ends. Every conversation overheard rolls, whatever it is about.
-registerWorldHook('devices', 'opportunities.overhear', ctx => {
+// As the next crew phase begins, after every other rule (its roll is the world phase's last word, decision 49, so a
+// preview of the world phase runs whole up to it): in earshot of the same talker since the last world phase ended, as
+// this one began and as it ends. Every conversation overheard rolls, whatever it is about.
+registerWorldHook('crewPhase', 'opportunities.overhear', ctx => {
     const { world, state } = ctx;
     const before = EARSHOT.get(ctx) ?? new Set<string>(), last = new Set(state.earshot);
     EARSHOT.delete(ctx);
@@ -253,7 +264,7 @@ registerWorldHook('devices', 'opportunities.overhear', ctx => {
         const o = topic ? opportunitiesOf(world).find(x => x.speakers?.includes(talker) && !opportunityFound(state, x.id)) : undefined;
         if (o) learn(ctx, o, crew, 'overheard');
     }
-}, { order: 900 });
+}, { order: 1000 });
 
 // ---------------------------------------------------------------------------------------------------------- Documents
 
@@ -332,7 +343,22 @@ registerAction('bribe', {
 
 // The operator wedges the back door open on his smoke break and pulls the wedge as he goes back in (see the header).
 // Before the doors swing shut.
-registerWorldHook('devices', 'opportunities.fireDoor', ctx => {
+/** Whether `p` is on the smoke spot's side of the door (the spot's room). */
+const onSide = (world: ReadonlyWorld, p: Pos, o: DeepReadonly<OpportunityDef>): boolean => !!o.at && tileAt(world, p)?.room === tileAt(world, o.at)?.room;
+
+/** Whether the NPC's walk this world phase took it in through the propped door: from its outside tile to the inside one. */
+function crossedIn(ctx: Ctx, phase: WorldPhase, npc: DeepReadonly<NpcState>, o: DeepReadonly<OpportunityDef>): boolean {
+    const { world } = ctx, from = STARTS.get(ctx)?.get(npc.id);
+    const def = world.doors[o.door!], edge = def ? world.edges[def.edge] : undefined;
+    if (!edge || !o.at) return false;
+    const a = edge.run === 'eastWest' ? { x: edge.tx, y: edge.ty - 1 } : { x: edge.tx - 1, y: edge.ty }, b = { x: edge.tx, y: edge.ty };
+    const [outside, inside] = onSide(world, a, o) ? [a, b] : [b, a];
+    const path = [...(from ? [from] : []), ...(phase.intents[npc.id]?.path ?? [])];
+    const reached = path.findIndex(p => samePos(p, npc.pos));
+    return path.some((p, i) => i > 0 && i <= reached && samePos(p, inside) && samePos(path[i - 1]!, outside));
+}
+
+registerWorldHook('devices', 'opportunities.fireDoor', (ctx, phase) => {
     const { world, state } = ctx;
     for (const o of opportunitiesOf(world)) {
         if (o.door === undefined || o.npc === undefined || !Object.hasOwn(world.doors, o.door)) continue;
@@ -346,8 +372,9 @@ registerWorldHook('devices', 'opportunities.fireDoor', ctx => {
         if (calm && out && !door.propped && door.wedgedOn !== block!.from) {
             state.doors[o.door] = { ...door, status: 'open', propped: true, proppedBy: npc.id, wedgedOn: block!.from };
             ctx.emit({ type: 'doorPropped', door: o.door, by: npc.id });
-        } else if (calm && block?.activity !== 'smokeBreak' && door.proppedBy === npc.id && o.at && tileAt(world, npc.pos)?.room !== tileAt(world, o.at)?.room) {
-            // Back through the door, he pulls the wedge.
+        } else if (calm && door.proppedBy === npc.id && (crossedIn(ctx, phase, npc, o) || (block?.activity !== 'smokeBreak' && !onSide(world, npc.pos, o)))) {
+            // He pulls the wedge as he walks back in through it; back inside some other way after his break, he
+            // pulls it then. Down outside, he never does.
             const next = { ...door };
             delete next.propped;
             delete next.proppedBy;
