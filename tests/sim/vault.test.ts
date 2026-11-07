@@ -195,11 +195,17 @@ function socialKey(world: ReadonlyWorld, tier: string): { state: State; crew: st
     routes.add(`${tier} dualControl`);
     const holders = lock.social.parts.map(role => world.people.find(p => p.role === role)!.id);
     state = place(state, 'mara', around(world, state, state.npcs.find(n => n.id === holders[0])!.pos)[0]!);
-    for (const holder of holders) {
+    // Both are fetched before the window opens, so its turns go on the code and the walk in, not on the fetching (a
+    // short window and a long way between them would otherwise shut the door again before the crew is through it).
+    holders.forEach((holder, i) => {
         state = tieUp(world, state, 'mara', holder);
         state = act(world, state, { type: 'escort', crew: 'mara', npc: holder });
         state = getTo(world, state, 'mara', around(world, state, console.pos)[0]!);
-        state = intoWindow(world, state);
+        if (i < holders.length - 1) state = act(world, state, { type: 'drop', crew: 'mara' });
+    });
+    state = intoWindow(world, state);
+    for (const holder of [...holders].reverse()) {
+        if (!state.crew.find(c => c.id === 'mara')!.dragging) state = act(world, state, { type: 'escort', crew: 'mara', npc: holder });
         state = act(world, state, { type: 'coerce', crew: 'mara', npc: holder, at: console.id });
         state = act(world, state, { type: 'drop', crew: 'mara' });
     }

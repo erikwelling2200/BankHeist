@@ -75,13 +75,12 @@ builds from the bank (`worldFromBank`), on turn 1: everyone where they start, th
 
 - **Every approach reaches the vault**: from each approach's inside end. Also at least four approaches, from three
   categories, with one covert way that reaches the CCTV room or the alarm closet.
-- **Clean-profile route**: from the lobby to the CCTV room or the alarm closet, a chain of Moves each of which the safe
-  floor (`safeFloor`, §8.8) shows green for a Clean crew member on turn 1. The walker knows the whole bank, so the floor
-  judges the truth, and holds the keys to every lock on the way but the vault door's and the mantrap's; every Move is
-  judged on the same turn-1 state (nobody moves between them). The search first walks out from the goal over the
-  tiles that draw no reaction (`assessEnd`): no such way from the lobby, no route; then it cuts the shortest such way
-  into the longest Moves the path under the finger (`pathSafety`) shows green, and where that stalls tries floors best
-  first along the quiet tiles, 20 at most (decision 342).
+- **Clean-profile route**: from the lobby to the CCTV room or the alarm closet, Moves the safe floor (`safeFloor`,
+  `pathSafety`, §8.8) shows green for a Clean crew member from turn 1 on, played through the rules (`commit`, two Moves
+  a turn, each turn's end too): nobody may Expose or challenge the walker, no camera see them, no Move be cut short.
+  The walker knows the whole bank, so the floor judges the truth, and holds the keys to every lock on the way but the
+  vault door's and the mantrap's. The tiles nobody reacts to on turn 1 guide the search: the shortest such way first,
+  then floors best first, 20 at most (decision 342).
 - **Loops**: at least two door-disjoint ways from the Public rooms to the Secure ones (a max-flow over doors), and every
   zone connected at least twice.
 - **Guard overlap**: at most three guards see any one tile with the rules' calm eyes (Core 6 tiles over 90°, Peripheral

@@ -98,8 +98,10 @@ export function planRoutines(ctx: Ctx): void {
             if (!activity || activity === 'closingSweep') return;
             const back = p.schedule[i + 1], turns = back ? back.from - b.from : 1;
             const { at, facing } = spotOf(activity);
-            // From their post, or from the last event when they may come straight from it; nowhere they can't walk to.
-            const ways = at ? [travelTurns(ctx, home, at), last ? travelTurns(ctx, last, at) : 0] : [undefined];
+            // From their post, anywhere on the route they walk from it, or from the last event when they may come
+            // straight from it; nowhere they can't walk to.
+            const starts = [home, ...(routine[0]!.route ?? []), ...(last ? [last] : [])];
+            const ways = at ? starts.map(s => travelTurns(ctx, s, at)) : [undefined];
             const way = ways.every(w => w !== undefined) ? Math.max(...(ways as number[])) : undefined;
             if (activity === 'shiftChange' || activity === 'lunch') {
                 if (!at || way === undefined) return;
