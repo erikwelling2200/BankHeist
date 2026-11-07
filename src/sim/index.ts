@@ -112,14 +112,13 @@ export {
 export { freezeWorld } from './world/freeze';
 export { fixtureWorld, type FixtureOptions, type FixtureWall } from './world/fixture';
 export {
-    crewBudget, crewCanUnlatch, crewHasKey, crewMoveOptions, dashRefusal, planMoveOptions, planningState, registerBudgetModifier, registerDashCheck, registerMoveHook, registerMoveLimit, registerPlanView, type DashCheck,
+    crewBudget, crewCanUnlatch, crewHasKey, wayBack, crewMoveOptions, dashRefusal, planMoveOptions, planningState, registerBudgetModifier, registerDashCheck, registerMoveHook, registerMoveLimit, registerPlanView, type DashCheck,
     type BudgetModifier, type MoveCut, type MoveHook, type MoveLimit, type MoveMode, type PlanView
 } from './crew/movement';
 export {
     ABSENT_STATUSES, barred, dashBudget, doorBetween, doorStatus, inHeavyArmour, LYING_STATUSES, moveBudget, occupancy, pathTo, reachable, reachAt, stepCost,
     validatePath, type MoveOptions, type Occupant, type PathCheck, type Reach, type ReachTile
 } from './geo/move';
-export { egressDistance, exitSide } from './geo/egress';
 export {
     DEAF_STATUSES, inRing, makeNoise, noiseRadius, npcsInside, registerNoiseHook, soundBudget, soundEdgeCost, soundRing, type NoiseHook, type Ring,
     type SoundTile

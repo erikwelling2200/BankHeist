@@ -3,10 +3,10 @@ import { MAX_ACTIONS } from './viewModels';
 
 /**
  * The overlay drawer's note on the safe floor (§8.8, §8.15, decision 460): what green promises and where it stops. Green
- * covers everyone, seen or unseen, for the move itself, but only the NPCs the crew knows of in the world phase after it:
+ * covers everyone, seen or unseen, for the move itself (this crew phase), but only the NPCs the crew knows of in the world phase after it:
  * someone unseen can walk in then, which no tile off the public floor could rule out, so it is said here, not tinted.
  */
-export const SAFE_FLOOR_LEGEND = 'Safe floor: green means nobody reacts this turn, seen or unseen, nor anyone the crew knows of in the next world phase '
+export const SAFE_FLOOR_LEGEND = 'Safe floor: green means nobody reacts to this move, seen or unseen, nor anyone the crew knows of in the next world phase '
     + '(a corner triangle is what that phase does); someone unseen can still walk in then. Grey: no data. Hatched: could be worse than shown (someone unseen could be watching there now, or a door not seen this turn).';
 
 /** Each threat kind's icon in the ledger (UI.md "Over heads": bell, radio, runner, phone). Unknown kinds get the bell. */

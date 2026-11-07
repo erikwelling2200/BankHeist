@@ -567,9 +567,9 @@ export function doubtStates(world: ReadonlyWorld, state: State, d: DoorDoubt, ke
 }
 
 /**
- * Whether a doubted door could refuse `member` the step from `a` to `b`: one with a lock they hold no key to and don't
- * leave by (whether a door locks, and its exit side, is part of the layout), or one with only hidden tiles beside it,
- * whose lock the crew can't know.
+ * Whether a doubted door could refuse `member` the step from `a` to `b`: one with a lock they hold no key to and aren't
+ * going back through the way they came (`wayBack`: their own walk, always known; whether a door locks is part of the
+ * layout), or one with only hidden tiles beside it, whose lock the crew can't know.
  */
 export function doorMayRefuse(
     world: ReadonlyWorld, d: DoorDoubt | null, member: DeepReadonly<CrewState>, a: DeepReadonly<Pos>, b: DeepReadonly<Pos>

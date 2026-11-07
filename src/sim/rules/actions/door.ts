@@ -15,8 +15,8 @@ import { lockReleased, powerOn } from '../../core/power';
  * Interacting with doors (§6.3 Interact, 1 action), from a tile beside the door:
  *
  * - **open** a closed door; a locked one with its key (`crewHasKey`, crew/movement.ts: a keycard taken in a frisk), or
- *   without one from its exit side, where its hardware lets anyone out (geo/egress.ts, decision 461). A move walks
- *   through such a door the same way (`crewMoveOptions`).
+ *   without one going back the way the crew member came through it (`wayBack`, crew/movement.ts, decision 461:
+ *   its hardware lets them out, never in). A move walks through such a door the same way (`crewMoveOptions`).
  * - **close** an open door (a propped one too: the wedge comes out). Breached and jammed doors stay as they are.
  * - **lock** a closed door: with its key, or without one a mechanical lock from its inner side (the side of the higher
  *   zone, Public < Staff < Secure; either side between equals), where a thumb-turn needs none. Keycards, maglocks and

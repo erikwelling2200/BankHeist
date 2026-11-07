@@ -78,13 +78,13 @@ describe('saving', () => {
  * NpcStatusMap, CarrierKindMap or adds a field must also fill it in below, or a change of shape goes unnoticed.
  */
 const SHAPE_HASHES: Record<number, string> = {
-    1: '6a302cf30755c37c'
+    1: 'ba07a883585c7ec8'
 };
 
 /** Paths whose objects are records by id, not structs. */
 const RECORDS = new Set([
     'world.edges', 'world.doors', 'state.doors', 'state.edges', 'state.objects', 'state.cameras', 'state.rng',
-    'state.cover', 'state.crew[].arms.guns', 'state.crew[].arms.throwables', 'state.crew[].charges', 'state.npcs[].suspicion', 'state.npcs[].lastSeen', 'state.npcs[].frisked', 'state.police.known', 'state.police.teams', 'state.knowledge.npcs', 'state.knowledge.doors', 'state.knowledge.officers', 'state.radio.calls',
+    'state.cover', 'state.crew[].arms.guns', 'state.crew[].cameThrough', 'state.crew[].arms.throwables', 'state.crew[].charges', 'state.npcs[].suspicion', 'state.npcs[].lastSeen', 'state.npcs[].frisked', 'state.police.known', 'state.police.teams', 'state.knowledge.npcs', 'state.knowledge.doors', 'state.knowledge.officers', 'state.radio.calls',
     'state.vehicles'
 ]);
 
@@ -146,6 +146,7 @@ describe('the save format', () => {
         full.npcs[0]!.untying = { by: 'guard', phases: 1 };
         full.npcs[0]!.stripped = true;
         full.crew[0]!.keycards = ['guard'];
+        full.crew[0]!.cameThrough = { door: { x: 1, y: 2 } };
         full.npcs[0]!.panic = { since: { turn: 1, phase: 'crew' }, crew: 'jun', tile: { x: 1, y: 1 }, reaction: { kind: 'hide', spot: { x: 2, y: 2 } } };
         full.crew[0]!.tackled = 2;
         full.crew[0]!.holding = 1;

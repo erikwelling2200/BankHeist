@@ -1669,8 +1669,8 @@ M2 is complete: every package below has landed.
     them from contracts (M6-02); a landline caller turning to a mobile on a dead line; the owner answering in an
     animation of their own (they walk as an investigator, status Investigating); a phone picker on the map (the grid
     cycles); the security chief's absence and the other finale effects (M6/M7).
-- [x] **M5-05 Playability bot (stretch).** (partial: it gets through 42% of the sweep's banks with the Blueprints and 8%
-  without since exit hardware, decision 462; not a validation gate, decision 423)
+- [x] **M5-05 Playability bot (stretch).** (partial: it gets through 41% of the sweep's banks with the Blueprints and 8%
+  without since the way back, decision 462; not a validation gate, decision 423)
   - **Work:** a scripted Clean infiltrator that must reach the alarm closet unexposed on N seeds, run in the sweep.
   - **Done:** `src/game/bot.ts` (`playBot`, decisions 420–424): a player, not a walker. It plays a planned heist's real
     start (`heistFromSetup`: Jun alone on foot by the van, Clean, the lockpick and the hacking kit) through the real
@@ -1682,7 +1682,7 @@ M2 is complete: every package below has landed.
     one without, and that it plays the same every time.
   - **Deferred:** a stronger bot (a crew of two, casing from the public floor, a disguise, knocking out a lone
     watcher, the Guard rota, intel from earlier heists in the bank). The design questions of decision 424 are settled
-    by decisions 460 (green and unseen walkers: the caveat stands, said in words) and 461 (exit hardware).
+    by decisions 460 (green and unseen walkers: the caveat stands, said in words) and 461 (the way back).
 
 ### M6: Campaign
 
@@ -3276,45 +3276,51 @@ Later milestones: within each milestone, the `∥` notes in §3 apply. UI packag
     619 on it) were within such a walk, so green would never show there and would mean nothing. Every challenge on a
     green wait was by such a walker (3 of 3 in that probe); none by a known NPC. So the tint is unchanged and the overlay
     drawer's note (`SAFE_FLOOR_LEGEND`, src/ui/hud/derive.ts) now says what green means and where it stops: "nobody
-    reacts this turn, seen or unseen, nor anyone the crew knows of in the next world phase …; someone unseen can still
+    reacts to this move, seen or unseen, nor anyone the crew knows of in the next world phase …; someone unseen can still
     walk in then". The old note ("green counts only the NPCs the crew knows of") undersold green now and didn't name
     the world phase. GAME_DESIGN §8.8 and UI.md say the same. (The evidence warning, which marks one item, not every
     tile, still counts unseen walkers: decision 24.)
-461. **Exit hardware: a latched door lets people out (M5-05 follow-up, §8.6; decision 424 b).** Every leaf door with a
-    lock opens without its key from its exit side, as an office's thumb-turn, lever or push bar does
-    (`src/sim/geo/egress.ts`): a challenged crew member behind a staff door that latched always has a legal way out
-    (§8.6 "they walk out themselves, using their normal actions"), and nobody picks a lock in the challenger's sight to
-    comply. Of the options (the challenger escorting them out, compliance counted at an exit route within N), this is
-    the one the design already has: decision 25's thumb-turn on the inner side, and the challenge's own deadline.
-    - **The exit side** is the side away from the Public floor, from the layout alone, once per world
-      (`egressDistance`: orthogonal steps to the nearest Public tile, walls stop it, every door passes but the vault's,
-      raised floor only by its climb tiles, and a walk outwards from the Public floor never crosses a door into a lower
-      zone): the side strictly farther whose zone is no lower than the other's. Between zones that is always the higher
-      zone's (decision 25's inner side); between equal zones (an office off a staff corridor) the room's. A door with
-      both sides as far, or the vault door, has none. So from any tile that walk reaches, the way back crosses every
-      door from its exit side (tests/sim/egress.test.ts holds every tier and archetype to it: every tile of the bank
-      that reaches the Public floor with the doors open does with every lock latched). It lets people toward the
-      Public floor, never away from it: never into a higher zone, and between equal zones only from the deeper room
-      into the shallower (a room with a second way out can be entered from the deeper side; it is no deeper in).
-    - **What it allows**: `open` on a locked door from its exit side (not `unlock`, which still takes the key), and a
-      Move or Dash walks through one from that side, opening it (`crewCanUnlatch`, crew/movement.ts: `canPassDoor` is
-      told the side it is stepped through from), so the safe floor, the drawn path and auto-advance reach past it by
-      the same rules. Neither is an illegal act. Like any door it latches again when it swings shut.
-    - **Knowledge**: which side lets people out is the door's hardware, part of its layout, known as its lock is
-      (decision 44); `doorMayRefuse` doesn't hatch a step through a doubted door from its exit side.
-    - **NPCs** pass doors by their cards as before (unchanged: their routes are the generator's), and the vault
-      is no leaf door.
-    - **The bot** walks out through such a door instead of working its lock, and plans through them at no lock cost.
+461. **The way back: a latched door lets you out the way you came (M5-05 follow-up, §8.6; decision 424 b).** A crew
+    member who walked through a door may go back through it without its key once it has latched (`wayBack`,
+    crew/movement.ts), as the thumb-turn, lever or push bar on its far side lets anyone out: a challenged crew member
+    behind a staff door that latched always has a legal way out (§8.6 "they walk out themselves, using their normal
+    actions"), and nobody picks a lock in the challenger's sight to comply. Of the options (the challenger escorting
+    them out, compliance counted at an exit route within N, egress only while challenged), this is the one that fits
+    decision 25 (the thumb-turn on the side you are on) and lets nobody in.
+    - **What is remembered**: `CrewState.cameThrough`, per door, the tile beside it the crew member came from on their
+      last crossing that wasn't itself the way back (every step of a Move or Dash across a door, open or not, records
+      it). Going back through it, onto that tile, needs no key; the other way does. A crossing back doesn't turn the
+      record round, so going out the way you came doesn't open the way in again. The vault door has no such hardware.
+    - **It lets nobody in**: only a crew member's own walk opens the way, and only back onto a tile they stood on.
+      (A crew member who walked out through a door left open, say, may go back in through it once it latches: in to
+      where they had been.) tests/sim/egress.test.ts holds every tier and archetype, three layouts each, to it: with
+      every lock latched and no key, the Public floor reaches exactly the tiles it does without the way back (the first
+      version, a per-tile "exit side" from the layout, let a keyless crew from the teller line through a keycard door
+      into whole staff wings in 12 of 42 banks); and from the deepest tiles a crew member walks to with the doors
+      unlocked, once every lock latches, the way back reaches the Public floor.
+    - **What it allows**: `open` on a locked door going back (not `unlock`, which still takes the key), and a Move or
+      Dash walks through one that way, opening it (`crewCanUnlatch`: `canPassDoor` is told the side it is stepped
+      through from), so the safe floor, the drawn path and auto-advance reach past it by the same rules. Neither is an
+      illegal act. Like any door it latches again when it swings shut.
+    - **Knowledge**: it depends on nothing but the crew member's own walk, never on layout the crew hasn't seen (a test
+      plays the same walk in two banks that differ out of sight); `doorMayRefuse` doesn't hatch a step through a
+      doubted door going back.
+    - **Save shape**: `cameThrough` is a new record on the crew; the shape hash is now `ba07a883585c7ec8`.
+    - **NPCs** pass doors by their cards as before (their routes are the generator's).
+    - **The bot** walks back out through such a door instead of working its lock, and plans through them at no lock
+      cost.
     - Rates and the property test: see decision 462.
-462. **The bot after exit hardware (M5-05 follow-up).** The sweep's 224 banks, with the Blueprints / without: before
-    decision 461, 76/224 (34%) and 17/224 (8%), as decision 423; after it, 93/224 (42%) and 19/224 (8%), 2.2 s a run
+462. **The bot after the way back (M5-05 follow-up).** The sweep's 224 banks, with the Blueprints / without: before
+    decision 461, 76/224 (34%) and 17/224 (8%), as decision 423; after it, 92/224 (41%) and 19/224 (8%)
     (small twoWing 8/16, 0; atrium 12/16, 0; threeKeys 6/16, 0; fortress 9/16, 0; city twoWing 4/16, 2/16; atrium
     6/16, 0; threeKeys 6/16, 0; fortress 9/16, 1/16; mezzanineWatch 13/16, 8/16; HQ twoWing 4/16, 0; atrium 5/16,
-    1/16; threeKeys 1/16, 0; fortress 2/16, 0; mezzanineWatch 8/16, 7/16). Exposures fell from 147 to 98 of the 448
-    runs, and none now comes from working a lock on the way out of a challenge (64 before); the runs it saved mostly
-    run out of turns instead (53 → 84): the cold bot's failures are exploring, as decision 424 says. The preview
-    property test's vault fixtures now count their rare commands from their own start (`Run.rareFrom`), so what the
-    fixtures before them happen to play (doors there now open from inside) doesn't starve them of a coercion.
+    1/16; threeKeys 1/16, 0; fortress 1/16, 0; mezzanineWatch 8/16, 7/16). Exposures fell from 147 to 98 of the 448
+    runs, and only 6 now come from working a lock on the way out of a challenge (64 before: a shorter way out than the
+    one it came in by); the runs it saved mostly run out of turns instead (53 → 82): the cold bot's failures are
+    exploring, as decision 424 says. (The first version of decision 461, an exit side from the layout, gave 93/224
+    and 19/224, partly by walking keyless into staff wings.) The preview property test's vault fixtures now count
+    their rare commands from their own start (`Run.rareFrom`), so what the fixtures before them happen to play
+    doesn't starve them of a coercion.
 
 ### Critical files for implementation
 

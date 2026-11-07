@@ -261,7 +261,7 @@ class Bot {
 
     /**
      * Steps on the crew's picture of the bank with nobody in the way: through closed doors, locked ones it can work, and
-     * locked ones it leaves by their exit side (decision 461), which cost nothing extra.
+     * locked ones it goes back through the way it came (decision 461), which cost nothing extra.
      */
     private planning(): { step(a: Pos, b: Pos): number | undefined } {
         const { world } = this, me = this.me();
@@ -382,7 +382,7 @@ class Bot {
                 }
             }
             const onWay = beyond === 'hidden' ? arrived : there >= 0 && there < here;
-            // A latched door it leaves by its exit side is walked through (decision 461): no lock to work.
+            // A latched door it goes back through the way it came is walked through (decision 461): no lock to work.
             if (status === 'locked' && onWay && !crewCanUnlatch(world, me, door, at)) {
                 if (!this.workable(door)) { this.dead.add(door.id); return this.choose(this.field()); }
                 const action = door.lock === 'mechanical' ? 'pick' : 'hack';
@@ -469,7 +469,7 @@ class Bot {
         for (const door of Object.values(world.doors)) {
             const sides = doorSides(world, door);
             if (!sides || !sides.some(s => s.x === at.x && s.y === at.y) || knownDoorStatus(world, this.state, door.id) !== 'locked' || !this.workable(door)) continue;
-            // Leaving by its exit side, a Move walks through it (decision 461).
+            // Going back the way it came, a Move walks through it (decision 461).
             if (crewCanUnlatch(world, this.me(), door, at)) continue;
             const other = sides.find(s => s.x !== at.x || s.y !== at.y)!;
             if (!tileAt(world, other) || cost(other) < 0 || (here >= 0 && cost(other) >= here)) continue;

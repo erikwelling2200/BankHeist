@@ -1,5 +1,5 @@
 import { IllegalCommand, registerCommand, type Ctx } from '../core/engine';
-import { facingToward } from '../core/grid';
+import { facingToward, samePos } from '../core/grid';
 import { actorRefusal, crewMember, spendActions } from '../core/state';
 import type { CrewState, DeepReadonly, DoorDef, DoorStatus, Pos, ReadonlyWorld, State } from '../core/types';
 import { registerEvents } from '../core/undo';
@@ -7,7 +7,6 @@ import { DASH_ACTIONS, MOVE_ACTIONS } from '../data/movement';
 import {
     ABSENT_STATUSES, dashBudget, doorBetween, doorStatus, inHeavyArmour, moveBudget, occupancy, stepCost, validatePath, type MoveOptions
 } from '../geo/move';
-import { exitSide } from '../geo/egress';
 import { makeNoise } from '../geo/sound';
 import { onFloor } from '../rules/place';
 import { cardOpens } from '../rules/keys';
@@ -35,6 +34,13 @@ import { cardOpens } from '../rules/keys';
  */
 
 declare module '../core/types' {
+    interface CrewState {
+        /**
+         * The way back (decision 461): for each door this crew member walked through, the tile beside it they came
+         * from, as of their last crossing that wasn't itself a way back. Absent until they cross one.
+         */
+        cameThrough?: Record<string, Pos>;
+    }
     interface CommandMap {
         /** Like move, for 2 actions and up to `dashTiles`, with a quiet noise of radius 2 along its path (§6.3). */
         dash: { crew: string; path: Pos[] };
@@ -217,11 +223,20 @@ export function crewHasKey(world: ReadonlyWorld, member: DeepReadonly<CrewState>
 }
 
 /**
- * Whether a crew member may open a locked door stepping through it from `from`: with its key, or from its exit side,
- * where its hardware lets anyone out (geo/egress.ts, decision 461).
+ * Whether stepping through `door` from `from` is going back the way the crew member came (decision 461): they walked
+ * through it before, into the side `from` is on, and now step back onto the tile they came from. A latched door's
+ * hardware (a thumb-turn, a lever, a push bar) lets them back out without its key; it never lets anyone in, as only
+ * their own walk opens it. The vault door has no such hardware.
  */
+export function wayBack(member: DeepReadonly<CrewState>, door: DeepReadonly<DoorDef>, from: DeepReadonly<Pos>): boolean {
+    if (door.lock === 'vault') return false;
+    const back = member.cameThrough?.[door.id];
+    return !!back && !samePos(back, from);
+}
+
+/** Whether a crew member may open a locked door stepping through it from `from`: with its key, or going back the way they came. */
 export const crewCanUnlatch = (world: ReadonlyWorld, member: DeepReadonly<CrewState>, door: DeepReadonly<DoorDef>, from: DeepReadonly<Pos>): boolean =>
-    crewHasKey(world, member, door) || exitSide(world, door, from);
+    crewHasKey(world, member, door) || wayBack(member, door, from);
 
 /** The doors a crew member walks through, opening them: closed ones, and locked ones they hold the key to or leave by (`crewCanUnlatch`). */
 export function crewMoveOptions(world: ReadonlyWorld, member: DeepReadonly<CrewState>): MoveOptions {
@@ -242,6 +257,10 @@ function walk(ctx: Ctx, member: CrewState, planned: readonly Pos[], mode: MoveMo
         const door = Math.abs(p.x - prev.x) + Math.abs(p.y - prev.y) === 1 ? doorBetween(ctx.world, prev, p) : undefined;
         if (door) {
             const status = doorStatus(ctx.world, ctx.state, door.id);
+            // A crossing remembers the way back, unless it is that way back (decision 461).
+            if (!(status === 'locked' && !crewHasKey(ctx.world, member, door) && wayBack(member, door, prev))) {
+                member.cameThrough = { ...member.cameThrough, [door.id]: { x: prev.x, y: prev.y } };
+            }
             if (status === 'closed' || status === 'locked') {
                 ctx.state.doors[door.id] = { ...ctx.state.doors[door.id], status: 'open' };
                 ctx.emit({ type: 'doorOpened', door: door.id, by: member.id });

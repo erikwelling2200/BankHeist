@@ -46,7 +46,7 @@ export interface MoveOptions {
     mover?: string;
     /**
      * Whether the mover may pass a door that is closed or locked, opening it on the way, stepping through it from
-     * `from` (a door's exit side lets a crew member out, geo/egress.ts). Default: never.
+     * `from` (a crew member goes back through a latched door the way they came, crew/movement.ts `wayBack`). Default: never.
      */
     canPassDoor?: (door: DeepReadonly<DoorDef>, status: DoorStatus, from: DeepReadonly<Pos>) => boolean;
     /**

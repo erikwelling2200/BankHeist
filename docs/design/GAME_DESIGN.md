@@ -480,9 +480,9 @@ not a forced move. When a Clean crew member is seen in the Staff zone by staff o
    marker showing the challenger and an arrow to the nearest Public tile. Nothing else happens yet.
 2. **Next world phase:** the challenger walks toward the crew member (telegraphed path) and keeps watching them.
 3. **Next crew phase, the deadline:** the crew member must **end this crew phase on a Public tile**. They walk out
-   themselves, using their normal actions. A staff door that latched behind them is no trap: every locked leaf door
-   opens without its key from its **exit side**, the side away from the Public floor (a thumb-turn, a lever, a push
-   bar), so the way out never needs a lock picked in the challenger's sight. It lets people out, never in.
+   themselves, using their normal actions. A staff door that latched behind them is no trap: a locked door opens
+   without its key for a crew member **going back the way they came** through it (the thumb-turn, lever or push bar
+   on its far side), so the way out never needs a lock picked in the challenger's sight. It lets people out, never in.
    - **They comply:** the challenger follows them to the boundary, watches for one more world phase, then returns to
      its routine. The crew member is **Warned** by that NPC for the rest of the heist (an icon over the NPC; it isn't
      suspicion and doesn't make the NPC follow them).
