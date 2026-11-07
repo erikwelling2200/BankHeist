@@ -1,12 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import { commitCampaign, knownBefore, newCampaign, type Campaign, type CampaignCommand } from '../../src/campaign';
 import {
-    CAMPAIGN_FORMAT, CAMPAIGN_KEY, campaignAct, campaignHeistRefusal, campaignIntel, campaignKeeper, campaignProblem, deserialiseCampaign, dropCampaignHeist,
-    heistUnfinished, loadCampaign, saveCampaign, serialiseCampaign, untaggedKeeper
+    buyCampaignIntel, CAMPAIGN_FORMAT, CAMPAIGN_KEY, campaignAct, campaignHeistRefusal, campaignIntel, campaignJob, campaignKeeper, campaignProblem, campaignPurse,
+    deserialiseCampaign, dropCampaignHeist, gearKept, heistUnfinished, loadCampaign, saveCampaign, serialiseCampaign, untaggedKeeper
 } from '../../src/game/campaign';
 import { BANK_KEY, GEN_VERSION, savedHeist, startHeist, type CampaignTag } from '../../src/game/heist';
 import { bankPrint, intelKey } from '../../src/game/intel';
-import { defaultSetup, heistFromSetup, planOptions, type HeistSetup } from '../../src/game/plan';
+import { defaultSetup, fitArmoury, gearOf, heistFromSetup, planOptions, setupFromAddress, setupProblems, type HeistSetup } from '../../src/game/plan';
 import { HEIST_KEY, MemoryStorage, Session } from '../../src/game';
 import { intelOf, SaveFormatError } from '../../src/sim';
 import { cachedBank } from '../bankCache';
@@ -23,9 +23,10 @@ const print = bankPrint(options.world);
 /** A campaign heist as the game starts one: the day spent and saved first, then the heist tagged with it. */
 function campaignHeist(storage: MemoryStorage, change: (s: HeistSetup) => void = () => {}): { session: Session; tag: CampaignTag } {
     const campaign = loadCampaign(storage)!;
-    const setup = defaultSetup(options, campaignIntel(campaign, options.world));
+    // As the planning screen opens it: cut to the armoury.
+    const setup = fitArmoury(defaultSetup(options, campaignIntel(campaign, options.world)), campaignPurse(campaign, options.world));
     change(setup);
-    const done = campaignAct(storage, { kind: 'heist', bank: print });
+    const done = campaignAct(storage, { kind: 'heist', bank: print, ...campaignJob(setup, bank.tier) });
     if ('refused' in done) throw new Error(done.refused);
     const tag = { seed: done.campaign.seed, day: done.campaign.visit!.day };
     return { session: startHeist(bank, storage, { keepIntel: campaignKeeper(storage, tag) }, setup, tag), tag };
@@ -61,6 +62,9 @@ describe('the campaign save', () => {
         const c = newCampaign(1);
         expect(() => deserialiseCampaign(JSON.stringify({ format: CAMPAIGN_FORMAT + 1, campaign: c }))).toThrow(SaveFormatError);
         expect(() => deserialiseCampaign(JSON.stringify({ campaign: c }))).toThrow(/format undefined/);
+        // An M6-01 save (format 1, no money) is refused: the page offers a new campaign.
+        expect(CAMPAIGN_FORMAT).toBe(2);
+        expect(() => deserialiseCampaign(JSON.stringify({ format: 1, campaign: c }))).toThrow(SaveFormatError);
         expect(() => deserialiseCampaign('not json')).toThrow(SaveFormatError);
         const broken = (change: (v: Record<string, unknown>) => void) => {
             const v = structuredClone(c) as unknown as Record<string, unknown>;
@@ -78,6 +82,25 @@ describe('the campaign save', () => {
         expect(broken(v => { v.day = 3; })).toBe('the days spent are not the days before today');
         expect(broken(v => { v.visit = { kind: 'heist', day: 1, bank: print, prior: { guardRota: false, routines: [], opportunities: [] } }; })).toBe('the visit is not a day spent');
         expect(broken(v => { v.intel = { b: [{ day: 1, intel: {} }] }; })).toBe('the intel is not dated intel');
+        // Money (M6-03): whole dollars, gear that is gear, shares that are shares, a payout only for a job that ended well.
+        expect(broken(v => { v.intel = { b: [{ day: 1, intel: { guardRota: true }, favours: 1 }] }; })).toBeUndefined();
+        expect(broken(v => { v.intel = { b: [{ day: 2, intel: { guardRota: true }, favours: 1 }] }; })).toBe('the intel is not dated intel');
+        expect(broken(v => { v.money = { clean: -1, dirty: 0 }; })).toBe('the money is no money');
+        expect(broken(v => { v.money = { clean: 1.5, dirty: 0 }; })).toBe('the money is no money');
+        expect(broken(v => { delete (v.money as Record<string, unknown>).dirty; })).toBe('the money is no money');
+        expect(broken(v => { v.fronts = -1; })).toBe('the fronts or contacts are no count');
+        expect(broken(v => { v.armoury = { zipTies: 3 }; })).toBe('the armoury is not gear');
+        expect(broken(v => { v.armoury = { pistol: 0 }; })).toBe('the armoury is not gear');
+        expect(broken(v => { v.armoury = { goldBar: 1 }; })).toBe('the armoury is not gear');
+        expect(broken(v => { v.shares = { mara: 101 }; })).toBe('the shares are not shares');
+        const job = { crew: ['mara'], gear: ['pistol'], stakes: 'low' };
+        let paid = commitCampaign(c, { kind: 'heist', bank: 'b', job: job as never }).campaign;
+        expect(campaignProblem(paid)).toBeUndefined();
+        expect(campaignProblem({ ...paid, visit: { ...paid.visit!, job: { ...job, gear: ['mask'] } } } as never)).toBe("the visit's job is no job");
+        expect(campaignProblem({ ...paid, visit: { ...paid.visit!, payout: 10 } })).toBe('the payout is no payout');
+        paid = commitCampaign(paid, { kind: 'heistOver', day: 1, result: 'success', take: 1000 }).campaign;
+        expect(campaignProblem(paid)).toBeUndefined();
+        expect(campaignProblem({ ...paid, visit: { ...paid.visit!, result: 'failure' } })).toBe('the payout is no payout');
         // The review's probe, as the old rules saved it: a heist abandoned into the Raid, and a day spent after it.
         let raid = newCampaign(1);
         for (let i = 0; i < 17; i++) raid = commitCampaign(raid, { kind: 'layLow' }).campaign;
@@ -269,5 +292,97 @@ describe('a campaign heist (decision 406: casing is paid in days)', () => {
         for (let i = 0; i < 19; i++) c = commitCampaign(c, { kind: 'layLow' }).campaign;
         expect(campaignHeistRefusal(c, options.world)).toBe('The Raid comes first');
         expect(campaignHeistRefusal(newCampaign(1), options.world)).toBeUndefined();
+    });
+});
+
+describe("the campaign's money in planning and play (M6-03)", () => {
+    it("plans with the campaign's money, favours and armoury; the sandbox keeps its $24k and free gear", () => {
+        const storage = started();
+        const purse = campaignPurse(loadCampaign(storage)!, options.world);
+        expect(purse).toMatchObject({ cash: 24000, favours: 8 });
+        const setup = defaultSetup(options);
+        expect(setupProblems(setup, options, purse)).toEqual([]);
+        // Gear the armoury doesn't hold: refused in the campaign, free in the sandbox.
+        setup.crew[0]!.loadout.primary = 'lmg';
+        expect(setupProblems(setup, options, purse)).toEqual(['The armoury has 0 lmg, the plan takes 1']);
+        expect(setupProblems(setup, options)).toEqual([]);
+        // Cut to the armoury, the plan opens playable.
+        expect(gearOf(fitArmoury(structuredClone(setup), purse))).not.toContain('lmg');
+        expect(fitArmoury(structuredClone(setup))).toEqual(setup);
+        // Assets beyond the campaign's money.
+        const poor = { ...purse, cash: 5000 };
+        const base = defaultSetup(options);
+        const spot = options.spots.ramTruck.find(s => setupProblems({ ...base, vehicles: { ...base.vehicles, ramTruck: s.id } }, options).length === 0);
+        expect(spot).toBeDefined();
+        const ram = { ...base, vehicles: { ...base.vehicles, ramTruck: spot!.id } };
+        {
+            expect(setupProblems(ram, options, poor)).toContain('Not enough cash: $8k of $5k');
+            // From the address too: an edited plan plays only within the purse.
+            expect(setupFromAddress(JSON.stringify(ram), options, {}, poor)).toBeUndefined();
+            expect(setupProblems(ram, options)).toEqual([]);
+            expect(setupFromAddress(JSON.stringify(ram), options, {})).toBeDefined();
+        }
+    });
+
+    it('buys intel from the campaign at once: paid, saved, known on reload, and its favours count against the cap', () => {
+        const storage = started();
+        const done = buyCampaignIntel(storage, options.world, 'guardRota');
+        if ('refused' in done) throw new Error(done.refused);
+        // Reloading the planning page: the rota is known, free, and can't be bought or charged again.
+        const c = loadCampaign(storage)!;
+        expect(c.money.clean).toBe(21000);
+        expect(campaignIntel(c, options.world).guardRota).toBe(true);
+        expect(campaignPurse(c, options.world)).toMatchObject({ cash: 21000, favours: 7 });
+        expect(buyCampaignIntel(storage, options.world, 'guardRota')).toEqual({ refused: 'Known already' });
+        expect(loadCampaign(storage)!.money.clean).toBe(21000);
+        const setup = defaultSetup(options, campaignIntel(c, options.world));
+        expect(setupProblems({ ...setup, guardRota: true }, options, campaignPurse(c, options.world))).toContain('The crew has the guard rota already');
+        // An address claiming the rota as bought again is refused; one that doesn't plays knowing it.
+        expect(setupFromAddress(JSON.stringify({ ...setup, guardRota: true }), options, campaignIntel(c, options.world), campaignPurse(c, options.world))).toBeUndefined();
+        expect(setupFromAddress(JSON.stringify({ ...setup, intel: {} }), options, campaignIntel(c, options.world), campaignPurse(c, options.world))?.intel.guardRota).toBe(true);
+    });
+
+    it("pays the plan's assets and takes its gear as the heist starts, and an abandoned one gives neither back", () => {
+        const storage = started();
+        const { tag } = campaignHeist(storage, s => { s.nest = false; });
+        expect(tag.day).toBe(1);
+        const c = loadCampaign(storage)!;
+        expect(c.visit!.job).toEqual({ crew: ['mara', 'jun', 'dex', 'sol'], gear: gearOf(defaultSetup(options)), stakes: 'low' });
+        expect(c.armoury).toEqual({});
+        expect(campaignAct(storage, { kind: 'layLow' })).toMatchObject({ campaign: { armoury: {}, money: { clean: 24000, dirty: 0 } } });
+    });
+
+    it("brings the take in once as the heist ends, less the crew's shares, with the gear those who escaped carry", () => {
+        const storage = started();
+        const { session, tag } = campaignHeist(storage);
+        const keep = campaignKeeper(storage, tag);
+        // Sol escaped with his kit; the rest were taken.
+        const sol = session.state.crew.find(c => c.id === 'sol')!;
+        const ended = {
+            ...session.state, crew: session.state.crew.filter(c => c !== sol), escaped: [{ crew: sol, vehicle: 'van', turn: 3 }],
+            outcome: { result: 'partial', turn: 3, vehicle: 'van', escaped: ['sol'], arrested: ['mara', 'jun', 'dex'], dead: [], loot: [], value: 50000, ruined: 0, target: 75000, heat: 2 }
+        } as typeof session.state;
+        expect(gearKept(ended).sort()).toEqual(['dmr', 'lightVest', 'medkit', 'pistol']);
+        keep(session.world, ended);
+        let c = loadCampaign(storage)!;
+        expect(c.visit).toMatchObject({ result: 'partial', payout: 30000 });
+        expect(c.money).toEqual({ clean: 24000, dirty: 30000 });
+        expect(c.armoury).toEqual({ dmr: 1, lightVest: 1, medkit: 1, pistol: 1 });
+        // Saved again, resumed, or reloaded: counted once (the heist is dropped).
+        expect(keep(session.world, ended)).toBe('drop');
+        expect(campaignKeeper(storage, tag)(session.world, ended)).toBe('drop');
+        expect(loadCampaign(storage)!.money.dirty).toBe(30000);
+        // The next day launders it.
+        c = (campaignAct(storage, { kind: 'layLow' }) as { campaign: typeof c }).campaign;
+        expect(c.money).toEqual({ clean: 54000, dirty: 0 });
+    });
+
+    it("a heist's start is refused when the campaign's money no longer covers it (spent in another tab)", () => {
+        const storage = started();
+        expect(campaignAct(storage, { kind: 'buy', item: 'smg', count: 2 })).toMatchObject({ campaign: { money: { clean: 8000 } } });
+        // A plan checked against yesterday's purse: $9k of assets.
+        const job = campaignJob(defaultSetup(options), bank.tier);
+        expect(campaignAct(storage, { kind: 'heist', bank: print, ...job, cost: 9000 })).toEqual({ refused: 'Not enough money' });
+        expect(loadCampaign(storage)).toMatchObject({ day: 1, money: { clean: 8000 }, armoury: { smg: 2, pistol: 2 } });
     });
 });

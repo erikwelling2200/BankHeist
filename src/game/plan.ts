@@ -87,8 +87,20 @@ export const INTEL_ASSETS: readonly AssetId[] = ['blueprints', 'guardRota'];
 
 /** "You can only call in so many favours before someone notices" (§18.1). */
 export const FAVOUR_CAP = 8;
-/** The sandbox's cash for assets until the campaign's money (M6-03; decision 323). */
+/** The sandbox's cash for assets (decision 323); the campaign plans with its own money (M6-03). */
 export const PLANNING_CASH = 24000;
+
+/**
+ * What a plan may spend (§18.1): the cash, the favours left under the cap, and in the campaign the armoury's gear by
+ * item (the sandbox's loadouts are free: no armoury).
+ */
+export interface Purse { cash: number; favours: number; armoury?: Readonly<Record<string, number>> }
+
+/** The sandbox's purse: $24k, the whole favour cap, any gear. */
+export const SANDBOX_PURSE: Purse = { cash: PLANNING_CASH, favours: FAVOUR_CAP };
+
+/** How many of an item the purse's armoury holds (any number in the sandbox). */
+export const inArmoury = (purse: Purse, id: string): number => (!purse.armoury ? Infinity : Object.hasOwn(purse.armoury, id) ? purse.armoury[id]! : 0);
 /** The contract's crew size (§7.2: usually 4). */
 export const CREW_SIZE = 4;
 /** How near the building a pre-placed jammer stands (§18.2 "next to the building"), in tiles (Chebyshev). */
@@ -121,6 +133,9 @@ export function assetsOf(setup: HeistSetup): AssetId[] {
     if (setup.jammer) out.push('jammer');
     return out;
 }
+
+/** The gear a setup's crew carry in (their loadouts but the fixed items), each item once per carrier. */
+export const gearOf = (setup: HeistSetup): ItemId[] => setup.crew.flatMap(c => loadoutItems(c.loadout).filter(id => !FIXED_ITEMS.includes(id)));
 
 /** The cash and favours a setup spends. */
 export function spent(setup: HeistSetup): { cash: number; favours: number } {
@@ -239,6 +254,29 @@ export function defaultSetup(options: PlanOptions, intel: Intel = {}): HeistSetu
 }
 
 /**
+ * The setup with each loadout cut to what the purse's armoury holds (M6-03), crew in order, slot by slot: what the
+ * campaign's plan opens on. The sandbox's (no armoury) is left as it is.
+ */
+export function fitArmoury(setup: HeistSetup, purse?: Purse): HeistSetup {
+    if (!purse?.armoury) return setup;
+    const left: Record<string, number> = { ...purse.armoury };
+    const take = (id: ItemId | null): ItemId | null => {
+        if (id === null || !((left[id] ?? 0) > 0)) return null;
+        left[id]! -= 1;
+        return id;
+    };
+    for (const c of setup.crew) {
+        const l = c.loadout;
+        l.primary = take(l.primary);
+        l.sidearm = take(l.sidearm);
+        l.armour = take(l.armour);
+        l.gadgets = [take(l.gadgets[0]), take(l.gadgets[1])];
+        if (c.start.at === 'nest' && !hasLongGun(l)) c.start = { at: 'van', aboard: true };
+    }
+    return setup;
+}
+
+/**
  * Why a value isn't a `HeistSetup` at all (one from the address may be anything), or undefined: exactly the fields of
  * the type, each of its type, two gadget slots (§7.3), the van always.
  */
@@ -269,15 +307,19 @@ export function setupShapeProblem(value: unknown): string | undefined {
 }
 
 /** Why a setup can't be played, as the screen says it; empty when it can. */
-export function setupProblems(setup: HeistSetup, options: PlanOptions): string[] {
+export function setupProblems(setup: HeistSetup, options: PlanOptions, purse: Purse = SANDBOX_PURSE): string[] {
     const shape = setupShapeProblem(setup);
     if (shape) return [`The plan can't be read: ${shape}`];
     const out: string[] = [];
     if (!setup.crew.length) out.push('Pick at least one crew member');
     if (setup.crew.length > CREW_SIZE) out.push(`The contract takes ${CREW_SIZE} at most`);
     const { cash, favours } = spent(setup);
-    if (cash > PLANNING_CASH) out.push(`Not enough cash: $${cash / 1000}k of $${PLANNING_CASH / 1000}k`);
-    if (favours > FAVOUR_CAP) out.push(`Too many favours: ${favours} of ${FAVOUR_CAP}`);
+    if (cash > purse.cash) out.push(`Not enough cash: $${cash / 1000}k of $${Math.floor(purse.cash / 1000)}k`);
+    if (favours > purse.favours) out.push(`Too many favours: ${favours} of ${purse.favours}${purse.favours < FAVOUR_CAP ? ' left' : ''}`);
+    const want: Record<string, number> = {};
+    for (const id of gearOf(setup)) want[id] = (want[id] ?? 0) + 1;
+    const short = Object.keys(want).find(id => want[id]! > inArmoury(purse, id));
+    if (short) out.push(`The armoury has ${inArmoury(purse, short)} ${short.replace(/[A-Z]/g, m => ` ${m.toLowerCase()}`)}, the plan takes ${want[short]}`);
     const parked: Pos[][] = [];
     for (const [type, spot] of Object.entries(setup.vehicles) as [VehicleType, string][]) {
         const at = options.spots[type].find(s => s.id === spot);
@@ -315,14 +357,15 @@ export function setupProblems(setup: HeistSetup, options: PlanOptions): string[]
 /**
  * A plan from the address (decision 405), or undefined when it can't be read or played: its intel is never the
  * address's but `kept`, what this device keeps for the bank (src/game/intel.ts `loadIntel`), so an edited address can
- * claim no casing and no asset it hasn't paid for in this plan.
+ * claim no casing and no asset it hasn't paid for in this plan; and it is played only within `purse` (the campaign's
+ * money and armoury, M6-03).
  */
-export function setupFromAddress(text: string, options: PlanOptions, kept: Intel): HeistSetup | undefined {
+export function setupFromAddress(text: string, options: PlanOptions, kept: Intel, purse: Purse = SANDBOX_PURSE): HeistSetup | undefined {
     try {
         const setup = JSON.parse(text) as HeistSetup;
         if (setupShapeProblem(setup)) return undefined;
         setup.intel = structuredClone(kept);
-        return setupProblems(setup, options).length ? undefined : setup;
+        return setupProblems(setup, options, purse).length ? undefined : setup;
     } catch {
         return undefined;
     }

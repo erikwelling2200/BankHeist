@@ -1,5 +1,6 @@
-import type { Intel } from '../sim';
+import { isItem, ITEMS, type DeepReadonly, type Intel } from '../sim';
 import { COMPLICATIONS, drawComplications, type ComplicationId } from './complications';
+import { countItems, FENCE_CUT, fenced, FRONT_COST, LAUNDER_PER_DAY, MARKET, NERVOUS_FENCE_CUT, sharesOf, STAKES, STARTER_KIT, STARTING_CASH, STARTING_SHARES, type Stakes } from './money';
 import { ALL_THRESHOLDS, projectedDay, SQUEEZE, THRESHOLDS, type SqueezeSource } from './squeeze';
 
 /*
@@ -11,6 +12,10 @@ import { ALL_THRESHOLDS, projectedDay, SQUEEZE, THRESHOLDS, type SqueezeSource }
  * A day is spent by a day action (§19.3): a heist (a contract), casing a bank, laying low. Recruiting and shopping take
  * no time. Spending a day adds the Squeeze's daily +2 and lands every threshold it reaches. Starting a heist spends its
  * day at once, so a heist abandoned after a turn has still cost one (decision 441): scouting is never free.
+ *
+ * Money (§19.4, M6-03): a heist's take comes in once, as it ends, as dirty money less the crew's shares; every day spent
+ * launders some of it, the fence any of it at once for a cut. Clean money pays the heist's assets and the gear it takes
+ * as it starts (the gear comes back with whoever escapes), intel bought while planning, fronts and the black market.
  */
 
 /** What spends a day (§19.3). */
@@ -36,12 +41,27 @@ export interface Visit {
     prior: KnownBefore;
     /** How the heist ended, once it has. */
     result?: HeistResult;
+    /** A heist's crew, the gear they took and its stakes, as it started (none for a heist started without them). */
+    job?: Job;
+    /** The dirty money it brought in once over: its take less the crew's shares. */
+    payout?: number;
+}
+
+/** What a heist takes in as it starts (§19.4): who goes, with which gear, at which stakes, and what its assets cost. */
+export interface Job {
+    /** The crew's ids: each takes their share of the take. */
+    crew: string[];
+    /** The gear they carry in (item ids, a count each), out of the armoury until they come back with it. */
+    gear: string[];
+    stakes: Stakes;
 }
 
 /** What a visit to a bank taught the crew, and the day it learned it. */
 export interface DatedIntel {
     day: number;
     intel: Intel;
+    /** Bought, not learned (an intel asset on the planning screen, decision 401): the favours it called in that day. */
+    favours?: number;
 }
 
 export type CampaignPhase =
@@ -72,19 +92,37 @@ export interface Campaign {
     visit: Visit | null;
     /** What visits taught the crew, per bank print, oldest first. */
     intel: Record<string, DatedIntel[]>;
+    /** Money (§19.4), whole dollars: clean to spend, dirty waiting to be laundered. */
+    money: { clean: number; dirty: number };
+    /** Fronts bought: each launders as much again as the safehouse every day. */
+    fronts: number;
+    /** Contacts made: one per successful high-stakes job; the first opens the black market's higher tiers. */
+    contacts: number;
+    /** The gear the crew owns and has at the safehouse, by item id: how many. */
+    armoury: Record<string, number>;
+    /** Each crew member's share of a job, in percent, by id (set at recruitment). */
+    shares: Record<string, number>;
 }
 
 export type CampaignCommand =
-    /** Spends the day on a heist in the bank (its print): from the moment it starts. */
-    | { kind: 'heist'; bank: string }
+    /** Spends the day on a heist in the bank (its print): from the moment it starts, paying `cost` for its assets. */
+    | { kind: 'heist'; bank: string; job?: Job; cost?: number }
     /** Spends the day casing the bank (the visit itself is M6-07's). */
     | { kind: 'case'; bank: string }
     /** Spends the day laying low. */
     | { kind: 'layLow' }
     /** What the visit of `day` to `bank` has learned so far (the heist's whole intel; what was known before is left out). */
     | { kind: 'learn'; bank: string; day: number; intel: Intel }
-    /** The heist of `day` ended. */
-    | { kind: 'heistOver'; day: number; result: HeistResult }
+    /** The heist of `day` ended: the loot's value that left (`take`) and the gear that came back with those who escaped (`kept`). */
+    | { kind: 'heistOver'; day: number; result: HeistResult; take?: number; kept?: string[] }
+    /** An intel asset bought on the planning screen for the bank's heist (decision 401): paid now, known from now. */
+    | { kind: 'buyIntel'; bank: string; asset: IntelAsset; cost: number; favours: number }
+    /** Gear from the black market, into the armoury. */
+    | { kind: 'buy'; item: string; count?: number }
+    /** A front: more laundered each day. */
+    | { kind: 'buyFront' }
+    /** Dirty money through the fence, clean at once less its cut. */
+    | { kind: 'fence'; amount: number }
     /** Squeeze from elsewhere: crew members who gained Notoriety (`count`), a prisoner who talked, the false tip. */
     | { kind: 'squeeze'; source: Exclude<SqueezeSource, 'day' | 'failedJob'>; count?: number }
     /** The Raid was played. */
@@ -101,7 +139,19 @@ export type CampaignEvent =
     | { type: 'learned'; bank: string; day: number }
     | { type: 'phase'; phase: CampaignPhase }
     /** The day action didn't happen: the heist it abandoned landed the Raid (decision 446). No day was spent. */
-    | { type: 'stopped'; action: DayAction; reason: string };
+    | { type: 'stopped'; action: DayAction; reason: string }
+    /** Clean money went: on a heist's assets, intel, gear or a front. */
+    | { type: 'spent'; on: 'heist' | 'intel' | 'gear' | 'front'; amount: number; clean: number }
+    /** A heist's take came in: its value, the crew's shares, and the dirty money left. */
+    | { type: 'paid'; day: number; take: number; shares: number; dirty: number }
+    | { type: 'laundered'; amount: number; clean: number; dirty: number }
+    | { type: 'fenced'; amount: number; paid: number; cut: number }
+    | { type: 'contact'; contacts: number }
+    /** The armoury changed: gear bought or back from a heist (`added`), or taken into one (`removed`). */
+    | { type: 'gear'; added: Record<string, number>; removed: Record<string, number> };
+
+/** The intel assets (§18.2) the campaign pays for as they are bought. */
+export type IntelAsset = 'blueprints' | 'guardRota';
 
 export class CampaignRefused extends Error {
     constructor(message: string) {
@@ -117,9 +167,42 @@ export const INTEL_FRESH_DAYS = 3;
 export function newCampaign(seed: number): Campaign {
     return {
         seed: seed >>> 0, day: 1, squeeze: 0, complications: drawComplications(seed >>> 0), landed: [], falseTip: false, phase: 'open',
-        days: [], visit: null, intel: {}
+        days: [], visit: null, intel: {},
+        money: { clean: STARTING_CASH, dirty: 0 }, fronts: 0, contacts: 0, armoury: { ...STARTER_KIT } as Record<string, number>, shares: { ...STARTING_SHARES }
     };
 }
+
+const whole = (n: unknown): n is number => Number.isInteger(n) && (n as number) >= 0;
+
+/** Why the armoury can't give `gear`, or undefined. */
+function gearRefusal(c: Campaign, gear: readonly string[]): string | undefined {
+    if (gear.some(id => !isItem(id) || ITEMS[id].slot === 'fixed')) return 'Not gear';
+    for (const [id, n] of Object.entries(countItems(gear))) if ((Object.hasOwn(c.armoury, id) ? c.armoury[id]! : 0) < n) return `Not enough ${id} in the armoury`;
+    return undefined;
+}
+
+/** Why a heist's job can't be taken on, or undefined: the crew who have shares, the gear in the armoury, the cash. */
+function jobRefusal(c: Campaign, job: Job | undefined, cost: number | undefined): string | undefined {
+    if (cost !== undefined && !whole(cost)) return 'No price';
+    if ((cost ?? 0) > c.money.clean) return 'Not enough money';
+    if (!job) return undefined;
+    if (!job.crew.length || new Set(job.crew).size !== job.crew.length || job.crew.some(id => !Object.hasOwn(c.shares, id))) return 'Not the crew';
+    if (!STAKES.includes(job.stakes)) return 'No stakes';
+    return gearRefusal(c, job.gear);
+}
+
+/** The fence's cut now, in percent: more once the "Nervous fence" complication has landed (§19.2). */
+export const fenceCut = (c: DeepReadonly<Campaign>): number => FENCE_CUT + (landedComplications(c).includes('nervousFence') ? NERVOUS_FENCE_CUT : 0);
+
+/** The complications landed so far, in order. */
+export const landedComplications = (c: DeepReadonly<Campaign>): ComplicationId[] => c.complications.slice(0, Math.min(c.landed.length, THRESHOLDS.length));
+
+/** What the safehouse and the fronts launder each day. */
+export const launderPerDay = (c: DeepReadonly<Campaign>): number => LAUNDER_PER_DAY * (1 + c.fronts);
+
+/** The favours the intel bought today for a bank called in: the plan's cap counts them (§18.1). */
+export const favoursToday = (c: DeepReadonly<Campaign>, bank: string): number =>
+    (c.intel[bank] ?? []).reduce((n, r) => n + (r.day === c.day ? r.favours ?? 0 : 0), 0);
 
 /** Why `cmd` can't be done now, or undefined. */
 export function campaignRefusal(c: Campaign, cmd: CampaignCommand): string | undefined {
@@ -127,14 +210,39 @@ export function campaignRefusal(c: Campaign, cmd: CampaignCommand): string | und
         case 'heist': case 'case': case 'layLow':
             if (c.phase !== 'open') return c.phase === 'over' ? 'The campaign is over' : c.phase === 'raid' ? 'The Raid comes first' : 'The finale is due';
             if (cmd.kind !== 'layLow' && !cmd.bank) return 'No bank';
-            return undefined;
+            return cmd.kind === 'heist' ? jobRefusal(c, cmd.job, cmd.cost) : undefined;
         case 'learn':
             if (!c.visit || c.visit.day !== cmd.day || c.visit.bank !== cmd.bank) return "Not the day's visit";
             return undefined;
         case 'heistOver':
             if (!c.visit || c.visit.kind !== 'heist' || c.visit.day !== cmd.day) return "Not the day's heist";
             if (c.visit.result) return 'The heist is over already';
+            if (cmd.take !== undefined && !whole(cmd.take)) return 'No take';
             return undefined;
+        case 'buyIntel': {
+            if (c.phase !== 'open') return 'No heist to plan';
+            if (!cmd.bank) return 'No bank';
+            if (cmd.asset !== 'blueprints' && cmd.asset !== 'guardRota') return 'No such intel';
+            if (!whole(cmd.cost) || !whole(cmd.favours)) return 'No price';
+            const known = knownIntel(c, cmd.bank);
+            if (known.some(i => i[cmd.asset])) return 'Known already';
+            return cmd.cost > c.money.clean ? 'Not enough money' : undefined;
+        }
+        case 'buy': {
+            if (c.phase === 'over') return 'The campaign is over';
+            const offer = Object.hasOwn(MARKET, cmd.item) ? MARKET[cmd.item as keyof typeof MARKET] : undefined;
+            if (!offer) return 'Not on sale';
+            if (cmd.count !== undefined && (!Number.isInteger(cmd.count) || cmd.count < 1)) return 'None';
+            if (offer.contact && c.contacts < 1) return 'Needs a contact';
+            return offer.price * (cmd.count ?? 1) > c.money.clean ? 'Not enough money' : undefined;
+        }
+        case 'buyFront':
+            if (c.phase === 'over') return 'The campaign is over';
+            return FRONT_COST > c.money.clean ? 'Not enough money' : undefined;
+        case 'fence':
+            if (c.phase === 'over') return 'The campaign is over';
+            if (!Number.isInteger(cmd.amount) || cmd.amount < 1) return 'Nothing to fence';
+            return cmd.amount > c.money.dirty ? 'Not that much dirty money' : undefined;
         case 'squeeze':
             if (c.phase === 'over') return 'The campaign is over';
             if (cmd.source === 'falseTip' && c.falseTip) return 'The false tip was leaked already';
@@ -173,10 +281,20 @@ export function commitCampaign(campaign: Campaign, cmd: CampaignCommand): { camp
                 }
             }
             const day = c.day;
-            c.visit = cmd.kind === 'layLow' ? null : { kind: cmd.kind, day, bank: cmd.bank, prior: knownBefore(campaign, cmd.bank) };
+            const visit: Visit | null = cmd.kind === 'layLow' ? null : { kind: cmd.kind, day, bank: cmd.bank, prior: knownBefore(campaign, cmd.bank) };
+            c.visit = visit;
+            if (cmd.kind === 'heist') {
+                // The assets are paid and the gear taken as it starts: a heist left after a turn has cost them too.
+                if (cmd.cost) spend(c, events, 'heist', cmd.cost);
+                if (cmd.job) {
+                    visit!.job = structuredClone(cmd.job);
+                    takeGear(c, events, cmd.job.gear);
+                }
+            }
             c.days.push({ day, action: cmd.kind, ...(cmd.kind !== 'layLow' ? { bank: cmd.bank } : {}) });
             events.push({ type: 'dayPassed', day, action: cmd.kind });
             add('day', SQUEEZE.day);
+            launder(c, events);
             c.day = day + 1;
             pruneIntel(c);
             break;
@@ -185,7 +303,7 @@ export function commitCampaign(campaign: Campaign, cmd: CampaignCommand): { camp
             const v = c.visit!;
             const records = c.intel[cmd.bank] ??= [];
             const record = { day: v.day, intel: learnedOf(cmd.intel, v.prior) };
-            const at = records.findIndex(r => r.day === v.day);
+            const at = records.findIndex(r => r.day === v.day && r.favours === undefined);
             if (at >= 0) records[at] = record;
             else records.push(record);
             records.sort((a, b) => a.day - b.day);
@@ -194,13 +312,57 @@ export function commitCampaign(campaign: Campaign, cmd: CampaignCommand): { camp
             events.push({ type: 'learned', bank: cmd.bank, day: v.day });
             break;
         }
-        case 'heistOver':
-            c.visit!.result = cmd.result;
+        case 'heistOver': {
+            const v = c.visit!;
+            v.result = cmd.result;
             if (cmd.result === 'failure') {
+                // Failure loses the gear brought in (§19.3), and there is no take.
                 events.push({ type: 'jobFailed', day: cmd.day, abandoned: false });
                 add('failedJob', SQUEEZE.failedJob);
+            } else if (v.job) {
+                const take = cmd.take ?? 0, shares = sharesOf(take, v.job.crew, c.shares);
+                v.payout = Math.max(0, take - shares);
+                c.money.dirty += v.payout;
+                events.push({ type: 'paid', day: v.day, take, shares, dirty: c.money.dirty });
+                returnGear(c, events, v.job.gear, cmd.kept ?? []);
+                if (cmd.result === 'success' && v.job.stakes === 'high') {
+                    c.contacts += 1;
+                    events.push({ type: 'contact', contacts: c.contacts });
+                }
             }
             break;
+        }
+        case 'buyIntel': {
+            spend(c, events, 'intel', cmd.cost);
+            const records = c.intel[cmd.bank] ??= [];
+            const today = records.find(r => r.day === c.day && r.favours !== undefined);
+            if (today) {
+                today.intel[cmd.asset] = true;
+                today.favours! += cmd.favours;
+            } else {
+                records.push({ day: c.day, intel: { [cmd.asset]: true }, favours: cmd.favours });
+                records.sort((a, b) => a.day - b.day);
+            }
+            break;
+        }
+        case 'buy': {
+            const count = cmd.count ?? 1;
+            spend(c, events, 'gear', MARKET[cmd.item as keyof typeof MARKET]!.price * count);
+            c.armoury[cmd.item] = (c.armoury[cmd.item] ?? 0) + count;
+            events.push({ type: 'gear', added: { [cmd.item]: count }, removed: {} });
+            break;
+        }
+        case 'buyFront':
+            spend(c, events, 'front', FRONT_COST);
+            c.fronts += 1;
+            break;
+        case 'fence': {
+            const cut = fenceCut(c), paid = fenced(cmd.amount, cut);
+            c.money.dirty -= cmd.amount;
+            c.money.clean += paid;
+            events.push({ type: 'fenced', amount: cmd.amount, paid, cut });
+            break;
+        }
         case 'squeeze':
             if (cmd.source === 'falseTip') c.falseTip = true;
             add(cmd.source, SQUEEZE[cmd.source] * (cmd.source === 'falseTip' ? 1 : cmd.count ?? 1));
@@ -213,6 +375,45 @@ export function commitCampaign(campaign: Campaign, cmd: CampaignCommand): { camp
             break;
     }
     return { campaign: c, events };
+}
+
+function spend(c: Campaign, events: CampaignEvent[], on: 'heist' | 'intel' | 'gear' | 'front', amount: number): void {
+    c.money.clean -= amount;
+    events.push({ type: 'spent', on, amount, clean: c.money.clean });
+}
+
+/** Each day spent launders what the safehouse and the fronts can of the dirty money (§19.4). */
+function launder(c: Campaign, events: CampaignEvent[]): void {
+    const amount = Math.min(c.money.dirty, launderPerDay(c));
+    if (amount <= 0) return;
+    c.money.dirty -= amount;
+    c.money.clean += amount;
+    events.push({ type: 'laundered', amount, clean: c.money.clean, dirty: c.money.dirty });
+}
+
+/** Takes a heist's gear out of the armoury: it is in the field until those who carry it come back. */
+function takeGear(c: Campaign, events: CampaignEvent[], gear: readonly string[]): void {
+    if (!gear.length) return;
+    for (const id of gear) {
+        c.armoury[id]! -= 1;
+        if (c.armoury[id] === 0) delete c.armoury[id];
+    }
+    events.push({ type: 'gear', added: {}, removed: countItems(gear) });
+}
+
+/**
+ * Puts back what came back of a heist's gear: what the crew who escaped still carry, never more of an item than went in
+ * (gear picked up in the bank isn't the crew's to keep). The rest was used, dropped or taken with whoever stayed.
+ */
+function returnGear(c: Campaign, events: CampaignEvent[], brought: readonly string[], kept: readonly string[]): void {
+    const back = countItems(kept.filter(isItem)), added: Record<string, number> = {};
+    for (const [id, n] of Object.entries(countItems(brought))) {
+        const k = Math.min(n, back[id] ?? 0);
+        if (!k) continue;
+        c.armoury[id] = (c.armoury[id] ?? 0) + k;
+        added[id] = k;
+    }
+    if (Object.keys(added).length) events.push({ type: 'gear', added, removed: {} });
 }
 
 function setPhase(c: Campaign, events: CampaignEvent[], phase: CampaignPhase): void {
@@ -245,7 +446,7 @@ function layoutOf(intel: Intel): Intel {
 /** Drops what has gone stale from every record, and the records left with nothing. */
 function pruneIntel(c: Campaign): void {
     for (const [bank, records] of Object.entries(c.intel)) {
-        const kept = records.map(r => (intelFresh(r.day, c.day) ? r : { day: r.day, intel: layoutOf(r.intel) })).filter(r => Object.keys(r.intel).length > 0);
+        const kept = records.map(r => (intelFresh(r.day, c.day) ? r : { ...r, intel: layoutOf(r.intel) })).filter(r => Object.keys(r.intel).length > 0);
         if (kept.length) c.intel[bank] = kept;
         else delete c.intel[bank];
     }

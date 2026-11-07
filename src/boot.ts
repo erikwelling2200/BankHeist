@@ -11,10 +11,13 @@ import { PropSheetScene } from './scenes/PropSheetScene';
 import { Fullscreen } from './ui/Fullscreen';
 import { installDebugHandle, MemoryStorage, Session, webStorage, type SaveStorage } from './game';
 import { bankAddress, playPlan, sameAddress, savedHeist, startHeist, type CampaignTag } from './game/heist';
-import type { Campaign } from './campaign';
+import type { Campaign, IntelAsset } from './campaign';
 import { bankPrint, loadIntel } from './game/intel';
-import { campaignAct, campaignHeistRefusal, campaignIntel, campaignKeeper, dropCampaignHeist, heistUnfinished, loadCampaign, untaggedKeeper } from './game/campaign';
-import { defaultSetup, planOptions, setupFromAddress, type HeistSetup } from './game/plan';
+import {
+    buyCampaignIntel, campaignAct, campaignHeistRefusal, campaignIntel, campaignJob, campaignKeeper, campaignPurse, dropCampaignHeist, heistUnfinished, loadCampaign,
+    untaggedKeeper
+} from './game/campaign';
+import { defaultSetup, fitArmoury, planOptions, setupFromAddress, type HeistSetup } from './game/plan';
 import { Planner } from './ui/planning/Planner';
 import { askPlayer } from './ui/askPlayer';
 import type { BankData } from './level/bankData';
@@ -175,11 +178,20 @@ function plan(params: URLSearchParams): void {
     // saved, so the plan survives the page change even with no storage, and never carries `new` along.
     // What the crew knows of this bank from earlier heists in it (M5-03): the plan starts with it.
     const intel = campaign ? campaignIntel(campaign, options.world) : loadIntel(storage, options.world);
-    const planner = new Planner(generated, options, defaultSetup(options, intel), map, setup => {
+    // The campaign plans with its own money and armoury, and pays for intel as it is bought (M6-03).
+    const purse = campaign ? campaignPurse(campaign, options.world) : undefined;
+    const funds = purse ? {
+        purse,
+        buyIntel: (asset: IntelAsset) => {
+            const done = buyCampaignIntel(storage, options.world, asset);
+            return 'refused' in done ? done.refused : { intel: campaignIntel(done.campaign, options.world), purse: campaignPurse(done.campaign, options.world) };
+        }
+    } : undefined;
+    const planner = new Planner(generated, options, fitArmoury(defaultSetup(options, intel), purse), map, setup => {
         const keep = [...new URLSearchParams(location.search)].filter(([k]) => !['plan', 'new', 'play', 'seed', 'tier', 'archetype', 'plot', 'setup'].includes(k));
         const query = new URLSearchParams([['play', ''], ...Object.entries(bankAddress(generated)), ['setup', JSON.stringify(setup)], ...keep]);
         location.assign(`${location.pathname}?${query.toString().replace(/(^|&)(play|campaign)=(?=&|$)/g, '$1$2')}`);
-    });
+    }, funds);
     Object.assign(window, { planner, generated });
 }
 
@@ -252,7 +264,8 @@ async function preparePlay(params: URLSearchParams): Promise<{ bank: ReturnType<
         } else if (abandons && !(await askPlayer(`Day ${campaign!.visit!.day}'s heist isn't over.`, abandons, 'Start new', 'Keep planning'))) return back();
         if (campaign) {
             // The day is spent, and saved, before the heist starts: leaving it after a turn has still cost the day.
-            const done = campaignAct(storage, { kind: 'heist', bank: bankPrint(planOptions(generated).world) });
+            // Its assets are paid and its gear taken as it starts (M6-03): the plan was checked against the campaign's purse.
+            const done = campaignAct(storage, { kind: 'heist', bank: bankPrint(planOptions(generated).world), ...campaignJob(planned, generated.tier) });
             // Refused, or stopped: the heist it abandoned landed the Raid (decision 446). The campaign shows it.
             if ('refused' in done || done.events.some(e => e.type === 'stopped')) {
                 // Stopped, the heist it abandoned is over: it isn't played on from `/`.
@@ -307,7 +320,9 @@ async function preparePlay(params: URLSearchParams): Promise<{ bank: ReturnType<
  */
 function plannedSetup(text: string, bank: GeneratedBank, storage: SaveStorage, campaign?: Campaign): HeistSetup | undefined {
     const options = planOptions(bank);
-    return setupFromAddress(text, options, campaign ? campaignIntel(campaign, options.world) : loadIntel(storage, options.world));
+    return campaign
+        ? setupFromAddress(text, options, campaignIntel(campaign, options.world), campaignPurse(campaign, options.world))
+        : setupFromAddress(text, options, loadIntel(storage, options.world));
 }
 
 /** The planning screen's address for a bank, keeping `still` (and `campaign`, planning the campaign's heist). */

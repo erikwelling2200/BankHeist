@@ -1,8 +1,10 @@
 import {
-    campaignRefusal, commitCampaign, COMPLICATION_IDS, knownIntel, THRESHOLDS, ALL_THRESHOLDS, type Campaign, type CampaignCommand, type CampaignEvent
+    campaignRefusal, commitCampaign, COMPLICATION_IDS, favoursToday, knownIntel, STAKES, THRESHOLDS, TIER_STAKES, ALL_THRESHOLDS, type Campaign, type CampaignCommand,
+    type CampaignEvent, type IntelAsset, type Job
 } from '../campaign';
-import { intelOf, SaveFormatError, stableJson, type DeepReadonly, type Intel, type ReadonlyWorld } from '../sim';
+import { intelOf, isItem, ITEMS, SaveFormatError, stableJson, type DeepReadonly, type Intel, type ReadonlyWorld, type State } from '../sim';
 import { savedHeist, type CampaignTag } from './heist';
+import { ASSETS, FAVOUR_CAP, gearOf, spent, type HeistSetup, type Purse } from './plan';
 import { Session, type IntelKeeper } from './session';
 import { bankPrint, intelProblem, mergeIntel } from './intel';
 import type { SaveStorage } from './storage';
@@ -19,8 +21,8 @@ import type { SaveStorage } from './storage';
 
 /** The storage key of the campaign in progress. */
 export const CAMPAIGN_KEY = 'campaign';
-/** The campaign save's format: a save of another format is refused, as the rules' saves are. */
-export const CAMPAIGN_FORMAT = 1;
+/** The campaign save's format: a save of another format is refused, as the rules' saves are. 2: money (M6-03). */
+export const CAMPAIGN_FORMAT = 2;
 
 const PHASES = ['open', 'raid', 'finaleDue', 'over'];
 const ACTIONS = ['heist', 'case', 'layLow'];
@@ -32,6 +34,8 @@ const isDay = (v: unknown): v is number => Number.isInteger(v) && (v as number) 
 const exactKeys = (v: Record<string, unknown>, required: readonly string[], optional: readonly string[] = []): boolean =>
     required.every(k => k in v) && Object.keys(v).every(k => required.includes(k) || optional.includes(k));
 const strings = (v: unknown): v is string[] => Array.isArray(v) && v.every(x => typeof x === 'string');
+const whole = (v: unknown): v is number => Number.isInteger(v) && (v as number) >= 0;
+const gear = (v: unknown): v is string[] => strings(v) && v.every(id => isItem(id) && ITEMS[id].slot !== 'fixed');
 
 /**
  * Why `value` isn't a campaign, or undefined: exactly a `Campaign`'s fields, each of its type, and a story that holds
@@ -41,7 +45,9 @@ const strings = (v: unknown): v is string[] => Array.isArray(v) && v.every(x => 
 export function campaignProblem(value: unknown): string | undefined {
     if (!isRecord(value)) return 'not a campaign';
     const v = value;
-    if (!exactKeys(v, ['seed', 'day', 'squeeze', 'complications', 'landed', 'falseTip', 'phase', 'days', 'visit', 'intel'])) return 'a campaign with other fields';
+    if (!exactKeys(v, ['seed', 'day', 'squeeze', 'complications', 'landed', 'falseTip', 'phase', 'days', 'visit', 'intel', 'money', 'fronts', 'contacts', 'armoury', 'shares'])) {
+        return 'a campaign with other fields';
+    }
     if (!Number.isInteger(v.seed) || (v.seed as number) < 0 || (v.seed as number) > 0xffffffff) return 'the seed is no seed';
     if (!isDay(v.day)) return 'the day is no day';
     if (!Number.isInteger(v.squeeze) || (v.squeeze as number) < 0) return 'the Squeeze is no count';
@@ -68,8 +74,13 @@ export function campaignProblem(value: unknown): string | undefined {
     }
     if (v.visit !== null) {
         const s = v.visit;
-        if (!isRecord(s) || !exactKeys(s, ['kind', 'day', 'bank', 'prior'], ['result']) || !['heist', 'case'].includes(s.kind as string) || !isDay(s.day)
+        if (!isRecord(s) || !exactKeys(s, ['kind', 'day', 'bank', 'prior'], ['result', 'job', 'payout']) || !['heist', 'case'].includes(s.kind as string) || !isDay(s.day)
             || typeof s.bank !== 'string' || (s.result !== undefined && (s.kind !== 'heist' || !RESULTS.includes(s.result as string)))) return 'the visit is no visit';
+        const j = s.job;
+        if (j !== undefined && (s.kind !== 'heist' || !isRecord(j) || !exactKeys(j, ['crew', 'gear', 'stakes']) || !strings(j.crew) || !gear(j.gear)
+            || !STAKES.includes(j.stakes as never))) return "the visit's job is no job";
+        // A take is paid in once, as a job ends other than in failure.
+        if (s.payout !== undefined && (!whole(s.payout) || j === undefined || s.result === undefined || s.result === 'failure')) return 'the payout is no payout';
         const spent = days[(s.day as number) - 1] as Record<string, unknown> | undefined;
         if (!spent || spent.action !== s.kind || spent.bank !== s.bank) return 'the visit is not a day spent';
         if (s.day !== days.length) return 'the visit is not the last day spent';
@@ -79,9 +90,16 @@ export function campaignProblem(value: unknown): string | undefined {
     }
     if (!isRecord(v.intel)) return 'the intel is not per bank';
     for (const records of Object.values(v.intel)) {
-        if (!Array.isArray(records) || !records.every(r => isRecord(r) && exactKeys(r, ['day', 'intel']) && isDay(r.day) && r.day < (v.day as number)
+        // Learned on a day spent; bought (with its favours) on a day spent or today.
+        if (!Array.isArray(records) || !records.every(r => isRecord(r) && exactKeys(r, ['day', 'intel'], ['favours']) && isDay(r.day)
+            && (r.favours === undefined ? r.day < (v.day as number) : whole(r.favours) && r.day <= (v.day as number))
             && isRecord(r.intel) && Object.keys(r.intel).every(k => INTEL_KEYS.includes(k)))) return 'the intel is not dated intel';
     }
+    const m = v.money;
+    if (!isRecord(m) || !exactKeys(m, ['clean', 'dirty']) || !whole(m.clean) || !whole(m.dirty)) return 'the money is no money';
+    if (!whole(v.fronts) || !whole(v.contacts)) return 'the fronts or contacts are no count';
+    if (!isRecord(v.armoury) || !Object.entries(v.armoury).every(([id, n]) => gear([id]) && Number.isInteger(n) && (n as number) >= 1)) return 'the armoury is not gear';
+    if (!isRecord(v.shares) || !Object.values(v.shares).every(n => whole(n) && n <= 100)) return 'the shares are not shares';
     return undefined;
 }
 
@@ -149,6 +167,38 @@ export function campaignIntel(campaign: DeepReadonly<Campaign>, world: ReadonlyW
 }
 
 /**
+ * What the campaign's plan of the day may spend in a bank (M6-03): its clean money, the favours the intel bought there
+ * today left under the cap (§18.1), and the armoury's gear.
+ */
+export function campaignPurse(campaign: DeepReadonly<Campaign>, world: ReadonlyWorld): Purse {
+    return { cash: campaign.money.clean, favours: FAVOUR_CAP - favoursToday(campaign, bankPrint(world)), armoury: { ...campaign.armoury } };
+}
+
+/** What a plan takes on as the campaign's heist (§19.4): its crew, their gear, the stakes of the bank's tier, and its assets' cost. */
+export function campaignJob(setup: HeistSetup, tier: string): { job: Job; cost: number } {
+    return { job: { crew: setup.crew.map(c => c.id), gear: gearOf(setup), stakes: TIER_STAKES[tier] ?? 'low' }, cost: spent(setup).cash };
+}
+
+/**
+ * Buys an intel asset for the campaign's heist in a bank (decision 401 in the campaign): paid from the campaign's money
+ * and saved at once, known from then on, so reloading the planning page neither forgets nor charges it again.
+ */
+export function buyCampaignIntel(storage: SaveStorage, world: ReadonlyWorld, asset: IntelAsset): ReturnType<typeof campaignAct> {
+    return campaignAct(storage, { kind: 'buyIntel', bank: bankPrint(world), asset, cost: ASSETS[asset].cost, favours: ASSETS[asset].favours });
+}
+
+/** A heist's take as the campaign counts it: the loot's value that left, in whole dollars, never negative. */
+const takeOf = (state: DeepReadonly<State>): number => {
+    const value = state.outcome?.value ?? 0;
+    return Number.isFinite(value) ? Math.max(0, Math.floor(value)) : 0;
+};
+
+/** The gear the crew who escaped carry out of a heist (their loadouts but the fixed items): what comes back to the armoury. */
+export function gearKept(state: DeepReadonly<State>): string[] {
+    return state.escaped.flatMap(e => e.crew.loadout.items.filter(id => isItem(id) && ITEMS[id].slot !== 'fixed'));
+}
+
+/**
  * What a campaign heist does after each save (`SessionOptions.keepIntel`): what it has learned goes to its campaign day,
  * and its end, once, to the campaign (a failure is a failed job, §19.2). Every save from the first counts: the day is
  * spent at the start (decision 441). When the saved campaign is no longer the one it was played for, or its day is
@@ -168,7 +218,10 @@ export function campaignKeeper(storage: SaveStorage, tag: CampaignTag): IntelKee
         const intel = intelOf(world, state), text = stableJson(intel), ended = state.outcome?.result;
         let next = campaign;
         if (text !== kept) next = commitCampaign(next, { kind: 'learn', bank, day: tag.day, intel }).campaign;
-        if (ended && next.visit?.kind === 'heist' && !next.visit.result) next = commitCampaign(next, { kind: 'heistOver', day: tag.day, result: ended }).campaign;
+        // Its end, with its take and the gear that came back: once, since a visit with a result takes no other (and drops the heist).
+        if (ended && next.visit?.kind === 'heist' && !next.visit.result) {
+            next = commitCampaign(next, { kind: 'heistOver', day: tag.day, result: ended, take: takeOf(state), kept: gearKept(state) }).campaign;
+        }
         if (next !== campaign && saveCampaign(storage, next)) kept = text;
         return undefined;
     };

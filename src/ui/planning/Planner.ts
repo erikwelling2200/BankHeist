@@ -1,10 +1,10 @@
 import type { GeneratedBank } from '../../gen/model';
 import {
-    ASSETS, assetsOf, CREW_SIZE, FAVOUR_CAP, hasLongGun, heistIntel, INTEL_ASSETS, jammerSpot, loadoutProfile, PLANNING_CASH, rosterMember, ROSTER, setupProblems, SLOT_ITEMS,
-    spent, startView, type AssetId, type CrewPlan, type HeistSetup, type PlanOptions, type StartPick
+    ASSETS, assetsOf, CREW_SIZE, FAVOUR_CAP, hasLongGun, heistIntel, inArmoury, INTEL_ASSETS, jammerSpot, loadoutProfile, rosterMember, ROSTER, SANDBOX_PURSE, setupProblems,
+    SLOT_ITEMS, spent, startView, type AssetId, type CrewPlan, type HeistSetup, type PlanOptions, type Purse, type StartPick
 } from '../../game/plan';
 import { intelSummary, noIntel } from '../../game/intel';
-import { CONTRACT_TARGETS, footprint, VEHICLES, type ItemId, type MarkerKind, type Pos, type State, type VehicleType } from '../../sim';
+import { CONTRACT_TARGETS, footprint, VEHICLES, type Intel, type ItemId, type MarkerKind, type Pos, type State, type VehicleType } from '../../sim';
 import { h, img } from '../hud/dom';
 import { iconUrl, portraitUrl } from '../hud/icons';
 import { crewColour, type HudIcon } from '../hud/viewModels';
@@ -23,7 +23,16 @@ import './planning.css';
  * What the crew knows (§17.8, M5-03): the map shows the bank at turn 1 as the crew will know it, with the intel of
  * earlier heists in it and the intel assets bought; the Intel chip in the top strip opens what that intel holds. An
  * intel asset is paid as it is bought, since the map shows what it tells at once: it can't be given back (decision 401).
+ *
+ * In the campaign (M6-03) the plan spends the campaign's money and gear (`PlannerFunds`): the cash chip shows its clean
+ * money, the loadouts offer what the armoury holds, and an intel asset is bought from the campaign at once and kept.
  */
+
+/** The campaign's money for the plan: its purse, and buying an intel asset from it (the intel and purse after, or why not). */
+export interface PlannerFunds {
+    purse: Purse;
+    buyIntel(asset: 'blueprints' | 'guardRota'): { intel: Intel; purse: Purse } | string;
+}
 
 /** What the planner needs of the bank scene: where tiles show on the page and the reverse, for its pins and taps. */
 export interface PlanMap {
@@ -89,11 +98,15 @@ export class Planner {
     /** Start was pressed and the game is being opened (or the player asked about a saved heist). */
     private starting = false;
     private down?: { x: number; y: number };
+    /** What the plan may spend: the sandbox's, or the campaign's as it stands. */
+    private purse: Purse;
 
     constructor(
         private readonly bank: GeneratedBank, private readonly options: PlanOptions, private setup: HeistSetup,
-        private readonly map: () => PlanMap | undefined, private readonly onStart: (setup: HeistSetup) => void | Promise<void>
+        private readonly map: () => PlanMap | undefined, private readonly onStart: (setup: HeistSetup) => void | Promise<void>,
+        private readonly funds?: PlannerFunds
     ) {
+        this.purse = funds?.purse ?? SANDBOX_PURSE;
         this.root = h('div.sh.pl', { 'data-planner': '' });
         this.root.classList.toggle('cb', colourBlind());
         this.pins = h('div.pl-pins');
@@ -104,7 +117,7 @@ export class Planner {
         this.hint = h('div.pl-hint.sh-panel', { role: 'status' });
         this.start = h('button.sh-confirm.pl-start', { 'aria-label': 'Start the heist' }, img(iconUrl('play')), h('span.sh-cname', {}, 'Start'));
         this.start.addEventListener('click', () => {
-            if (this.starting || setupProblems(this.setup, this.options).length) return;
+            if (this.starting || setupProblems(this.setup, this.options, this.purse).length) return;
             this.starting = true;
             void Promise.resolve(this.onStart(structuredClone(this.setup))).finally(() => (this.starting = false));
         });
@@ -154,7 +167,17 @@ export class Planner {
         if (id === 'blueprints' || id === 'guardRota') {
             // Paid as bought, and known for good (decision 401): never given back, never bought twice or beyond the cash.
             if (owned || this.setup.intel[id] || !this.affords(id)) return;
-            this.change(s => { s[id] = true; });
+            if (this.funds) {
+                // The campaign's: paid from its money and saved now, then known as intel from before (M6-03).
+                const bought = this.funds.buyIntel(id);
+                if (typeof bought === 'string') {
+                    this.hint.textContent = bought;
+                    this.hint.hidden = false;
+                    return;
+                }
+                this.purse = bought.purse;
+                this.change(s => { s.intel = bought.intel; });
+            } else this.change(s => { s[id] = true; });
         } else if (id === 'jammer') {
             if (owned || this.placing === 'jammer') this.change(s => { s.jammer = null; });
             this.placing = owned || this.placing === 'jammer' ? null : 'jammer';
@@ -185,7 +208,7 @@ export class Planner {
     /** Whether the cash and favours left pay for an asset. */
     private affords(id: AssetId): boolean {
         const { cash, favours } = spent(this.setup);
-        return cash + ASSETS[id].cost <= PLANNING_CASH && favours + ASSETS[id].favours <= FAVOUR_CAP;
+        return cash + ASSETS[id].cost <= this.purse.cash && favours + ASSETS[id].favours <= this.purse.favours;
     }
 
     /** The spots a vehicle could move to: its own and those no other vehicle of the plan takes. */
@@ -251,7 +274,7 @@ export class Planner {
         this.renderRail();
         this.renderAssets();
         this.renderPins();
-        const problems = setupProblems(this.setup, this.options);
+        const problems = setupProblems(this.setup, this.options, this.purse);
         if (!problems.length) {
             const start = startView(this.bank, this.setup, this.options);
             this.view = { npcs: this.bank.people.map(p => (Object.hasOwn(start.npcs, p.id) ? start.npcs[p.id]! : null)), vehicles: start.vehicles, visibility: start.visibility };
@@ -271,8 +294,10 @@ export class Planner {
     private renderTop(): void {
         const { cash, favours } = spent(this.setup);
         const target = this.bank.tier in CONTRACT_TARGETS ? CONTRACT_TARGETS[this.bank.tier]! : 0;
-        const pips = Array.from({ length: FAVOUR_CAP }, (_, i) => h(`i.pl-pip${i < favours ? '.on' : ''}`));
-        const left = PLANNING_CASH - cash;
+        // Favours called in for this bank today (the campaign's intel bought) count against the cap too.
+        const called = favours + FAVOUR_CAP - this.purse.favours;
+        const pips = Array.from({ length: FAVOUR_CAP }, (_, i) => h(`i.pl-pip${i < called ? '.on' : ''}`));
+        const left = this.purse.cash - cash;
         this.top.replaceChildren(
             h('div.sh-panel.pl-chip', { 'aria-label': `Target $${thousands(target)}` }, img(iconUrl('loot')), h('span.sh-num', {}, thousands(target))),
             h('div.sh-panel.pl-chip', { 'aria-label': `Police in ${this.bank.policeEta} turns, vault class ${this.bank.vaultClass}` },
@@ -281,7 +306,7 @@ export class Planner {
             h('div.sh-grow'),
             h(`div.sh-panel.pl-chip.pl-cash${left < 0 ? '.over' : ''}`, { 'aria-label': `$${thousands(left)} left`, 'data-cash': String(left) },
                 h('span.sh-num.pl-dollar', {}, '$'), h('span.sh-num', {}, thousands(left))),
-            h(`div.sh-panel.pl-chip.pl-favours${favours > FAVOUR_CAP ? '.over' : ''}`, { 'aria-label': `${favours} of ${FAVOUR_CAP} favours`, 'data-favours': String(favours) },
+            h(`div.sh-panel.pl-chip.pl-favours${called > FAVOUR_CAP ? '.over' : ''}`, { 'aria-label': `${called} of ${FAVOUR_CAP} favours`, 'data-favours': String(called) },
                 h('span.sh-num.pl-star', {}, '★'), h('span.pl-pips', {}, ...pips))
         );
     }
@@ -480,7 +505,9 @@ export class Planner {
             s.addEventListener('change', () => set(s.value));
             return h('label.pl-field', {}, h('span.pl-label', {}, label), s);
         };
-        const items = (list: readonly ItemId[]): [string, string][] => [['', 'None'], ...list.map(id => [id, ITEM_NAMES[id] ?? id] as [string, string])];
+        // In the campaign, what the armoury holds (and what is picked already, so the field shows it).
+        const items = (list: readonly ItemId[], picked: ItemId | null): [string, string][] =>
+            [['', 'None'], ...list.filter(id => id === picked || inArmoury(this.purse, id) > 0).map(id => [id, ITEM_NAMES[id] ?? id] as [string, string])];
         const { loadout } = shown;
         const starts: [string, string][] = [];
         for (const type of Object.keys(VEHICLES) as VehicleType[]) {
@@ -497,14 +524,14 @@ export class Planner {
                 h('div.pl-who', {}, h('span.pl-title', {}, m.name), h('span.sh-tiny', {}, m.traits.map(t => TRAIT_NAMES[t] ?? t).join(', '))),
                 img(iconUrl(loadoutProfile(loadout)), 'sh-ic')),
             h('div.pl-fields', {},
-                select('Primary', loadout.primary ?? '', items(SLOT_ITEMS.primary), v => edit(c => {
+                select('Primary', loadout.primary ?? '', items(SLOT_ITEMS.primary, loadout.primary), v => edit(c => {
                     c.loadout.primary = (v || null) as ItemId | null;
                     if (c.start.at === 'nest' && !hasLongGun(c.loadout)) c.start = { at: 'van', aboard: true };
                 }), 'primary'),
-                select('Sidearm', loadout.sidearm ?? '', items(SLOT_ITEMS.sidearm), v => edit(c => { c.loadout.sidearm = (v || null) as ItemId | null; }), 'sidearm'),
-                select('Armour', loadout.armour ?? '', items(SLOT_ITEMS.armour), v => edit(c => { c.loadout.armour = (v || null) as ItemId | null; }), 'armour'),
-                select('Gadget', loadout.gadgets[0] ?? '', items(SLOT_ITEMS.gadget), v => edit(c => { c.loadout.gadgets[0] = (v || null) as ItemId | null; }), 'gadget1'),
-                select('Gadget', loadout.gadgets[1] ?? '', items(SLOT_ITEMS.gadget), v => edit(c => { c.loadout.gadgets[1] = (v || null) as ItemId | null; }), 'gadget2'),
+                select('Sidearm', loadout.sidearm ?? '', items(SLOT_ITEMS.sidearm, loadout.sidearm), v => edit(c => { c.loadout.sidearm = (v || null) as ItemId | null; }), 'sidearm'),
+                select('Armour', loadout.armour ?? '', items(SLOT_ITEMS.armour, loadout.armour), v => edit(c => { c.loadout.armour = (v || null) as ItemId | null; }), 'armour'),
+                select('Gadget', loadout.gadgets[0] ?? '', items(SLOT_ITEMS.gadget, loadout.gadgets[0]), v => edit(c => { c.loadout.gadgets[0] = (v || null) as ItemId | null; }), 'gadget1'),
+                select('Gadget', loadout.gadgets[1] ?? '', items(SLOT_ITEMS.gadget, loadout.gadgets[1]), v => edit(c => { c.loadout.gadgets[1] = (v || null) as ItemId | null; }), 'gadget2'),
                 plan ? select('Start', startKey(plan.start), starts, v => edit(c => { c.start = startOf(v); }), 'start') : null),
             h('div.pl-buttons', {},
                 h('button.pl-button.pl-toggle', { 'aria-label': plan ? `Leave ${m.name} out` : `Bring ${m.name}`, ...(full ? { disabled: true } : {}) }, plan ? 'Leave out' : full ? 'Crew full' : 'Bring'),

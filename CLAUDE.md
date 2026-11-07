@@ -19,8 +19,8 @@ Top-down 2D pixel-art stealth game. Phaser 4 + TypeScript + Vite, shipped as an 
   played through the Session; another bank is `?play&seed=…`, and `?new` starts afresh. `?plan` (`&seed=…`) is the
   planning screen (§18, `src/game/plan.ts`'s `HeistSetup`, the HTML planner in `src/ui/planning/` over the tactical
   map); Start saves the planned heist and opens the game on it. `?campaign` is the campaign (§19, `src/campaign/` pure,
-  saved by `src/game/campaign.ts`): days and the Squeeze as plain HTML; its heists plan on `?plan&campaign` and spend
-  their day as they start. A bare `?seed=…` (an old link
+  saved by `src/game/campaign.ts`): days, the Squeeze and money (§19.4: laundering, the fence, the armoury and black
+  market) as plain HTML; its heists plan on `?plan&campaign` with the campaign's money and gear and spend their day as they start. A bare `?seed=…` (an old link
   from when the viewer was the default page) opens the viewer as `?view&seed=…`, never a heist. Three layers, each only calling the one below:
   - `src/sim/` is the rules engine (implementation plan §2): pure and deterministic, no Phaser, clock or
     `Math.random`. A read-only `World` built once from the bank (`worldFromBank`) and a plain-JSON `State`; every

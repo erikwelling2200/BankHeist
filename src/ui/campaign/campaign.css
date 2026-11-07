@@ -28,3 +28,12 @@ html.campaign-page #game, html.campaign-page .rotate-hint { display: none; }
 .cp-go { border: 0; background: #e2a240; color: #0b0d17; }
 .cp-act, .cp-link { border: 1px solid rgba(242, 230, 200, 0.35); background: rgba(242, 230, 200, 0.08); color: #f2e6c8; }
 .cp-link { min-height: 32px; }
+.cp-sums { display: flex; gap: 16px; }
+.cp-sum { display: flex; align-items: baseline; gap: 6px; }
+.cp-amount { font: 600 18px ui-monospace, Menlo, Consolas, monospace; color: #7fc47a; }
+.cp-dirty .cp-amount { color: #b5a98a; }
+.cp-note { color: #b5a98a; font-size: 12px; }
+.cp-market { margin: 0; padding: 0; list-style: none; columns: 2 220px; column-gap: 16px; }
+.cp-item { display: grid; grid-template-columns: 1fr auto auto; align-items: center; gap: 8px; padding: 2px 0; break-inside: avoid; }
+.cp-have { font-family: ui-monospace, Menlo, Consolas, monospace; color: #e2a240; }
+.cp button:disabled { opacity: 0.45; cursor: default; }

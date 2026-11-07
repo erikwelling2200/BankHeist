@@ -1,4 +1,7 @@
-import { COMPLICATIONS, newCampaign, nextStep, timeline, type Campaign, type CampaignCommand } from '../../campaign';
+import {
+    campaignRefusal, COMPLICATIONS, fenceCut, fenced, FRONT_COST, launderPerDay, MARKET, newCampaign, nextStep, timeline, type Campaign, type CampaignCommand
+} from '../../campaign';
+import { ITEM_NAMES } from '../names';
 import {
     campaignAct, dropCampaignHeist, heistUnfinished, lastCampaignError, loadCampaign, saveCampaign
 } from '../../game/campaign';
@@ -11,7 +14,12 @@ import './campaign.css';
  * The campaign's readout (`?campaign`, implementation plan M6-01): the day, the Squeeze and its whole timeline (§19.2),
  * the day's heist, and the day actions there are so far: plan a heist (the pinned bank until contracts, M6-02) and lay
  * low. Plain HTML: the city map is M6-06's.
+ *
+ * Money and gear (§19.4, M6-03): clean and dirty money, what is laundered a day, the fence, fronts, contacts, the
+ * armoury and the black market.
  */
+
+const dollars = (n: number): string => `$${n.toLocaleString('en-US')}`;
 
 const ACTION_NAMES = { heist: 'Heist', case: 'Cased a bank', layLow: 'Laid low' } as const;
 const RESULT_NAMES = { success: 'clean getaway', partial: 'partial success', failure: 'failed' } as const;
@@ -103,7 +111,8 @@ export function showCampaign(): void {
             const v = c.visit;
             const saved = savedHeist(storage);
             const here = saved?.campaign?.seed === c.seed && saved.campaign.day === v.day;
-            const p = el('p', 'cp-visit', v.result ? `Day ${v.day}'s heist: ${RESULT_NAMES[v.result]}.` : `Day ${v.day}'s heist isn't over.`);
+            const paid = v.payout !== undefined ? ` ${dollars(v.payout)} dirty after the crew's shares.` : '';
+            const p = el('p', 'cp-visit', v.result ? `Day ${v.day}'s heist: ${RESULT_NAMES[v.result]}.${paid}` : `Day ${v.day}'s heist isn't over.`);
             if (!v.result && here) p.append(' ', button('Resume it', 'cp-link cp-resume', () => go('')));
             box.append(p);
         }
@@ -114,6 +123,8 @@ export function showCampaign(): void {
         }
         const landed = c.landed.slice(0, c.complications.length).map((_, i) => COMPLICATIONS[c.complications[i]!].name);
         if (landed.length) box.append(el('p', 'cp-landed', `On the finale: ${landed.join(', ')}.`));
+
+        box.append(...moneyView(c));
 
         const row = el('div', 'cp-actions');
         if (c.phase === 'open') {
@@ -126,6 +137,56 @@ export function showCampaign(): void {
             .then(yes => { if (yes) start(Math.floor(Math.random() * 0x100000000)); })));
         box.append(row);
         return box;
+    }
+
+    /** Does a command that spends no day (the fence, a front, the market) and shows the campaign again. */
+    function trade(cmd: CampaignCommand): void {
+        const done = campaignAct(storage, cmd);
+        render();
+        if ('refused' in done) root.querySelector('.cp-money')?.append(el('p', 'cp-warn', done.refused));
+    }
+
+    /** Money (§19.4): clean and dirty, the laundering, the fence and fronts; the armoury and the black market. */
+    function moneyView(c: Campaign): HTMLElement[] {
+        const money = el('div', 'cp-money');
+        const sums = el('div', 'cp-sums');
+        const sum = (label: string, value: string, cls: string) => {
+            const d = el('div', `cp-sum ${cls}`);
+            d.append(el('span', 'cp-label', label), el('span', 'cp-amount', value));
+            return d;
+        };
+        sums.append(sum('Clean', dollars(c.money.clean), 'cp-clean'), sum('Dirty', dollars(c.money.dirty), 'cp-dirty'));
+        money.append(sums);
+        money.append(el('p', 'cp-note', `Laundered ${dollars(launderPerDay(c))} a day (the safehouse${c.fronts ? ` and ${c.fronts} front${c.fronts === 1 ? '' : 's'}` : ''}). `
+            + `Contacts: ${c.contacts}. The fence takes ${fenceCut(c)}%.`));
+        const row = el('div', 'cp-actions');
+        const fence = button(c.money.dirty ? `Fence ${dollars(c.money.dirty)} for ${dollars(fenced(c.money.dirty, fenceCut(c)))}` : 'Fence', 'cp-act cp-fence',
+            () => trade({ kind: 'fence', amount: c.money.dirty }));
+        fence.disabled = !!campaignRefusal(c, { kind: 'fence', amount: c.money.dirty });
+        const front = button(`Buy a front (${dollars(FRONT_COST)})`, 'cp-act cp-front', () => trade({ kind: 'buyFront' }));
+        front.disabled = !!campaignRefusal(c, { kind: 'buyFront' });
+        row.append(fence, front);
+        money.append(row);
+
+        // The armoury and the black market in one list: what the crew has of each item, and its price.
+        const market = el('ul', 'cp-market');
+        const ids = [...new Set([...Object.keys(c.armoury), ...Object.keys(MARKET)])];
+        for (const id of ids) {
+            const offer = MARKET[id as keyof typeof MARKET], have = c.armoury[id] ?? 0;
+            const li = el('li', 'cp-item');
+            li.dataset.item = id;
+            li.append(el('span', 'cp-name', ITEM_NAMES[id] ?? id), el('span', 'cp-have', `×${have}`));
+            if (offer) {
+                const refused = campaignRefusal(c, { kind: 'buy', item: id });
+                const b = button(dollars(offer.price), 'cp-link cp-buy', () => trade({ kind: 'buy', item: id }));
+                b.disabled = !!refused;
+                b.title = refused === 'Needs a contact' ? 'Needs a contact' : `Buy one for ${dollars(offer.price)}`;
+                b.setAttribute('aria-label', `Buy ${ITEM_NAMES[id] ?? id} for ${dollars(offer.price)}${refused ? ` (${refused.toLowerCase()})` : ''}`);
+                li.append(b);
+            } else li.append(el('span', 'cp-day', 'not on sale'));
+            market.append(li);
+        }
+        return [el('h2', 'cp-sub', 'Money'), money, el('h2', 'cp-sub', 'Armoury and black market'), market];
     }
 
     render();

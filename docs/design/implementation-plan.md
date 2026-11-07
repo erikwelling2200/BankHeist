@@ -1704,13 +1704,39 @@ M2 is complete: every package below has landed.
     M6-07); Notoriety's and a talking prisoner's Squeeze wired from the roster (M6-04; the rules' `squeeze` command
     takes them) and the false tip from its side job (M6-02); the case day action's visit mode (M6-07; the rules spend
     the day and take what it learns); contracts and their banks (M6-02: the campaign plans the pinned bank); money
-    (M6-03): an intel asset bought on the campaign's planning screen and not started shows what it shows for nothing
-    (decision 401's accepted gap), and the plan's cash is the sandbox's; the city map and its timeline (M6-06); a
+    (done in M6-03, decisions 480–487: the campaign's planning screen spends the campaign's money, and an intel asset
+    bought there is paid at once and kept); the city map and its timeline (M6-06); a
     routine seen again in a heist renewing its date (decision 442 is strict); a population that changes between days
     (the bank's people are its seed's; intel drops day-bound parts all the same); the sandbox's free casing (decision
     406, no clock there).
 - [ ] **M6-02** Contracts by stakes; chain escalation; side objectives placed through M5-04 (§19.3, §19.5).
-- [ ] **M6-03** Money, laundering, the fence, crew shares, the black market and contacts (§19.4). **∥** M6-02.
+- [x] **M6-03** Money, laundering, the fence, crew shares, the black market and contacts (§19.4). **∥** M6-02. (partial: see Deferred)
+  - **Done:** decisions 480–487. `src/campaign/money.ts` (the laundering rate, fronts, the fence's cut, the starting
+    cash, shares and kit, stakes by tier, the black market's prices); `src/campaign/campaign.ts`: `Campaign.money`
+    (clean, dirty), `fronts`, `contacts`, `armoury`, `shares`; the visit's `job` and `payout`; commands `buyIntel`,
+    `buy`, `buyFront`, `fence`, and `heist` / `heistOver` carrying the job, its cost, its take and the gear kept;
+    `fenceCut`, `launderPerDay`, `favoursToday`. `src/game/campaign.ts`: the save at format 2 with the new fields'
+    checks, `campaignPurse`, `campaignJob`, `buyCampaignIntel`, `gearKept`, the keeper sending the take and the gear.
+    `src/game/plan.ts`: `Purse` (`SANDBOX_PURSE`), `setupProblems` and `setupFromAddress` within a purse (cash, favours
+    left, the armoury), `gearOf`, `fitArmoury`. The planner takes `PlannerFunds` (`?plan&campaign`); `?campaign` shows
+    the money, the fence, fronts and the armoury with the black market.
+  - **Tests:** `tests/campaign/money.test.ts` (the starting money and kit, a heist paying its assets and taking its
+    gear, refusals beyond the money, the armoury or the crew, the take once less the shares, the gear back capped by what
+    went in, failure and abandoning losing the gear, the Raid stopping a heist spending nothing, laundering with fronts,
+    the fence and the nervous fence, the market, contacts, intel bought, its favours and its ageing);
+    `tests/game/campaign.test.ts` (the save's new checks and format 2, the purse in planning and from the address, intel
+    bought saved and known on reload, a heist's gear out as it starts and lost when abandoned, the take and gear through
+    the keeper counted once, a start refused when the money is gone); `e2e/campaign.spec.ts` (the readout's money and a
+    purchase, the Guard rota paid on the campaign's planning screen and still paid after a reload;
+    `screenshots/campaign-money.png`). No sim state change; no visual baseline changed.
+  - **Deferred:** the roster's own shares and signing fees (M6-04: the sandbox roster's four with fixed shares until
+    then); the contract's bonus and payout ranges, and stakes from contracts rather than the bank's tier (M6-02: any
+    bank the address names can be the campaign's heist, its tier its stakes); style bonuses in the payout (M6-05, §19.8);
+    finale purchases unlocked by contacts and contacts from motives and styles (M7, M6-04, M6-05); selling gear back;
+    the items §19.4 doesn't price (the taser, suppressed guns, smoke, noisemaker, tripwire, jammer, glass cutter,
+    reinforcement kit) are not on sale; the black market as part of the city map (M6-06); a partial amount at the fence
+    from the page (the rules take any amount; the page fences it all); gear lost per crew member on a success
+    (what escapes comes back, nothing else is tracked: an arrested crew member's kit is gone, not held as evidence).
 - [ ] **M6-04** The roster: recruits, trait growth, injuries, jail, Notoriety and its decay, motives (§19.6, §19.7). In the rules, Notoriety raises the crew member's profile in `profile.ts`.
 - [ ] **M6-05** Debrief: styles, payout, Notoriety from footage and witnesses (§15.5, §19.8).
 - [ ] **M6-06** City map UI and the Squeeze timeline (UI.md "Map, planning and campaign").
@@ -3321,6 +3347,53 @@ Later milestones: within each milestone, the `∥` notes in §3 apply. UI packag
     and 19/224, partly by walking keyless into staff wings.) The preview property test's vault fixtures now count
     their rare commands from their own start (`Run.rareFrom`), so what the fixtures before them happen to play
     doesn't starve them of a coercion.
+
+480. **Money is the campaign's, in whole dollars (M6-03, §19.4).** `Campaign.money` is clean (to spend) and dirty
+    (waiting to be laundered); `fronts`, `contacts`, the `armoury` (gear by item: how many) and each crew member's
+    `shares` (percent) beside it. A new campaign starts with the sandbox's $24k clean (decision 323), the sandbox
+    roster's default gear as its armoury (so the default plan is playable on day 1) and fixed shares for the four
+    (Mara 10%, Jun 8%, Dex 10%, Sol 12%: 40% together) until the roster is the campaign's (M6-04). The save is format 2;
+    an M6-01 save (format 1) is refused like any other, and the page offers a new campaign.
+481. **A heist pays as it starts (M6-03, §18.2, §19.3; decision 441).** Start on `?plan&campaign` sends the `heist`
+    day action with its job (the crew, the gear they carry, the stakes) and its assets' cost (`campaignJob`): the cost
+    leaves the clean money and the gear leaves the armoury there, before the heist exists, so leaving it after a turn
+    has cost them. The rules refuse a job beyond the clean money, gear the armoury doesn't hold (fixed items and
+    non-items are no gear), or a crew with someone who has no share; a heist the abandoned one stopped (decision 446)
+    spends nothing. The planning screen plans within the campaign's `Purse` (its clean money, the favours left under
+    the cap, the armoury), and a plan from the address is checked against it too (`setupFromAddress`), so an edited
+    address takes nothing it can't pay for. It opens on the default plan cut to the armoury (`fitArmoury`), and its
+    loadouts offer what the armoury holds. The sandbox's purse stays $24k with free gear.
+482. **The take comes in once, as dirty money less the shares (M6-03, §15.5, §19.4).** The keeper sends the heist's
+    end with `State.outcome.value` (the loot that left, dye-pack losses already out) and the gear the escaped crew
+    still carry (`gearKept`); `heistOver` is taken once per visit (it has a result after), and the keeper then drops
+    the heist, so saving again, resuming or reloading counts nothing twice. Every crew member who went takes their
+    share (floored to the dollar), whatever became of them: shares are agreed going in, so losing crew never pays.
+    A failure, or an abandoned heist, brings nothing in and loses all the gear brought in (§19.3); otherwise what the
+    escaped carry comes back, never more of an item than went in (a guard's gun picked up isn't the crew's).
+483. **Laundering (M6-03, §19.4).** Each day spent launders up to $60k of dirty money, $60k more per front ($150k
+    clean each), as the day is spent: a heist's take, coming in later that day, is laundered from the next day action.
+    The fence launders any whole amount at once for 50% (floored to the dollar), 65% once the "Nervous fence"
+    complication has landed. Neither spends a day or adds Squeeze.
+484. **The black market and contacts (M6-03, §19.4).** It sells what §19.4 prices, at those prices, for clean money,
+    into the armoury; heavy armour, the DMR and the LMG need a contact. A contact comes with each Success of a
+    high-stakes job (a Partial isn't one); stakes follow the bank's tier (small low, city medium, HQ high) until
+    contracts set them (M6-02). Shopping takes no time and is open until the campaign is over.
+485. **Intel bought in the campaign is paid at once and stays paid (M6-03; closes decision 401's gap).** On
+    `?plan&campaign` the Blueprints or the Guard rota are bought from the campaign (`buyIntel`): paid from its clean money
+    and saved before the map shows them, and kept as a dated intel record of the bank marked with the favours called
+    in (`DatedIntel.favours`), so a reload shows them known and free and nothing is charged twice. They count against
+    the day's favour cap for that bank (`favoursToday`), age like what a visit learns (the rota goes after 3 days and can
+    be bought again; the layout stays), and the day's heist starts knowing them, so its own record (`learn`) leaves them
+    out and never replaces the bought one. They're bought only while heists can be planned (the phase is open).
+486. **The readout shows the money (M6-03).** `?campaign` shows clean and dirty money, what is laundered a day, the
+    contacts and the fence's cut; buttons fence all the dirty money (with what it pays) and buy a front; the armoury and
+    black market list each item with how many the crew holds and its price to buy one (dimmed when it can't be bought).
+    The day's heist says what it brought in after the shares. The city map is M6-06's.
+487. **Money exploits checked (M6-03).** Reloading the planning page keeps intel paid and charges nothing again;
+    abandoning a heist keeps its costs and loses its gear; the outcome is counted once (the visit's result, then the
+    keeper drops the heist); the address can neither claim intel (decision 405) nor buy beyond the purse, and the rules
+    check the money and gear again at Start (another tab may have spent them); a sandbox heist never reaches the
+    campaign's money; a take is whole and never negative.
 
 ### Critical files for implementation
 
