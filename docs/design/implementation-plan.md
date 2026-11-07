@@ -847,7 +847,8 @@ M2 is complete: every package below has landed.
     - **Deferred:** the vault wiring box as a prop (done in M5-04, decision 366); a
       power cut darkening the console (done in M4-03, decision 244); thermite's fire and scorched loot (M4); heat
       ticks while drilling (M3); the
-      Silent and Beast drills (M6 planning); the armoured car's couriers opening the vault (M6); the operator buzzing
+      Silent and Beast drills (M6 planning); the armoured car's couriers and staff opening the vault for them in the window
+      (M6-02, decision 77); the operator buzzing
       the crew through the mantrap (M6, with bribes and inside men; until then his card opens it); the alarm panel's disarm code
       and smashing it, and the CCTV room and counting room breaches (M3–M4, with charges); the deposit box that holds
       intel (M6); safes; the threat ledger's drill jams and "Wait" stopping at one (M2-06); NPCs noticing a code
@@ -1710,6 +1711,11 @@ M2 is complete: every package below has landed.
     (the bank's people are its seed's; intel drops day-bound parts all the same); the sandbox's free casing (decision
     406, no clock there).
 - [ ] **M6-02** Contracts by stakes; chain escalation; side objectives placed through M5-04 (§19.3, §19.5).
+  - **Work:** also the armoured-car event (§16.2, §16.3; decision 77), which the courier van side objective needs: the
+    couriers (2–3, bay → vault → bay in the time-lock window) with their heavily armoured, armed escort (armour 2,
+    §12.3, not guards' `rules.guardArmour`: waiting for them is no easy win), and staff opening the vault for the
+    delivery or collection in the window, the patient crew's way in. The vault still never opens by itself; a bank
+    without an armoured car has no "just wait" route.
 - [x] **M6-03** Money, laundering, the fence, crew shares, the black market and contacts (§19.4). **∥** M6-02. (partial: see Deferred)
   - **Done:** decisions 480–488. `src/campaign/money.ts` (the laundering rate, fronts, the fence's cut, the starting
     cash, shares and kit, stakes by tier, the black market's prices); `src/campaign/campaign.ts`: `Campaign.money`
@@ -2209,11 +2215,14 @@ Later milestones: within each milestone, the `∥` notes in §3 apply. UI packag
     (`State.codesKnown`) and tells the time-lock window; the crew enters what it knows at the console (1 action, not an
     illegal act: the Secure zone already makes them trespassers). The last part unlocks the vault door (closed, to be
     walked through). §15.2's bribed or inside staff member and the sticky note are M5-02's and M6's.
-77. **The time lock (M2-05; reviewed).** Its window is the timeline's (the armoured car's, else the scheduled one),
-    from its turn for its duration. It blocks codes, and Three Keys' card, outside the window (§15.2); in it they are
-    what opens the vault. The window doesn't open the vault by itself: §15.2's "opens itself during its scheduled window
-    (usually the armoured-car delivery)" is read as the couriers' delivery, when staff open it, which comes with the
-    couriers (M6); the generator's own line is "the vault's time lock lets it be unlocked". So the PC's code (every small branch, always
+77. **The time lock (M2-05; reviewed; the designer's decision).** Its window is the timeline's (the armoured car's,
+    else the scheduled one), from its turn for its duration. It blocks codes, and Three Keys' card, outside the window
+    (§15.2); in it they are what opens the vault. **The vault never opens by itself** (the designer's decision): the
+    time lock only stops it opening outside the window, and inside it someone still has to open it (a code, dual
+    control, Three Keys' card). §15.2's patient crew walking in comes from staff opening the vault in the window for
+    the armoured car's delivery or collection, which comes with the couriers and their heavily armoured, armed escort
+    (M6-02; armour 2, so waiting for them is no easy win); a bank without an armoured car has no "just wait" route. The
+    generator's own line is "the vault's time lock lets it be unlocked". So the PC's code (every small branch, always
     time-locked) and dual control (every HQ) are live keys, used in the window. As each crew phase begins outside the
     window, a shut vault door that isn't locked locks again, whatever unlocked it, and the code entered at the console
     is cleared; an open one stays open until shut.

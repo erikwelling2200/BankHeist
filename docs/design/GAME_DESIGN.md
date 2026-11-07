@@ -1137,6 +1137,7 @@ For tuning only (never shown to the player): expected hits against a standing ta
 | Guard | 5 | 0 (1 from City tier) | Pistol |
 | Security chief | 6 | 1 | Pistol |
 | Off-duty cop | 5 | 0 | Pistol |
+| Armoured-car courier | 7 | 2 | Pistol or shotgun |
 | Patrol officer | 6 | 1 | Pistol or shotgun |
 | SWAT | 7 | 2 | AR, flashbang |
 | Shield SWAT | 7 | 2 | Pistol. Frontal shield (90°) stops bullets with Pierce < 3. |
@@ -1505,7 +1506,7 @@ can all plan [R35].
 | Key | How it works |
 | --- | --- |
 | **Social: codes** | Dual control: the manager and the head teller each enter half the code at the console (coerced: 1 action each, adjacent, Commanded or tied). Single-code vaults: the code comes from the manager's PC (hacking kit, 2 actions in the office) or from a bribed or inside staff member. |
-| **Social: time lock** | The vault opens itself during its scheduled window (usually the armoured-car delivery). Patient stealth crews walk in. |
+| **Social: time lock** | The vault never opens by itself: the time lock only stops it opening outside its window, and inside it someone still has to open it (codes, dual control, Three Keys). On banks with an armoured-car event, staff open the vault in the window for the couriers' delivery or collection (§16.3), so a patient stealth crew can walk in behind them, past the couriers' heavily armoured escort. Banks without an armoured car have no "just wait" route. |
 | **Technical: drill** | §15.3. |
 | **Violent: thermite** | Vault door or floor: 3 phases (5 on Class III), can't be stopped, loud, scorches loot near the door. It counts as drilling for sensors and heat. |
 
@@ -1588,7 +1589,7 @@ bonuses (§19.8).
 | **CCTV operator** | Console; check-in calls; lunch or smoke break on some banks | Staff in person; Enforcer through cameras | 30 / 20 / 10 / **panel 40** | Verify → alarm (2) |
 | **Off-duty cop** (hidden, 0–2) | Identical to a customer, in look and on Inspect | Civilian | Always **reach for weapon** (telegraphed for one phase) | Same as when panicked |
 | **Hero** (rare trait) | Any customer or staff member, tagged "Bold" on Inspect within 3 tiles; in a command ring its resist chance shows at any range (§10.4) | — | Flees while others cower, or **tackles** an adjacent crew member | Tackle: an adjacent crew member loses their next action |
-| **Armoured-car couriers** (event) | 2–3 armed; bay → vault → bay while the time lock is open | Enforcer | Resist; armed | Radio (2) |
+| **Armoured-car couriers** (event) | 2–3 armed, in heavy armour (armour 2, §12.3: not a soft target); bay → vault → bay in the time-lock window, while staff hold the vault open for them | Enforcer | Resist; armed | Radio (2) |
 
 **"Hands up!" (confront).** A guard who Exposes a crew member draws, shouts (loud noise radius 6) and orders them to
 surrender. The crew gets one crew phase to respond: run out of sight, take the guard down, have someone else act, or
@@ -1603,10 +1604,12 @@ waiting. It is shown as a strip in the HUD:
 - **Lunch rotation:** two tellers or the manager leave their posts. The keycard leaves with the manager.
 - **Shift change:** staff gather in the break room. Uniforms are left unattended.
 - **Cash run:** a teller wheels a cash cart through the staff corridor to the vault (loot on wheels).
-- **Armoured car:** couriers arrive and the vault **time lock opens** for N turns. A big opportunity and a big risk.
+- **Armoured car:** heavily armoured couriers arrive in the vault's **time-lock window** (N turns), and staff open the
+  vault for the delivery or collection. The vault doesn't open by itself; this is the only "just wait" way in. A big
+  opportunity and a big risk.
 - **Patrol drive-by:** a police car passes on the street at set turns. Its officers can see through windows.
 - **Closing time:** the front doors lock, customers leave, and the guards do a **closing sweep** through every room,
-  checking closets. After the sweep, the vault time lock re-engages until morning.
+  checking closets. After the sweep, the vault's time lock blocks it until morning.
 
 The closing sweep is the stealth clock's soft deadline. Stealth is never timed, but a crew still hiding in the
 building at closing faces the most thorough search of the day [R14].
