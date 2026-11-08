@@ -289,7 +289,7 @@ describe('motives (§19.6): met, a contact', () => {
         roundTrips(broken);
     });
 
-    it('get even: a clean getaway from a branch of that chain, with them on the job', () => {
+    it('get even: a Success at a branch of that chain, with them on the job', () => {
         const c = motivated({ kind: 'getEven', chain: 'Granite Savings', met: false });
         // Day 1's low offer is a Granite Savings branch.
         expect(c.contracts[0]!.chain).toBe('Granite Savings');
@@ -301,11 +301,36 @@ describe('motives (§19.6): met, a contact', () => {
     });
 });
 
-describe('an abandoned job', () => {
-    it('settles nobody: no fates, no growth (the job failed, the crew came home)', () => {
+describe('an abandoned job (decision 513)', () => {
+    it('counts no job survived, but what had become of its crew stands: the dead, the arrested, the downed', () => {
         const c = newCampaign(1);
-        const started = step(c, { kind: 'heist', bank: 'b', contract: c.contracts[0]!.id, job: job(['mara', 'jun'], 'low') });
-        const d = layLow(started);
-        expect(d.roster.every(m => m.status === 'ready' && m.jobs === 0)).toBe(true);
+        const started = step(c, { kind: 'heist', bank: 'b', contract: c.contracts[0]!.id, job: job(['mara', 'jun', 'dex'], 'low') });
+        expect(layLow(started).roster.every(m => m.status === 'ready' && m.jobs === 0)).toBe(true);
+        // The keeper's last save: Mara dead, Jun in custody, Dex went down; then the next day abandons it.
+        const known = step(started, { kind: 'learn', bank: 'b', day: 1, intel: {}, crew: fates({ dead: ['mara'], arrested: ['jun'], downed: ['dex'] }) });
+        const { campaign: d, events } = run(known, { kind: 'layLow' });
+        expect(member(d, 'mara').status).toBe('dead');
+        expect(member(d, 'jun')).toMatchObject({ status: 'jailed', notoriety: 2, jobs: 0 });
+        expect(member(d, 'dex').status).toBe('injured');
+        expect(member(d, 'sol').status).toBe('ready');
+        expect(events).toContainEqual({ type: 'jobFailed', day: 1, abandoned: true });
+        roundTrips(d);
+    });
+});
+
+describe('a trait picked (the review\'s repro)', () => {
+    it('is never picked twice, and leaves the offers queued after it', () => {
+        let c: Campaign = { ...newCampaign(1), money: { clean: 1e7, dirty: 0 } };
+        for (let i = 0; i < 4; i++) c = heist(c, ['mara', 'jun'], { escaped: ['mara', 'jun'] }).campaign;
+        const offers = member(c, 'mara').traitOffers;
+        expect(offers).toHaveLength(2);
+        const both = offers[0]!.find(t => offers[1]!.includes(t))!;
+        expect(both).toBeDefined();
+        const d = step(c, { kind: 'pickTrait', crew: 'mara', trait: both });
+        expect(member(d, 'mara').traitOffers.flat()).not.toContain(both);
+        expect(campaignRefusal({ ...d, roster: d.roster.map(m => (m.id === 'mara' ? { ...m, traitOffers: [[both]] } : m)) }, { kind: 'pickTrait', crew: 'mara', trait: both })).toBe('Has it already');
+        roundTrips(d);
+        const t = member(d, 'mara').traitOffers[0]?.[0];
+        if (t) roundTrips(step(d, { kind: 'pickTrait', crew: 'mara', trait: t }));
     });
 });

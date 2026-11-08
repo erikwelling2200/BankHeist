@@ -1770,7 +1770,7 @@ M2 is complete: every package below has landed.
     from the page (the rules take any amount; the page fences it all); gear lost per crew member on a success
     (what escapes comes back, nothing else is tracked: an arrested crew member's kit is gone, not held as evidence).
 - [x] **M6-04** The roster: recruits, trait growth, injuries, jail, Notoriety and its decay, motives (§19.6, §19.7). In the rules, Notoriety raises the crew member's profile in `profile.ts`. (partial: see Deferred)
-  - **Done:** decisions 509–518 (509 the user's; 508 the M6-02 review's minors). `src/campaign/roster.ts` (`CrewMember`,
+  - **Done:** decisions 509–519 (509 the user's; 508 the M6-02 review's minors). `src/campaign/roster.ts` (`CrewMember`,
     `Motive`, `Jail`, `STARTING_ROSTER`, `drawRecruits`, `recruitLook`, `CREW_BY_STAKES`, the numbers, `traitOffer`,
     `talks`, `gainNotoriety`); `Campaign.roster` replaces `shares`; commands `recruit`, `pickTrait`, `lawyer`, `payDebt`,
     `heistOver.crew` (`CrewFates`); `settleFinaleMotives` for M7. The rules: `wounds.wentDown` and `wounds.kills` (save
@@ -3518,10 +3518,14 @@ Later milestones: within each milestone, the `∥` notes in §3 apply. UI packag
     jail or dead); the rules refuse other crews, and the planning screen's pool is the ready roster with the contract's
     size. The plan opens on the first of them as many as the contract takes, two by the van, the rest in it. The
     sandbox keeps 1–4 of §3's four.
-513. **A job's end for its crew (M6-04, §19.6).** The keeper sends `CrewFates` from the outcome: the dead are gone; the
-    arrested go to jail with +2 Notoriety; those who got away but went down (`wounds.wentDown`, revived or not) are out
-    `INJURY_DAYS` = 3 days. Every survivor (the arrested too) counts a job; every second offers three traits they lack,
-    from the seed, picked by the player at any time (no time spent). An abandoned heist settles nobody.
+513. **A job's end for its crew (M6-04, §19.6; M6-04 review).** The keeper sends `CrewFates` from the outcome: the
+    dead are gone; the arrested go to jail with +2 Notoriety; those who got away but went down (`wounds.wentDown`,
+    revived or not) are out `INJURY_DAYS` = 3 days. Every survivor (the arrested too) counts a job; every second offers
+    three traits they lack, from the seed, picked by the player at any time (no time spent). A trait picked is dropped
+    from the offers queued after it, and one they have is refused. While a heist goes on, every save also sends what has
+    become of its crew so far (`learn.crew`, kept as `Visit.fates`): abandoned, those fates stand (the dead dead, those
+    in custody jailed with their Notoriety, the downed injured, a kill breaking "never kill anyone"), but it counts no
+    job survived, no trait and no motive met.
 514. **Motives (M6-04, §19.6).** A debt ($40–80k) is met by paying it; "get even" by a Success on a branch of its chain
     with them on the job; "never kill anyone" as decision 509 says (`wounds.kills`, broken by their own kill only;
     `settleFinaleMotives` pays it, for M7 to call). Every motive met pays a contact (user decision: perks later).
@@ -3538,6 +3542,10 @@ Later milestones: within each milestone, the `∥` notes in §3 apply. UI packag
 518. **Who can't be faked (M6-04).** The save checks each crew member's shape, status and its fields together, ids once,
     the living within the cap and a visit's crew on the roster; the address can't name a crew member who isn't ready
     (the plan is checked against the pool, and the rules again at Start).
+519. **Kills are the killer's (M6-04 review, decision 509).** `wounds.kills` counts every death a crew member dealt:
+    an NPC (`killNpc`), an officer (the police harm handler, a lethal hit to 0 HP) and a teammate who bleeds out after
+    they downed them (`downed.by`); a death by anyone else counts for nobody. Shares stay as decision 482 says: every
+    crew member who went takes their share, the dead and arrested too (§19.4 "the crew take a share of each job").
 
 ### Critical files for implementation
 

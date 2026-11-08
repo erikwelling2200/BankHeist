@@ -55,7 +55,7 @@ export interface CrewWounds {
     /** World phases spent Hurt and bleeding since the last HP lost to it. */
     bleed: number;
     /** Down at 0 HP: world phases left to bleed out and when they went down; null while up. */
-    downed: { left: number; turn: number; phase: Phase } | null;
+    downed: { left: number; turn: number; phase: Phase; /** Who downed them by harm (a teammate's shot counts as their kill if they die). */ by?: string } | null;
     /** Bled out or killed. */
     dead: boolean;
     /** Went down at least once this heist, revived or not: the campaign counts them injured (§19.6). */
@@ -184,11 +184,11 @@ registerMoveHook('wounds', {
 });
 
 /** Takes a crew member down at 0 HP (§11.12). */
-function goDown(ctx: Ctx, member: CrewState): void {
+function goDown(ctx: Ctx, member: CrewState, by?: string): void {
     const { state, world } = ctx;
     member.wounds.hp = 0;
     member.wounds.bleed = 0;
-    member.wounds.downed = { left: world.rules.bleedOutPhases, turn: state.turn, phase: state.phase };
+    member.wounds.downed = { left: world.rules.bleedOutPhases, turn: state.turn, phase: state.phase, ...(by !== undefined ? { by } : {}) };
     member.wounds.wentDown = true;
     member.actionsLeft = 0;
     // Whatever they held goes: the body or hostage, the lean, the Watch, the brace, the aim.
@@ -203,13 +203,13 @@ function goDown(ctx: Ctx, member: CrewState): void {
 }
 
 /** Takes hit points from a crew member (harm or bleeding); at 0 they go down. */
-function hurtCrew(ctx: Ctx, member: CrewState, damage: number, cause: 'harm' | 'bleeding'): void {
+function hurtCrew(ctx: Ctx, member: CrewState, damage: number, cause: 'harm' | 'bleeding', by?: string): void {
     if (isDown(member) || damage <= 0) return;
     const was = isHurt(ctx.world, member);
     member.wounds.hp = Math.max(0, member.wounds.hp - damage);
     if (cause === 'harm') member.wounds.bandaged = false;
     ctx.emit({ type: 'crewWounded', crew: member.id, hp: member.wounds.hp, hurt: member.wounds.hp * 2 <= ctx.world.rules.crewHp, cause });
-    if (member.wounds.hp === 0) return goDown(ctx, member);
+    if (member.wounds.hp === 0) return goDown(ctx, member, by);
     if (!was && isHurt(ctx.world, member)) bleedOn(ctx, member);
 }
 
@@ -269,6 +269,16 @@ export function dropTargets(state: State, crewId: string): void {
 
 // ---------------------------------------------------------------------------------------------------------- NPCs
 
+/**
+ * A death dealt by `by`: a crew member's own kill (`wounds.kills`, the campaign's "never kill anyone", decision 509),
+ * whoever it was (an NPC, an officer, a teammate). Nothing for a death dealt by anyone else, or by the victim.
+ */
+export function creditKill(state: State, by: string | undefined, victim?: string): void {
+    if (by === undefined || by === victim) return;
+    const killer = state.crew.find(c => c.id === by);
+    if (killer) killer.wounds.kills += 1;
+}
+
 /** An NPC dies (§11.12): it lies where it fell and never acts on anything it meant to do. Heat reads the kill off the state. */
 export function killNpc(ctx: Ctx, npc: NpcState, by: string): void {
     npc.hp = 0;
@@ -282,8 +292,7 @@ export function killNpc(ctx: Ctx, npc: NpcState, by: string): void {
     npc.leaning = null;
     // A hostage led by the arm falls: the crew member holds a body now.
     for (const c of ctx.state.crew) if (c.dragging === npc.id) c.leading = false;
-    const killer = ctx.state.crew.find(c => c.id === by);
-    if (killer) killer.wounds.kills += 1;
+    creditKill(ctx.state, by);
     ctx.emit({ type: 'npcDied', npc: npc.id, by });
     ctx.emit({ type: 'npcStatus', npc: npc.id, status: 'dead' });
 }
@@ -300,7 +309,7 @@ function hurtNpc(ctx: Ctx, npc: NpcState, harm: Readonly<Harm>): void {
 
 registerHarmHandler('wounds', (ctx, harm) => {
     const member = ctx.state.crew.find(c => c.id === harm.target);
-    if (member) return hurtCrew(ctx, member, harm.damage, 'harm');
+    if (member) return hurtCrew(ctx, member, harm.damage, 'harm', harm.by);
     const npc = ctx.state.npcs.find(n => n.id === harm.target);
     if (npc) hurtNpc(ctx, npc, harm);
 });
@@ -331,6 +340,8 @@ registerWorldHook('devices', 'wounds', (ctx, phase) => {
                 ctx.emit({ type: 'bleedingOut', crew: member.id, phases: w.downed.left });
                 continue;
             }
+            // A teammate who downed them killed them (decision 509: friendly fire counts against "never kill anyone").
+            creditKill(state, w.downed.by, member.id);
             w.downed = null;
             w.dead = true;
             ctx.emit({ type: 'crewDied', crew: member.id });

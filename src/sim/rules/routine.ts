@@ -29,7 +29,7 @@ import { draggedBy } from './place';
 import { policeDown, policeHit, type PoliceUnit } from './police';
 import { leanOptions, resolveShot, shotRefusal, type Shot } from './shot';
 import { alertNpc } from './suspicion';
-import { isDown } from './wounds';
+import { creditKill, isDown } from './wounds';
 import { isWounded } from './woundsState';
 
 /*
@@ -719,7 +719,10 @@ registerHarmHandler('police', (ctx, harm) => {
         ctx.emit({ type: 'officerWounded', unit: unit.id, hp: unit.hp, hurt: unit.hp * 2 <= OFFICER_STATS[unit.kind].hp });
     }
     if (unit.hp > 0 || !harm.lethal) policeHit(ctx, unit.id);
-    if (unit.hp === 0) policeDown(ctx, unit.id, harm.lethal);
+    if (unit.hp === 0) {
+        if (harm.lethal) creditKill(ctx.state, harm.by);
+        policeDown(ctx, unit.id, harm.lethal);
+    }
 });
 
 registerEvents({

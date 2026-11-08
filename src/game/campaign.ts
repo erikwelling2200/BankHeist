@@ -136,11 +136,14 @@ export function campaignProblem(value: unknown): string | undefined {
     }
     if (v.visit !== null) {
         const s = v.visit;
-        if (!isRecord(s) || !exactKeys(s, ['kind', 'day', 'bank', 'prior'], ['result', 'job', 'payout', 'contract']) || !['heist', 'case'].includes(s.kind as string) || !isDay(s.day)
+        if (!isRecord(s) || !exactKeys(s, ['kind', 'day', 'bank', 'prior'], ['result', 'job', 'payout', 'contract', 'fates']) || !['heist', 'case'].includes(s.kind as string) || !isDay(s.day)
             || typeof s.bank !== 'string' || (s.result !== undefined && (s.kind !== 'heist' || !RESULTS.includes(s.result as string)))) return 'the visit is no visit';
         const j = s.job;
         if (j !== undefined && (s.kind !== 'heist' || !isRecord(j) || !exactKeys(j, ['crew', 'kits', 'stakes']) || !strings(j.crew) || !isRecord(j.kits)
             || !exactKeys(j.kits, j.crew) || !Object.values(j.kits).every(gear) || !STAKES.includes(j.stakes as never))) return "the visit's job is no job";
+        const f = s.fates;
+        if (f !== undefined && (s.kind !== 'heist' || !isRecord(f) || !exactKeys(f, ['escaped', 'arrested', 'dead', 'downed', 'killers'])
+            || !['escaped', 'arrested', 'dead', 'downed', 'killers'].every(k => strings(f[k])))) return "the visit's fates are none";
         // A take is paid in once, as a job ends other than in failure.
         if (s.payout !== undefined && (!whole(s.payout) || j === undefined || s.result === undefined || s.result === 'failure')) return 'the payout is no payout';
         const spent = days[(s.day as number) - 1] as Record<string, unknown> | undefined;
@@ -316,16 +319,20 @@ export function objectivesOut(world: ReadonlyWorld, state: DeepReadonly<State>):
 }
 
 /**
- * What became of the heist's crew (§19.6), from the rules' outcome: who got away, was arrested or died, who among those
+ * What became of the heist's crew (§19.6), from the rules' outcome (or, while it goes on, the state so far): who got away, was arrested or died, who among those
  * who got away went down on the way (`wounds.wentDown`, revived or not), and who killed someone themselves (`wounds.kills`).
  */
 export function crewFates(state: DeepReadonly<State>): CrewFates {
     const o = state.outcome;
     const everyone = [...state.crew, ...state.escaped.map(e => e.crew), ...state.custody.map(c => c.crew)];
-    const escaped = [...(o?.escaped ?? [])];
+    // While it goes on: the dead so far, those in custody, the escaped; the rest are still in the bank.
+    const dead = o ? [...(o.dead ?? [])] : everyone.filter(c => c.wounds.dead).map(c => c.id);
+    const arrested = o ? [...(o.arrested ?? [])] : state.custody.map(c => c.crew.id);
+    const escaped = o ? [...(o.escaped ?? [])] : state.escaped.filter(e => !e.crew.wounds.dead).map(e => e.crew.id);
+    const out = new Set([...dead, ...arrested]);
     return {
-        escaped, arrested: [...(o?.arrested ?? [])], dead: [...(o?.dead ?? [])],
-        downed: [...new Set(everyone.filter(c => c.wounds.wentDown === true && escaped.includes(c.id)).map(c => c.id))],
+        escaped, arrested, dead,
+        downed: [...new Set(everyone.filter(c => c.wounds.wentDown === true && (o ? escaped.includes(c.id) : !out.has(c.id))).map(c => c.id))],
         killers: [...new Set(everyone.filter(c => (c.wounds.kills ?? 0) > 0).map(c => c.id))]
     };
 }
@@ -363,9 +370,10 @@ export function campaignKeeper(storage: SaveStorage, tag: CampaignTag): IntelKee
         if (campaign.seed !== tag.seed || campaign.visit?.day !== tag.day || campaign.visit.bank !== bank) return 'drop';
         // Its result is in already (it ended, or was abandoned into the Raid): it learns nothing more for the campaign.
         if (campaign.visit.result) return 'drop';
-        const intel = intelOf(world, state), text = stableJson(intel), ended = state.outcome?.result;
+        const intel = intelOf(world, state), fates = crewFates(state), text = stableJson({ intel, fates }), ended = state.outcome?.result;
         let next = campaign;
-        if (text !== kept) next = commitCampaign(next, { kind: 'learn', bank, day: tag.day, intel }).campaign;
+        // What it learned, and what has become of its crew so far (settled if it is abandoned, decision 513).
+        if (text !== kept) next = commitCampaign(next, { kind: 'learn', bank, day: tag.day, intel, ...(next.visit?.kind === 'heist' ? { crew: fates } : {}) }).campaign;
         // Its end, with its take and the gear that came back: once, since a visit with a result takes no other (and drops the heist).
         if (ended && next.visit?.kind === 'heist' && !next.visit.result) {
             next = commitCampaign(next, {

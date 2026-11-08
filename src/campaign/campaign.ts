@@ -59,6 +59,8 @@ export interface Visit {
     job?: Job;
     /** A heist's contract, as it was taken. */
     contract?: Contract;
+    /** What had become of a heist's crew at its last save (the keeper's `learn`): settled if it is abandoned. */
+    fates?: CrewFates;
     /** The dirty money it brought in once over: its take less the crew's shares. */
     payout?: number;
 }
@@ -139,7 +141,7 @@ export type CampaignCommand =
     /** Spends the day laying low. */
     | { kind: 'layLow' }
     /** What the visit of `day` to `bank` has learned so far (the heist's whole intel; what was known before is left out). */
-    | { kind: 'learn'; bank: string; day: number; intel: Intel }
+    | { kind: 'learn'; bank: string; day: number; intel: Intel; crew?: CrewFates }
     /**
      * The heist of `day` ended: the loot's value that left (`take`), by crew id the gear each who escaped still carries
      * unused (`kept`), and the side objectives that left with them (`objectives`).
@@ -315,6 +317,7 @@ export function campaignRefusal(c: Campaign, cmd: CampaignCommand): string | und
             return cmd.kind === 'heist' ? jobRefusal(c, cmd.contract, cmd.job, cmd.cost) : undefined;
         case 'learn':
             if (!c.visit || c.visit.day !== cmd.day || c.visit.bank !== cmd.bank) return "Not the day's visit";
+            if (cmd.crew !== undefined && (c.visit.kind !== 'heist' || !fatesOk(cmd.crew))) return 'No fates';
             return undefined;
         case 'heistOver':
             if (!c.visit || c.visit.kind !== 'heist' || c.visit.day !== cmd.day) return "Not the day's heist";
@@ -355,6 +358,7 @@ export function campaignRefusal(c: Campaign, cmd: CampaignCommand): string | und
             if (c.phase === 'over') return 'The campaign is over';
             const m = crewMember(c, cmd.crew);
             if (!m || m.status === 'dead') return 'Not the crew';
+            if (m.traits.includes(cmd.trait as Trait)) return 'Has it already';
             return m.traitOffers[0]?.includes(cmd.trait as Trait) ? undefined : 'Not offered';
         }
         case 'lawyer': {
@@ -404,6 +408,8 @@ export function commitCampaign(campaign: Campaign, cmd: CampaignCommand): { camp
             if (v?.kind === 'heist' && !v.result) {
                 v.result = 'failure';
                 events.push({ type: 'jobFailed', day: v.day, abandoned: true });
+                // What had already become of its crew stands (decision 513): the dead, the arrested, the downed.
+                if (v.job && v.fates) settleCrew(c, events, v, 'failure', v.fates, add, true);
                 add('failedJob', SQUEEZE.failedJob);
                 // The failure is settled first: if it landed the Raid, the day action doesn't happen (decision 446).
                 const stopped = campaignRefusal(c, cmd);
@@ -441,6 +447,7 @@ export function commitCampaign(campaign: Campaign, cmd: CampaignCommand): { camp
         }
         case 'learn': {
             const v = c.visit!;
+            if (cmd.crew) v.fates = structuredClone(cmd.crew);
             const records = c.intel[cmd.bank] ??= [];
             const record = { day: v.day, intel: learnedOf(cmd.intel, v.prior) };
             const at = records.findIndex(r => r.day === v.day && r.favours === undefined);
@@ -512,6 +519,8 @@ export function commitCampaign(campaign: Campaign, cmd: CampaignCommand): { camp
             const m = c.roster.find(x => x.id === cmd.crew)!;
             m.traitOffers.shift();
             m.traits.push(cmd.trait as Trait);
+            // Offers queued after this one never hold a trait they have now; one left empty is dropped.
+            m.traitOffers = m.traitOffers.map(o => o.filter(t => t !== cmd.trait)).filter(o => o.length > 0);
             events.push({ type: 'trait', crew: m.id, trait: cmd.trait as Trait });
             break;
         }
@@ -633,7 +642,7 @@ function notoriety(events: CampaignEvent[], m: CrewMember, amount: number, add: 
  * a trait) and their motives may be met or broken; the arrested go to jail with +2 Notoriety; those who got away but
  * went down are out injured. Only the job's own crew, by what the rules' outcome says of them.
  */
-function settleCrew(c: Campaign, events: CampaignEvent[], v: Visit, result: HeistResult, fates: CrewFates, add: AddSqueeze): void {
+function settleCrew(c: Campaign, events: CampaignEvent[], v: Visit, result: HeistResult, fates: CrewFates, add: AddSqueeze, abandoned = false): void {
     for (const id of v.job!.crew) {
         const m = c.roster.find(x => x.id === id);
         if (!m) continue;
@@ -644,8 +653,9 @@ function settleCrew(c: Campaign, events: CampaignEvent[], v: Visit, result: Heis
             events.push({ type: 'killed', crew: id });
             continue;
         }
-        m.jobs += 1;
-        if (m.jobs % TRAIT_EVERY === 0) {
+        // An abandoned job is no job survived (decision 513): its fates stand, its growth and motives don't count.
+        if (!abandoned) m.jobs += 1;
+        if (!abandoned && m.jobs % TRAIT_EVERY === 0) {
             const traits = traitOffer(c.seed, m, m.jobs / TRAIT_EVERY);
             if (traits.length) {
                 m.traitOffers.push(traits);
@@ -660,7 +670,7 @@ function settleCrew(c: Campaign, events: CampaignEvent[], v: Visit, result: Heis
                     motive.broken = true;
                     events.push({ type: 'motive', crew: id, motive: 'neverKill', met: false });
                 }
-            } else if (motive.kind === 'getEven' && result === 'success' && v.contract?.chain === motive.chain) meetMotive(c, events, m);
+            } else if (!abandoned && motive.kind === 'getEven' && result === 'success' && v.contract?.chain === motive.chain) meetMotive(c, events, m);
         }
         if (fates.arrested.includes(id)) {
             m.status = 'jailed';

@@ -18,10 +18,10 @@ const person = (id: string, pos: Pos, role = 'customer', observer: PersonDef['ob
 
 // A test-only way to hurt the crew (NPCs don't fire before M3-05): harm as an attack would deal it.
 registerTestCommand('testHarm', (ctx, cmd) => {
-    const c = cmd as unknown as { target: string; damage: number };
-    dealHarm(ctx, { target: c.target, by: 'test', cause: 'shot', weapon: 'pistol', hits: 1, damage: c.damage, lethal: true });
+    const c = cmd as unknown as { target: string; damage: number; by?: string };
+    dealHarm(ctx, { target: c.target, by: c.by ?? 'test', cause: 'shot', weapon: 'pistol', hits: 1, damage: c.damage, lethal: true });
 });
-const harm = (target: string, damage: number) => testCommand({ type: 'testHarm', target, damage } as never);
+const harm = (target: string, damage: number, by?: string) => testCommand({ type: 'testHarm', target, damage, ...(by ? { by } : {}) } as never);
 
 interface Setup extends FixtureOptions { jun?: Partial<CrewStart>; mara?: Partial<CrewStart> }
 
@@ -198,5 +198,27 @@ describe('NPC wounds', () => {
         expect(g.goal.kind).toBe('crawl');
         expect(g.intent.path).toHaveLength(1);
         expect(g.intent.path[0]!.x).toBeGreaterThan(g.pos.x);
+    });
+});
+
+describe('kills credited to the crew member who made them (decision 509)', () => {
+    it('an NPC killed by the second crew member is hers, not the first\'s', () => {
+        const { world, state } = setup({ people: [person('bob', P(5, 2))] });
+        const r = commit(world, state, harm('bob', 9, 'mara'));
+        expect(npc(r.state, 'bob').status).toBe('dead');
+        expect([crew(r.state, 'jun').wounds.kills, crew(r.state, 'mara').wounds.kills]).toEqual([0, 1]);
+    });
+
+    it('a teammate downed by friendly fire who bleeds out is the shooter\'s kill; one revived isn\'t', () => {
+        const { world, state } = setup();
+        let s = commit(world, state, harm('mara', 8, 'jun')).state;
+        expect(crew(s, 'mara').wounds.downed).toMatchObject({ by: 'jun' });
+        for (let i = 0; i < 30 && !crew(s, 'mara').wounds.dead; i++) s = endTurn(world, s);
+        expect(crew(s, 'mara').wounds.dead).toBe(true);
+        expect(crew(s, 'jun').wounds.kills).toBe(1);
+        // Downed by the test's own harm (no crew member): nobody's kill.
+        let t = commit(world, state, harm('mara', 8)).state;
+        for (let i = 0; i < 30 && !crew(t, 'mara').wounds.dead; i++) t = endTurn(world, t);
+        expect(crew(t, 'jun').wounds.kills).toBe(0);
     });
 });
