@@ -42,7 +42,7 @@ const endTurn = (world: ReadonlyWorld, state: State): State => commit(world, sta
 describe('crew wounds', () => {
     it('starts everyone at 8 HP, with 2 medkit uses per kit carried', () => {
         const { state } = setup();
-        expect(crew(state, 'jun').wounds).toEqual({ hp: 8, bandaged: false, bleed: 0, downed: null, dead: false, medkits: 0 });
+        expect(crew(state, 'jun').wounds).toEqual({ hp: 8, bandaged: false, bleed: 0, downed: null, dead: false, wentDown: false, kills: 0, medkits: 0 });
         expect(crew(state, 'mara').wounds.medkits).toBe(2);
     });
 
@@ -107,7 +107,7 @@ describe('crew wounds', () => {
         const down = commit(world, state, harm('jun', 8)).state;
         const r = commit(world, down, { type: 'revive', crew: 'mara', ally: 'jun' });
         expect(r.events.find(e => e.type === 'crewRevived')).toEqual({ type: 'crewRevived', crew: 'jun', by: 'mara', hp: 3, medkit: false });
-        expect(crew(r.state, 'jun').wounds).toMatchObject({ hp: 3, downed: null, bandaged: false });
+        expect(crew(r.state, 'jun').wounds).toMatchObject({ hp: 3, downed: null, bandaged: false, wentDown: true });
         // Back up, but no actions until the next crew phase.
         expect(crew(r.state, 'jun').actionsLeft).toBe(0);
         expect(crew(endTurn(world, r.state), 'jun').actionsLeft).toBe(2);
@@ -173,6 +173,9 @@ describe('NPC wounds', () => {
         const r = commit(world, state, { type: 'strike', crew: 'jun', npc: 'bob' });
         expect(npc(r.state, 'bob')).toMatchObject({ status: 'dead', hp: 0, intent: { path: [] } });
         expect(r.events.find(e => e.type === 'npcDied')).toEqual({ type: 'npcDied', npc: 'bob', by: 'jun' });
+        // The killer's own count (the campaign's "never kill anyone", decision 509); Mara's stays 0.
+        expect(crew(r.state, 'jun').wounds.kills).toBe(1);
+        expect(crew(r.state, 'mara').wounds.kills).toBe(0);
         // A civilian killed before the Alarm where Ann sees it: owed heat, in secret (rules/heat.ts reads it off the state).
         expect(r.state.heat.owed).toEqual([{ cause: 'civilianKilled', victim: 'bob' }]);
         expect(preview(world, state, { type: 'strike', crew: 'jun', npc: 'bob' }).events).toEqual(r.events);

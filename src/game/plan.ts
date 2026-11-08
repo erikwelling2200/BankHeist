@@ -5,6 +5,7 @@ import {
 } from '../sim';
 import { crewStarts } from './heist';
 import { intelProblem } from './intel';
+import { recruitLook } from '../campaign/roster';
 
 /*
  * Planning a heist (GAME_DESIGN §18, implementation plan M4-07): the crew and their loadouts, where each starts, where
@@ -24,8 +25,11 @@ import { intelProblem } from './intel';
  *   bought then (src/game/intel.ts), which the heist starts knowing.
  */
 
-/** A member of the sandbox roster: §3's crew, their traits and the loadout they bring unless changed (decision 322). */
-export interface RosterMember { id: string; name: string; look: string; traits: Trait[]; loadout: Loadout }
+/**
+ * A crew member a plan can take: the sandbox's §3 crew, or the campaign's roster (M6-04), with their traits, the loadout
+ * they bring unless changed (decision 322) and their Notoriety (§19.7, 0 when absent), which the rules read.
+ */
+export interface RosterMember { id: string; name: string; look: string; traits: Trait[]; loadout: Loadout; notoriety?: number }
 
 /** A loadout by slot (§7.3): one primary, one sidearm, one armour, two gadgets; null is an empty slot. */
 export interface Loadout { primary: ItemId | null; sidearm: ItemId | null; armour: ItemId | null; gadgets: [ItemId | null, ItemId | null] }
@@ -37,8 +41,14 @@ export const ROSTER: readonly RosterMember[] = [
     { id: 'sol', name: 'Sol', look: 'crewSol', traits: ['marksman'], loadout: { primary: 'dmr', sidearm: 'pistol', armour: 'lightVest', gadgets: ['medkit', null] } }
 ];
 
-/** The roster member with this id. */
+/** The sandbox roster's member with this id. */
 export const rosterMember = (id: string): RosterMember | undefined => ROSTER.find(m => m.id === id);
+
+/** Who a plan picks its crew from, and how many it takes (§7.2: a contract sets the crew size). */
+export interface CrewPool { roster: readonly RosterMember[]; size: readonly [number, number] }
+
+/** The look of a crew member on the map: the sandbox's four by name, a campaign recruit by id (`recruitLook`). */
+export const crewLookOf = (id: string): string | undefined => rosterMember(id)?.look ?? (/^r\d+-\d+$/.test(id) ? recruitLook(id) : undefined);
 
 /** What fills each slot: every item of that slot but the duffel, which holds nothing to take out yet (decision 322). */
 export const SLOT_ITEMS: Readonly<Record<'primary' | 'sidearm' | 'armour' | 'gadget', readonly ItemId[]>> = {
@@ -92,17 +102,24 @@ export const PLANNING_CASH = 24000;
 
 /**
  * What a plan may spend (§18.1): the cash, the favours left under the cap, and in the campaign the armoury's gear by
- * item (the sandbox's loadouts are free: no armoury).
+ * item (the sandbox's loadouts are free: no armoury) and its crew (M6-04; the sandbox's four, any number of them).
  */
-export interface Purse { cash: number; favours: number; armoury?: Readonly<Record<string, number>> }
+export interface Purse { cash: number; favours: number; armoury?: Readonly<Record<string, number>>; crew?: CrewPool }
+
+/** The contract's crew size in the sandbox (§7.2: usually 4). */
+export const CREW_SIZE = 4;
+
+/** The sandbox's crew: §3's four, one to four of them. */
+export const SANDBOX_CREW: CrewPool = { roster: ROSTER, size: [1, CREW_SIZE] };
 
 /** The sandbox's purse: $24k, the whole favour cap, any gear. */
 export const SANDBOX_PURSE: Purse = { cash: PLANNING_CASH, favours: FAVOUR_CAP };
 
+/** Who a purse's plan picks from. */
+export const crewOf = (purse: Purse): CrewPool => purse.crew ?? SANDBOX_CREW;
+
 /** How many of an item the purse's armoury holds (any number in the sandbox). */
 export const inArmoury = (purse: Purse, id: string): number => (!purse.armoury ? Infinity : Object.hasOwn(purse.armoury, id) ? purse.armoury[id]! : 0);
-/** The contract's crew size (§7.2: usually 4). */
-export const CREW_SIZE = 4;
 /** How near the building a pre-placed jammer stands (§18.2 "next to the building"), in tiles (Chebyshev). */
 export const JAMMER_REACH = 2;
 
@@ -236,14 +253,15 @@ export function jammerSpot(options: PlanOptions, p: Pos): boolean {
 }
 
 /**
- * The plan the screen opens with: §3's four, two walking up from the van, two waiting in it; nothing bought; what the
- * crew knows of the bank already (`intel`, src/game/intel.ts `loadIntel`).
+ * The plan the screen opens with: the first of the crew as many as the contract takes (§3's four in the sandbox), two
+ * walking up from the van, the rest waiting in it; nothing bought; what the crew knows of the bank already (`intel`,
+ * src/game/intel.ts `loadIntel`).
  */
-export function defaultSetup(options: PlanOptions, intel: Intel = {}): HeistSetup {
+export function defaultSetup(options: PlanOptions, intel: Intel = {}, crew: CrewPool = SANDBOX_CREW): HeistSetup {
     const van = options.spots.van[0];
     if (!van) throw new Error('This bank has no spot for the van');
     return {
-        crew: ROSTER.map(m => ({ id: m.id, loadout: structuredClone(m.loadout), start: { at: 'van', aboard: m.id === 'dex' || m.id === 'sol' } })),
+        crew: crew.roster.slice(0, crew.size[1]).map((m, i) => ({ id: m.id, loadout: structuredClone(m.loadout), start: { at: 'van', aboard: i >= 2 } })),
         vehicles: { van: van.id },
         jammer: null,
         nest: false,
@@ -311,8 +329,10 @@ export function setupProblems(setup: HeistSetup, options: PlanOptions, purse: Pu
     const shape = setupShapeProblem(setup);
     if (shape) return [`The plan can't be read: ${shape}`];
     const out: string[] = [];
+    const pool = crewOf(purse), [fewest, most] = pool.size;
     if (!setup.crew.length) out.push('Pick at least one crew member');
-    if (setup.crew.length > CREW_SIZE) out.push(`The contract takes ${CREW_SIZE} at most`);
+    else if (setup.crew.length < fewest) out.push(`The contract takes ${fewest} at least`);
+    if (setup.crew.length > most) out.push(`The contract takes ${most} at most`);
     const { cash, favours } = spent(setup);
     if (cash > purse.cash) out.push(`Not enough cash: $${cash / 1000}k of $${Math.floor(purse.cash / 1000)}k`);
     if (favours > purse.favours) out.push(`Too many favours: ${favours} of ${purse.favours}${purse.favours < FAVOUR_CAP ? ' left' : ''}`);
@@ -330,7 +350,7 @@ export function setupProblems(setup: HeistSetup, options: PlanOptions, purse: Pu
     }
     const ids = new Set<string>();
     for (const c of setup.crew) {
-        const m = rosterMember(c.id);
+        const m = pool.roster.find(r => r.id === c.id);
         if (!m || ids.has(c.id)) { out.push(`No one else called '${c.id}'`); continue; }
         ids.add(c.id);
         const { loadout } = c;
@@ -383,12 +403,14 @@ export function heistIntel(setup: HeistSetup): Intel {
 const VEHICLE_IDS: Readonly<Record<VehicleType, string>> = { van: 'van', car: 'car', ramTruck: 'ramTruck' };
 
 /**
- * The heist a setup plays (§18.1): the World with the crew's vehicles where the plan parks them, and the crew at their
- * starts with their loadouts, the jammer running from turn 1. Throws for a setup with problems (`setupProblems`).
+ * The heist a setup plays (§18.1): the World with the crew's vehicles where the plan parks them, and the crew from
+ * `crew` (the campaign's roster, M6-04: their traits and Notoriety) at their starts with their loadouts, the jammer
+ * running from turn 1. Throws for a setup with problems (`setupProblems`; the money and gear were checked as it was
+ * bought).
  */
-export function heistFromSetup(bank: GeneratedBank, setup: HeistSetup, options: PlanOptions = planOptions(bank)): { world: ReadonlyWorld; state: State } {
+export function heistFromSetup(bank: GeneratedBank, setup: HeistSetup, options: PlanOptions = planOptions(bank), crew: CrewPool = SANDBOX_CREW): { world: ReadonlyWorld; state: State } {
     const built = options.world;
-    const problems = setupProblems(setup, options);
+    const problems = setupProblems(setup, options, { cash: Infinity, favours: Infinity, crew });
     if (problems.length) throw new Error(`The plan can't be played: ${problems.join('; ')}`);
     const vehicles: VehicleDef[] = (Object.keys(VEHICLES) as VehicleType[]).filter(t => setup.vehicles[t] !== undefined).map(type => {
         const spot = options.spots[type].find(s => s.id === setup.vehicles[type])!, spec = VEHICLES[type];
@@ -397,13 +419,15 @@ export function heistFromSetup(bank: GeneratedBank, setup: HeistSetup, options: 
     const intel = heistIntel(setup);
     // A planned heist always carries its intel, none included: it is what makes it add to the bank's (decision 406).
     const world = freezeWorld({ ...built, vehicles, intel } as typeof built);
-    const crew: CrewStart[] = [];
+    const starts: CrewStart[] = [];
     const start = (c: CrewPlan, pos: Pos, facing: Facing, aboard?: string): void => {
-        const m = rosterMember(c.id)!;
-        crew.push({ id: m.id, name: m.name, pos, facing, items: loadoutItems(c.loadout), traits: [...m.traits], ...(aboard ? { aboard } : {}) });
+        const m = crew.roster.find(r => r.id === c.id)!;
+        starts.push({
+            id: m.id, name: m.name, pos, facing, items: loadoutItems(c.loadout), traits: [...m.traits], ...(m.notoriety ? { notoriety: m.notoriety } : {}), ...(aboard ? { aboard } : {})
+        });
     };
     // In roster order, so each keeps their colour and number key.
-    const order = [...setup.crew].sort((a, b) => ROSTER.findIndex(m => m.id === a.id) - ROSTER.findIndex(m => m.id === b.id));
+    const order = [...setup.crew].sort((a, b) => crew.roster.findIndex(m => m.id === a.id) - crew.roster.findIndex(m => m.id === b.id));
     const placed = new Map<string, { pos: Pos; facing: Facing; aboard?: string }>();
     // On foot by each vehicle: the free tiles nearest it, as the M1 crew stands by the van (`crewStarts`), facing the bank.
     for (const v of vehicles) {
@@ -423,7 +447,7 @@ export function heistFromSetup(bank: GeneratedBank, setup: HeistSetup, options: 
         const p = placed.get(c.id)!;
         start(c, p.pos, p.facing, p.aboard);
     }
-    const state = initialState(world, { seed: (bank.seed.layout * 1000 + bank.seed.population) >>> 0, crew });
+    const state = initialState(world, { seed: (bank.seed.layout * 1000 + bank.seed.population) >>> 0, crew: starts });
     if (setup.jammer) state.jammers.push({ id: newId(state, 'jammer'), pos: { ...setup.jammer }, crew: '', turn: state.turn });
     return { world, state };
 }
@@ -443,14 +467,14 @@ export interface StartView {
  * the crew knows it then (the blueprint's layout, the intel's casing, what the free starts see), and the vehicles where
  * the plan parks them.
  */
-export function startView(bank: GeneratedBank, setup: HeistSetup, options: PlanOptions): StartView {
-    const { world, state } = heistFromSetup(bank, freeSetup(setup), options);
+export function startView(bank: GeneratedBank, setup: HeistSetup, options: PlanOptions, crew: CrewPool = SANDBOX_CREW): StartView {
+    const { world, state } = heistFromSetup(bank, freeSetup(setup), options, crew);
     const npcs: Record<string, MarkerKind> = {};
     for (const n of state.npcs) {
         const kind = markerKind(world, state, n.id);
         if (kind) npcs[n.id] = kind;
     }
-    return { npcs, vehicles: heistFromSetup(bank, setup, options).state.vehicles, visibility: visibilityMap(world, state).slice() };
+    return { npcs, vehicles: heistFromSetup(bank, setup, options, crew).state.vehicles, visibility: visibilityMap(world, state).slice() };
 }
 
 /**

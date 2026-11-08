@@ -3,7 +3,7 @@ import {
     initialState, reachable, tileAt, vehicleAt, worldFromBank, type CrewStart, type Facing, type Pos, type ReadonlyWorld, type State
 } from '../sim';
 import { seedText } from '../gen/generate';
-import { heistFromSetup, type HeistSetup } from './plan';
+import { heistFromSetup, type CrewPool, type HeistSetup } from './plan';
 import { HEIST_KEY, Session, type ResumeOptions } from './session';
 import type { SaveStorage } from './storage';
 
@@ -71,11 +71,11 @@ export function crewStarts(world: ReadonlyWorld, origin: Pos, count: number, tak
 }
 
 /**
- * A new heist's World and State for a generated bank: the plan's (`setup`, §18), or else the M1 crew beside the van,
- * facing the bank (north).
+ * A new heist's World and State for a generated bank: the plan's (`setup`, §18, its crew from `crew`: the campaign's
+ * roster, or the sandbox's four), or else the M1 crew beside the van, facing the bank (north).
  */
-export function newHeist(bank: GeneratedBank, setup?: HeistSetup): { world: ReadonlyWorld; state: State } {
-    if (setup) return heistFromSetup(bank, setup);
+export function newHeist(bank: GeneratedBank, setup?: HeistSetup, pool?: CrewPool): { world: ReadonlyWorld; state: State } {
+    if (setup) return heistFromSetup(bank, setup, undefined, pool);
     const world = worldFromBank(bank);
     const starts = crewStarts(world, crewOrigin(bank), M1_CREW.length);
     const facing: Facing = 'n';
@@ -133,10 +133,10 @@ export function savedHeist(storage: SaveStorage): { address: BankAddress | null;
 
 /**
  * A new heist in `bank` (as planned, with `setup`), replacing any heist saved in `storage`; call it only with the
- * player's consent if there is one. `campaign` tags it as that campaign day's heist.
+ * player's consent if there is one. `campaign` tags it as that campaign day's heist, its crew from `crew` (its roster).
  */
-export function startHeist(bank: GeneratedBank, storage: SaveStorage, options: ResumeOptions = {}, setup?: HeistSetup, campaign?: CampaignTag): Session {
-    const { world, state } = newHeist(bank, setup);
+export function startHeist(bank: GeneratedBank, storage: SaveStorage, options: ResumeOptions = {}, setup?: HeistSetup, campaign?: CampaignTag, crew?: CrewPool): Session {
+    const { world, state } = newHeist(bank, setup, crew);
     // The bank entry, tag and all, goes first and in one write replacing the old one, so the heist is never saved under
     // another heist's tag, or a campaign heist without its own (it would then send what it learns to the wrong place).
     try {

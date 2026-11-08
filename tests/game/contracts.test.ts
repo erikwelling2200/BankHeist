@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { commitCampaign, escalateChain, FIRST_CONTRACT, newCampaign, type Contract } from '../../src/campaign';
 import {
-    buyCampaignIntel, campaignIntel, campaignProblem, contractAddress, contractBankRefusal, loadCampaign, objectivesOut, saveCampaign, startContractHeist
+    buyCampaignIntel, campaignCrew, campaignIntel, campaignProblem, contractAddress, contractBankRefusal, loadCampaign, objectivesOut, saveCampaign, startContractHeist
 } from '../../src/game/campaign';
 import { bankPrint, campaignPrint } from '../../src/game/intel';
 import { bankAddress, sameAddress, savedHeist, BANK_KEY } from '../../src/game/heist';
@@ -91,7 +91,7 @@ describe('a campaign heist starts only in an offered contract\'s bank', () => {
     });
 
     it("keeps the save's story: a heist is a contract's, taken off the board, at its stakes", () => {
-        const taken = commitCampaign(c, { kind: 'heist', bank: 'b', contract: FIRST_CONTRACT.id, job: { crew: ['mara'], kits: { mara: [] }, stakes: 'low' } }).campaign;
+        const taken = commitCampaign(c, { kind: 'heist', bank: 'b', contract: FIRST_CONTRACT.id, job: { crew: ['mara', 'jun'], kits: { mara: [], jun: [] }, stakes: 'low' } }).campaign;
         expect(campaignProblem(taken)).toBeUndefined();
         const broken = (change: (v: any) => void) => {
             const v = structuredClone(taken) as any;
@@ -111,7 +111,7 @@ describe('a campaign heist starts only in an offered contract\'s bank', () => {
 });
 
 describe('Start checks the campaign as saved then (the M6-02 review)', () => {
-    const setup = () => defaultSetup(planOptions(first));
+    const setup = () => defaultSetup(planOptions(first), {}, campaignCrew(newCampaign(1), 'low'));
 
     it("refuses when another tab put the contract's chain on guard since the page loaded", () => {
         const storage = new MemoryStorage();

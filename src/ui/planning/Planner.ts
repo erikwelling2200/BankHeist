@@ -1,9 +1,10 @@
 import type { GeneratedBank } from '../../gen/model';
 import {
-    ASSETS, assetsOf, CREW_SIZE, FAVOUR_CAP, hasLongGun, heistIntel, inArmoury, INTEL_ASSETS, jammerSpot, loadoutProfile, rosterMember, ROSTER, SANDBOX_PURSE, setupProblems,
-    SLOT_ITEMS, spent, startView, type AssetId, type CrewPlan, type HeistSetup, type PlanOptions, type Purse, type StartPick
+    ASSETS, assetsOf, crewOf, FAVOUR_CAP, hasLongGun, heistIntel, inArmoury, INTEL_ASSETS, jammerSpot, loadoutProfile, SANDBOX_PURSE, setupProblems,
+    SLOT_ITEMS, spent, startView, type AssetId, type CrewPlan, type CrewPool, type HeistSetup, type PlanOptions, type Purse, type StartPick
 } from '../../game/plan';
 import { intelSummary, noIntel } from '../../game/intel';
+import { notorietyBand } from '../../campaign/roster';
 import { CONTRACT_TARGETS, footprint, VEHICLES, type Intel, type ItemId, type MarkerKind, type Pos, type State, type VehicleType } from '../../sim';
 import { h, img } from '../hud/dom';
 import { iconUrl, portraitUrl } from '../hud/icons';
@@ -100,6 +101,8 @@ export class Planner {
     private down?: { x: number; y: number };
     /** What the plan may spend: the sandbox's, or the campaign's as it stands. */
     private purse: Purse;
+    /** Who the plan picks from (the sandbox's four, or the campaign's roster free to go) and how many (M6-04). */
+    private readonly crew: CrewPool;
 
     constructor(
         private readonly bank: GeneratedBank, private readonly options: PlanOptions, private setup: HeistSetup,
@@ -107,6 +110,7 @@ export class Planner {
         private readonly funds?: PlannerFunds
     ) {
         this.purse = funds?.purse ?? SANDBOX_PURSE;
+        this.crew = crewOf(this.purse);
         this.root = h('div.sh.pl', { 'data-planner': '' });
         this.root.classList.toggle('cb', colourBlind());
         this.pins = h('div.pl-pins');
@@ -217,19 +221,26 @@ export class Planner {
         return this.options.spots[type].filter(s => !taken.has(s.id)).map(s => s.id);
     }
 
+    /** The crew member with this id, of those the plan picks from. */
+    private member(id: string): CrewPool['roster'][number] {
+        const m = this.crew.roster.find(r => r.id === id);
+        if (!m) throw new Error(`No one called '${id}'`);
+        return m;
+    }
+
     private toggleCrew(id: string): void {
         this.change(s => {
             const i = s.crew.findIndex(c => c.id === id);
             if (i >= 0) {
                 this.benched.set(id, s.crew[i]!);
                 s.crew.splice(i, 1);
-            } else if (s.crew.length < CREW_SIZE) {
-                const back = this.benched.get(id) ?? { id, loadout: structuredClone(rosterMember(id)!.loadout), start: { at: 'van', aboard: false } };
+            } else if (s.crew.length < this.crew.size[1]) {
+                const back = this.benched.get(id) ?? { id, loadout: structuredClone(this.member(id).loadout), start: { at: 'van', aboard: false } };
                 // A start that went with an asset sold since is by the van.
                 const { start } = back;
                 if (start.at === 'nest' ? !s.nest || !hasLongGun(back.loadout) : s.vehicles[start.at] === undefined) back.start = { at: 'van', aboard: false };
                 s.crew.push(back);
-                s.crew.sort((a, b) => ROSTER.findIndex(m => m.id === a.id) - ROSTER.findIndex(m => m.id === b.id));
+                s.crew.sort((a, b) => this.crew.roster.findIndex(m => m.id === a.id) - this.crew.roster.findIndex(m => m.id === b.id));
             }
         });
     }
@@ -276,7 +287,7 @@ export class Planner {
         this.renderPins();
         const problems = setupProblems(this.setup, this.options, this.purse);
         if (!problems.length) {
-            const start = startView(this.bank, this.setup, this.options);
+            const start = startView(this.bank, this.setup, this.options, this.crew);
             this.view = { npcs: this.bank.people.map(p => (Object.hasOwn(start.npcs, p.id) ? start.npcs[p.id]! : null)), vehicles: start.vehicles, visibility: start.visibility };
         }
         this.start.classList.toggle('off', problems.length > 0);
@@ -352,7 +363,7 @@ export class Planner {
     }
 
     private renderRail(): void {
-        const cards = ROSTER.map((m, i) => {
+        const cards = this.crew.roster.map((m, i) => {
             const plan = this.setup.crew.find(c => c.id === m.id);
             const shown = plan ?? this.benched.get(m.id) ?? { id: m.id, loadout: m.loadout, start: { at: 'van', aboard: false } as StartPick };
             const { loadout } = shown, weapon = loadout.primary ?? loadout.sidearm;
@@ -488,7 +499,7 @@ export class Planner {
 
     /** The loadout sheet of a crew member: in or out of the crew, each slot, their start. */
     private openSheet(id: string): void {
-        const m = rosterMember(id)!, i = ROSTER.indexOf(m);
+        const m = this.member(id), i = this.crew.roster.indexOf(m);
         const plan = this.setup.crew.find(c => c.id === id);
         const shown = plan ?? this.benched.get(id) ?? { id, loadout: structuredClone(m.loadout), start: { at: 'van', aboard: false } as StartPick };
         const edit = (fn: (c: CrewPlan) => void) => {
@@ -516,12 +527,12 @@ export class Planner {
             starts.push([`${type}:by`, `By the ${name}`], [`${type}:in`, `In the ${name}`]);
         }
         if (this.setup.nest && hasLongGun(loadout)) starts.push(['nest', 'In the sniper nest']);
-        const full = !plan && this.setup.crew.length >= CREW_SIZE;
+        const full = !plan && this.setup.crew.length >= this.crew.size[1];
         const portrait = portraitUrl(id);
         const sheet = h('div.pl-sheet.sh-panel', { role: 'dialog', 'aria-label': `${m.name}'s loadout`, 'data-crew': id, style: `--c: ${crewColour(id, i)}` },
             h('div.pl-head', {},
                 portrait ? img(portrait, 'pl-portrait') : null,
-                h('div.pl-who', {}, h('span.pl-title', {}, m.name), h('span.sh-tiny', {}, m.traits.map(t => TRAIT_NAMES[t] ?? t).join(', '))),
+                h('div.pl-who', {}, h('span.pl-title', {}, m.name), h('span.sh-tiny', {}, [...m.traits.map(t => TRAIT_NAMES[t] ?? t), ...(m.notoriety ? [`Notoriety ${m.notoriety} (${notorietyBand(m.notoriety)})`] : [])].join(', '))),
                 img(iconUrl(loadoutProfile(loadout)), 'sh-ic')),
             h('div.pl-fields', {},
                 select('Primary', loadout.primary ?? '', items(SLOT_ITEMS.primary, loadout.primary), v => edit(c => {

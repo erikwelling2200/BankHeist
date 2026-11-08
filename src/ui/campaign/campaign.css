@@ -45,3 +45,10 @@ html.campaign-page #game, html.campaign-page .rotate-hint { display: none; }
 .cp-offer.cp-medium .cp-stakes { color: #e2a240; }
 .cp-offer.cp-high .cp-stakes { color: #d44638; }
 .cp-advantages { color: #7fc47a; font-size: 12px; }
+/* The roster (M6-04): one row a crew member, the traits on offer and a lawyer or debt below; today's recruits. */
+.cp-roster, .cp-recruits { margin: 0; padding: 0; list-style: none; }
+.cp-member, .cp-recruit { padding: 6px 0; border-top: 1px solid rgba(242, 230, 200, 0.1); }
+.cp-recruit { display: grid; grid-template-columns: 1fr auto; align-items: center; gap: 10px; }
+.cp-member.cp-dead { color: #8f866f; }
+.cp-member.cp-jailed .cp-note, .cp-member.cp-injured .cp-note { color: #e2a240; }
+.cp-crew-acts { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 4px; }

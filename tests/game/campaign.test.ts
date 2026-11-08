@@ -24,10 +24,11 @@ const print = campaignPrint(options.world);
 /** A campaign heist as the game starts one: the day spent and saved first, then the heist tagged with it. */
 function campaignHeist(storage: MemoryStorage, change: (s: HeistSetup) => void = () => {}): { session: Session; tag: CampaignTag } {
     const campaign = loadCampaign(storage)!;
-    // As the planning screen opens it: cut to the armoury.
-    const setup = fitArmoury(defaultSetup(options, campaignIntel(campaign, options.world)), campaignPurse(campaign, options.world));
+    // As the planning screen opens it: the medium offer's crew of four (§19.3), cut to the armoury.
+    const purse = campaignPurse(campaign, options.world, 'medium');
+    const setup = fitArmoury(defaultSetup(options, campaignIntel(campaign, options.world), purse.crew), purse);
     change(setup);
-    const done = campaignAct(storage, { kind: 'heist', bank: print, contract: campaign.contracts.find(k => k.stakes === 'low')!.id, ...campaignJob(setup, 'low') });
+    const done = campaignAct(storage, { kind: 'heist', bank: print, contract: campaign.contracts.find(k => k.stakes === 'medium')!.id, ...campaignJob(setup, 'medium') });
     if ('refused' in done) throw new Error(done.refused);
     const tag = { seed: done.campaign.seed, day: done.campaign.visit!.day };
     return { session: startHeist(bank, storage, { keepIntel: campaignKeeper(storage, tag) }, setup, tag), tag };
@@ -64,10 +65,12 @@ describe('the campaign save', () => {
         expect(() => deserialiseCampaign(JSON.stringify({ format: CAMPAIGN_FORMAT + 1, campaign: c }))).toThrow(SaveFormatError);
         expect(() => deserialiseCampaign(JSON.stringify({ campaign: c }))).toThrow(/format undefined/);
         // An M6-01 save (format 1, no money) is refused: the page offers a new campaign.
-        expect(CAMPAIGN_FORMAT).toBe(3);
+        expect(CAMPAIGN_FORMAT).toBe(4);
         expect(() => deserialiseCampaign(JSON.stringify({ format: 1, campaign: c }))).toThrow(SaveFormatError);
         // An M6-03 save (format 2, no contracts) is refused like any other.
         expect(() => deserialiseCampaign(JSON.stringify({ format: 2, campaign: c }))).toThrow(SaveFormatError);
+        // An M6-02 save (format 3, shares and no roster) too.
+        expect(() => deserialiseCampaign(JSON.stringify({ format: 3, campaign: c }))).toThrow(SaveFormatError);
         expect(() => deserialiseCampaign('not json')).toThrow(SaveFormatError);
         const broken = (change: (v: Record<string, unknown>) => void) => {
             const v = structuredClone(c) as unknown as Record<string, unknown>;
@@ -95,8 +98,22 @@ describe('the campaign save', () => {
         expect(broken(v => { v.armoury = { zipTies: 3 }; })).toBe('the armoury is not gear');
         expect(broken(v => { v.armoury = { pistol: 0 }; })).toBe('the armoury is not gear');
         expect(broken(v => { v.armoury = { goldBar: 1 }; })).toBe('the armoury is not gear');
-        expect(broken(v => { v.shares = { mara: 101 }; })).toBe('the shares are not shares');
-        const job = { crew: ['mara'], kits: { mara: ['pistol'] }, stakes: 'low' };
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const crew = (change: (r: any[]) => void) => broken(v => change(v.roster as any[]));
+        // The roster (M6-04): crew members of their shape, each once, no more alive than the most, the job's crew among them.
+        expect(crew(r => { r[0].share = 101; })).toBe("Mara's share is no share");
+        expect(crew(r => { r[0].notoriety = 6; })).toBe("Mara's record is no record");
+        expect(crew(r => { r[0].traits = ['smoothTalker', 'smoothTalker']; })).toBe("Mara's traits are not traits");
+        expect(crew(r => { r[0].traitOffers = [['flying']]; })).toBe("Mara's traits are not traits");
+        expect(crew(r => { r[0].status = 'injured'; })).toBe("Mara's injury is no injury");
+        expect(crew(r => { r[0].status = 'jailed'; })).toBe("Mara's jail is no jail");
+        expect(crew(r => { r[0].status = 'dead'; r[0].died = 1; })).toBe("Mara's death is no death");
+        expect(crew(r => { r[0].motive = { kind: 'debt', amount: -5, met: false }; })).toBe("Mara's motive is none");
+        expect(crew(r => { r[1].id = 'mara'; })).toBe('two crew members are one');
+        expect(crew(r => { delete r[0].rested; })).toBe('a crew member with other fields');
+        expect(crew(r => { for (let i = 0; i < 5; i++) r.push({ ...r[0], id: `x${i}` }); })).toBe('the roster is over full');
+        expect(broken(v => { v.roster = {}; })).toBe('the roster is no roster');
+        const job = { crew: ['mara', 'jun'], kits: { mara: ['pistol'], jun: [] }, stakes: 'low' };
         let paid = commit(c, { kind: 'heist', bank: 'b', job: job as never }).campaign;
         expect(campaignProblem(paid)).toBeUndefined();
         expect(campaignProblem({ ...paid, visit: { ...paid.visit!, job: { ...job, kits: { mara: ['mask'] } } } } as never)).toBe("the visit's job is no job");
@@ -352,7 +369,7 @@ describe("the campaign's money in planning and play (M6-03)", () => {
         expect(tag.day).toBe(1);
         const c = loadCampaign(storage)!;
         const setup = defaultSetup(options);
-        expect(c.visit!.job).toEqual({ crew: ['mara', 'jun', 'dex', 'sol'], kits: Object.fromEntries(setup.crew.map(m => [m.id, gearOf({ ...setup, crew: [m] })])), stakes: 'low' });
+        expect(c.visit!.job).toEqual({ crew: ['mara', 'jun', 'dex', 'sol'], kits: Object.fromEntries(setup.crew.map(m => [m.id, gearOf({ ...setup, crew: [m] })])), stakes: 'medium' });
         expect(c.visit!.job!.kits.dex).toEqual(['shotgun', 'mediumArmour', 'breachCharge', 'flashbang']);
         expect(c.armoury).toEqual({});
         expect(campaignAct(storage, { kind: 'layLow' })).toMatchObject({ campaign: { armoury: {}, money: { clean: 24000, dirty: 0 } } });

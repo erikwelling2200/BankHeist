@@ -58,6 +58,10 @@ export interface CrewWounds {
     downed: { left: number; turn: number; phase: Phase } | null;
     /** Bled out or killed. */
     dead: boolean;
+    /** Went down at least once this heist, revived or not: the campaign counts them injured (§19.6). */
+    wentDown: boolean;
+    /** NPCs this crew member killed this heist: the campaign's "never kill anyone" motive reads it (§19.6, decision 509). */
+    kills: number;
     /** Medkit uses left (2 per kit carried). */
     medkits: number;
 }
@@ -129,7 +133,7 @@ registerRuleDefaults({
 
 registerCrewInit('wounds', (world, _start, member) => {
     const kits = [...member.loadout.items, ...member.loadout.packed].filter(i => i === 'medkit').length;
-    member.wounds = { hp: world.rules.crewHp, bandaged: false, bleed: 0, downed: null, dead: false, medkits: kits * world.rules.medkitUses };
+    member.wounds = { hp: world.rules.crewHp, bandaged: false, bleed: 0, downed: null, dead: false, wentDown: false, kills: 0, medkits: kits * world.rules.medkitUses };
 });
 
 registerNpcInit('wounds', (world, person, npc) => {
@@ -185,6 +189,7 @@ function goDown(ctx: Ctx, member: CrewState): void {
     member.wounds.hp = 0;
     member.wounds.bleed = 0;
     member.wounds.downed = { left: world.rules.bleedOutPhases, turn: state.turn, phase: state.phase };
+    member.wounds.wentDown = true;
     member.actionsLeft = 0;
     // Whatever they held goes: the body or hostage, the lean, the Watch, the brace, the aim.
     releaseBody(world, state, member);
@@ -277,6 +282,8 @@ export function killNpc(ctx: Ctx, npc: NpcState, by: string): void {
     npc.leaning = null;
     // A hostage led by the arm falls: the crew member holds a body now.
     for (const c of ctx.state.crew) if (c.dragging === npc.id) c.leading = false;
+    const killer = ctx.state.crew.find(c => c.id === by);
+    if (killer) killer.wounds.kills += 1;
     ctx.emit({ type: 'npcDied', npc: npc.id, by });
     ctx.emit({ type: 'npcStatus', npc: npc.id, status: 'dead' });
 }

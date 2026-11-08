@@ -1,9 +1,10 @@
 import {
-    campaignRefusal, COMPLICATIONS, fenceCut, fenced, FRONT_COST, launderPerDay, MARKET, newCampaign, nextStep, timeline, type Campaign, type CampaignCommand, type Contract
+    campaignRefusal, COMPLICATIONS, CREW_BY_STAKES, drawRecruits, fenceCut, fenced, FRONT_COST, LAWYER_COST, launderPerDay, MARKET, motiveText, newCampaign, nextStep,
+    notorietyBand, timeline, type Campaign, type CampaignCommand, type Contract, type CrewMember, type Motive
 } from '../../campaign';
 import { SIDE_OBJECTIVES } from '../../gen/objectives';
 import { escalatedEta, TIER_SPECS } from '../../gen/tiers';
-import { ITEM_NAMES } from '../names';
+import { ITEM_NAMES, TRAIT_NAMES } from '../names';
 import {
     campaignAct, dropCampaignHeist, heistUnfinished, lastCampaignError, loadCampaign, saveCampaign
 } from '../../game/campaign';
@@ -19,6 +20,9 @@ import './campaign.css';
  *
  * Money and gear (§19.4, M6-03): clean and dirty money, what is laundered a day, the fence, fronts, contacts, the
  * armoury and the black market.
+ *
+ * The roster (§19.6, §19.7, M6-04): each crew member's traits, share, Notoriety, motive and where they are (ready,
+ * injured, in jail, dead), the traits on offer to them, a lawyer and a debt to pay; and today's recruits to hire.
  */
 
 const dollars = (n: number): string => `$${n.toLocaleString('en-US')}`;
@@ -136,6 +140,8 @@ export function showCampaign(): void {
 
         box.append(el('h2', 'cp-sub', 'Contracts'), offersView(c));
 
+        box.append(...rosterView(c));
+
         box.append(...moneyView(c));
 
         const row = el('div', 'cp-actions');
@@ -161,7 +167,8 @@ export function showCampaign(): void {
             li.dataset.stakes = k.stakes;
             const terms = el('div', 'cp-terms');
             terms.append(el('span', 'cp-stakes', STAKES_NAMES[k.stakes]), el('span', 'cp-name', contractName(k)));
-            const lines = [`Bonus ${dollars(k.bonus)} on a clean getaway.`];
+            const [fewest, most] = CREW_BY_STAKES[k.stakes];
+            const lines = [`Crew of ${fewest}–${most}. Bonus ${dollars(k.bonus)} on a clean getaway.`];
             if (k.escalation) {
                 const base = TIER_SPECS[k.bank.tier].policeEta;
                 lines.push(`The chain is on guard (${k.escalation} step${k.escalation === 1 ? '' : 's'}): police ETA ${escalatedEta(base, k.escalation)}, not ${base}.`);
@@ -178,11 +185,85 @@ export function showCampaign(): void {
         return list;
     }
 
-    /** Does a command that spends no day (the fence, a front, the market) and shows the campaign again. */
-    function trade(cmd: CampaignCommand): void {
+    /** Does a command that spends no day (the fence, a front, the market, the roster) and shows the campaign again. */
+    function trade(cmd: CampaignCommand, where = '.cp-money'): void {
         const done = campaignAct(storage, cmd);
         render();
-        if ('refused' in done) root.querySelector('.cp-money')?.append(el('p', 'cp-warn', done.refused));
+        if ('refused' in done) root.querySelector(where)?.append(el('p', 'cp-warn', done.refused));
+    }
+
+    /** A motive and how it stands. */
+    const motiveLine = (m: Motive): string => `${motiveText(m)}${m.met ? ': met' : m.kind === 'neverKill' ? (m.broken ? ': broken' : ' (settled at the finale)') : ''}.`;
+
+    /** Where a crew member is. */
+    function statusLine(c: Campaign, m: CrewMember): string {
+        switch (m.status) {
+            case 'ready': return 'Ready';
+            case 'injured': return `Injured: out ${m.injured} more day${m.injured === 1 ? '' : 's'}`;
+            case 'dead': return `Killed on day ${m.died}`;
+            case 'jailed': {
+                const j = m.jail!;
+                return `In jail since day ${j.day}${j.out !== undefined ? `: a lawyer gets them out on day ${j.out}` : ''}${j.talked ? '. They talked' : ''}`
+                    + (j.out === undefined && !j.talked && c.phase !== 'over' ? '. They may talk' : '');
+            }
+        }
+    }
+
+    /**
+     * The roster (§19.6, §19.7): each crew member, the traits on offer to them, a lawyer for the jailed and a debt to
+     * pay; then today's recruits, each with their trait, motive, share and signing fee.
+     */
+    function rosterView(c: Campaign): HTMLElement[] {
+        const list = el('ul', 'cp-roster');
+        for (const m of c.roster) {
+            const li = el('li', `cp-member cp-${m.status}`);
+            li.dataset.crew = m.id;
+            const who = el('div', 'cp-terms');
+            const band = notorietyBand(m.notoriety);
+            who.append(el('span', 'cp-name', `${m.name} · ${m.traits.map(t => TRAIT_NAMES[t] ?? t).join(', ')}`),
+                el('span', 'cp-note', `${statusLine(c, m)}. Share ${m.share}%. Notoriety ${m.notoriety} (${band}). Jobs survived: ${m.jobs}.`
+                    + (m.motive ? ` Motive: ${motiveLine(m.motive)}` : '')));
+            li.append(who);
+            const acts = el('div', 'cp-crew-acts');
+            const offer = m.traitOffers[0];
+            if (offer && m.status !== 'dead') {
+                acts.append(el('span', 'cp-label', 'Pick a trait'));
+                for (const t of offer) {
+                    const b = button(TRAIT_NAMES[t] ?? t, 'cp-link cp-trait', () => trade({ kind: 'pickTrait', crew: m.id, trait: t }, '.cp-roster'));
+                    b.dataset.trait = t;
+                    b.disabled = !!campaignRefusal(c, { kind: 'pickTrait', crew: m.id, trait: t });
+                    acts.append(b);
+                }
+            }
+            if (m.status === 'jailed' && m.jail!.out === undefined) {
+                const b = button(`Lawyer (${dollars(LAWYER_COST)})`, 'cp-link cp-lawyer', () => trade({ kind: 'lawyer', crew: m.id }, '.cp-roster'));
+                b.disabled = !!campaignRefusal(c, { kind: 'lawyer', crew: m.id });
+                acts.append(b);
+            }
+            if (m.motive?.kind === 'debt' && !m.motive.met && m.status !== 'dead') {
+                const b = button(`Pay the debt (${dollars(m.motive.amount)})`, 'cp-link cp-debt', () => trade({ kind: 'payDebt', crew: m.id }, '.cp-roster'));
+                b.disabled = !!campaignRefusal(c, { kind: 'payDebt', crew: m.id });
+                acts.append(b);
+            }
+            if (acts.childElementCount) li.append(acts);
+            list.append(li);
+        }
+        const recruits = el('ul', 'cp-recruits');
+        for (const r of drawRecruits(c.seed, c.day)) {
+            const li = el('li', 'cp-recruit');
+            li.dataset.recruit = r.id;
+            const who = el('div', 'cp-terms');
+            const hiredAlready = c.roster.some(m => m.id === r.id);
+            who.append(el('span', 'cp-name', `${r.name} · ${TRAIT_NAMES[r.trait] ?? r.trait}`),
+                el('span', 'cp-note', `Share ${r.share}%. Motive: ${motiveText(r.motive)}.${hiredAlready ? ' Hired.' : ''}`));
+            const refused = campaignRefusal(c, { kind: 'recruit', id: r.id });
+            const b = button(`Hire (${dollars(r.fee)})`, 'cp-act cp-hire', () => trade({ kind: 'recruit', id: r.id }, '.cp-recruits'));
+            b.disabled = !!refused;
+            if (refused) b.title = refused;
+            li.append(who, b);
+            recruits.append(li);
+        }
+        return [el('h2', 'cp-sub', 'Crew'), list, el('h2', 'cp-sub', 'Recruits today'), recruits];
     }
 
     /** Money (§19.4): clean and dirty, the laundering, the fence and fronts; the armoury and the black market. */

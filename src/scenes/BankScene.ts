@@ -20,7 +20,7 @@ import { PlayMode, type PlayParts } from './bank/sim';
 import { Walls } from './bank/walls';
 import { M1_CREW } from '../game/heist';
 import { crewColour } from '../ui/hud/viewModels';
-import { rosterMember } from '../game/plan';
+import { crewLookOf } from '../game/plan';
 
 /** What the game (`/`) hands the scene through the registry (`play`): the Session and the bank it is played in. */
 export type PlaySetup = Pick<PlayParts, 'session' | 'bank' | 'resumed' | 'next'> & { /** How long finding or making the heist took (ms). */ setupMs?: number };
@@ -111,7 +111,7 @@ export class BankScene extends Phaser.Scene {
         knowledge.trackProps(shown);
         knowledge.trackRaised(raised);
         this.timed('people', () => this.people.build(this.bank.people, play ? play.session.state.crew.map((c, i) => ({
-            look: rosterMember(c.id)?.look ?? M1_CREW.find(m => m.id === c.id)?.look ?? 'crewSol', tx: c.pos.x, ty: c.pos.y, facing: 'back' as const, ring: crewColour(c.id, i)
+            look: crewLookOf(c.id) ?? M1_CREW.find(m => m.id === c.id)?.look ?? 'crewSol', tx: c.pos.x, ty: c.pos.y, facing: 'back' as const, ring: crewColour(c.id, i)
         })) : []));
         const { shade } = this.timed('light maps', () => baker.addLightMaps(level, occluders, casters));
         this.timed('raised floors', () => raised.build(baker, floor, shade));

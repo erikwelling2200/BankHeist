@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
-    BONUS, campaignRefusal, CHAINS, commitCampaign, CONTRACT_DAYS, FIRST_CONTRACT, MAX_ESCALATION, newCampaign, OBJECTIVE_KINDS, OBJECTIVE_OFFERS, sharesOf, STAKES,
+    BONUS, campaignRefusal, CREW_BY_STAKES, CHAINS, commitCampaign, CONTRACT_DAYS, FIRST_CONTRACT, MAX_ESCALATION, newCampaign, OBJECTIVE_KINDS, OBJECTIVE_OFFERS, sharesOf, sharesOfRoster, STAKES,
     STAKES_TIER, type Campaign, type CampaignCommand, type Job, type Stakes
 } from '../../src/campaign';
 import { ARCHETYPES, PLOTS } from '../../src/gen/model';
@@ -11,7 +11,11 @@ import { TIER_SPECS } from '../../src/gen/tiers';
  * escalation, the client's bonus and side objectives. A heist is only ever an offered contract's.
  */
 
-const job = (stakes: Stakes): Job => ({ crew: ['mara', 'jun'], kits: { mara: [], jun: [] }, stakes });
+/** The fewest of the four the stakes take (§19.3), empty-handed. */
+const job = (stakes: Stakes): Job => {
+    const crew = ['mara', 'jun', 'dex', 'sol'].slice(0, CREW_BY_STAKES[stakes][0]);
+    return { crew, kits: Object.fromEntries(crew.map(id => [id, []])), stakes };
+};
 const offer = (c: Campaign, stakes: Stakes) => c.contracts.find(k => k.stakes === stakes)!;
 const heist = (c: Campaign, stakes: Stakes, bank = 'b'): CampaignCommand => ({ kind: 'heist', bank, contract: offer(c, stakes).id, job: job(stakes) });
 const step = (c: Campaign, cmd: CampaignCommand): Campaign => commitCampaign(c, cmd).campaign;
@@ -124,7 +128,7 @@ describe('the payout (§19.3, §19.4)', () => {
 
     it("pays the client's bonus on a Success, once, the crew taking their shares of it", () => {
         const { k, r } = withBonus('success');
-        const shares = sharesOf(100000 + k.bonus, ['mara', 'jun'], r.campaign.shares);
+        const shares = sharesOf(100000 + k.bonus, job('medium').crew, sharesOfRoster(r.campaign.roster));
         expect(r.events).toContainEqual({ type: 'paid', day: 1, take: 100000, bonus: k.bonus, shares, dirty: 100000 + k.bonus - shares });
         expect(r.campaign.visit?.payout).toBe(100000 + k.bonus - shares);
         expect(campaignRefusal(r.campaign, { kind: 'heistOver', day: 1, result: 'success', take: 100000 })).toBe('The heist is over already');
