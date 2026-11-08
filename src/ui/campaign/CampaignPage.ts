@@ -193,7 +193,7 @@ export function showCampaign(): void {
     }
 
     /** A motive and how it stands. */
-    const motiveLine = (m: Motive): string => `${motiveText(m)}${m.met ? ': met' : m.kind === 'neverKill' ? (m.broken ? ': broken' : ` (${m.jobs} clean job${m.jobs === 1 ? '' : 's'})`) : ''}.`;
+    const motiveLine = (m: Motive): string => `${motiveText(m)}${m.met ? ': met' : m.kind === 'neverKill' ? (m.broken ? ': broken' : ' (settled at the finale)') : ''}.`;
 
     /** Where a crew member is. */
     function statusLine(c: Campaign, m: CrewMember): string {

@@ -5,7 +5,7 @@ import { escalateChain, refreshContracts, type Contract } from './contracts';
 import { countItems, FENCE_CUT, fenced, FRONT_COST, LAUNDER_PER_DAY, MARKET, NERVOUS_FENCE_CUT, sharesOf, STAKES, STARTER_KIT, STARTING_CASH, type Stakes } from './money';
 import {
     ARREST_NOTORIETY, CREW_BY_STAKES, DECAY_DAYS, drawRecruits, gainNotoriety, hired, INJURY_DAYS, LAWYER_COST, LAWYER_DAYS, LAY_LOW_HEALS, livingCrew, NAMED_NOTORIETY,
-    NEVER_KILL_JOBS, ROSTER_MAX, sharesOfRoster, STARTING_ROSTER, talks, TRAIT_EVERY, traitOffer, type CrewMember, type MotiveKind
+    ROSTER_MAX, sharesOfRoster, STARTING_ROSTER, talks, TRAIT_EVERY, traitOffer, type CrewMember, type MotiveKind
 } from './roster';
 import { ALL_THRESHOLDS, projectedDay, SQUEEZE, THRESHOLDS, type SqueezeSource } from './squeeze';
 
@@ -210,14 +210,14 @@ export type SpentOn = 'heist' | 'intel' | 'gear' | 'front' | 'recruit' | 'lawyer
 
 /**
  * What became of a heist's crew (§15.5's debrief, §19.6), by crew id: who got away, was arrested or died, who went down
- * on the way (revived or not), and how many people died there (the "never kill anyone" motive).
+ * on the way (revived or not), and who killed someone themselves (the "never kill anyone" motive, decision 509).
  */
 export interface CrewFates {
     escaped: string[];
     arrested: string[];
     dead: string[];
     downed: string[];
-    killed: number;
+    killers: string[];
 }
 
 /** The intel assets (§18.2) the campaign pays for as they are bought. */
@@ -596,7 +596,7 @@ type AddSqueeze = (source: SqueezeSource, points: number) => void;
 
 const ids = (v: unknown): v is string[] => Array.isArray(v) && v.every(x => typeof x === 'string');
 const fatesOk = (f: CrewFates): boolean =>
-    typeof f === 'object' && f !== null && ids(f.escaped) && ids(f.arrested) && ids(f.dead) && ids(f.downed) && whole(f.killed);
+    typeof f === 'object' && f !== null && ids(f.escaped) && ids(f.arrested) && ids(f.dead) && ids(f.downed) && ids(f.killers);
 
 function addContact(c: Campaign, events: CampaignEvent[]): void {
     c.contacts += 1;
@@ -608,6 +608,16 @@ function meetMotive(c: Campaign, events: CampaignEvent[], m: CrewMember): void {
     m.motive!.met = true;
     events.push({ type: 'motive', crew: m.id, motive: m.motive!.kind, met: true });
     addContact(c, events);
+}
+
+/**
+ * The motives settled at the finale (decision 509): "never kill anyone" is met by every crew member alive who has it and
+ * never broke it, and pays its contact then. M7's finale calls this as it is launched; nothing calls it yet.
+ */
+export function settleFinaleMotives(campaign: Campaign): { campaign: Campaign; events: CampaignEvent[] } {
+    const c = structuredClone(campaign), events: CampaignEvent[] = [];
+    for (const m of c.roster) if (m.status !== 'dead' && m.motive?.kind === 'neverKill' && !m.motive.met && !m.motive.broken) meetMotive(c, events, m);
+    return { campaign: c, events };
 }
 
 /** Notoriety gained by a crew member, and the Squeeze it adds (§19.2: +1 for each crew member who gained). */
@@ -644,11 +654,12 @@ function settleCrew(c: Campaign, events: CampaignEvent[], v: Visit, result: Heis
         }
         const motive = m.motive;
         if (motive && !motive.met) {
-            if (motive.kind === 'neverKill' && !motive.broken) {
-                if (fates.killed > 0) {
+            if (motive.kind === 'neverKill') {
+                // Only their own kill breaks it (decision 509); it is settled at the finale.
+                if (!motive.broken && fates.killers.includes(id)) {
                     motive.broken = true;
                     events.push({ type: 'motive', crew: id, motive: 'neverKill', met: false });
-                } else if (++motive.jobs >= NEVER_KILL_JOBS) meetMotive(c, events, m);
+                }
             } else if (motive.kind === 'getEven' && result === 'success' && v.contract?.chain === motive.chain) meetMotive(c, events, m);
         }
         if (fates.arrested.includes(id)) {

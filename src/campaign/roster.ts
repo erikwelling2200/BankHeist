@@ -26,8 +26,11 @@ import type { Stakes } from './money';
 export type Motive =
     /** "Pay off my $Nk debt": paid from the clean money. */
     | { kind: 'debt'; amount: number; met: boolean }
-    /** "Never kill anyone": met after `NEVER_KILL_JOBS` jobs on which nobody died; broken for good by a job on which someone did. */
-    | { kind: 'neverKill'; jobs: number; met: boolean; broken: boolean }
+    /**
+     * "Never kill anyone" (decision 509): settled at the finale (`settleFinaleMotives`), met if they never killed anyone
+     * themselves on any job they went on; broken for good by their own kill, never by a teammate's.
+     */
+    | { kind: 'neverKill'; met: boolean; broken: boolean }
     /** "Get even with the bank that foreclosed on me": a Success on a branch of `chain`, with them on the job. */
     | { kind: 'getEven'; chain: string; met: boolean };
 
@@ -110,8 +113,7 @@ export const DECAY_DAYS = 2;
 /** A trait offered every this many jobs survived, this many to choose from (§7.2). */
 export const TRAIT_EVERY = 2;
 export const TRAIT_CHOICES = 3;
-/** "Never kill anyone": clean jobs to meet it. A debt: its range, in $10k steps. */
-export const NEVER_KILL_JOBS = 3;
+/** A debt: its range, in $10k steps. */
 export const DEBT: readonly [number, number] = [40000, 80000];
 
 /**
@@ -156,7 +158,7 @@ export function drawRecruits(seed: number, day: number): Recruit[] {
 function drawMotive(rng: Rng): Motive {
     const kind = rng.fork('kind').pick<MotiveKind>(['debt', 'neverKill', 'getEven']);
     if (kind === 'debt') return { kind, amount: rng.fork('amount').int(DEBT[0] / 10000, DEBT[1] / 10000) * 10000, met: false };
-    if (kind === 'neverKill') return { kind, jobs: 0, met: false, broken: false };
+    if (kind === 'neverKill') return { kind, met: false, broken: false };
     return { kind, chain: rng.fork('chain').pick(CHAINS), met: false };
 }
 

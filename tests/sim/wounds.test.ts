@@ -42,7 +42,7 @@ const endTurn = (world: ReadonlyWorld, state: State): State => commit(world, sta
 describe('crew wounds', () => {
     it('starts everyone at 8 HP, with 2 medkit uses per kit carried', () => {
         const { state } = setup();
-        expect(crew(state, 'jun').wounds).toEqual({ hp: 8, bandaged: false, bleed: 0, downed: null, dead: false, wentDown: false, medkits: 0 });
+        expect(crew(state, 'jun').wounds).toEqual({ hp: 8, bandaged: false, bleed: 0, downed: null, dead: false, wentDown: false, kills: 0, medkits: 0 });
         expect(crew(state, 'mara').wounds.medkits).toBe(2);
     });
 
@@ -173,6 +173,9 @@ describe('NPC wounds', () => {
         const r = commit(world, state, { type: 'strike', crew: 'jun', npc: 'bob' });
         expect(npc(r.state, 'bob')).toMatchObject({ status: 'dead', hp: 0, intent: { path: [] } });
         expect(r.events.find(e => e.type === 'npcDied')).toEqual({ type: 'npcDied', npc: 'bob', by: 'jun' });
+        // The killer's own count (the campaign's "never kill anyone", decision 509); Mara's stays 0.
+        expect(crew(r.state, 'jun').wounds.kills).toBe(1);
+        expect(crew(r.state, 'mara').wounds.kills).toBe(0);
         // A civilian killed before the Alarm where Ann sees it: owed heat, in secret (rules/heat.ts reads it off the state).
         expect(r.state.heat.owed).toEqual([{ cause: 'civilianKilled', victim: 'bob' }]);
         expect(preview(world, state, { type: 'strike', crew: 'jun', npc: 'bob' }).events).toEqual(r.events);

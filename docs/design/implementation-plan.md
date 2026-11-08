@@ -1769,7 +1769,26 @@ M2 is complete: every package below has landed.
     reinforcement kit) are not on sale; the black market as part of the city map (M6-06); a partial amount at the fence
     from the page (the rules take any amount; the page fences it all); gear lost per crew member on a success
     (what escapes comes back, nothing else is tracked: an arrested crew member's kit is gone, not held as evidence).
-- [ ] **M6-04** The roster: recruits, trait growth, injuries, jail, Notoriety and its decay, motives (§19.6, §19.7). In the rules, Notoriety raises the crew member's profile in `profile.ts`.
+- [x] **M6-04** The roster: recruits, trait growth, injuries, jail, Notoriety and its decay, motives (§19.6, §19.7). In the rules, Notoriety raises the crew member's profile in `profile.ts`. (partial: see Deferred)
+  - **Done:** decisions 509–518 (509 the user's; 508 the M6-02 review's minors). `src/campaign/roster.ts` (`CrewMember`,
+    `Motive`, `Jail`, `STARTING_ROSTER`, `drawRecruits`, `recruitLook`, `CREW_BY_STAKES`, the numbers, `traitOffer`,
+    `talks`, `gainNotoriety`); `Campaign.roster` replaces `shares`; commands `recruit`, `pickTrait`, `lawyer`, `payDebt`,
+    `heistOver.crew` (`CrewFates`); `settleFinaleMotives` for M7. The rules: `wounds.wentDown` and `wounds.kills` (save
+    shape hash `3a556c3b9dd5b254`). `src/game/campaign.ts`: the save at format 4 with the roster's checks, `campaignCrew`,
+    `campaignPurse(…, stakes)`, `crewFates`, `startContractHeist`. `src/game/plan.ts`: `CrewPool` (`Purse.crew`,
+    `SANDBOX_CREW`, `crewOf`, `crewLookOf`), `RosterMember.notoriety`, the crew size in `setupProblems`, `defaultSetup` and
+    `heistFromSetup` from a pool; `startHeist` takes it. The planner picks from the pool and shows Notoriety; `?campaign`
+    lists the crew (status, traits, share, Notoriety, motive; trait picks, lawyer, debt) and today's recruits.
+  - **Tests:** `tests/campaign/roster.test.ts` (recruits, crew size, injury and healing, death, jail, talking, the
+    lawyer, Notoriety's gains and decay, trait growth, the three motives, an abandoned job); `tests/game/roster.test.ts`
+    (the pool in planning, Notoriety into the rules read one profile higher, the keeper's fates); the save's roster
+    checks; `e2e/campaign.spec.ts` (the roster, hiring, Known and injured shown, the planner's pool;
+    `screenshots/campaign-roster.png`, `planning-roster.png`). No visual baseline changed.
+  - **Deferred:** Notoriety from witnesses and footage (M6-05's debrief, §19.7's first two rows); the jailbreak contract
+    (§19.6); perks from motives (every motive pays a contact for now); calling `settleFinaleMotives` from the finale
+    (M7); what the complications do to Notoriety (the task force's +2, the security chief, M7); a crew member's lost
+    gear on a death without the body (the gear rules of decision 482 already keep only what escaped); recruit art of their
+    own (they wear the lobby's customer looks); dismissing crew; a crew member deployed on a casing day (M6-07).
 - [ ] **M6-05** Debrief: styles, payout, Notoriety from footage and witnesses (§15.5, §19.8).
 - [ ] **M6-06** City map UI and the Squeeze timeline (UI.md "Map, planning and campaign").
 - [ ] **M6-07** The case day action (a no-combat visit mode); difficulty settings and toggles (§19.3, §19.9).
@@ -3488,6 +3507,37 @@ Later milestones: within each milestone, the `∥` notes in §3 apply. UI packag
     be met partway: it counts as met at the finale if that crew member never killed anyone themselves on any job they
     went on, and its bonus is paid then (the one exception to §19.6's "before the finale"). Deaths caused by others on
     the same job don't break it; a kill by this crew member breaks it for good.
+510. **The roster replaces the fixed shares (M6-04, §19.6).** `Campaign.roster` holds every crew member, the dead too,
+    in the order they joined: the four of §3 with decision 480's shares and their sandbox traits, no motive. At most
+    `ROSTER_MAX` = 8 alive. The save is format 4; an M6-02 save is refused as before.
+511. **Recruits (M6-04, §19.4, §19.6).** Three a day, drawn from `Rng(seed).fork('recruits-<day>')`: a name, one trait
+    (any of §7.2's), a motive, a share of 8–20% and a fee of $10–30k in $5k steps. Hiring takes no time, pays the fee
+    from the clean money, and the recruit's id `r<day>-<n>` gives their look (`recruitLook`: one of the lobby customers'
+    clothes, so the prop sheet and baselines don't change). Hiring changes nothing else on the board or the draws.
+512. **Crew size by stakes (M6-04, §19.3).** Low takes 2–3, medium 3–4, high 4–5, only those `ready` (not injured, in
+    jail or dead); the rules refuse other crews, and the planning screen's pool is the ready roster with the contract's
+    size. The plan opens on the first of them as many as the contract takes, two by the van, the rest in it. The
+    sandbox keeps 1–4 of §3's four.
+513. **A job's end for its crew (M6-04, §19.6).** The keeper sends `CrewFates` from the outcome: the dead are gone; the
+    arrested go to jail with +2 Notoriety; those who got away but went down (`wounds.wentDown`, revived or not) are out
+    `INJURY_DAYS` = 3 days. Every survivor (the arrested too) counts a job; every second offers three traits they lack,
+    from the seed, picked by the player at any time (no time spent). An abandoned heist settles nobody.
+514. **Motives (M6-04, §19.6).** A debt ($40–80k) is met by paying it; "get even" by a Success on a branch of its chain
+    with them on the job; "never kill anyone" as decision 509 says (`wounds.kills`, broken by their own kill only;
+    `settleFinaleMotives` pays it, for M7 to call). Every motive met pays a contact (user decision: perks later).
+515. **Notoriety (M6-04, §19.7).** 0–5; gains are halved (down) for the Forgettable, and each crew member who gains adds
+    +1 Squeeze (§19.2). It decays by 1 for every two days a crew member at liberty isn't deployed (`rested` counts
+    them; deployment on a heist resets it); not in jail. The heist's crew carry it into the rules
+    (`CrewStart.notoriety`), where profile.ts already reads Known crew one profile higher to enforcers and cameras and
+    Wanted crew to everyone. Witnesses and footage are M6-05's.
+516. **Injury and laying low (M6-04, §19.3).** Each day spent takes a day off an injury; a lay-low day takes two, which
+    is what laying low adds for the injured.
+517. **Jail (M6-04, §19.6).** A lawyer costs $40k and gets them out `LAWYER_DAYS` = 2 days later; a prisoner without one
+    talks with a chance of 1 in 3 each day that passes, at most once (user decision), rolled from the seed, the crew id
+    and the day: +4 Squeeze and +1 Notoriety (and its Squeeze) for each of the others on that job still alive.
+518. **Who can't be faked (M6-04).** The save checks each crew member's shape, status and its fields together, ids once,
+    the living within the cap and a visit's crew on the roster; the address can't name a crew member who isn't ready
+    (the plan is checked against the pool, and the rules again at Start).
 
 ### Critical files for implementation
 

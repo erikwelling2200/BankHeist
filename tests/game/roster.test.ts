@@ -71,7 +71,7 @@ describe("the crew's Notoriety and traits in the rules (§19.7: profile.ts)", ()
 });
 
 describe("the heist's end for its crew", () => {
-    it('tells the campaign who got away, went down, was arrested or died, and how many died there', () => {
+    it('tells the campaign who got away, went down, was arrested, died or killed', () => {
         const storage = new MemoryStorage();
         let c = newCampaign(7);
         const pool = campaignCrew(c, 'low'), setup = defaultSetup(options, {}, pool);
@@ -85,12 +85,12 @@ describe("the heist's end for its crew", () => {
         const ended = {
             ...s,
             crew: [{ ...dex!, wounds: { ...dex!.wounds, dead: true } }],
-            escaped: [{ crew: { ...mara!, wounds: { ...mara!.wounds, wentDown: true } }, vehicle: 'van', turn: 4 }],
+            escaped: [{ crew: { ...mara!, wounds: { ...mara!.wounds, wentDown: true, kills: 1 } }, vehicle: 'van', turn: 4 }],
             custody: [{ crew: jun!, by: 'police-1', turn: 4 }],
             npcs: s.npcs.map((n, i) => (i === 0 ? { ...n, status: 'dead' as const } : n)),
             outcome: { result: 'partial', turn: 4, vehicle: 'van', escaped: ['mara'], arrested: ['jun'], dead: ['dex'], loot: [], value: 0, ruined: 0, target: 1, heat: 3 }
         } as typeof s;
-        expect(crewFates(ended)).toEqual({ escaped: ['mara'], arrested: ['jun'], dead: ['dex'], downed: ['mara'], killed: 1 });
+        expect(crewFates(ended)).toEqual({ escaped: ['mara'], arrested: ['jun'], dead: ['dex'], downed: ['mara'], killers: ['mara'] });
         campaignKeeper(storage, tag)(session.world, ended);
         const after = loadCampaign(storage)!;
         expect(after.roster.map(m => [m.id, m.status])).toEqual([['mara', 'injured'], ['jun', 'jailed'], ['dex', 'dead'], ['sol', 'ready']]);

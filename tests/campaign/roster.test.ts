@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
     campaignRefusal, commitCampaign, CREW_BY_STAKES, crewMember, DEBT, drawRecruits, INJURY_DAYS, LAWYER_COST, LAWYER_DAYS, newCampaign, RECRUIT_LOOKS, RECRUITS_A_DAY,
-    recruitLook, ROSTER_MAX, SIGNING_FEE, SQUEEZE, talks, TRAIT_CHOICES, type Campaign, type CampaignCommand, type CampaignEvent, type CrewFates,
+    recruitLook, ROSTER_MAX, settleFinaleMotives, SIGNING_FEE, SQUEEZE, talks, TRAIT_CHOICES, type Campaign, type CampaignCommand, type CampaignEvent, type CrewFates,
     type CrewMember, type Job, type Stakes
 } from '../../src/campaign';
 import { deserialiseCampaign, serialiseCampaign } from '../../src/game/campaign';
@@ -28,7 +28,7 @@ const layLow = (c: Campaign, n = 1): Campaign => {
 };
 const member = (c: Campaign, id: string): CrewMember => crewMember(c, id) as CrewMember;
 const job = (crew: string[], stakes: Stakes): Job => ({ crew, kits: Object.fromEntries(crew.map(id => [id, []])), stakes });
-const fates = (f: Partial<CrewFates>): CrewFates => ({ escaped: [], arrested: [], dead: [], downed: [], killed: 0, ...f });
+const fates = (f: Partial<CrewFates>): CrewFates => ({ escaped: [], arrested: [], dead: [], downed: [], killers: [], ...f });
 /** The day's heist on the offer at `stakes` with `crew`, ended with `f`. */
 function heist(c: Campaign, crew: string[], f: Partial<CrewFates>, result: 'success' | 'partial' | 'failure' = 'partial', stakes: Stakes = 'low'): { campaign: Campaign; events: CampaignEvent[] } {
     const offer = c.contracts.find(k => k.stakes === stakes)!;
@@ -267,16 +267,25 @@ describe('motives (§19.6): met, a contact', () => {
         roundTrips(d);
     });
 
-    it('never kill anyone: three jobs nobody died on; one where someone did breaks it for good', () => {
-        let c = motivated({ kind: 'neverKill', jobs: 0, met: false, broken: false });
-        for (let i = 0; i < 2; i++) c = heist(c, ['mara', 'jun'], { escaped: ['mara', 'jun'] }).campaign;
+    it('never kill anyone (decision 509): settled at the finale; their own kill breaks it, a teammate\'s doesn\'t', () => {
+        let c = motivated({ kind: 'neverKill', met: false, broken: false });
+        // Jun kills on Mara's job: hers still holds. Nothing is paid before the finale.
+        c = heist(c, ['mara', 'jun'], { escaped: ['mara', 'jun'], killers: ['jun'] }).campaign;
+        expect(member(c, 'mara').motive).toEqual({ kind: 'neverKill', met: false, broken: false });
         expect(c.contacts).toBe(0);
-        const { campaign: d, events } = heist(c, ['mara', 'jun'], { escaped: ['mara', 'jun'] });
+        const { campaign: d, events } = settleFinaleMotives(c);
         expect(d.contacts).toBe(1);
+        expect(member(d, 'mara').motive!.met).toBe(true);
         expect(events).toContainEqual({ type: 'motive', crew: 'mara', motive: 'neverKill', met: true });
-        const broken = heist(motivated({ kind: 'neverKill', jobs: 2, met: false, broken: false }), ['mara', 'jun'], { escaped: ['mara', 'jun'], killed: 1 }).campaign;
+        roundTrips(d);
+        // Her own kill breaks it for good: the finale pays nothing.
+        const { campaign: broken, events: told } = heist(c, ['mara', 'jun'], { escaped: ['mara', 'jun'], killers: ['mara'] });
         expect(member(broken, 'mara').motive).toMatchObject({ broken: true, met: false });
-        expect(heist(broken, ['mara', 'jun'], { escaped: ['mara', 'jun'] }).campaign.contacts).toBe(0);
+        expect(told).toContainEqual({ type: 'motive', crew: 'mara', motive: 'neverKill', met: false });
+        expect(settleFinaleMotives(heist(broken, ['mara', 'jun'], { escaped: ['mara', 'jun'] }).campaign).campaign.contacts).toBe(0);
+        // The dead are paid nothing.
+        const dead = heist(c, ['mara', 'jun'], { escaped: ['jun'], dead: ['mara'] }).campaign;
+        expect(settleFinaleMotives(dead).campaign.contacts).toBe(0);
         roundTrips(broken);
     });
 

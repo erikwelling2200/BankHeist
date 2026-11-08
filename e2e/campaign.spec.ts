@@ -48,7 +48,7 @@ test('a campaign: days, the Squeeze, money, contracts, and a heist that spends i
         .toEqual({ seed: '31-2', tier: 'small', archetype: 'twoWing', chain: 'Granite Savings' });
     await page.goto('/?campaign&still');
 
-    // A heist from the campaign: Mara alone at the wheel, driven off at once.
+    // A heist from the campaign: Mara at the wheel with Jun aboard, driven off at once.
     await page.locator('.cp-offer[data-stakes="low"] .cp-plan').click();
     await page.waitForFunction(() => (window as any).planner, undefined, { timeout: 60000 });
     expect(new URL(page.url()).searchParams.has('campaign')).toBe(true);
@@ -63,14 +63,16 @@ test('a campaign: days, the Squeeze, money, contracts, and a heist that spends i
     await expect(page.locator('.pl-cash')).toHaveAttribute('data-cash', '20000');
     await expect(page.locator('.pl-asset[data-asset="guardRota"]')).toHaveClass(/known/);
     await expect(page.locator('.pl-favours')).toHaveAttribute('data-favours', '1');
-    for (const id of ['jun', 'dex', 'sol']) {
+    // A low-stakes contract takes 2–3 (M6-04): the plan opens on Mara, Jun and Dex. Dex stays home; both others ride in.
+    await expect(page.locator('.pl-card:not(.out)')).toHaveCount(3);
+    await page.locator('.pl-card[data-crew="dex"]').click();
+    await page.locator('.pl-sheet .pl-toggle').click();
+    await page.locator('.pl-sheet .pl-done').click();
+    for (const id of ['mara', 'jun']) {
         await page.locator(`.pl-card[data-crew="${id}"]`).click();
-        await page.locator('.pl-sheet .pl-toggle').click();
+        await page.locator('.pl-sheet [data-slot="start"]').selectOption('van:in');
         await page.locator('.pl-sheet .pl-done').click();
     }
-    await page.locator('.pl-card[data-crew="mara"]').click();
-    await page.locator('.pl-sheet [data-slot="start"]').selectOption('van:in');
-    await page.locator('.pl-sheet .pl-done').click();
     await page.locator('.pl-start').click();
     await page.waitForFunction(() => (window as any).game?.scene?.getScene('bank')?.debugState?.play && (window as any).sim, undefined, { timeout: 60000 });
     // The day was spent as the heist started; the address no longer names the campaign (a reload resumes the heist).
@@ -103,5 +105,53 @@ test('a campaign: days, the Squeeze, money, contracts, and a heist that spends i
     await page.locator('.cp-money').evaluate(e => e.scrollIntoView({ block: 'start' }));
     await page.screenshot({ path: 'screenshots/campaign-money.png' });
     expect(await page.evaluate(() => localStorage.getItem('bankheist:heist'))).toBeNull();
+    expect(errors).toEqual([]);
+});
+
+test('the roster: the crew, today\'s recruits, hiring one, and planning with them (M6-04)', async ({ page }) => {
+    test.setTimeout(180000);
+    const errors: string[] = [];
+    page.on('pageerror', e => errors.push(e.message));
+    await page.goto('/?campaign&still');
+    await page.locator('.cp-start').click();
+    await page.evaluate(() => (window as any).campaign.start(5));
+    await expect(page.locator('.cp-member')).toHaveCount(4);
+    await expect(page.locator('.cp-member[data-crew="mara"] .cp-note')).toContainText('Ready. Share 10%. Notoriety 0 (Unknown).');
+    await expect(page.locator('.cp-recruit')).toHaveCount(3);
+    await expect(page.locator('.cp-offer[data-stakes="high"] .cp-note')).toContainText('Crew of 4–5.');
+    // Hire the first recruit the money covers: the fee leaves the clean money, and they join the crew.
+    const id = await page.evaluate(() => {
+        return [...document.querySelectorAll<HTMLElement>('.cp-recruit')].find(li => !li.querySelector('button')!.disabled)!.dataset.recruit!;
+    });
+    await page.locator(`.cp-recruit[data-recruit="${id}"] .cp-hire`).click();
+    await expect(page.locator('.cp-member')).toHaveCount(5);
+    await expect(page.locator(`.cp-member[data-crew="${id}"]`)).toBeVisible();
+    await expect(page.locator(`.cp-recruit[data-recruit="${id}"] .cp-hire`)).toBeDisabled();
+    const after = await campaign(page);
+    expect(after.roster.at(-1).id).toBe(id);
+    expect(after.money.clean).toBeLessThan(24000);
+    // Mara is Known and Dex out injured (as a job would leave them): the page says so, and the planner leaves Dex out.
+    await page.evaluate(() => {
+        const key = 'bankheist:campaign', save = JSON.parse(localStorage.getItem(key)!);
+        for (const m of save.campaign.roster) {
+            if (m.id === 'mara') m.notoriety = 2;
+            if (m.id === 'dex') Object.assign(m, { status: 'injured', injured: 2 });
+        }
+        localStorage.setItem(key, JSON.stringify(save));
+    });
+    await page.reload();
+    await expect(page.locator('.cp-member[data-crew="mara"] .cp-note')).toContainText('Notoriety 2 (Known)');
+    await expect(page.locator('.cp-member[data-crew="dex"] .cp-note')).toContainText('Injured: out 2 more days');
+    await page.locator('.cp-roster').evaluate(e => e.scrollIntoView({ block: 'start' }));
+    await page.screenshot({ path: 'screenshots/campaign-roster.png' });
+    await page.locator('.cp-offer[data-stakes="medium"] .cp-plan').click();
+    await page.waitForFunction(() => (window as any).planner, undefined, { timeout: 60000 });
+    // Those free to go: Mara, Jun, Sol and the recruit, four of them for a medium job.
+    await expect(page.locator('.pl-card')).toHaveCount(4);
+    await expect(page.locator(`.pl-card[data-crew="${id}"]`)).toBeVisible();
+    await expect(page.locator('.pl-card[data-crew="dex"]')).toHaveCount(0);
+    await page.locator('.pl-card[data-crew="mara"]').click();
+    await expect(page.locator('.pl-sheet .pl-who')).toContainText('Notoriety 2 (Known)');
+    await page.screenshot({ path: 'screenshots/planning-roster.png' });
     expect(errors).toEqual([]);
 });

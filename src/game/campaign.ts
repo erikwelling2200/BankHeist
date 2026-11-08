@@ -78,7 +78,7 @@ function memberProblem(value: unknown, day: number): string | undefined {
     if (o !== null) {
         if (!isRecord(o) || typeof o.met !== 'boolean') return `${m.name}'s motive is none`;
         const ok = o.kind === 'debt' ? exactKeys(o, ['kind', 'amount', 'met']) && whole(o.amount) && (o.amount as number) > 0
-            : o.kind === 'neverKill' ? exactKeys(o, ['kind', 'jobs', 'met', 'broken']) && whole(o.jobs) && typeof o.broken === 'boolean' && !(o.met && o.broken)
+            : o.kind === 'neverKill' ? exactKeys(o, ['kind', 'met', 'broken']) && typeof o.broken === 'boolean' && !(o.met && o.broken)
                 : o.kind === 'getEven' ? exactKeys(o, ['kind', 'chain', 'met']) && among(CHAINS, o.chain) : false;
         if (!ok) return `${m.name}'s motive is none`;
     }
@@ -317,7 +317,7 @@ export function objectivesOut(world: ReadonlyWorld, state: DeepReadonly<State>):
 
 /**
  * What became of the heist's crew (§19.6), from the rules' outcome: who got away, was arrested or died, who among those
- * who got away went down on the way (`wounds.wentDown`, revived or not), and how many NPCs died.
+ * who got away went down on the way (`wounds.wentDown`, revived or not), and who killed someone themselves (`wounds.kills`).
  */
 export function crewFates(state: DeepReadonly<State>): CrewFates {
     const o = state.outcome;
@@ -326,7 +326,7 @@ export function crewFates(state: DeepReadonly<State>): CrewFates {
     return {
         escaped, arrested: [...(o?.arrested ?? [])], dead: [...(o?.dead ?? [])],
         downed: [...new Set(everyone.filter(c => c.wounds.wentDown === true && escaped.includes(c.id)).map(c => c.id))],
-        killed: state.npcs.filter(n => n.status === 'dead').length
+        killers: [...new Set(everyone.filter(c => (c.wounds.kills ?? 0) > 0).map(c => c.id))]
     };
 }
 
