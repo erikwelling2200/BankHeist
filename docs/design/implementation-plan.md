@@ -3550,13 +3550,16 @@ Later milestones: within each milestone, the `∥` notes in §3 apply. UI packag
     a trait picked leaves the offers queued after it, each filled back to three from the seed (`tidyOffers`, keyed by
     their trait count and the offer's place) and dropped only when nothing is left to offer. A save is tidied the same
     way as it loads, so an old or edited one can't queue an offer that blocks every pick. While a heist goes on, every
-    save also sends what would become of its crew were it abandoned then (`learn.crew`, kept as `Visit.fates`): the
-    dead so far and those in custody as they are, those away free; those still in the bank are left behind (decision
-    177's crew all down is played out, so abandoning saves nobody from it): a downed one is arrested (dead if they had
-    bled out), a standing one is arrested once the alarm is raised (`bank.alarm`: the police are coming) and otherwise
-    slips away unharmed (injured only if they went down earlier, as anyone who got away). Abandoned, those fates stand
-    (the dead dead, the arrested jailed with their Notoriety, the downed injured, a kill breaking "never kill anyone"),
-    but it counts no job survived, no trait and no motive met.
+    save also sends what abandoning it then would make of its crew (`learn.crew`, kept as `Visit.fates`): exactly what
+    the getaway's own end would, were it over now with nobody more leaving (`crewFates` reads rules/getaway.ts
+    `outcomeNow`, so the two can't disagree): those away (on foot or in a vehicle gone) are free, the dead dead, and
+    everyone else on the plot, up or down, in a vehicle still there or not, is arrested, alarm or not. The one
+    exception is decision 177's: with nobody up and nobody away, there is nobody to get anyone out, and the rules play
+    the downed out (before the alarm no officer can come before they bleed out; the rule counts them dead either way),
+    so each downed one counts as dead, the kill of whoever downed them as `creditKill` would give it. Abandoned, those fates stand (the
+    dead dead, the arrested jailed with their Notoriety, those away who went down injured, a kill breaking "never kill
+    anyone"), but it counts no job survived, no trait and no motive met. Abandoning never saves anyone the getaway
+    wouldn't.
 514. **Motives (M6-04, §19.6).** A debt ($40–80k) is met by paying it; "get even" by a Success on a branch of its chain
     with them on the job; "never kill anyone" as decision 509 says (`wounds.kills`, broken by their own kill only;
     `settleFinaleMotives` pays it, for M7 to call). Every motive met pays a contact (user decision: perks later).

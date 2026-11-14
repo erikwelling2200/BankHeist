@@ -1,11 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import {
     campaignRefusal, commitCampaign, CREW_BY_STAKES, crewMember, DEBT, drawRecruits, INJURY_DAYS, LAWYER_COST, LAWYER_DAYS, newCampaign, RECRUIT_LOOKS, RECRUITS_A_DAY,
-    recruitLook, ROSTER_MAX, settleFinaleMotives, SIGNING_FEE, SQUEEZE, talks, TRAIT_CHOICES, type Campaign, type CampaignCommand, type CampaignEvent, type CrewFates,
+    recruitLook, ROSTER_MAX, settleFinaleMotives, SIGNING_FEE, SQUEEZE, talks, tidyOffers, TRAIT_CHOICES, type Campaign, type CampaignCommand, type CampaignEvent, type CrewFates,
     type CrewMember, type Job, type Stakes
 } from '../../src/campaign';
 import { deserialiseCampaign, serialiseCampaign } from '../../src/game/campaign';
-import { TRAITS } from '../../src/sim';
+import { TRAITS, type Trait } from '../../src/sim';
 
 /*
  * The roster (M6-04, GAME_DESIGN §19.6, §19.7): recruits, crew size by stakes, injuries, jail and a prisoner who talks,
@@ -348,6 +348,14 @@ describe('a trait picked (the review\'s repro)', () => {
         expect(next[0]!.slice(0, 2)).toEqual(offers[1]!.filter(t => t !== both));
         expect(step(c, { kind: 'pickTrait', crew: 'mara', trait: both })).toEqual(d);
         roundTrips(d);
+    });
+
+    it('tidies an offer holding a trait twice to three different ones (tidyOffers)', () => {
+        const m = member(newCampaign(1), 'mara'), [t, u] = TRAITS.filter(x => !m.traits.includes(x)) as [Trait, Trait];
+        const [offer] = tidyOffers(1, { ...m, traitOffers: [[t, t, u]] });
+        expect(offer).toHaveLength(3);
+        expect(new Set(offer).size).toBe(3);
+        expect(offer!.slice(0, 2)).toEqual([t, u]);
     });
 
     it('a save queuing an offer of traits already held is tidied as it loads, so picks go on', () => {

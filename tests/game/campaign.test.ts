@@ -168,9 +168,12 @@ describe('a campaign heist (decision 406: casing is paid in days)', () => {
         expect(loadCampaign(storage)).toMatchObject({ day: 2, squeeze: 2, visit: { kind: 'heist', day: 1, bank: print } });
         expect(savedHeist(storage)?.campaign).toEqual(tag);
         session.commit({ type: 'endTurn' });
-        // Abandoned: the next day action counts the failed job, and the saved heist is dropped.
+        // Abandoned: the next day action counts the failed job, and the saved heist is dropped. Its crew, left on the
+        // plot as the getaway's end would leave them, are arrested (decision 513): +1 Squeeze for each one's Notoriety.
         expect(heistUnfinished(loadCampaign(storage)!)).toBe(true);
-        expect(campaignAct(storage, { kind: 'layLow' })).toMatchObject({ campaign: { day: 3, squeeze: 6 } });
+        const after = campaignAct(storage, { kind: 'layLow' });
+        expect(after).toMatchObject({ campaign: { day: 3, squeeze: 10 } });
+        expect('campaign' in after && after.campaign.roster.every(m => m.status === 'jailed')).toBe(true);
         dropCampaignHeist(storage, tag.seed);
         expect(storage.get(HEIST_KEY)).toBeNull();
     });
@@ -242,8 +245,11 @@ describe('a campaign heist (decision 406: casing is paid in days)', () => {
         let c = loadCampaign(storage)!;
         expect(c.intel[print]![0]).toMatchObject({ day: 1, intel: { guardRota: true, routines: learned } });
         expect(knownBefore(c, print)).toMatchObject({ guardRota: true, routines: learned });
-        // Day 3: a heist that starts knowing them learns nothing new about them.
+        // Day 3: a heist that starts knowing them learns nothing new about them. (Abandoning the first jailed its crew,
+        // decision 513: they are let out here, which is beside this test's point.)
         campaignAct(storage, { kind: 'layLow' });
+        const freed = loadCampaign(storage)!;
+        saveCampaign(storage, { ...freed, roster: freed.roster.map(({ jail: _jail, ...m }) => ({ ...m, status: 'ready' as const, notoriety: 0 })) });
         const second = campaignHeist(storage).session;
         second.commit({ type: 'endTurn' });
         c = loadCampaign(storage)!;

@@ -4,7 +4,7 @@ import {
     type CrewMember, type IntelAsset, type Job, type Stakes
 } from '../campaign';
 import { ARCHETYPES, PLOTS, TIERS, type GeneratedBank } from '../gen/model';
-import { heistReport, intelOf, isItem, type HeistReport, ITEMS, SaveFormatError, stableJson, TRAITS, type DeepReadonly, type Intel, type ReadonlyWorld, type State } from '../sim';
+import { heistReport, intelOf, isDown, isItem, type HeistReport, ITEMS, outcomeNow, SaveFormatError, stableJson, TRAITS, type DeepReadonly, type Intel, type ReadonlyWorld, type State } from '../sim';
 import { bankAddress, sameAddress, savedHeist, type BankAddress, type CampaignTag } from './heist';
 import { ASSETS, FAVOUR_CAP, gearOf, rosterMember, spent, type CrewPool, type HeistSetup, type Purse, type RosterMember } from './plan';
 import { Session, type IntelKeeper } from './session';
@@ -357,21 +357,30 @@ export function objectivesOut(world: ReadonlyWorld, state: DeepReadonly<State>):
 /**
  * What became of the heist's crew (§19.6), from the rules' outcome: who got away, was arrested or died, who among those
  * who got away went down on the way (`wounds.wentDown`, revived or not), and who killed someone themselves (`wounds.kills`).
- * While it goes on, what would become of them were it abandoned now (decision 513): the dead so far, those in custody and
- * those away as they are, and those still in the bank left behind: arrested if down, or if standing once the alarm is
- * raised (`bank.alarm`: the police are coming); otherwise they slip away.
+ * While it goes on, what abandoning it now would do (decision 513): the getaway's own end now (`outcomeNow`, nobody
+ * more leaving), so whoever is left behind on the plot, in a vehicle still there or not, is arrested; but with nobody
+ * up and nobody away (decision 177: nobody to get anyone out) the downed bleed out, each the kill of whoever downed them.
  */
-export function crewFates(state: DeepReadonly<State>): CrewFates {
-    const o = state.outcome;
+export function crewFates(world: ReadonlyWorld, state: DeepReadonly<State>): CrewFates {
+    const o = state.outcome ?? outcomeNow(world, state, null);
     const everyone = [...state.crew, ...state.escaped.map(e => e.crew), ...state.custody.map(c => c.crew)];
-    const behind = state.crew.filter(c => !c.wounds.dead), taken = (c: (typeof behind)[number]): boolean => !!c.wounds.downed || state.bank.alarm;
-    const dead = o ? [...(o.dead ?? [])] : everyone.filter(c => c.wounds.dead).map(c => c.id);
-    const arrested = o ? [...(o.arrested ?? [])] : [...state.custody.map(c => c.crew.id), ...behind.filter(taken).map(c => c.id)];
-    const escaped = o ? [...(o.escaped ?? [])] : [...state.escaped.filter(e => !e.crew.wounds.dead).map(e => e.crew.id), ...behind.filter(c => !taken(c)).map(c => c.id)];
+    const escaped = [...(o.escaped ?? [])];
+    let dead = [...(o.dead ?? [])], arrested = [...(o.arrested ?? [])];
+    const killers = new Set(everyone.filter(c => (c.wounds.kills ?? 0) > 0).map(c => c.id));
+    if (!state.outcome && !state.escaped.length && state.crew.every(isDown)) {
+        const bleeding = state.crew.filter(c => c.wounds.downed);
+        dead = [...dead, ...bleeding.map(c => c.id)];
+        arrested = arrested.filter(id => !bleeding.some(c => c.id === id));
+        // The kill credit the rules give a bleed-out (rules/wounds.ts `creditKill`): a crew member who downed them, not themselves.
+        for (const c of bleeding) {
+            const by = c.wounds.downed!.by;
+            if (by !== undefined && by !== c.id && everyone.some(m => m.id === by)) killers.add(by);
+        }
+    }
     return {
         escaped, arrested, dead,
         downed: [...new Set(everyone.filter(c => c.wounds.wentDown === true && escaped.includes(c.id)).map(c => c.id))],
-        killers: [...new Set(everyone.filter(c => (c.wounds.kills ?? 0) > 0).map(c => c.id))]
+        killers: everyone.map(c => c.id).filter((id, i, all) => killers.has(id) && all.indexOf(id) === i)
     };
 }
 
@@ -408,7 +417,7 @@ export function campaignKeeper(storage: SaveStorage, tag: CampaignTag): IntelKee
         if (campaign.seed !== tag.seed || campaign.visit?.day !== tag.day || campaign.visit.bank !== bank) return 'drop';
         // Its result is in already (it ended, or was abandoned into the Raid): it learns nothing more for the campaign.
         if (campaign.visit.result) return 'drop';
-        const intel = intelOf(world, state), fates = crewFates(state), report = heistReport(world, state), text = stableJson({ intel, fates, report }), ended = state.outcome?.result;
+        const intel = intelOf(world, state), fates = crewFates(world, state), report = heistReport(world, state), text = stableJson({ intel, fates, report }), ended = state.outcome?.result;
         let next = campaign;
         // What it learned, and what has become of its crew so far (settled if it is abandoned, decision 513).
         if (text !== kept) next = commitCampaign(next, { kind: 'learn', bank, day: tag.day, intel, ...(next.visit?.kind === 'heist' ? { crew: fates, report } : {}) }).campaign;
