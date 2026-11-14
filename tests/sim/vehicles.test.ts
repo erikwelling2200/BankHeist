@@ -153,6 +153,9 @@ describe('ramming a wall (§14.4)', () => {
         const done = step(a.world, a.state, RAM);
         expect(of(done.events, 'driveCut')).toEqual([]);
         expect(of(done.events, 'harmed').map(h => [h.target, h.damage])).toEqual([['teller', 6]]);
+        // The teller died of it: the driver's kill (decision 519), not Jun's.
+        expect(done.state.npcs.find(n => n.id === 'teller')!.status).toBe('dead');
+        expect(done.state.crew.map(c => [c.id, c.wounds.kills])).toEqual([['mara', 1], ['jun', 0]]);
         expect(done.state.vehicles.van!.pose).toEqual(pb.state.vehicles.van!.pose);
     });
 

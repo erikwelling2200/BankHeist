@@ -78,7 +78,7 @@ describe('saving', () => {
  * NpcStatusMap, CarrierKindMap or adds a field must also fill it in below, or a change of shape goes unnoticed.
  */
 const SHAPE_HASHES: Record<number, string> = {
-    1: '3a556c3b9dd5b254'
+    1: 'b4966c7b3d0b4cf9'
 };
 
 /** Paths whose objects are records by id, not structs. */
@@ -237,6 +237,8 @@ describe('the save format', () => {
         full.crew[0]!.aboard = 'van';
         for (const c of full.crew) c.transit = { route: 'roof', inward: true, left: 1, from: { x: 0, y: 0 }, escape: false };
         full.crew[0]!.cameOut = 3;
+        // Down on every crew member (escaped and undo copies too), so the shape sees `downed` in full, `by` included.
+        for (const c of full.crew) c.wounds.downed = { left: 2, turn: 3, phase: 'world', by: 'jun' };
         full.escaped = [{ crew: JSON.parse(JSON.stringify(full.crew[1]!)), vehicle: 'van', turn: 3 }, { crew: JSON.parse(JSON.stringify(full.crew[1]!)), vehicle: null, route: 'route-0', turn: 4 }];
         full.outcome = {
             result: 'partial', turn: 9, vehicle: 'van', escaped: ['jun'], arrested: ['mara'], dead: [], loot: ['cash'], value: 5000, ruined: 0, target: 75000, heat: 2

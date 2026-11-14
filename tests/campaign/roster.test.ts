@@ -333,4 +333,36 @@ describe('a trait picked (the review\'s repro)', () => {
         const t = member(d, 'mara').traitOffers[0]?.[0];
         if (t) roundTrips(step(d, { kind: 'pickTrait', crew: 'mara', trait: t }));
     });
+
+    it('fills the offers queued after it back to three from the seed, none held, the same every time', () => {
+        let c: Campaign = { ...newCampaign(1), money: { clean: 1e7, dirty: 0 } };
+        for (let i = 0; i < 4; i++) c = heist(c, ['mara', 'jun'], { escaped: ['mara', 'jun'] }).campaign;
+        const offers = member(c, 'mara').traitOffers, both = offers[0]!.find(t => offers[1]!.includes(t))!;
+        const d = step(c, { kind: 'pickTrait', crew: 'mara', trait: both });
+        const next = member(d, 'mara').traitOffers;
+        expect(next).toHaveLength(1);
+        expect(next[0]).toHaveLength(3);
+        expect(new Set(next[0]).size).toBe(3);
+        expect(next[0]!.some(t => member(d, 'mara').traits.includes(t))).toBe(false);
+        // What was left of it stays, in its place; the refill is the seed's.
+        expect(next[0]!.slice(0, 2)).toEqual(offers[1]!.filter(t => t !== both));
+        expect(step(c, { kind: 'pickTrait', crew: 'mara', trait: both })).toEqual(d);
+        roundTrips(d);
+    });
+
+    it('a save queuing an offer of traits already held is tidied as it loads, so picks go on', () => {
+        let c: Campaign = { ...newCampaign(1), money: { clean: 1e7, dirty: 0 } };
+        for (let i = 0; i < 2; i++) c = heist(c, ['mara', 'jun'], { escaped: ['mara', 'jun'] }).campaign;
+        const fresh = member(c, 'mara').traitOffers[0]!;
+        // An old or edited save: a first offer of nothing but her own trait, then a good one.
+        const stuck: Campaign = { ...c, roster: c.roster.map(m => (m.id === 'mara' ? { ...m, traitOffers: [[...m.traits], fresh] } : m)) };
+        const loaded = deserialiseCampaign(serialiseCampaign(stuck));
+        const head = member(loaded, 'mara').traitOffers[0]!;
+        expect(member(loaded, 'mara').traitOffers).toHaveLength(2);
+        expect(head).toHaveLength(3);
+        expect(head.some(t => member(loaded, 'mara').traits.includes(t))).toBe(false);
+        expect(member(loaded, 'mara').traitOffers[1]).toEqual(fresh);
+        expect(campaignRefusal(loaded, { kind: 'pickTrait', crew: 'mara', trait: head[0]! })).toBeUndefined();
+        expect(deserialiseCampaign(serialiseCampaign(stuck))).toEqual(loaded);
+    });
 });

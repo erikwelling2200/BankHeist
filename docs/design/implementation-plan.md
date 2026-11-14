@@ -1774,7 +1774,7 @@ M2 is complete: every package below has landed.
     `Motive`, `Jail`, `STARTING_ROSTER`, `drawRecruits`, `recruitLook`, `CREW_BY_STAKES`, the numbers, `traitOffer`,
     `talks`, `gainNotoriety`); `Campaign.roster` replaces `shares`; commands `recruit`, `pickTrait`, `lawyer`, `payDebt`,
     `heistOver.crew` (`CrewFates`); `settleFinaleMotives` for M7. The rules: `wounds.wentDown` and `wounds.kills` (save
-    shape hash `3a556c3b9dd5b254`). `src/game/campaign.ts`: the save at format 4 with the roster's checks, `campaignCrew`,
+    shape hash `b4966c7b3d0b4cf9`, its sample filling `downed.by`). `src/game/campaign.ts`: the save at format 4 with the roster's checks, `campaignCrew`,
     `campaignPurse(…, stakes)`, `crewFates`, `startContractHeist`. `src/game/plan.ts`: `CrewPool` (`Purse.crew`,
     `SANDBOX_CREW`, `crewOf`, `crewLookOf`), `RosterMember.notoriety`, the crew size in `setupProblems`, `defaultSetup` and
     `heistFromSetup` from a pool; `startHeist` takes it. The planner picks from the pool and shows Notoriety; `?campaign`
@@ -3518,14 +3518,20 @@ Later milestones: within each milestone, the `∥` notes in §3 apply. UI packag
     jail or dead); the rules refuse other crews, and the planning screen's pool is the ready roster with the contract's
     size. The plan opens on the first of them as many as the contract takes, two by the van, the rest in it. The
     sandbox keeps 1–4 of §3's four.
-513. **A job's end for its crew (M6-04, §19.6; M6-04 review).** The keeper sends `CrewFates` from the outcome: the
+513. **A job's end for its crew (M6-04, §19.6; M6-04 reviews).** The keeper sends `CrewFates` from the outcome: the
     dead are gone; the arrested go to jail with +2 Notoriety; those who got away but went down (`wounds.wentDown`,
     revived or not) are out `INJURY_DAYS` = 3 days. Every survivor (the arrested too) counts a job; every second offers
-    three traits they lack, from the seed, picked by the player at any time (no time spent). A trait picked is dropped
-    from the offers queued after it, and one they have is refused. While a heist goes on, every save also sends what has
-    become of its crew so far (`learn.crew`, kept as `Visit.fates`): abandoned, those fates stand (the dead dead, those
-    in custody jailed with their Notoriety, the downed injured, a kill breaking "never kill anyone"), but it counts no
-    job survived, no trait and no motive met.
+    three traits they lack, from the seed, picked by the player at any time (no time spent). One they have is refused;
+    a trait picked leaves the offers queued after it, each filled back to three from the seed (`tidyOffers`, keyed by
+    their trait count and the offer's place) and dropped only when nothing is left to offer. A save is tidied the same
+    way as it loads, so an old or edited one can't queue an offer that blocks every pick. While a heist goes on, every
+    save also sends what would become of its crew were it abandoned then (`learn.crew`, kept as `Visit.fates`): the
+    dead so far and those in custody as they are, those away free; those still in the bank are left behind (decision
+    177's crew all down is played out, so abandoning saves nobody from it): a downed one is arrested (dead if they had
+    bled out), a standing one is arrested once the alarm is raised (`bank.alarm`: the police are coming) and otherwise
+    slips away unharmed (injured only if they went down earlier, as anyone who got away). Abandoned, those fates stand
+    (the dead dead, the arrested jailed with their Notoriety, the downed injured, a kill breaking "never kill anyone"),
+    but it counts no job survived, no trait and no motive met.
 514. **Motives (M6-04, §19.6).** A debt ($40–80k) is met by paying it; "get even" by a Success on a branch of its chain
     with them on the job; "never kill anyone" as decision 509 says (`wounds.kills`, broken by their own kill only;
     `settleFinaleMotives` pays it, for M7 to call). Every motive met pays a contact (user decision: perks later).
@@ -3544,7 +3550,8 @@ Later milestones: within each milestone, the `∥` notes in §3 apply. UI packag
     (the plan is checked against the pool, and the rules again at Start).
 519. **Kills are the killer's (M6-04 review, decision 509).** `wounds.kills` counts every death a crew member dealt:
     an NPC (`killNpc`), an officer (the police harm handler, a lethal hit to 0 HP) and a teammate who bleeds out after
-    they downed them (`downed.by`); a death by anyone else counts for nobody. Shares stay as decision 482 says: every
+    they downed them (`downed.by`), wherever the killer is by then: on the map, away or in custody (a tripwire or charge
+    keeps its `by`, and a bleed-out may come after the one who downed them left); a death by anyone else counts for nobody. Shares stay as decision 482 says: every
     crew member who went takes their share, the dead and arrested too (§19.4 "the crew take a share of each job").
 
 ### Critical files for implementation

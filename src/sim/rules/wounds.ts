@@ -271,11 +271,12 @@ export function dropTargets(state: State, crewId: string): void {
 
 /**
  * A death dealt by `by`: a crew member's own kill (`wounds.kills`, the campaign's "never kill anyone", decision 509),
- * whoever it was (an NPC, an officer, a teammate). Nothing for a death dealt by anyone else, or by the victim.
+ * whoever it was (an NPC, an officer, a teammate), wherever the killer is (on the map, away, in custody). Nothing for a death dealt by anyone else, or by the victim.
  */
 export function creditKill(state: State, by: string | undefined, victim?: string): void {
     if (by === undefined || by === victim) return;
-    const killer = state.crew.find(c => c.id === by);
+    // Wherever they are now: a tripwire or charge they left, or a teammate they downed, can kill after they are away or arrested.
+    const killer = [...state.crew, ...state.escaped.map(e => e.crew), ...state.custody.map(c => c.crew)].find(c => c.id === by);
     if (killer) killer.wounds.kills += 1;
 }
 

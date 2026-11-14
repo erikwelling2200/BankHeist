@@ -5,7 +5,7 @@ import { escalateChain, refreshContracts, type Contract } from './contracts';
 import { countItems, FENCE_CUT, fenced, FRONT_COST, LAUNDER_PER_DAY, MARKET, NERVOUS_FENCE_CUT, sharesOf, STAKES, STARTER_KIT, STARTING_CASH, type Stakes } from './money';
 import {
     ARREST_NOTORIETY, CREW_BY_STAKES, DECAY_DAYS, drawRecruits, gainNotoriety, hired, INJURY_DAYS, LAWYER_COST, LAWYER_DAYS, LAY_LOW_HEALS, livingCrew, NAMED_NOTORIETY,
-    ROSTER_MAX, sharesOfRoster, STARTING_ROSTER, talks, TRAIT_EVERY, traitOffer, type CrewMember, type MotiveKind
+    ROSTER_MAX, sharesOfRoster, STARTING_ROSTER, talks, TRAIT_EVERY, tidyOffers, traitOffer, type CrewMember, type MotiveKind
 } from './roster';
 import { ALL_THRESHOLDS, projectedDay, SQUEEZE, THRESHOLDS, type SqueezeSource } from './squeeze';
 
@@ -519,8 +519,8 @@ export function commitCampaign(campaign: Campaign, cmd: CampaignCommand): { camp
             const m = c.roster.find(x => x.id === cmd.crew)!;
             m.traitOffers.shift();
             m.traits.push(cmd.trait as Trait);
-            // Offers queued after this one never hold a trait they have now; one left empty is dropped.
-            m.traitOffers = m.traitOffers.map(o => o.filter(t => t !== cmd.trait)).filter(o => o.length > 0);
+            // Offers queued after this one never hold a trait they have now: refilled from the seed (decision 513).
+            m.traitOffers = tidyOffers(c.seed, m);
             events.push({ type: 'trait', crew: m.id, trait: cmd.trait as Trait });
             break;
         }

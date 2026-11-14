@@ -3,6 +3,7 @@ import {
     commit, crewBudget, dealHarm, fixtureWorld, initialState, legalActions, preview, whyNot,
     type CrewStart, type FixtureOptions, type PersonDef, type Pos, type ReadonlyWorld, type SimEvent, type State
 } from '../../src/sim';
+import { leaveOnFoot } from '../../src/sim/rules/getaway';
 import { registerTestCommand, testCommand } from './helpers';
 
 /*
@@ -22,6 +23,9 @@ registerTestCommand('testHarm', (ctx, cmd) => {
     dealHarm(ctx, { target: c.target, by: c.by ?? 'test', cause: 'shot', weapon: 'pistol', hits: 1, damage: c.damage, lethal: true });
 });
 const harm = (target: string, damage: number, by?: string) => testCommand({ type: 'testHarm', target, damage, ...(by ? { by } : {}) } as never);
+// A crew member off the map on foot, as the end of a route out does (rules/getaway.ts `leaveOnFoot`).
+registerTestCommand('testLeave', (ctx, cmd) => leaveOnFoot(ctx, ctx.state.crew.find(c => c.id === (cmd as unknown as { crew: string }).crew)!, 'sewer'));
+const leave = (crew: string) => testCommand({ type: 'testLeave', crew } as never);
 
 interface Setup extends FixtureOptions { jun?: Partial<CrewStart>; mara?: Partial<CrewStart> }
 
@@ -216,9 +220,42 @@ describe('kills credited to the crew member who made them (decision 509)', () =>
         for (let i = 0; i < 30 && !crew(s, 'mara').wounds.dead; i++) s = endTurn(world, s);
         expect(crew(s, 'mara').wounds.dead).toBe(true);
         expect(crew(s, 'jun').wounds.kills).toBe(1);
+        // Jun downed by Mara and revived by her: up again, and nobody's kill however long it goes on.
+        let r = commit(world, commit(world, state, harm('jun', 8, 'mara')).state, { type: 'revive', crew: 'mara', ally: 'jun' }).state;
+        expect(crew(r, 'jun').wounds).toMatchObject({ downed: null, dead: false });
+        for (let i = 0; i < 5; i++) r = endTurn(world, r);
+        expect(crew(r, 'jun').wounds.dead).toBe(false);
+        expect(crew(r, 'mara').wounds.kills).toBe(0);
         // Downed by the test's own harm (no crew member): nobody's kill.
         let t = commit(world, state, harm('mara', 8)).state;
         for (let i = 0; i < 30 && !crew(t, 'mara').wounds.dead; i++) t = endTurn(world, t);
         expect(crew(t, 'jun').wounds.kills).toBe(0);
+    });
+
+    it('a crew member who downed themselves and bled out killed nobody', () => {
+        const { world, state } = setup();
+        let s = commit(world, state, harm('mara', 8, 'mara')).state;
+        expect(crew(s, 'mara').wounds.downed).toMatchObject({ by: 'mara' });
+        for (let i = 0; i < 30 && !crew(s, 'mara').wounds.dead; i++) s = endTurn(world, s);
+        expect(crew(s, 'mara').wounds).toMatchObject({ dead: true, kills: 0 });
+    });
+
+    it('credits the shooter wherever they are when the teammate bleeds out: away, or in custody', () => {
+        // Jun downs Mara and leaves on foot; she bleeds out on the map.
+        const away = setup();
+        let s = commit(away.world, commit(away.world, away.state, harm('mara', 8, 'jun')).state, leave('jun')).state;
+        expect(s.escaped.map(e => e.crew.id)).toEqual(['jun']);
+        for (let i = 0; i < 30 && !crew(s, 'mara').wounds.dead; i++) s = endTurn(away.world, s);
+        expect(crew(s, 'mara').wounds.dead).toBe(true);
+        expect(s.escaped[0]!.crew.wounds.kills).toBe(1);
+        // Jun downs Mara, goes down himself and is arrested; she bleeds out after.
+        const caught = setup({ mara: { pos: P(8, 3) } });
+        let t = commit(caught.world, commit(caught.world, caught.state, harm('mara', 8, 'jun')).state, harm('jun', 8)).state;
+        t.police.units.push({ id: 'unit-1', kind: 'patrol', vehicle: null, staging: null, arrived: -1, pos: P(0, 2), hp: 6, leaning: null, suppressed: null, moved: null, team: null, watch: null, flashbangs: 0, surprised: null });
+        t = endTurn(caught.world, t);
+        expect(t.custody.map(c => c.crew.id)).toEqual(['jun']);
+        for (let i = 0; i < 30 && t.crew.some(c => c.id === 'mara' && !c.wounds.dead); i++) t = endTurn(caught.world, t);
+        expect(t.crew.find(c => c.id === 'mara')?.wounds.dead).toBe(true);
+        expect(t.custody[0]!.crew.wounds.kills).toBe(1);
     });
 });

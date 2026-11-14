@@ -5,8 +5,10 @@ import { startHeist } from '../../src/game/heist';
 import { campaignPrint } from '../../src/game/intel';
 import { crewLookOf, defaultSetup, heistFromSetup, planOptions, setupProblems } from '../../src/game/plan';
 import { MemoryStorage } from '../../src/game';
-import { crewLook, readProfile } from '../../src/sim';
+import { commit, crewLook, dealHarm, readProfile, startCarrier, type Command, type ReadonlyWorld, type State } from '../../src/sim';
+import { leaveOnFoot } from '../../src/sim/rules/getaway';
 import { cachedBank } from '../bankCache';
+import { registerTestCommand, testCommand } from '../sim/helpers';
 
 /*
  * The roster in the game (M6-04): the planning screen picks from the campaign's crew free to go, a contract's size of
@@ -16,6 +18,32 @@ import { cachedBank } from '../bankCache';
 
 const bank = cachedBank({ layout: 31, population: 2, tier: 'small', archetype: 'twoWing' });
 const options = planOptions(bank);
+
+// The rules' own harm, alarm and leaving on foot, as an attack, a carrier and a route out deal them.
+registerTestCommand('rosterHarm', (ctx, cmd) => {
+    const c = cmd as unknown as { target: string; by?: string };
+    dealHarm(ctx, { target: c.target, by: c.by ?? 'test', cause: 'shot', weapon: 'pistol', hits: 1, damage: 99, lethal: true });
+});
+registerTestCommand('rosterAlarm', ctx => {
+    const m = ctx.state.crew[0]!;
+    startCarrier(ctx, { kind: 'tellerButton', source: 'test', pos: m.pos, countdown: ctx.world.rules.minCarrierCountdown });
+});
+registerTestCommand('rosterLeave', (ctx, cmd) => leaveOnFoot(ctx, ctx.state.crew.find(c => c.id === (cmd as unknown as { crew: string }).crew)!, 'sewer'));
+const down = (target: string, by?: string): Command => testCommand({ type: 'rosterHarm', target, ...(by ? { by } : {}) } as never);
+const play = (world: ReadonlyWorld, state: State, ...cmds: Command[]): State => cmds.reduce((s, cmd) => commit(world, s, cmd).state, state);
+
+/** A campaign whose day 1 is a low-stakes heist with the default plan, started with its keeper, saved. */
+function campaignHeist(seed: number) {
+    const storage = new MemoryStorage();
+    let c = newCampaign(seed);
+    const pool = campaignCrew(c, 'low'), setup = defaultSetup(options, {}, pool);
+    const offer = c.contracts.find(k => k.stakes === 'low')!;
+    c = commitCampaign(c, { kind: 'heist', bank: campaignPrint(options.world), contract: offer.id, job: { crew: setup.crew.map(m => m.id), kits: Object.fromEntries(setup.crew.map(m => [m.id, []])), stakes: 'low' } }).campaign;
+    saveCampaign(storage, c);
+    const tag = { seed: c.seed, day: 1 };
+    const session = startHeist(bank, storage, { keepIntel: campaignKeeper(storage, tag) }, setup, tag, pool);
+    return { storage, tag, session, ids: setup.crew.map(m => m.id) };
+}
 
 /** A campaign with a recruit hired, Mara Known and Dex out injured. */
 function campaign(): Campaign {
@@ -97,3 +125,39 @@ describe("the heist's end for its crew", () => {
         expect(after.roster.find(m => m.id === 'jun')!.notoriety).toBe(2);
     });
 });
+
+describe('an abandoned heist (decision 513: those still in the bank are left behind)', () => {
+    const abandon = (storage: MemoryStorage): Campaign => commitCampaign(loadCampaign(storage)!, { kind: 'layLow' }).campaign;
+    const statuses = (c: Campaign, ids: string[]) => ids.map(id => c.roster.find(m => m.id === id)!.status);
+
+    it('before the alarm: a downed one is arrested, the standing slip away unharmed', () => {
+        const { storage, tag, session, ids } = campaignHeist(7);
+        const [a, b, c] = ids as [string, string, string];
+        const s = play(session.world, session.state, down(a, b));
+        expect(s.bank.alarm).toBe(false);
+        expect(crewFates(s)).toEqual({ escaped: [b, c], arrested: [a], dead: [], downed: [], killers: [] });
+        campaignKeeper(storage, tag)(session.world, s);
+        expect(loadCampaign(storage)!.visit!.fates).toEqual(crewFates(s));
+        const d = abandon(storage);
+        expect(statuses(d, ids)).toEqual(['jailed', 'ready', 'ready']);
+        expect(d.roster.find(m => m.id === a)!.notoriety).toBe(2);
+        expect(d.roster.every(m => m.jobs === 0)).toBe(true);
+    });
+
+    it('once the alarm is raised: the dead stay dead, the standing are arrested, those away are free', () => {
+        const { storage, tag, session, ids } = campaignHeist(7);
+        const [a, b, c] = ids as [string, string, string];
+        let s = play(session.world, session.state, down(a, b), testCommand({ type: 'rosterAlarm' } as never), testCommand({ type: 'rosterLeave', crew: c } as never));
+        for (let i = 0; i < 10 && !s.crew.find(m => m.id === a)!.wounds.dead; i++) s = commit(session.world, s, { type: 'endTurn' }).state;
+        expect(s.bank.alarm).toBe(true);
+        expect(s.outcome).toBeNull();
+        expect(s.crew.map(m => [m.id, m.wounds.dead, !!m.wounds.downed])).toEqual([[a, true, false], [b, false, false]]);
+        expect(crewFates(s)).toEqual({ escaped: [c], arrested: [b], dead: [a], downed: [], killers: [b] });
+        campaignKeeper(storage, tag)(session.world, s);
+        const d = abandon(storage);
+        expect(statuses(d, ids)).toEqual(['dead', 'jailed', 'ready']);
+        // Arrested at the alarm: jail and its Notoriety.
+        expect(d.roster.find(m => m.id === b)!.notoriety).toBe(2);
+    });
+});
+

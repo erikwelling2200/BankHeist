@@ -55,6 +55,9 @@ describe('wall charges', () => {
         expect(off.state.bank.loud).toBe(true);
         expect(off.events.find(e => e.type === 'noise' && e.cause.startsWith('breachCharge'))).toMatchObject({ radius: 14, kind: 'loud' });
         expect(off.state.charges).toEqual([]);
+        // The customer died of it: Jun's kill (decision 519).
+        expect(off.state.npcs.find(n => n.id === 'cust')!.status).toBe('dead');
+        expect(jun(off.state).wounds.kills).toBe(1);
     });
 
     it('leave a gap that movement, sight, sound and bullets pass', () => {
@@ -208,6 +211,21 @@ describe('tripwires and walkers', () => {
         expect(at('a').status).toBe('dead');
         expect(at('a').pos).toEqual(P(1, 1));
         expect(at('b').pos).not.toEqual(at('a').pos);
+    });
+
+    it('a walker killed on one is the kill of the crew member who laid it, even once they have left the map', () => {
+        const world = fixtureWorld(MAP, { people: [person('a', P(4, 3))] });
+        const state = initialState(world, { seed: 3, crew: [{ id: 'jun', pos: P(0, 0), items: ['tripwire'] }, { id: 'mara', pos: P(7, 0) }] });
+        state.bank.loud = true;
+        const laid = commit(world, state, { type: 'placeTripwire', crew: 'jun', at: P(1, 1) }).state;
+        // Jun drives off (out of play, as rules/getaway.ts's leave hook puts him); Mara stays.
+        const [member] = laid.crew.splice(0, 1);
+        laid.escaped.push({ crew: member!, vehicle: 'van', turn: laid.turn });
+        laid.npcs[0]!.intent = { path: [P(3, 2), P(2, 1), P(1, 1), P(1, 0)] };
+        const off = commit(world, laid, { type: 'endTurn' });
+        expect(off.state.npcs[0]!.status).toBe('dead');
+        expect(off.state.escaped[0]!.crew.wounds.kills).toBe(1);
+        expect(off.state.crew[0]!.wounds.kills).toBe(0);
     });
 });
 

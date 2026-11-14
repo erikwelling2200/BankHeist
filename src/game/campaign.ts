@@ -1,6 +1,6 @@
 import {
     campaignRefusal, CHAINS, offered, commitCampaign, COMPLICATION_IDS, CREW_BY_STAKES, DECAY_DAYS, favoursToday, knownIntel, MAX_ESCALATION, MAX_NOTORIETY, OBJECTIVE_KINDS,
-    OBJECTIVE_OFFERS, readyCrew, ROSTER_MAX, STAKES, THRESHOLDS, ALL_THRESHOLDS, type Campaign, type CampaignCommand, type CampaignEvent, type Contract, type CrewFates,
+    OBJECTIVE_OFFERS, readyCrew, ROSTER_MAX, STAKES, THRESHOLDS, ALL_THRESHOLDS, tidyOffers, type Campaign, type CampaignCommand, type CampaignEvent, type Contract, type CrewFates,
     type CrewMember, type IntelAsset, type Job, type Stakes
 } from '../campaign';
 import { ARCHETYPES, PLOTS, TIERS, type GeneratedBank } from '../gen/model';
@@ -213,7 +213,10 @@ export function deserialiseCampaign(text: string): Campaign {
     if (!exactKeys(data, ['format', 'campaign'])) throw new SaveFormatError("The campaign save isn't one");
     const problem = campaignProblem(data.campaign);
     if (problem) throw new SaveFormatError(`The campaign save is broken: ${problem}`);
-    return data.campaign as Campaign;
+    const campaign = data.campaign as Campaign;
+    // An old or edited save may queue an offer of traits already held, which would block every pick: tidied as a pick would.
+    for (const m of campaign.roster) m.traitOffers = tidyOffers(campaign.seed, m);
+    return campaign;
 }
 
 /** Why the last `loadCampaign` found none (null when there simply was none, or it worked). */
@@ -319,20 +322,22 @@ export function objectivesOut(world: ReadonlyWorld, state: DeepReadonly<State>):
 }
 
 /**
- * What became of the heist's crew (§19.6), from the rules' outcome (or, while it goes on, the state so far): who got away, was arrested or died, who among those
+ * What became of the heist's crew (§19.6), from the rules' outcome: who got away, was arrested or died, who among those
  * who got away went down on the way (`wounds.wentDown`, revived or not), and who killed someone themselves (`wounds.kills`).
+ * While it goes on, what would become of them were it abandoned now (decision 513): the dead so far, those in custody and
+ * those away as they are, and those still in the bank left behind: arrested if down, or if standing once the alarm is
+ * raised (`bank.alarm`: the police are coming); otherwise they slip away.
  */
 export function crewFates(state: DeepReadonly<State>): CrewFates {
     const o = state.outcome;
     const everyone = [...state.crew, ...state.escaped.map(e => e.crew), ...state.custody.map(c => c.crew)];
-    // While it goes on: the dead so far, those in custody, the escaped; the rest are still in the bank.
+    const behind = state.crew.filter(c => !c.wounds.dead), taken = (c: (typeof behind)[number]): boolean => !!c.wounds.downed || state.bank.alarm;
     const dead = o ? [...(o.dead ?? [])] : everyone.filter(c => c.wounds.dead).map(c => c.id);
-    const arrested = o ? [...(o.arrested ?? [])] : state.custody.map(c => c.crew.id);
-    const escaped = o ? [...(o.escaped ?? [])] : state.escaped.filter(e => !e.crew.wounds.dead).map(e => e.crew.id);
-    const out = new Set([...dead, ...arrested]);
+    const arrested = o ? [...(o.arrested ?? [])] : [...state.custody.map(c => c.crew.id), ...behind.filter(taken).map(c => c.id)];
+    const escaped = o ? [...(o.escaped ?? [])] : [...state.escaped.filter(e => !e.crew.wounds.dead).map(e => e.crew.id), ...behind.filter(c => !taken(c)).map(c => c.id)];
     return {
         escaped, arrested, dead,
-        downed: [...new Set(everyone.filter(c => c.wounds.wentDown === true && (o ? escaped.includes(c.id) : !out.has(c.id))).map(c => c.id))],
+        downed: [...new Set(everyone.filter(c => c.wounds.wentDown === true && escaped.includes(c.id)).map(c => c.id))],
         killers: [...new Set(everyone.filter(c => (c.wounds.kills ?? 0) > 0).map(c => c.id))]
     };
 }

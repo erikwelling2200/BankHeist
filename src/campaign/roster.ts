@@ -193,6 +193,20 @@ export function traitOffer(seed: number, m: CrewMember, n: number): Trait[] {
     return new Rng(seed).fork(`traits-${m.id}-${n}`).shuffle(open).slice(0, TRAIT_CHOICES);
 }
 
+/**
+ * `m`'s queued trait offers kept to what decision 513 promises: none holds a trait they have, and one that lost some is
+ * filled back to `TRAIT_CHOICES` from the seed (keyed by their trait count and the offer's place, so it never changes on
+ * its own); one with nothing left to offer is dropped. A pick tidies the offers after it; a save is tidied as it loads.
+ */
+export function tidyOffers(seed: number, m: CrewMember): Trait[][] {
+    return m.traitOffers.map((offer, i) => {
+        const kept = [...new Set(offer.filter(t => !m.traits.includes(t)))];
+        if (kept.length >= TRAIT_CHOICES) return kept;
+        const open = TRAITS.filter(t => !m.traits.includes(t) && !kept.includes(t));
+        return [...kept, ...new Rng(seed).fork(`traits-${m.id}-refill-${m.traits.length}-${i}`).shuffle(open).slice(0, TRAIT_CHOICES - kept.length)];
+    }).filter(o => o.length > 0);
+}
+
 /** Whether a prisoner without a lawyer talks on the day `day` passes. */
 export const talks = (seed: number, id: string, day: number): boolean => new Rng(seed).fork(`talk-${id}-${day}`).chance(TALK_CHANCE);
 

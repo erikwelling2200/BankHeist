@@ -22,11 +22,11 @@ const person = (id: string, pos: Pos, role = 'customer', observer: PersonDef['ob
 });
 
 registerTestCommand('testHurt', (ctx, cmd) => {
-    const c = cmd as unknown as { target: string; damage: number };
-    dealHarm(ctx, { target: c.target, by: 'test', cause: 'shot', weapon: 'pistol', hits: 1, damage: c.damage, lethal: true });
+    const c = cmd as unknown as { target: string; damage: number; by?: string; lethal?: boolean };
+    dealHarm(ctx, { target: c.target, by: c.by ?? 'test', cause: 'shot', weapon: 'pistol', hits: 1, damage: c.damage, lethal: c.lethal ?? true });
 });
 registerTestCommand('testOfficerDown', (ctx, cmd) => policeDown(ctx, (cmd as unknown as { unit: string }).unit, true));
-const hurt = (target: string, damage: number) => testCommand({ type: 'testHurt', target, damage } as never);
+const hurt = (target: string, damage: number, by?: string, lethal?: boolean) => testCommand({ type: 'testHurt', target, damage, ...(by ? { by } : {}), ...(lethal === false ? { lethal } : {}) } as never);
 
 const OPEN = Array.from({ length: 5 }, () => '................');
 const endTurn = { type: 'endTurn' } as const;
@@ -165,6 +165,10 @@ describe('officers taking harm', () => {
         expect(types(dead.events)).toEqual(expect.arrayContaining(['policeDown', 'heatChanged']));
         expect(unit(dead.state, 'cop')).toBeUndefined();
         expect(dead.state.heat.policeKilled).toBe(1);
+        // Dealt by nobody of the crew: nobody's kill; by Jun, his (decision 519); a non-lethal takedown is no kill.
+        expect(dead.state.crew[0]!.wounds.kills).toBe(0);
+        expect(commit(world, r.state, hurt('cop', 9, 'jun')).state.crew[0]!.wounds.kills).toBe(1);
+        expect(commit(world, r.state, hurt('cop', 9, 'jun', false)).state.crew[0]!.wounds.kills).toBe(0);
         // A real attack meets the officer as a body with armour 1.
         const shot = commit(world, state, { type: 'attack', crew: 'jun', at: P(6, 2), target: 'cop' });
         expect(of(shot.events, 'shotFired')[0]!.bullets.some(b => b.steps.some(s => s.kind === 'body' && s.id === 'cop'))).toBe(true);
