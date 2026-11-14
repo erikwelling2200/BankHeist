@@ -37,9 +37,13 @@ const heavyInside = (world: ReadonlyWorld, state: DeepReadonly<State>): boolean 
     state.crew.some(c => !c.wounds.dead && inBuilding(world, c.pos) && crewProfile(c) === 'heavy');
 
 // The way in: the first step from outside the building into it, through a hole in a wall or a breached door, or not.
+// And Inside Job, step by step: a Heavy crew member whose one move goes in and out again has stood inside.
 registerMoveHook('record', {
-    step(ctx, _member, path, index, _mode, from) {
+    step(ctx, member, path, index, _mode, from) {
         const { world, state } = ctx;
+        if (state.record.insideJob === null && !member.wounds.dead && crewProfile(member) === 'heavy' && inBuilding(world, path[index]!)) {
+            state.record.insideJob = panelDead(world, state);
+        }
         if (state.record.wayIn !== null) return;
         const prev = index === 0 ? from : path[index - 1]!, now = path[index]!;
         if (inBuilding(world, prev) || !inBuilding(world, now) || Math.abs(prev.x - now.x) + Math.abs(prev.y - now.y) !== 1) return;

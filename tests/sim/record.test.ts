@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
-    clonePlain, creditKill, filmedCrew, fixtureWorld, freezeWorld, hashOf, heistReport, initialState, preview, stylesEarned, witnessedCrew, type Command, type CrewStart, type Facing,
+    clonePlain, creditKill, deepFreeze, deserialise, safeFloor, serialise, filmedCrew, fixtureWorld, freezeWorld, hashOf, heistReport, initialState, preview, stylesEarned, witnessedCrew, type Command, type CrewStart, type Facing,
     type FixtureOptions, type ObserverClass, type PersonDef, type Pos, type ReadonlyWorld, type State, type World, type WorldObject
 } from '../../src/sim';
 import { registerTestCommand, scouted, step, testCommand } from './helpers';
@@ -98,6 +98,38 @@ function front(gap: boolean, extra: FixtureOptions = {}) {
     return built;
 }
 
+describe('the record in a save', () => {
+    it('refuses a record whose entries are not the rules\'', () => {
+        const { world, state } = lobby();
+        const text = (r: unknown) => serialise({ genVersion: 'fixture', world, state: { ...state, record: r as State['record'] } });
+        expect(() => deserialise(text(state.record))).not.toThrow();
+        expect(() => deserialise(text({ ...state.record, kills: [{ crew: 'jun' }] }))).toThrow(/heist record/);
+        expect(() => deserialise(text({ ...state.record, witnesses: [{ npc: 3, crew: 'jun' }] }))).toThrow(/heist record/);
+        expect(() => deserialise(text({ ...state.record, wayIn: 'chimney' }))).toThrow(/heist record/);
+        expect(() => deserialise(text({ witnesses: [], escapees: [], kills: [] }))).toThrow(/heist record/);
+    });
+});
+
+describe('the record and the previews', () => {
+    it('the safe floor judges a move seen dragging a body unmasked without writing into the state it reads', () => {
+        // Jun knocks the clerk out unseen and takes hold of the body; a customer down the room looks his way.
+        const { world, state } = setup(Array.from({ length: 8 }, () => '........'),
+            [person('clerk', 'clerk', 'staff', P(2, 1), 'n'), person('cust', 'customer', 'civilian', P(6, 6), 's')], [{ id: 'jun', pos: P(2, 2) }]);
+        let s = step(world, state, { type: 'knockout', crew: 'jun', npc: 'clerk' }).state;
+        s = step(world, s, { type: 'endTurn' }).state;
+        s = clonePlain(step(world, s, { type: 'drag', crew: 'jun', npc: 'clerk' }).state);
+        s.npcs.find(n => n.id === 'cust')!.facing = 'w';
+        expect(s.record.witnesses).toEqual([]);
+        // The state the session holds is frozen in development: a preview that wrote into it would throw.
+        const frozen = deepFreeze(clonePlain(s));
+        const floor = safeFloor(world, frozen, 'jun');
+        expect(floor.tiles.length).toBeGreaterThan(0);
+        expect(frozen.record.witnesses).toEqual([]);
+        // The move itself does note the witness.
+        expect(step(world, s, { type: 'move', crew: 'jun', path: [P(3, 2), P(4, 2)] }).state.record.witnesses).toEqual([{ npc: 'cust', crew: 'jun' }]);
+    });
+});
+
 describe('the way in and Inside Job (§19.8)', () => {
     it('Cowboys: the first crew member in came through a hole in the wall', () => {
         const { world, state } = front(true);
@@ -110,6 +142,33 @@ describe('the way in and Inside Job (§19.8)', () => {
         const after = act(world, door.state, { type: 'move', crew: 'mara', path: [P(4, 2), P(4, 1)] });
         expect(after.state.record.wayIn).toBe('door');
         expect(stylesEarned(world, after.state)).not.toContain('cowboys');
+    });
+
+    it('Cowboys through a breached door too', () => {
+        const { world, state } = front(false);
+        const s = clonePlain(state);
+        s.doors.front = { status: 'breached' };
+        expect(act(world, s, { type: 'move', crew: 'jun', path: [P(1, 2), P(1, 1)] }).state.record.wayIn).toBe('breach');
+    });
+
+    it('Inside Job: a Heavy crew member inside as the panel dies, by the command that kills it, came first', () => {
+        const panel = { objects: [obj('panel', 'alarmPanel', P(5, 0))] };
+        const built = setup(['......', '......', '......'], [], [{ id: 'jun', pos: P(5, 1), masked: true, items: ['hackingKit'] }],
+            { rooms: ['bbbbbb', 'bbbbbb', '......'], ...panel });
+        const s = clonePlain(built.state);
+        s.objects.panel = { progress: 3 } as never;
+        const done = act(built.world, s, { type: 'interact', crew: 'jun', object: 'panel', verb: 'disable' }).state;
+        expect(done.objects.panel!.disabled).toBe(true);
+        expect(done.record.insideJob).toBe(false);
+    });
+
+    it('Inside Job: a Heavy crew member whose one move goes in and out again has stood inside', () => {
+        const { world, state } = front(false, { objects: [obj('panel', 'alarmPanel', P(5, 0))] });
+        const there = act(world, state, { type: 'move', crew: 'jun', path: [P(1, 2), P(1, 1), P(1, 2)] }).state;
+        expect(there.record.insideJob).toBe(false);
+        const late = clonePlain(there);
+        late.objects.panel = { disabled: true };
+        expect(stylesEarned(world, late)).not.toContain('insideJob');
     });
 
     it('Inside Job: the panel dead before the first Heavy crew member stands inside, decided then', () => {

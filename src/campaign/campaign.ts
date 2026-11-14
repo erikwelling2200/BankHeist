@@ -683,14 +683,15 @@ export const reportOk = (r: HeistReport): boolean =>
 
 /**
  * Pays the styles a heist earned at its stakes (§19.8, decision 523), in `STYLE_IDS` order: each once per stakes, a
- * contact on a high-stakes job, else `STYLE_BONUS` percent of the take. A style with nothing to pay (no take) isn't used up.
+ * contact on a high-stakes job, else `STYLE_BONUS` percent of the take. A job that brought nothing out pays no style at
+ * any stakes, and uses none up (else driving off at once would pay a high-stakes contact per style).
  */
 function payStyles(c: Campaign, events: CampaignEvent[], stakes: Stakes, earned: readonly StyleId[], take: number): Debrief['styles'] {
     const paid = c.styles[stakes];
     return STYLE_IDS.filter(s => earned.includes(s)).map(style => {
         if (paid.includes(style)) return { style, reward: 'paidBefore' as const, amount: 0 };
         const amount = stakes === 'high' ? 0 : styleBonusOf(take);
-        if (stakes !== 'high' && amount <= 0) return { style, reward: 'nothing' as const, amount: 0 };
+        if (take <= 0 || (stakes !== 'high' && amount <= 0)) return { style, reward: 'nothing' as const, amount: 0 };
         paid.push(style);
         const reward = stakes === 'high' ? 'contact' as const : 'money' as const;
         events.push({ type: 'style', style, stakes, reward, amount });

@@ -67,6 +67,11 @@ describe('styles (§19.8)', () => {
         expect(done.campaign.contacts).toBe(2);
         expect(done.campaign.debrief).toMatchObject({ contacts: 2, styleBonus: 0 });
         expect(done.events.filter(e => e.type === 'style')).toHaveLength(2);
+        // Driven off at once with nothing: no contact, and the styles stay to be earned.
+        const empty = heist(newCampaign(1), { stakes: 'high', crew: ['mara', 'jun', 'dex', 'sol'], take: 0, r: { styles: ['ghost', 'cleanHands', 'smoothOperator'] } });
+        expect(empty.campaign.debrief!.styles.map(s => s.reward)).toEqual(['nothing', 'nothing', 'nothing']);
+        expect(empty.campaign.contacts).toBe(0);
+        expect(empty.campaign.styles.high).toEqual([]);
     });
 
     it('pay nothing on a failure, and a style with nothing to pay is not used up', () => {

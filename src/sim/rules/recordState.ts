@@ -41,9 +41,19 @@ registerStateInit('record', (_world, state) => {
     state.record = { witnesses: [], escapees: [], missed: 0, insideJob: null, wayIn: null, assaultsHeld: 0, kills: [] };
 });
 
+const isPos = (p: unknown): boolean => typeof p === 'object' && p !== null && Number.isInteger((p as Pos).x) && Number.isInteger((p as Pos).y);
+const isId = (v: unknown): v is string => typeof v === 'string';
+
+// A save from before M6-05 has no record; one whose entries aren't the rules' would make the debrief throw.
 registerStateCheck('record', raw => {
     const r = (raw as { record?: Partial<HeistRecord> }).record;
-    return r && Array.isArray(r.witnesses) && Array.isArray(r.escapees) && Array.isArray(r.kills) ? undefined : 'no heist record (a save from before M6-05)';
+    if (!r || typeof r !== 'object') return 'no heist record (a save from before M6-05)';
+    const ok = Array.isArray(r.witnesses) && r.witnesses.every(w => typeof w === 'object' && w !== null && isId(w.npc) && isId(w.crew))
+        && Array.isArray(r.escapees) && r.escapees.every(isId)
+        && Number.isInteger(r.missed) && (r.missed as number) >= 0 && Number.isInteger(r.assaultsHeld) && (r.assaultsHeld as number) >= 0
+        && (r.insideJob === null || typeof r.insideJob === 'boolean') && (r.wayIn === null || r.wayIn === 'door' || r.wayIn === 'breach')
+        && Array.isArray(r.kills) && r.kills.every(k => typeof k === 'object' && k !== null && isId(k.crew) && isPos(k.at));
+    return ok ? undefined : 'the heist record is broken';
 });
 
 /** An NPC saw a crew member commit an illegal act (perceive.ts): noted when the crew member is unmasked. */

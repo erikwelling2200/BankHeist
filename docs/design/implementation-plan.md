@@ -3589,12 +3589,15 @@ Later milestones: within each milestone, the `∥` notes in §3 apply. UI packag
     command would, the save keeps it, and a resumed heist goes on with it. Nothing in play reads or shows it. The
     debrief's facts come only from it, the outcome and the state (`heistReport`), sent by the keeper with every save and
     the end; the address plays no part, and the campaign checks the report's shape and counts only the job's own crew.
+    A save's record is checked entry by entry as it loads (a malformed one would stop the debrief, and the heist's
+    end, from being worked out). The previews' scratch states copy it before perception writes a witness into it.
 521. **Witnesses (M6-05, §19.7).** A witness is an NPC who had a `!` sighting of an illegal act by a crew member who
     was unmasked at that moment (the same `why: 'illegal'` the cameras record). "Reached the police (escapee, released
     hostage, survivor at the debrief)" is read as alive at the end: escaping, let go, tied or out cold, they all testify;
     only the dead don't. Police officers and cameras are not witnesses (the tape is its own row).
 522. **What each style asks (M6-05, §19.8).** Ghost: `bank.alarm` never set. Inside Job: decided as the first Heavy
-    crew member (mask or heavy profile) stands in the building, by whether every alarm panel was disabled just before;
+    crew member (mask or heavy profile) stands in the building, at any step of a move (one that goes in and out again
+    counts) or after a command (a start inside, a mask put on), by whether every alarm panel was disabled just before;
     with no Heavy crew member ever inside, the panel at the end decides; a bank without a panel never earns it. Clean
     Hands: no NPC, crew member or officer dead, by any cause. Cowboys: the first crew member into the building stepped
     across a hole in a wall (a breach charge's or a ram's gap) or a breached door; anyone in some other way first (a
@@ -3605,14 +3608,17 @@ Later milestones: within each milestone, the `∥` notes in §3 apply. UI packag
     the value out at least twice `rules.contractTarget`.
 523. **What a style pays (M6-05, §19.8).** Each style once per stakes over the campaign ("a one-time bonus … per
     contract tier"): at low and medium stakes `STYLE_BONUS` = 10% of the take, after the crew's shares (§15.5's order:
-    the shares aren't taken from it); at high stakes a contact each. A failed job earns none; a style earned with no take
-    to pay from is listed and not used up. So up to eight contacts can come from styles (the design's literal reading;
+    the shares aren't taken from it); at high stakes a contact each. A failed job earns none, and neither does a job
+    that brought nothing out, at any stakes (driving off at once must not buy contacts): its styles are listed and not
+    used up. So up to eight contacts can come from styles (the design's literal reading;
     M7 may cap what they buy). Stealth styles and loud ones pay alike, so neither is strictly best.
 524. **Notoriety at the debrief (M6-05, §19.7).** +1 for a witness who lived and +1 for the tape left behind
     (`filmedCrew`: none once the recorder is taken or smashed), for each of the job's crew who didn't die; with an
     arrest's +2 they are one gain, so the Forgettable halve the whole (an escaped Forgettable seen and filmed gains 1);
     each crew member who gains adds +1 Squeeze as decision 515 says. An abandoned heist's witnesses and tape stand as its
-    last save had them (`Visit.report`), like its fates (decision 513); it earns no style.
+    last save had them (`Visit.report`), like its fates (decision 513); it earns no style. A recorder the crew took is
+    gone from the bank whatever becomes of its carrier: arrested with it, it still counts as no tape (`footageKept`
+    asks only whether the bank still has it; the police holding it as evidence is not modelled).
 525. **The debrief kept (M6-05, UI.md "Debrief").** The campaign builds `Campaign.debrief` as the heist's end is
     committed (or as the next day action abandons it), from the payout and the events of that end: the contract, the
     side objective, the take, bonus, shares and styles' bonus, each style's reward, each crew member's fate, injury,
