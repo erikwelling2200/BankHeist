@@ -6,7 +6,7 @@ import { startHeist } from '../../src/game/heist';
 import { campaignPrint } from '../../src/game/intel';
 import { crewLookOf, defaultSetup, heistFromSetup, planOptions, setupProblems } from '../../src/game/plan';
 import { MemoryStorage } from '../../src/game';
-import { commit, crewLook, dealHarm, readProfile, startCarrier, type Command, type ReadonlyWorld, type State } from '../../src/sim';
+import { commit, crewBudget, crewLook, dealHarm, pathTo, planMoveOptions, reachable, readProfile, startCarrier, vehicleDoors, type Command, type ReadonlyWorld, type State } from '../../src/sim';
 import { leaveOnFoot } from '../../src/sim/rules/getaway';
 import { cachedBank } from '../bankCache';
 import { registerTestCommand, testCommand } from '../sim/helpers';
@@ -127,23 +127,62 @@ describe("the heist's end for its crew", () => {
     });
 });
 
-describe('an abandoned heist (decision 513: settled as if the getaway left now)', () => {
+describe('an abandoned heist (decision 513: settled as the getaway ordered now would)', () => {
     const abandon = (storage: MemoryStorage): Campaign => commitCampaign(loadCampaign(storage)!, { kind: 'layLow' }).campaign;
     const statuses = (c: Campaign, ids: string[]) => ids.map(id => c.roster.find(m => m.id === id)!.status);
     const endTurn: Command = { type: 'endTurn' };
 
-    it('leaves everyone still on the plot behind, alarm or not, downed or up, in the van that hasn\'t left too', () => {
+    it('on turn one, with the crew by the van: the getaway takes them all, and costs nobody anything but the day', () => {
+        const { storage, tag, session, ids } = campaignHeist(7);
+        expect(crewFates(session.world, session.state)).toEqual({ escaped: ids, arrested: [], dead: [], downed: [], killers: [] });
+        session.commit(endTurn);
+        expect(loadCampaign(storage)!.visit!.fates).toMatchObject({ escaped: ids, arrested: [] });
+        const d = abandon(storage);
+        expect(statuses(d, ids)).toEqual(['ready', 'ready', 'ready']);
+        expect(d.roster.every(m => m.notoriety === 0 && m.jobs === 0)).toBe(true);
+        expect(tag.day).toBe(1);
+    });
+
+    it('a downed one the getaway can\'t take is arrested, and so is one up but beyond a Move of the van', () => {
         const { storage, tag, session, ids } = campaignHeist(7);
         const [a, b, c] = ids as [string, string, string];
-        const s = play(session.world, session.state, down(a, b));
+        const world = session.world;
+        // Jun walks off from the van for two turns, then Mara is downed by him; no alarm.
+        let s: State = session.state;
+        for (let turn = 0; turn < 2; turn++) {
+            const member = s.crew.find(m => m.id === b)!, van = s.vehicles.van!.pose;
+            const reach = reachable(world, s, member.pos, crewBudget(world, member, 'move'), planMoveOptions(world, s, member));
+            const far = reach.tiles.filter(t => t.canEnd).reduce((x, t) => (Math.abs(t.pos.x - van.x) + Math.abs(t.pos.y - van.y) > Math.abs(x.pos.x - van.x) + Math.abs(x.pos.y - van.y) ? t : x));
+            s = play(world, s, { type: 'move', crew: b, path: pathTo(reach, far.pos)! }, endTurn);
+        }
+        s = play(world, s, down(a, b));
         expect(s.bank.alarm).toBe(false);
-        expect(s.crew.find(m => m.id === c)!.aboard).toBe('van');
-        expect(crewFates(session.world, s)).toEqual({ escaped: [], arrested: [a, b, c], dead: [], downed: [], killers: [] });
-        campaignKeeper(storage, tag)(session.world, s);
-        expect(loadCampaign(storage)!.visit!.fates).toEqual(crewFates(session.world, s));
+        expect(crewFates(world, s)).toEqual({ escaped: [c], arrested: [a, b], dead: [], downed: [], killers: [] });
+        campaignKeeper(storage, tag)(world, s);
         const d = abandon(storage);
-        expect(statuses(d, ids)).toEqual(['jailed', 'jailed', 'jailed']);
-        expect(d.roster.every(m => m.jobs === 0)).toBe(true);
+        expect(statuses(d, ids)).toEqual(['jailed', 'jailed', 'ready']);
+        expect(d.roster.find(m => m.id === a)!.notoriety).toBe(2);
+    });
+
+    it('is what a real getaway from the same moment makes of the crew: Get in, Drive off', () => {
+        const { session, ids } = campaignHeist(7);
+        const [a, b, c] = ids as [string, string, string];
+        const world = session.world;
+        // Mara downs Jun; abandoning now takes Mara and Dex, leaves Jun.
+        const s = play(world, session.state, down(b, a));
+        const fates = crewFates(world, s);
+        expect(fates).toEqual({ escaped: [a, c], arrested: [b], dead: [], downed: [], killers: [] });
+        // The real order: Mara walks to a door and gets in, Dex drives off.
+        const mara = s.crew.find(m => m.id === a)!;
+        const reach = reachable(world, s, mara.pos, crewBudget(world, mara, 'move'), planMoveOptions(world, s, mara));
+        const door = vehicleDoors(world, s, 'van').find(d => reach.tiles.some(t => t.canEnd && t.pos.x === d.x && t.pos.y === d.y))!;
+        let g = play(world, s, ...(door.x === mara.pos.x && door.y === mara.pos.y ? [] : [{ type: 'move', crew: a, path: pathTo(reach, door)! } as Command]), { type: 'board', crew: a, vehicle: 'van' });
+        for (let i = 0; i < 10 && !g.vehicles.van!.gone; i++) {
+            g = commit(world, g, { type: 'drive', crew: g.vehicles.van!.driver!, vehicle: 'van', to: getawayDrive(world, g, 'van')!.to }).state;
+            if (!g.vehicles.van!.gone) g = commit(world, g, endTurn).state;
+        }
+        expect(g.outcome).toMatchObject({ escaped: [a, c], arrested: [b] });
+        expect(crewFates(world, g)).toEqual(fates);
     });
 
     it('with the crew all down and nobody away, as decision 177 plays it out: each bleeds out, a teammate\'s kill', () => {
