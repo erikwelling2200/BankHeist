@@ -129,11 +129,11 @@ describe('Notoriety from witnesses and the tape (§19.7)', () => {
     it('stands for an abandoned heist, as its last save had it', () => {
         let c = offering(newCampaign(1), 'low');
         c = step(c, { kind: 'heist', bank: 'b', contract: c.contracts.find(k => k.stakes === 'low')!.id, job: job(['mara', 'jun'], 'low') });
-        c = step(c, { kind: 'learn', bank: 'b', day: c.visit!.day, intel: {}, crew: fates({ downed: ['jun'] }), report: report({ styles: ['ghost'], filmed: ['mara'] }) });
+        c = step(c, { kind: 'learn', bank: 'b', day: c.visit!.day, intel: {}, crew: fates({ dead: ['jun'] }), report: report({ styles: ['ghost'], filmed: ['mara'] }) });
         const left = step(c, { kind: 'layLow' });
         expect(crewMember(left, 'mara')!.notoriety).toBe(1);
         expect(left.debrief).toMatchObject({ abandoned: true, result: 'failure', styles: [], payout: 0 });
-        expect(left.debrief!.crew.map(m => [m.id, m.fate, m.filmed, m.injured])).toEqual([['mara', 'left', true, 0], ['jun', 'left', false, 3]]);
+        expect(left.debrief!.crew.map(m => [m.id, m.fate, m.filmed, m.injured])).toEqual([['mara', 'left', true, 0], ['jun', 'dead', false, 0]]);
         roundTrips(left);
     });
 });

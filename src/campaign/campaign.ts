@@ -463,18 +463,24 @@ export function commitCampaign(campaign: Campaign, cmd: CampaignCommand): { camp
     };
     switch (cmd.kind) {
         case 'heist': case 'case': case 'layLow': {
-            // A heist left unfinished when the next day comes was abandoned: a failed job (decision 443).
+            // A heist left unfinished when the next day comes was abandoned (decision 513): walked away from, priced as
+            // walking away empty-handed (decision 488, their kits back); else a failed job (decision 443).
             const v = c.visit;
             if (v?.kind === 'heist' && !v.result) {
-                const from = events.length;
-                v.result = 'failure';
-                events.push({ type: 'jobFailed', day: v.day, abandoned: true });
-                // What had already become of its crew stands (decision 513): the dead, the arrested, the downed, and
-                // what the witnesses saw and the tape holds (decision 524).
-                if (v.job && v.fates) settleCrew(c, events, v, 'failure', v.fates, add, true, v.report);
-                add('failedJob', SQUEEZE.failedJob);
-                c.debrief = debriefOf(c, v, { abandoned: true, take: 0, bonus: 0, shares: 0, styles: [], objectiveOut: false }, events.slice(from));
-                // The failure is settled first: if it landed the Raid, the day action doesn't happen (decision 446).
+                if (v.job && v.fates && walkedAway(v.fates)) {
+                    // No style: those are judged at a heist's end, and an abandoned one has none.
+                    endHeist(c, events, add, { day: v.day, result: 'partial', take: 0, kept: structuredClone(v.job.kits), crew: v.fates, ...(v.report ? { report: { ...v.report, styles: [] } } : {}) }, true);
+                } else {
+                    const from = events.length;
+                    v.result = 'failure';
+                    events.push({ type: 'jobFailed', day: v.day, abandoned: true });
+                    // What had already become of its crew stands (decision 513): the dead, the arrested, the downed, and
+                    // what the witnesses saw and the tape holds (decision 524).
+                    if (v.job && v.fates) settleCrew(c, events, v, 'failure', v.fates, add, true, v.report);
+                    add('failedJob', SQUEEZE.failedJob);
+                    c.debrief = debriefOf(c, v, { abandoned: true, take: 0, bonus: 0, shares: 0, styles: [], objectiveOut: false }, events.slice(from));
+                }
+                // The abandon is settled first: if it landed the Raid, the day action doesn't happen (decision 446).
                 const stopped = campaignRefusal(c, cmd);
                 if (stopped) {
                     events.push({ type: 'stopped', action: cmd.kind, reason: stopped });
@@ -523,38 +529,9 @@ export function commitCampaign(campaign: Campaign, cmd: CampaignCommand): { camp
             events.push({ type: 'learned', bank: cmd.bank, day: v.day });
             break;
         }
-        case 'heistOver': {
-            const v = c.visit!, from = events.length;
-            v.result = cmd.result;
-            // The side objective counts once its carrier got out, even if the job failed (§19.5); only the contract's own.
-            const objective = v.contract?.objective;
-            const objectiveOut = !!objective && (cmd.objectives ?? []).includes(objective);
-            if (objective && objectiveOut && !c.advantages.includes(objective)) {
-                c.advantages.push(objective);
-                events.push({ type: 'objective', objective, day: v.day });
-            }
-            const paid = { abandoned: false, take: 0, bonus: 0, shares: 0, styles: [] as Debrief['styles'], objectiveOut };
-            if (cmd.result === 'failure') {
-                // Failure loses the gear brought in (§19.3), and there is no take, nor any style (decision 523).
-                events.push({ type: 'jobFailed', day: cmd.day, abandoned: false });
-                add('failedJob', SQUEEZE.failedJob);
-            } else if (v.job) {
-                // The client's bonus on a Success (decision 503): part of the job, so the crew take their shares of it too.
-                const take = cmd.take ?? 0, bonus = cmd.result === 'success' ? v.contract?.bonus ?? 0 : 0, shares = sharesOf(take + bonus, v.job.crew, sharesOfRoster(c.roster));
-                // The styles' bonus after the shares (§15.5: "minus … the crew's shares, plus style bonuses").
-                paid.styles = payStyles(c, events, v.job.stakes, cmd.report?.styles ?? [], take);
-                const styles = paid.styles.reduce((n, s) => n + s.amount, 0);
-                v.payout = Math.max(0, take + bonus - shares) + styles;
-                c.money.dirty += v.payout;
-                Object.assign(paid, { take, bonus, shares });
-                events.push({ type: 'paid', day: v.day, take, bonus, shares, styles, dirty: c.money.dirty });
-                returnGear(c, events, v.job, cmd.kept ?? {});
-                if (cmd.result === 'success' && v.job.stakes === 'high') addContact(c, events);
-            }
-            if (v.job && cmd.crew) settleCrew(c, events, v, cmd.result, cmd.crew, add, false, cmd.report);
-            c.debrief = debriefOf(c, v, paid, events.slice(from));
+        case 'heistOver':
+            endHeist(c, events, add, cmd, false);
             break;
-        }
         case 'buyIntel': {
             spend(c, events, 'intel', cmd.cost);
             const records = c.intel[cmd.bank] ??= [];
@@ -673,6 +650,46 @@ function returnGear(c: Campaign, events: CampaignEvent[], job: Job, kept: Readon
 }
 
 type AddSqueeze = (source: SqueezeSource, points: number) => void;
+
+/** Whether an abandoned heist's crew all walked away (decision 513): nobody arrested or dead. */
+const walkedAway = (f: DeepReadonly<CrewFates>): boolean => !f.arrested.length && !f.dead.length;
+
+/**
+ * A heist's end (§15.5, §19.3): its result paid or failed, its gear back, its crew settled and the debrief kept. The
+ * rules' end (`heistOver`), and an abandoned heist the crew walked away from before the alarm with nobody arrested or
+ * dead, priced as decision 488's walking away empty-handed (a Partial with no take, decision 513).
+ */
+function endHeist(c: Campaign, events: CampaignEvent[], add: AddSqueeze, cmd: Omit<Extract<CampaignCommand, { kind: 'heistOver' }>, 'kind'>, abandoned: boolean): void {
+    const v = c.visit!, from = events.length;
+    v.result = cmd.result;
+    // The side objective counts once its carrier got out, even if the job failed (§19.5); only the contract's own.
+    const objective = v.contract?.objective;
+    const objectiveOut = !!objective && (cmd.objectives ?? []).includes(objective);
+    if (objective && objectiveOut && !c.advantages.includes(objective)) {
+        c.advantages.push(objective);
+        events.push({ type: 'objective', objective, day: v.day });
+    }
+    const paid = { abandoned, take: 0, bonus: 0, shares: 0, styles: [] as Debrief['styles'], objectiveOut };
+    if (cmd.result === 'failure') {
+        // Failure loses the gear brought in (§19.3), and there is no take, nor any style (decision 523).
+        events.push({ type: 'jobFailed', day: cmd.day, abandoned });
+        add('failedJob', SQUEEZE.failedJob);
+    } else if (v.job) {
+        // The client's bonus on a Success (decision 503): part of the job, so the crew take their shares of it too.
+        const take = cmd.take ?? 0, bonus = cmd.result === 'success' ? v.contract?.bonus ?? 0 : 0, shares = sharesOf(take + bonus, v.job.crew, sharesOfRoster(c.roster));
+        // The styles' bonus after the shares (§15.5: "minus … the crew's shares, plus style bonuses").
+        paid.styles = payStyles(c, events, v.job.stakes, cmd.report?.styles ?? [], take);
+        const styles = paid.styles.reduce((n, s) => n + s.amount, 0);
+        v.payout = Math.max(0, take + bonus - shares) + styles;
+        c.money.dirty += v.payout;
+        Object.assign(paid, { take, bonus, shares });
+        events.push({ type: 'paid', day: v.day, take, bonus, shares, styles, dirty: c.money.dirty });
+        returnGear(c, events, v.job, cmd.kept ?? {});
+        if (cmd.result === 'success' && v.job.stakes === 'high') addContact(c, events);
+    }
+    if (v.job && cmd.crew) settleCrew(c, events, v, cmd.result, cmd.crew, add, false, cmd.report);
+    c.debrief = debriefOf(c, v, paid, events.slice(from));
+}
 
 const ids = (v: unknown): v is string[] => Array.isArray(v) && v.every(x => typeof x === 'string');
 const fatesOk = (f: CrewFates): boolean =>

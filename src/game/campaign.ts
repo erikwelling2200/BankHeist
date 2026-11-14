@@ -4,7 +4,7 @@ import {
     type CrewMember, type IntelAsset, type Job, type Stakes
 } from '../campaign';
 import { ARCHETYPES, PLOTS, TIERS, type GeneratedBank } from '../gen/model';
-import { crewBudget, heistReport, intelOf, isDown, isItem, planMoveOptions, reachable, vehicleDoors, type HeistReport, ITEMS, outcomeNow, SaveFormatError, stableJson, TRAITS, type DeepReadonly, type Intel, type ReadonlyWorld, type State } from '../sim';
+import { heistReport, intelOf, isDown, isItem, type HeistReport, ITEMS, SaveFormatError, stableJson, TRAITS, type DeepReadonly, type Intel, type ReadonlyWorld, type State } from '../sim';
 import { bankAddress, sameAddress, savedHeist, type BankAddress, type CampaignTag } from './heist';
 import { ASSETS, FAVOUR_CAP, gearOf, rosterMember, spent, type CrewPool, type HeistSetup, type Purse, type RosterMember } from './plan';
 import { Session, type IntelKeeper } from './session';
@@ -96,7 +96,8 @@ function debriefProblem(value: unknown, day: number): string | undefined {
         'squeeze', 'crew'])) return 'a debrief with other fields';
     const d = value;
     if (!isDay(d.day) || (d.day as number) >= day || !RESULTS.includes(d.result as string) || typeof d.abandoned !== 'boolean') return 'the debrief is of no heist';
-    if (d.abandoned && d.result !== 'failure') return 'the debrief is of no heist';
+    // Abandoned: a failure, or walked away from before the alarm, a Partial with no take (decision 513).
+    if (d.abandoned && (d.result === 'success' || (d.result === 'partial' && d.take !== 0))) return 'the debrief is of no heist';
     if (!['take', 'bonus', 'shares', 'styleBonus', 'payout', 'contacts', 'squeeze'].every(k => whole(d[k]))) return "the debrief's sums are not sums";
     if (d.contract !== null && contractProblem(d.contract)) return "the debrief's contract is none";
     const o = d.objective;
@@ -355,42 +356,30 @@ export function objectivesOut(world: ReadonlyWorld, state: DeepReadonly<State>):
 }
 
 /**
- * The getaway ordered now (decision 513): the first crew vehicle still on the plot and able to drive takes whoever is in
- * it and every crew member up who could walk to one of its doors with one Move, as the order (a Move, Get in, Drive
- * off) would; it leaves if someone up is aboard to drive. The state as it would then be, and the vehicle leaving (null:
- * none can).
- */
-function getawayNow(world: ReadonlyWorld, state: DeepReadonly<State>): { state: DeepReadonly<State>; vehicle: string | null } {
-    const id = (world.vehicles ?? []).map(v => v.id).find(v => state.vehicles[v] && !state.vehicles[v]!.gone && state.vehicles[v]!.hp > 0);
-    if (!id) return { state, vehicle: null };
-    const doors = vehicleDoors(world, state, id), now = structuredClone(state) as State;
-    for (const member of now.crew) {
-        if (member.aboard !== null || isDown(member)) continue;
-        const reach = reachable(world, state as State, member.pos, crewBudget(world, member, 'move'), planMoveOptions(world, state as State, member));
-        if (doors.some(d => reach.tiles.some(t => t.canEnd && t.pos.x === d.x && t.pos.y === d.y))) member.aboard = id;
-    }
-    return now.crew.some(m => m.aboard === id && !isDown(m)) ? { state: now, vehicle: id } : { state, vehicle: null };
-}
-
-/**
  * What became of the heist's crew (§19.6), from the rules' outcome: who got away, was arrested or died, who among those
  * who got away went down on the way (`wounds.wentDown`, revived or not), and who killed someone themselves (`wounds.kills`).
- * While it goes on, what abandoning it now would do (decision 513): the getaway ordered now (`getawayNow`), ended as the
- * rules end it (`outcomeNow`): whoever it takes and those already away are free, everyone else on the plot arrested;
- * but with nobody up and nobody away (decision 177: nobody to get anyone out) the downed bleed out, each the kill of
- * whoever downed them.
+ * While it goes on, what abandoning it now would do (decision 513). Before the alarm nobody is coming: everyone not dead
+ * or in custody walks away, the downed carried out. After it, only those away or on a route off the plot
+ * (`transit.escape`) are free; everyone else on the plot is arrested. Either way, with nobody up and nobody away
+ * (decision 177: nobody to get anyone out) the downed bleed out, each the kill of whoever downed them.
  */
-export function crewFates(world: ReadonlyWorld, state: DeepReadonly<State>): CrewFates {
-    const now = state.outcome ? null : getawayNow(world, state);
-    const o = state.outcome ?? outcomeNow(world, now!.state, now!.vehicle);
+export function crewFates(state: DeepReadonly<State>): CrewFates {
+    const o = state.outcome;
     const everyone = [...state.crew, ...state.escaped.map(e => e.crew), ...state.custody.map(c => c.crew)];
-    const escaped = [...(o.escaped ?? [])];
-    let dead = [...(o.dead ?? [])], arrested = [...(o.arrested ?? [])];
     const killers = new Set(everyone.filter(c => (c.wounds.kills ?? 0) > 0).map(c => c.id));
-    if (!state.outcome && !state.escaped.length && state.crew.every(isDown)) {
-        const bleeding = state.crew.filter(c => c.wounds.downed);
-        dead = [...dead, ...bleeding.map(c => c.id)];
-        arrested = arrested.filter(id => !bleeding.some(c => c.id === id));
+    let escaped: string[], arrested: string[], dead: string[];
+    if (o) {
+        escaped = [...(o.escaped ?? [])];
+        arrested = [...(o.arrested ?? [])];
+        dead = [...(o.dead ?? [])];
+    } else {
+        const allDown = !state.escaped.length && state.crew.every(isDown);
+        const bleeding = allDown ? state.crew.filter(c => c.wounds.downed) : [];
+        const left = state.crew.filter(c => !c.wounds.dead && !bleeding.includes(c));
+        const free = state.bank.alarm ? left.filter(c => c.transit?.escape === true) : left;
+        escaped = [...state.escaped.filter(e => !e.crew.wounds.dead).map(e => e.crew.id), ...free.map(c => c.id)];
+        arrested = [...state.custody.map(c => c.crew.id), ...left.filter(c => !free.includes(c)).map(c => c.id)];
+        dead = [...state.crew, ...state.escaped.map(e => e.crew)].filter(c => c.wounds.dead || bleeding.includes(c)).map(c => c.id);
         // The kill credit the rules give a bleed-out (rules/wounds.ts `creditKill`): a crew member who downed them, not themselves.
         for (const c of bleeding) {
             const by = c.wounds.downed!.by;
@@ -437,7 +426,7 @@ export function campaignKeeper(storage: SaveStorage, tag: CampaignTag): IntelKee
         if (campaign.seed !== tag.seed || campaign.visit?.day !== tag.day || campaign.visit.bank !== bank) return 'drop';
         // Its result is in already (it ended, or was abandoned into the Raid): it learns nothing more for the campaign.
         if (campaign.visit.result) return 'drop';
-        const intel = intelOf(world, state), fates = crewFates(world, state), report = heistReport(world, state), text = stableJson({ intel, fates, report }), ended = state.outcome?.result;
+        const intel = intelOf(world, state), fates = crewFates(state), report = heistReport(world, state), text = stableJson({ intel, fates, report }), ended = state.outcome?.result;
         let next = campaign;
         // What it learned, and what has become of its crew so far (settled if it is abandoned, decision 513).
         if (text !== kept) next = commitCampaign(next, { kind: 'learn', bank, day: tag.day, intel, ...(next.visit?.kind === 'heist' ? { crew: fates, report } : {}) }).campaign;

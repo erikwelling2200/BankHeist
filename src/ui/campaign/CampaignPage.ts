@@ -97,8 +97,23 @@ export function showCampaign(): void {
         return box;
     }
 
+    /**
+     * What abandoning the day's heist costs now (decision 513), from what its crew can see as it was last saved: before
+     * the alarm everyone walks away; after it, anyone still inside is arrested (and with nobody up, the downed die).
+     */
+    function abandonCost(campaign: Campaign): string {
+        const f = campaign.visit!.fates;
+        if (!f || (!f.arrested.length && !f.dead.length)) return 'Before the alarm the crew just walk away: it counts as walking away empty-handed (a Partial, no take).';
+        const names = (ids: readonly string[]) => ids.map(id => campaign.roster.find(m => m.id === id)?.name ?? id).join(', ');
+        return [
+            'Abandoning it counts as a failed job (+2 Squeeze).',
+            ...(f.arrested.length ? [`After the alarm anyone still inside is arrested: ${names(f.arrested)}.`] : []),
+            ...(f.dead.length ? [`Dead: ${names(f.dead)}.`] : [])
+        ].join(' ');
+    }
+
     async function act(cmd: CampaignCommand, campaign: Campaign): Promise<void> {
-        if (heistUnfinished(campaign) && !(await askPlayer(`Day ${campaign.visit!.day}'s heist isn't over.`, 'Abandoning it counts as a failed job (+2 Squeeze).', 'Abandon it', 'Keep it'))) return;
+        if (heistUnfinished(campaign) && !(await askPlayer(`Day ${campaign.visit!.day}'s heist isn't over.`, abandonCost(campaign), 'Abandon it', 'Keep it'))) return;
         const done = campaignAct(storage, cmd);
         if (!('refused' in done)) dropCampaignHeist(storage, campaign.seed);
         render();

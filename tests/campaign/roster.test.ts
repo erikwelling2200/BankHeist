@@ -316,6 +316,22 @@ describe('an abandoned job (decision 513)', () => {
         expect(events).toContainEqual({ type: 'jobFailed', day: 1, abandoned: true });
         roundTrips(d);
     });
+
+    it('walked away from, nobody arrested or dead: a Partial with no take, its kits back, no failed job (decision 488)', () => {
+        const c = newCampaign(1), item = Object.keys(c.armoury).find(id => c.armoury[id]! > 0)!;
+        const kits = { mara: [item], jun: [] as string[] };
+        const started = step(c, { kind: 'heist', bank: 'b', contract: c.contracts[0]!.id, job: { crew: ['mara', 'jun'], kits, stakes: 'low' } });
+        expect(started.armoury[item]).toBe(c.armoury[item]! - 1);
+        const known = step(started, { kind: 'learn', bank: 'b', day: 1, intel: {}, crew: fates({ escaped: ['mara', 'jun'], downed: ['jun'] }) });
+        const { campaign: d, events } = run(known, { kind: 'layLow' });
+        expect(d.armoury[item]).toBe(c.armoury[item]);
+        expect(events.some(e => e.type === 'jobFailed')).toBe(false);
+        expect(events.filter(e => e.type === 'squeeze').map(e => e.type === 'squeeze' && e.source)).toEqual(['day']);
+        expect(d.debrief).toMatchObject({ result: 'partial', abandoned: true, take: 0, payout: 0 });
+        expect(member(d, 'mara')).toMatchObject({ status: 'ready', jobs: 1 });
+        expect(member(d, 'jun')).toMatchObject({ status: 'injured', jobs: 1 });
+        roundTrips(d);
+    });
 });
 
 describe('a trait picked (the review\'s repro)', () => {

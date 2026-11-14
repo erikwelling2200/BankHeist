@@ -6,7 +6,7 @@ import { startHeist } from '../../src/game/heist';
 import { campaignPrint } from '../../src/game/intel';
 import { crewLookOf, defaultSetup, heistFromSetup, planOptions, setupProblems } from '../../src/game/plan';
 import { MemoryStorage } from '../../src/game';
-import { commit, crewBudget, crewLook, dealHarm, pathTo, planMoveOptions, reachable, readProfile, startCarrier, vehicleDoors, type Command, type ReadonlyWorld, type State } from '../../src/sim';
+import { commit, crewLook, dealHarm, readProfile, startCarrier, type Command, type ReadonlyWorld, type State } from '../../src/sim';
 import { leaveOnFoot } from '../../src/sim/rules/getaway';
 import { cachedBank } from '../bankCache';
 import { registerTestCommand, testCommand } from '../sim/helpers';
@@ -119,7 +119,7 @@ describe("the heist's end for its crew", () => {
             npcs: s.npcs.map((n, i) => (i === 0 ? { ...n, status: 'dead' as const } : n)),
             outcome: { result: 'partial', turn: 4, vehicle: 'van', escaped: ['mara'], arrested: ['jun'], dead: ['dex'], loot: [], value: 0, ruined: 0, target: 1, heat: 3 }
         } as typeof s;
-        expect(crewFates(session.world, ended)).toEqual({ escaped: ['mara'], arrested: ['jun'], dead: ['dex'], downed: ['mara'], killers: ['mara'] });
+        expect(crewFates(ended)).toEqual({ escaped: ['mara'], arrested: ['jun'], dead: ['dex'], downed: ['mara'], killers: ['mara'] });
         campaignKeeper(storage, tag)(session.world, ended);
         const after = loadCampaign(storage)!;
         expect(after.roster.map(m => [m.id, m.status])).toEqual([['mara', 'injured'], ['jun', 'jailed'], ['dex', 'dead'], ['sol', 'ready']]);
@@ -127,101 +127,97 @@ describe("the heist's end for its crew", () => {
     });
 });
 
-describe('an abandoned heist (decision 513: settled as the getaway ordered now would)', () => {
-    const abandon = (storage: MemoryStorage): Campaign => commitCampaign(loadCampaign(storage)!, { kind: 'layLow' }).campaign;
+describe('an abandoned heist (decision 513: before the alarm the crew walk away; after it, anyone still inside is arrested)', () => {
+    const abandon = (storage: MemoryStorage) => commitCampaign(loadCampaign(storage)!, { kind: 'layLow' });
     const statuses = (c: Campaign, ids: string[]) => ids.map(id => c.roster.find(m => m.id === id)!.status);
     const endTurn: Command = { type: 'endTurn' };
-
-    it('on turn one, with the crew by the van: the getaway takes them all, and costs nobody anything but the day', () => {
-        const { storage, tag, session, ids } = campaignHeist(7);
-        expect(crewFates(session.world, session.state)).toEqual({ escaped: ids, arrested: [], dead: [], downed: [], killers: [] });
-        session.commit(endTurn);
-        expect(loadCampaign(storage)!.visit!.fates).toMatchObject({ escaped: ids, arrested: [] });
-        const d = abandon(storage);
-        expect(statuses(d, ids)).toEqual(['ready', 'ready', 'ready']);
-        expect(d.roster.every(m => m.notoriety === 0 && m.jobs === 0)).toBe(true);
-        expect(tag.day).toBe(1);
+    const alarm = testCommand({ type: 'rosterAlarm' } as never);
+    const raised = (world: ReadonlyWorld, s: State): State => {
+        for (let i = 0; i < 6 && !s.bank.alarm; i++) s = commit(world, s, endTurn).state;
+        expect(s.bank.alarm).toBe(true);
+        return s;
+    };
+    /** Puts a crew member at a route's way in (test-only), then takes it off the plot by the rules' Enter route. */
+    registerTestCommand('rosterToRoute', (ctx, cmd) => {
+        const m = ctx.state.crew.find(c => c.id === (cmd as unknown as { crew: string }).crew)!;
+        m.pos = { ...ctx.world.routes![0]!.outside };
     });
 
-    it('a downed one the getaway can\'t take is arrested, and so is one up but beyond a Move of the van', () => {
+    it('before the alarm: everyone walks away, the downed carried out, priced as walking away empty-handed (decision 488)', () => {
         const { storage, tag, session, ids } = campaignHeist(7);
         const [a, b, c] = ids as [string, string, string];
-        const world = session.world;
-        // Jun walks off from the van for two turns, then Mara is downed by him; no alarm.
-        let s: State = session.state;
-        for (let turn = 0; turn < 2; turn++) {
-            const member = s.crew.find(m => m.id === b)!, van = s.vehicles.van!.pose;
-            const reach = reachable(world, s, member.pos, crewBudget(world, member, 'move'), planMoveOptions(world, s, member));
-            const far = reach.tiles.filter(t => t.canEnd).reduce((x, t) => (Math.abs(t.pos.x - van.x) + Math.abs(t.pos.y - van.y) > Math.abs(x.pos.x - van.x) + Math.abs(x.pos.y - van.y) ? t : x));
-            s = play(world, s, { type: 'move', crew: b, path: pathTo(reach, far.pos)! }, endTurn);
-        }
-        s = play(world, s, down(a, b));
+        const s = play(session.world, session.state, down(a, b));
         expect(s.bank.alarm).toBe(false);
-        expect(crewFates(world, s)).toEqual({ escaped: [c], arrested: [a, b], dead: [], downed: [], killers: [] });
-        campaignKeeper(storage, tag)(world, s);
-        const d = abandon(storage);
-        expect(statuses(d, ids)).toEqual(['jailed', 'jailed', 'ready']);
-        expect(d.roster.find(m => m.id === a)!.notoriety).toBe(2);
+        expect(crewFates(s)).toEqual({ escaped: [a, b, c], arrested: [], dead: [], downed: [a], killers: [] });
+        campaignKeeper(storage, tag)(session.world, s);
+        const before = loadCampaign(storage)!;
+        const { campaign: d, events } = abandon(storage);
+        expect(d.days.at(-1)).toMatchObject({ action: 'layLow' });
+        expect(events).not.toContainEqual(expect.objectContaining({ type: 'jobFailed' }));
+        expect(events.filter(e => e.type === 'squeeze').map(e => e.type === 'squeeze' && e.source)).toEqual(['day']);
+        expect(statuses(d, ids)).toEqual(['injured', 'ready', 'ready']);
+        expect(d.roster.filter(m => ids.includes(m.id)).every(m => m.jobs === 1)).toBe(true);
+        expect(d.debrief).toMatchObject({ result: 'partial', abandoned: true });
+        // Their kits come back to the armoury, as a drive-off's would.
+        const kits = Object.values(before.visit!.job!.kits).flat();
+        for (const id of new Set(kits)) expect((d.armoury[id] ?? 0) - (before.armoury[id] ?? 0)).toBe(kits.filter(k => k === id).length);
     });
 
-    it('is what a real getaway from the same moment makes of the crew: Get in, Drive off', () => {
-        const { session, ids } = campaignHeist(7);
-        const [a, b, c] = ids as [string, string, string];
-        const world = session.world;
-        // Mara downs Jun; abandoning now takes Mara and Dex, leaves Jun.
-        const s = play(world, session.state, down(b, a));
-        const fates = crewFates(world, s);
-        expect(fates).toEqual({ escaped: [a, c], arrested: [b], dead: [], downed: [], killers: [] });
-        // The real order: Mara walks to a door and gets in, Dex drives off.
-        const mara = s.crew.find(m => m.id === a)!;
-        const reach = reachable(world, s, mara.pos, crewBudget(world, mara, 'move'), planMoveOptions(world, s, mara));
-        const door = vehicleDoors(world, s, 'van').find(d => reach.tiles.some(t => t.canEnd && t.pos.x === d.x && t.pos.y === d.y))!;
-        let g = play(world, s, ...(door.x === mara.pos.x && door.y === mara.pos.y ? [] : [{ type: 'move', crew: a, path: pathTo(reach, door)! } as Command]), { type: 'board', crew: a, vehicle: 'van' });
-        for (let i = 0; i < 10 && !g.vehicles.van!.gone; i++) {
-            g = commit(world, g, { type: 'drive', crew: g.vehicles.van!.driver!, vehicle: 'van', to: getawayDrive(world, g, 'van')!.to }).state;
-            if (!g.vehicles.van!.gone) g = commit(world, g, endTurn).state;
-        }
-        expect(g.outcome).toMatchObject({ escaped: [a, c], arrested: [b] });
-        expect(crewFates(world, g)).toEqual(fates);
-    });
-
-    it('with the crew all down and nobody away, as decision 177 plays it out: each bleeds out, a teammate\'s kill', () => {
+    it('before the alarm, with the crew all down and nobody away: each bleeds out, a teammate\'s kill, never their own', () => {
         const { storage, tag, session, ids } = campaignHeist(7);
         const [a, b, c] = ids as [string, string, string];
-        const s = play(session.world, session.state, down(a, b), down(b, c), down(c));
-        expect(s.outcome).toBeNull();
-        const fates = crewFates(session.world, s);
-        expect(fates).toEqual({ escaped: [], arrested: [], dead: [a, b, c], downed: [], killers: [b, c] });
+        const s = play(session.world, session.state, down(a, b), down(b), down(c, c));
+        expect(s.bank.alarm).toBe(false);
+        const fates = crewFates(s);
+        // Mara is Jun's kill; Dex downed himself, so nobody's.
+        expect(fates).toEqual({ escaped: [], arrested: [], dead: [a, b, c], downed: [], killers: [b] });
         // What End Turn would have made of them.
         let played = s;
         for (let i = 0; i < 10 && !played.outcome; i++) played = commit(session.world, played, endTurn).state;
         expect(played.outcome).toMatchObject({ result: 'failure', escaped: [], arrested: [] });
-        expect(crewFates(session.world, played)).toEqual(fates);
+        expect(crewFates(played)).toEqual(fates);
         campaignKeeper(storage, tag)(session.world, s);
-        expect(statuses(abandon(storage), ids)).toEqual(['dead', 'dead', 'dead']);
+        const { campaign: d, events } = abandon(storage);
+        expect(statuses(d, ids)).toEqual(['dead', 'dead', 'dead']);
+        expect(events).toContainEqual({ type: 'jobFailed', day: 1, abandoned: true });
     });
 
-    it('is what the getaway\'s own end makes of the same crew', () => {
+    it('before the alarm, with one away on foot and the rest down: the downed are carried out, not left to die', () => {
+        const { session, ids } = campaignHeist(7);
+        const [a, b, c] = ids as [string, string, string];
+        const s = play(session.world, session.state, testCommand({ type: 'rosterLeave', crew: c } as never), down(a), down(b));
+        expect(s.outcome).toBeNull();
+        expect(crewFates(s)).toEqual({ escaped: [c, a, b], arrested: [], dead: [], downed: [a, b], killers: [] });
+    });
+
+    it('after the alarm: those still on the plot are arrested, up or down; those driven off or on a route out are free', () => {
         const { storage, tag, session, ids } = campaignHeist(7);
         const [a, b, c] = ids as [string, string, string];
         const world = session.world;
-        // The driver drives off alone; one left behind is downed by the other, who stands.
-        let s = play(world, session.state, down(a, b));
+        // Dex drives off alone; Mara is downed by Jun, who stands.
+        let s = play(world, session.state, down(a, b), alarm);
         for (let i = 0; i < 10 && !s.vehicles.van!.gone; i++) {
-            const drive = getawayDrive(world, s, 'van')!;
-            s = commit(world, s, { type: 'drive', crew: c, vehicle: 'van', to: drive.to }).state;
+            s = commit(world, s, { type: 'drive', crew: c, vehicle: 'van', to: getawayDrive(world, s, 'van')!.to }).state;
             if (!s.vehicles.van!.gone) s = commit(world, s, endTurn).state;
         }
+        s = raised(world, s);
         expect(s.escaped.map(e => e.crew.id)).toEqual([c]);
         expect(s.outcome).toBeNull();
-        const fates = crewFates(world, s);
-        expect(fates).toEqual({ escaped: [c], arrested: [a, b], dead: [], downed: [], killers: [] });
-        // The heist ends by the rules once nobody up is left behind: the same fates, from its outcome.
-        const ended = play(world, s, down(b));
-        expect(ended.outcome).toMatchObject({ escaped: [c], arrested: [a, b] });
-        expect(crewFates(world, ended)).toEqual(fates);
-        expect(crewFates(world, { ...ended, outcome: null })).toEqual(fates);
+        expect(crewFates(s)).toEqual({ escaped: [c], arrested: [a, b], dead: [], downed: [], killers: [] });
+        // Jun on a route off the plot instead: free.
+        const fled = play(world, s, testCommand({ type: 'rosterToRoute', crew: b } as never), { type: 'enterRoute', crew: b, route: world.routes![0]!.id, escape: true });
+        expect(fled.crew.find(m => m.id === b)!.transit).toMatchObject({ escape: true });
+        expect(crewFates(fled)).toEqual({ escaped: [c, b], arrested: [a], dead: [], downed: [], killers: [] });
         campaignKeeper(storage, tag)(world, s);
-        expect(statuses(abandon(storage), ids)).toEqual(['jailed', 'jailed', 'ready']);
+        const { campaign: d, events } = abandon(storage);
+        expect(statuses(d, ids)).toEqual(['jailed', 'jailed', 'ready']);
+        expect(events).toContainEqual({ type: 'jobFailed', day: 1, abandoned: true });
+    });
+
+    it('after the alarm, with the crew all down and nobody away: dead, not arrested', () => {
+        const { session, ids } = campaignHeist(7);
+        const [a, b, c] = ids as [string, string, string];
+        const s = raised(session.world, play(session.world, session.state, alarm, down(a), down(b), down(c, a)));
+        expect(crewFates(s)).toMatchObject({ escaped: [], arrested: [], dead: [a, b, c], killers: [a] });
     });
 });

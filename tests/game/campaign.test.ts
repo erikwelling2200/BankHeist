@@ -9,13 +9,19 @@ import { BANK_KEY, GEN_VERSION, savedHeist, startHeist, type CampaignTag } from 
 import { campaignPrint, intelKey } from '../../src/game/intel';
 import { defaultSetup, fitArmoury, gearOf, heistFromSetup, planOptions, setupFromAddress, setupProblems, type HeistSetup } from '../../src/game/plan';
 import { HEIST_KEY, MemoryStorage, Session } from '../../src/game';
-import { intelOf, SaveFormatError } from '../../src/sim';
+import { dealHarm, intelOf, SaveFormatError, type Command } from '../../src/sim';
+import { registerTestCommand, testCommand } from '../sim/helpers';
 import { cachedBank } from '../bankCache';
 
 /*
  * The campaign in the game (M6-01): its save and load, intel kept per campaign day rather than per device, and a
  * campaign heist paying for what it scouts with its day (decision 406's must-do).
  */
+
+// The rules' harm, as an attack deals it: downs a crew member.
+registerTestCommand('campaignDown', (ctx, cmd) => {
+    dealHarm(ctx, { target: (cmd as unknown as { target: string }).target, by: 'test', cause: 'shot', weapon: 'pistol', hits: 1, damage: 99, lethal: true });
+});
 
 const bank = cachedBank({ layout: 31, population: 2, tier: 'small', archetype: 'twoWing' });
 const options = planOptions(bank);
@@ -161,16 +167,17 @@ describe('the campaign save', () => {
 });
 
 describe('a campaign heist (decision 406: casing is paid in days)', () => {
-    it('spends its day as it starts: abandoned after a turn, the day is gone and the job failed', () => {
+    it('spends its day as it starts: abandoned after a turn, the day is gone', () => {
         const storage = started();
         const { session, tag } = campaignHeist(storage);
         expect(tag.day).toBe(1);
         expect(loadCampaign(storage)).toMatchObject({ day: 2, squeeze: 2, visit: { kind: 'heist', day: 1, bank: print } });
         expect(savedHeist(storage)?.campaign).toEqual(tag);
         session.commit({ type: 'endTurn' });
-        // Abandoned: the next day action counts the failed job, and the saved heist is dropped.
+        // Abandoned before the alarm: the crew walk away, priced as walking away empty-handed (decision 513, 488: no
+        // failed job's Squeeze), and the saved heist is dropped.
         expect(heistUnfinished(loadCampaign(storage)!)).toBe(true);
-        expect(campaignAct(storage, { kind: 'layLow' })).toMatchObject({ campaign: { day: 3, squeeze: 6 } });
+        expect(campaignAct(storage, { kind: 'layLow' })).toMatchObject({ campaign: { day: 3, squeeze: 4, debrief: { result: 'partial', abandoned: true } } });
         dropCampaignHeist(storage, tag.seed);
         expect(storage.get(HEIST_KEY)).toBeNull();
     });
@@ -282,6 +289,9 @@ describe('a campaign heist (decision 406: casing is paid in days)', () => {
         for (let i = 0; i < 17; i++) c = commit(c, { kind: 'layLow' }).campaign;
         saveCampaign(storage, c);
         const { session } = campaignHeist(storage);
+        // The crew all down, nobody away: abandoned, they die (decision 513), a failed job.
+        for (const m of session.state.crew) session.commit(testCommand({ type: 'campaignDown', target: m.id } as never) as Command);
+        session.save();
         // The next day action abandons it: its +2 lands the Raid and the action stops.
         const done = campaignAct(storage, { kind: 'layLow' });
         expect(done).toMatchObject({ campaign: { phase: 'raid', visit: { day: 18, result: 'failure' } } });
