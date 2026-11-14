@@ -103,7 +103,7 @@ export function applyWorldSightings(ctx: Pick<Ctx, 'world'>, state: State, crew:
     const scratch: State = {
         ...state, phase: 'world',
         npcs: state.npcs.map(n => (observers.has(n.id) ? clonePlain(n) : n)),
-        cameraReports: [...state.cameraReports]
+        cameraReports: [...state.cameraReports], record: { ...state.record, witnesses: [...state.record.witnesses] }
     };
     const { ctx: c, events } = scratchCtx(ctx, scratch);
     applySightings(c, acting);

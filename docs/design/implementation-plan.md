@@ -338,7 +338,7 @@ Each package lists its goal, the design sections it covers, the files, what it d
       (`steadyHands`, `smoothTalker`, …; `CrewState.traits`).
     - **Data for the HUD:** `state.carriers` (+ `CARRIERS[kind].label`), `state.response`, `state.radio.calls[guard]`
       (`next`, `missed`, `ringing`: the guard tag's next call), `answersLeft`, `nextDriveBy`, `state.jammers`,
-      `state.footage` / `filmedCrew` / `footageKept` (the debrief), `knownView(...).cameras[i].monitored` and
+      `state.footage` / `filmedCrew` / `footageKept` (the debrief; with `state.record`, M6-05), `knownView(...).cameras[i].monitored` and
       `loopedUntil` once the CCTV room is scouted, `cctvControlled`. Events: `confronted`, `alarmAttempt`,
       `alarmDead`, `operatorVerifies`, `operatorSentGuard`, `checkInRinging`, `checkInMissed`, `checkInSearch`,
       `radioAnswered`, `dispatchLostContact`, `patrolPassed`, `feedLooped`/`feedRestored`, `cameraPanned`,
@@ -1737,7 +1737,7 @@ M2 is complete: every package below has landed.
   - **Deferred:** the contract's own target and payout ranges in the rules (`rules.contractTarget` stays by tier,
     decision 175; the bonus is on top); crew size by stakes (§19.3's 2–5, with the roster, M6-04); the courier van side
     objective (the armoured car's, §16.3) and the "Leak a false tip" side job; showing the contract (bonus, side
-    objective) on the planning screen and the debrief, and the side objective's finale advantage itself (M7); casing a
+    objective) on the planning screen and the debrief (the debrief's done in M6-05), and the side objective's finale advantage itself (M7); casing a
     contract's bank (M6-07: the campaign's intel is per `campaignPrint`, so a branch that holds an objective is
     another print, while one whose chain escalates is not, decision 506); security steps other than the police ETA; offers on the city map (M6-06); the
     armoured-car event of the Work above (its couriers, their armour-2 escort and staff opening the vault in the
@@ -1763,7 +1763,7 @@ M2 is complete: every package below has landed.
     `screenshots/campaign-money.png`). No sim state change; no visual baseline changed.
   - **Deferred:** the roster's own shares and signing fees (M6-04: the sandbox roster's four with fixed shares until
     then); the contract's bonus and stakes from contracts (done in M6-02, decisions 500–507: only an offered
-    contract's bank is played, at its stakes); style bonuses in the payout (M6-05, §19.8);
+    contract's bank is played, at its stakes); style bonuses in the payout (done in M6-05, decision 523);
     finale purchases unlocked by contacts and contacts from motives and styles (M7, M6-04, M6-05); selling gear back;
     the items §19.4 doesn't price (the taser, suppressed guns, smoke, noisemaker, tripwire, jammer, glass cutter,
     reinforcement kit) are not on sale; the black market as part of the city map (M6-06); a partial amount at the fence
@@ -1784,12 +1784,37 @@ M2 is complete: every package below has landed.
     (the pool in planning, Notoriety into the rules read one profile higher, the keeper's fates); the save's roster
     checks; `e2e/campaign.spec.ts` (the roster, hiring, Known and injured shown, the planner's pool;
     `screenshots/campaign-roster.png`, `planning-roster.png`). No visual baseline changed.
-  - **Deferred:** Notoriety from witnesses and footage (M6-05's debrief, §19.7's first two rows); the jailbreak contract
+  - **Deferred:** Notoriety from witnesses and footage (done in M6-05, decision 524); the jailbreak contract
     (§19.6); perks from motives (every motive pays a contact for now); calling `settleFinaleMotives` from the finale
     (M7); what the complications do to Notoriety (the task force's +2, the security chief, M7); a crew member's lost
     gear on a death without the body (the gear rules of decision 482 already keep only what escaped); recruit art of their
     own (they wear the lobby's customer looks); dismissing crew; a crew member deployed on a casing day (M6-07).
-- [ ] **M6-05** Debrief: styles, payout, Notoriety from footage and witnesses (§15.5, §19.8).
+- [x] **M6-05** Debrief: styles, payout, Notoriety from footage and witnesses (§15.5, §19.8). (partial: see Deferred)
+  - **Done:** decisions 520–525. The rules: `src/sim/rules/record.ts` and `recordState.ts` (`State.record`: witnesses,
+    escapees, missed check-ins, Inside Job, the way in, assaults held, kills and where they were made; `World.nests`
+    from the generator's sniper nest rooms), `witnessedCrew`, `stylesEarned`, `heistReport` (save shape hash
+    `9171619f40dd3708`). The campaign: `src/campaign/styles.ts` (`STYLES`, `STYLE_BONUS`), `Campaign.styles` (paid per
+    stakes) and `Campaign.debrief` (`Debrief`, `DebriefCrew`), the `report` of `learn` and `heistOver` (`Visit.report`),
+    the `style` event and the `paid` event's `styles`, `WITNESS_NOTORIETY` and `FOOTAGE_NOTORIETY` in `settleCrew`.
+    `src/game/campaign.ts`: the save at format 5 with the debrief's, the styles' and the report's checks; the keeper sends
+    `heistReport` with every save and the end. `?campaign&debrief` (`src/ui/campaign/CampaignPage.ts`): the payout and
+    its parts, the styles and what each paid, the crew (fate, injury, witness, tape, Notoriety) and the Squeeze; a
+    campaign heist's outcome button is Debrief (`HudOptions.nextLabel`), and the readout links the last heist's debrief.
+  - **Tests:** `tests/sim/record.test.ts` (witnesses masked and unmasked, alive or dead; the tape; the way in through a
+    hole or a door; Inside Job decided as the first Heavy crew member walks in; escapees; every style kept and lost);
+    `tests/campaign/debrief.test.ts` (styles once per stakes, contacts on high stakes, none on a failure, a style with
+    nothing to pay kept; Notoriety from a witness and the tape, as one gain with the arrest, capped, none for the dead,
+    on an abandoned heist; the debrief's contract, side objective, fates and injuries kept until the next heist ends;
+    a forged report refused); `tests/game/debrief.test.ts` (the keeper's report end to end, an unfinished heist's report
+    kept, the save's checks); `e2e/campaign.spec.ts` (a played campaign heist's outcome opens its debrief; a debrief
+    with styles, a witness and the tape, reloaded, and a style paid before; `screenshots/campaign-debrief.png`,
+    `campaign-outcome.png`). Key rules mutation-checked. No visual baseline changed (nothing drawn changed).
+  - **Deferred:** the debrief's recap of the heist itself (turns, loot by item, heat: the outcome screen keeps them);
+    showing the contract's bonus and side objective on the planning screen (M6-02's deferral still stands for planning);
+    what a contact from a style unlocks beyond the black market's tiers (M7's finale purchases); the crew's sniper nest
+    bought in planning (M4-07's deferral: until then a crew member who walks into the nest room counts for Overwatch);
+    a witness's testimony depending on how well they saw (any `!` sighting of an illegal act counts); the Squeeze
+    timeline as UI.md's city map draws it (M6-06).
 - [ ] **M6-06** City map UI and the Squeeze timeline (UI.md "Map, planning and campaign").
 - [ ] **M6-07** The case day action (a no-combat visit mode); difficulty settings and toggles (§19.3, §19.9).
 
@@ -3539,7 +3564,7 @@ Later milestones: within each milestone, the `∥` notes in §3 apply. UI packag
     +1 Squeeze (§19.2). It decays by 1 for every two days a crew member at liberty isn't deployed (`rested` counts
     them; deployment on a heist resets it); not in jail. The heist's crew carry it into the rules
     (`CrewStart.notoriety`), where profile.ts already reads Known crew one profile higher to enforcers and cameras and
-    Wanted crew to everyone. Witnesses and footage are M6-05's.
+    Wanted crew to everyone. Witnesses and footage are M6-05's (decision 524).
 516. **Injury and laying low (M6-04, §19.3).** Each day spent takes a day off an injury; a lay-low day takes two, which
     is what laying low adds for the injured.
 517. **Jail (M6-04, §19.6).** A lawyer costs $40k and gets them out `LAWYER_DAYS` = 2 days later; a prisoner without one
@@ -3553,6 +3578,41 @@ Later milestones: within each milestone, the `∥` notes in §3 apply. UI packag
     they downed them (`downed.by`), wherever the killer is by then: on the map, away or in custody (a tripwire or charge
     keeps its `by`, and a bleed-out may come after the one who downed them left); a death by anyone else counts for nobody. Shares stay as decision 482 says: every
     crew member who went takes their share, the dead and arrested too (§19.4 "the crew take a share of each job").
+520. **The heist's record (M6-05, §15.5).** What the debrief needs that play doesn't is noted by the rules as it
+    happens, in `State.record` (rules/record.ts), never worked out afterwards from the events: a preview writes it as the
+    command would, the save keeps it, and a resumed heist goes on with it. Nothing in play reads or shows it. The
+    debrief's facts come only from it, the outcome and the state (`heistReport`), sent by the keeper with every save and
+    the end; the address plays no part, and the campaign checks the report's shape and counts only the job's own crew.
+521. **Witnesses (M6-05, §19.7).** A witness is an NPC who had a `!` sighting of an illegal act by a crew member who
+    was unmasked at that moment (the same `why: 'illegal'` the cameras record). "Reached the police (escapee, released
+    hostage, survivor at the debrief)" is read as alive at the end: escaping, let go, tied or out cold, they all testify;
+    only the dead don't. Police officers and cameras are not witnesses (the tape is its own row).
+522. **What each style asks (M6-05, §19.8).** Ghost: `bank.alarm` never set. Inside Job: decided as the first Heavy
+    crew member (mask or heavy profile) stands in the building, by whether every alarm panel was disabled just before;
+    with no Heavy crew member ever inside, the panel at the end decides; a bank without a panel never earns it. Clean
+    Hands: no NPC, crew member or officer dead, by any cause. Cowboys: the first crew member into the building stepped
+    across a hole in a wall (a breach charge's or a ram's gap) or a breached door; anyone in some other way first (a
+    door, a climb, a start inside) and it is lost. Fortress: two police Assaults ran to their end with a crew member
+    still up on the map. Overwatch: at least one kill, and every kill dealt from a room of `World.nests` (where the
+    killer stood as the death was credited). Smooth Operator: no check-in missed and dispatch never lost contact, and no
+    NPC ran off the map (fleeing, panicked, freed by the police: not one leaving calmly or let go by the crew). Greedy:
+    the value out at least twice `rules.contractTarget`.
+523. **What a style pays (M6-05, §19.8).** Each style once per stakes over the campaign ("a one-time bonus … per
+    contract tier"): at low and medium stakes `STYLE_BONUS` = 10% of the take, after the crew's shares (§15.5's order:
+    the shares aren't taken from it); at high stakes a contact each. A failed job earns none; a style earned with no take
+    to pay from is listed and not used up. So up to eight contacts can come from styles (the design's literal reading;
+    M7 may cap what they buy). Stealth styles and loud ones pay alike, so neither is strictly best.
+524. **Notoriety at the debrief (M6-05, §19.7).** +1 for a witness who lived and +1 for the tape left behind
+    (`filmedCrew`: none once the recorder is taken or smashed), for each of the job's crew who didn't die; with an
+    arrest's +2 they are one gain, so the Forgettable halve the whole (an escaped Forgettable seen and filmed gains 1);
+    each crew member who gains adds +1 Squeeze as decision 515 says. An abandoned heist's witnesses and tape stand as its
+    last save had them (`Visit.report`), like its fates (decision 513); it earns no style.
+525. **The debrief kept (M6-05, UI.md "Debrief").** The campaign builds `Campaign.debrief` as the heist's end is
+    committed (or as the next day action abandons it), from the payout and the events of that end: the contract, the
+    side objective, the take, bonus, shares and styles' bonus, each style's reward, each crew member's fate, injury,
+    witness, tape and Notoriety, the contacts and Squeeze it added. It stays until the next heist ends, so the last
+    heist's debrief can be read any day (`?campaign&debrief`); the save checks it (format 5). A campaign heist's outcome
+    button reads Debrief and opens it.
 
 ### Critical files for implementation
 

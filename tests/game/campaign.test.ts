@@ -65,12 +65,14 @@ describe('the campaign save', () => {
         expect(() => deserialiseCampaign(JSON.stringify({ format: CAMPAIGN_FORMAT + 1, campaign: c }))).toThrow(SaveFormatError);
         expect(() => deserialiseCampaign(JSON.stringify({ campaign: c }))).toThrow(/format undefined/);
         // An M6-01 save (format 1, no money) is refused: the page offers a new campaign.
-        expect(CAMPAIGN_FORMAT).toBe(4);
+        expect(CAMPAIGN_FORMAT).toBe(5);
         expect(() => deserialiseCampaign(JSON.stringify({ format: 1, campaign: c }))).toThrow(SaveFormatError);
         // An M6-03 save (format 2, no contracts) is refused like any other.
         expect(() => deserialiseCampaign(JSON.stringify({ format: 2, campaign: c }))).toThrow(SaveFormatError);
         // An M6-02 save (format 3, shares and no roster) too.
         expect(() => deserialiseCampaign(JSON.stringify({ format: 3, campaign: c }))).toThrow(SaveFormatError);
+        // An M6-04 save (format 4, no styles paid or debrief) too.
+        expect(() => deserialiseCampaign(JSON.stringify({ format: 4, campaign: c }))).toThrow(SaveFormatError);
         expect(() => deserialiseCampaign('not json')).toThrow(SaveFormatError);
         const broken = (change: (v: Record<string, unknown>) => void) => {
             const v = structuredClone(c) as unknown as Record<string, unknown>;
@@ -394,16 +396,19 @@ describe("the campaign's money in planning and play (M6-03)", () => {
         expect(gearKept(session.world, used(0)).sol).not.toContain('medkit');
         keep(session.world, ended);
         let c = loadCampaign(storage)!;
-        expect(c.visit).toMatchObject({ result: 'partial', payout: 30000 });
-        expect(c.money).toEqual({ clean: 24000, dirty: 30000 });
+        // $30k after the shares, and 10% of the take for each style it earned at medium stakes (decision 523): nobody
+        // raised the Alarm, died or ran, and no check-in was missed.
+        expect(c.debrief!.styles).toEqual(['ghost', 'cleanHands', 'smoothOperator'].map(style => ({ style, reward: 'money', amount: 5000 })));
+        expect(c.visit).toMatchObject({ result: 'partial', payout: 45000 });
+        expect(c.money).toEqual({ clean: 24000, dirty: 45000 });
         expect(c.armoury).toEqual({ dmr: 1, lightVest: 1, medkit: 1, pistol: 1 });
         // Saved again, resumed, or reloaded: counted once (the heist is dropped).
         expect(keep(session.world, ended)).toBe('drop');
         expect(campaignKeeper(storage, tag)(session.world, ended)).toBe('drop');
-        expect(loadCampaign(storage)!.money.dirty).toBe(30000);
+        expect(loadCampaign(storage)!.money.dirty).toBe(45000);
         // The next day launders it.
         c = (campaignAct(storage, { kind: 'layLow' }) as { campaign: typeof c }).campaign;
-        expect(c.money).toEqual({ clean: 54000, dirty: 0 });
+        expect(c.money).toEqual({ clean: 69000, dirty: 0 });
     });
 
     it("a heist's start is refused when the campaign's money no longer covers it (spent in another tab)", () => {

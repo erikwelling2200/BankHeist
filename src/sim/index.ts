@@ -58,6 +58,7 @@ import './rules/perceive';
 import './rules/phones';
 import './rules/police';
 import './rules/power';
+import './rules/record';
 import './rules/profile';
 import './rules/routine';
 import './rules/swat';
@@ -100,6 +101,8 @@ export {
 export {
     carrierPos, HACKING_KIT, hasTrait, JAMMER, jammed, panelWorkLeft, serviceCard, startEscapee, TRAITS, walkingToAlarm, workActions, type AlarmWalk, type Jammer, type Trait
 } from './rules/alarms';
+export { heistReport, STYLE_IDS, stylesEarned, witnessedCrew, type HeistReport, type StyleId } from './rules/record';
+export { type HeistRecord } from './rules/recordState';
 export {
     filmedCrew, footageKept, LOOP_FROM, nearestFreeGuard, operatorWatch, pinVerifiers, type Footage
 } from './rules/cameras';
@@ -235,7 +238,7 @@ export {
     firing, isGun, movedThisTurn, npcGun, scavengeBlocked, SEARCHABLE, type Arms, type Gun, type Scavenge, type Watch
 } from './rules/arms';
 export { dealHarm, harmHandlers, registerHarmHandler, type Harm, type HarmHandler } from './rules/damage';
-export { arrestCrew, dropTargets, isDown, isHurt, killNpc, woundAim, type CrewWounds, type Custody } from './rules/wounds';
+export { arrestCrew, creditKill, dropTargets, isDown, isHurt, killNpc, woundAim, type CrewWounds, type Custody } from './rules/wounds';
 export { isWounded, npcMaxHp } from './rules/woundsState';
 export {
     attackPlan, COMBAT_COMMANDS, inWedge, officersInRange, PICTURED_COMMANDS, strikeBlocked, suppressPlan, suppressReact, suppressTargets, targetsInRange, watchBlocked, watchReact, type AttackPlan

@@ -610,7 +610,8 @@ export function mountHud(root: HTMLElement, callbacks: HudCallbacks, options: Hu
             ? o.loot.map(l => h('div.sh-oloot', {}, h('span', {}, l.name), h('span.sh-num', {}, money(l.value))))
             : [h('div.sh-oloot.none', {}, h('span', {}, 'Nothing left the map'))];
         const row = (label: string, value: string, tone = '') => h(`div.sh-orow${tone ? `.${tone}` : ''}` as 'div', {}, h('span', {}, label), h('span.sh-num', {}, value));
-        const again = h('button.sh-confirm.clean.sh-resume', { 'aria-label': 'New heist' }, img(iconUrl('play')), h('span.sh-cname', {}, 'NEW HEIST'));
+        const label = options.nextLabel ?? 'New heist';
+        const again = h('button.sh-confirm.clean.sh-resume', { 'aria-label': label }, img(iconUrl('play')), h('span.sh-cname', {}, label.toUpperCase()));
         again.addEventListener('click', () => callbacks.newHeist?.());
         const card = h(`div.sh-sheet.sh-recap.sh-outcome.${o.result}` as 'div', { role: 'dialog', 'aria-modal': 'true', 'aria-labelledby': 'sh-outcome-title', 'data-region': 'outcome', tabindex: '-1' },
             h('div.sh-rcol', {},

@@ -2,7 +2,8 @@ import { expect, test, type Page } from '@playwright/test';
 
 /*
  * The campaign (M6-01, §19.2, §19.3): `?campaign` starts one and shows the day, the Squeeze and its timeline; laying low
- * spends a day; a heist planned from it spends its day as it starts, and its New heist comes back to the campaign.
+ * spends a day; a heist planned from it spends its day as it starts, and its outcome goes on to its debrief (M6-05)
+ * and back to the campaign.
  */
 
 const scene = (page: Page) => page.evaluate(() => (window as any).game.scene.getScene('bank').debugState);
@@ -93,9 +94,19 @@ test('a campaign: days, the Squeeze, money, contracts, and a heist that spends i
         await expect.poll(async () => (await scene(page)).play.playing, { timeout: 15000 }).toBe(false);
     }
     const result = await page.evaluate(() => (window as any).sim.state.outcome.result);
-    await page.locator('[aria-label="New heist"]').click({ timeout: 60000 });
+    // A campaign heist's outcome goes on to its debrief (M6-05): nothing left the map, so no style had anything to pay.
+    await expect(page.locator('[aria-label="Debrief"]')).toBeVisible({ timeout: 60000 });
+    await page.screenshot({ path: 'screenshots/campaign-outcome.png' });
+    await page.locator('[aria-label="Debrief"]').click();
+    await expect(page.locator('.cp-title')).toHaveText('Debrief');
+    expect(new URL(page.url()).searchParams.has('debrief')).toBe(true);
+    await expect(page.locator('.db-sums')).toHaveAttribute('data-payout', '0');
+    await expect(page.locator('.db-member')).toHaveCount(2);
+    if (result !== 'failure') await expect(page.locator('.db-style.db-nothing[data-style="ghost"]')).toBeVisible();
+    await page.locator('.cp-back').click();
     // Back to the campaign, the heist over.
     await expect(page.locator('.cp-title')).toHaveText('Day 3');
+    await expect(page.locator('.cp-debrief')).toBeVisible();
     expect((await campaign(page)).visit.result).toBe(result);
     await expect(page.locator('.cp-visit')).toContainText("Day 2's heist");
     // Nothing taken, nothing bought at the start: the money is as the rota left it.
@@ -153,5 +164,52 @@ test('the roster: the crew, today\'s recruits, hiring one, and planning with the
     await page.locator('.pl-card[data-crew="mara"]').click();
     await expect(page.locator('.pl-sheet .pl-who')).toContainText('Notoriety 2 (Known)');
     await page.screenshot({ path: 'screenshots/planning-roster.png' });
+    expect(errors).toEqual([]);
+});
+
+test('the debrief: payout, styles, Notoriety from a witness and the tape, and the Squeeze (M6-05)', async ({ page }) => {
+    test.setTimeout(120000);
+    const errors: string[] = [];
+    page.on('pageerror', e => errors.push(e.message));
+    await page.goto('/?campaign&still');
+    await page.locator('.cp-start').click();
+    await page.evaluate(() => (window as any).campaign.start(5));
+    // A low-stakes job through the campaign's own rules: away with $150k, Jun hurt, three styles, Jun seen by a witness
+    // who lived and both on the tape left behind.
+    const act = (cmd: object) => page.evaluate(c => (window as any).campaign.act(c), cmd);
+    const heist = async (report: object, crew = ['mara', 'jun']) => {
+        let c = await campaign(page);
+        for (let i = 0; i < 10 && !c.contracts.some((k: { stakes: string }) => k.stakes === 'low'); i++) c = (await act({ kind: 'layLow' })).campaign;
+        const offer = c.contracts.find((k: { stakes: string }) => k.stakes === 'low');
+        expect(await act({ kind: 'heist', bank: 'b', contract: offer.id, job: { crew, kits: Object.fromEntries(crew.map(id => [id, []])), stakes: 'low' } })).not.toHaveProperty('refused');
+        expect(await act({
+            kind: 'heistOver', day: c.day, result: 'success', take: 150000, crew: { escaped: crew, arrested: [], dead: [], downed: ['jun'], killers: [] }, report
+        })).not.toHaveProperty('refused');
+    };
+    await heist({ styles: ['ghost', 'insideJob', 'cleanHands'], witnessed: ['jun'], filmed: ['mara', 'jun'] });
+    await expect(page.locator('.cp-debrief')).toBeVisible();
+    await page.locator('.cp-debrief').click();
+    await expect(page.locator('.cp-title')).toHaveText('Debrief');
+    await expect(page.locator('.db-result')).toHaveText('clean getaway');
+    await expect(page.locator('.db-style')).toHaveCount(3);
+    await expect(page.locator('.db-style[data-style="insideJob"] .db-reward')).toHaveText('+$15,000');
+    const d = (await campaign(page)).debrief;
+    await expect(page.locator('.db-sums')).toHaveAttribute('data-payout', String(d.payout));
+    expect(d.payout).toBe(150000 + d.bonus - d.shares + 45000);
+    await expect(page.locator('.db-member[data-crew="jun"] .cp-note')).toHaveText('Got away. Injured: out 3 days. Seen unmasked by a witness, and on the tape left behind. Notoriety 2 (+2): Known.');
+    await expect(page.locator('.db-member[data-crew="mara"] .cp-note')).toContainText('Notoriety 1 (+1)');
+    await expect(page.locator('.db-squeeze')).toContainText('The job added 2 to the Squeeze');
+    // The whole debrief in one shot: a phone held upright.
+    await page.setViewportSize({ width: 390, height: 1100 });
+    await page.screenshot({ path: 'screenshots/campaign-debrief.png' });
+    // A reload shows it again; Back goes to the campaign.
+    await page.reload();
+    await expect(page.locator('.cp-title')).toHaveText('Debrief');
+    await page.locator('.cp-back').click();
+    await expect(page.locator('.cp-title')).toHaveText('Day 2');
+    // The next low-stakes Ghost was paid already: listed, nothing more.
+    await heist({ styles: ['ghost'], witnessed: [], filmed: [] }, ['mara', 'dex']);
+    await page.goto('/?campaign&debrief&still');
+    await expect(page.locator('.db-style.db-paidBefore[data-style="ghost"] .db-reward')).toHaveText('Paid before at these stakes');
     expect(errors).toEqual([]);
 });

@@ -129,7 +129,7 @@ describe('the payout (§19.3, §19.4)', () => {
     it("pays the client's bonus on a Success, once, the crew taking their shares of it", () => {
         const { k, r } = withBonus('success');
         const shares = sharesOf(100000 + k.bonus, job('medium').crew, sharesOfRoster(r.campaign.roster));
-        expect(r.events).toContainEqual({ type: 'paid', day: 1, take: 100000, bonus: k.bonus, shares, dirty: 100000 + k.bonus - shares });
+        expect(r.events).toContainEqual({ type: 'paid', day: 1, take: 100000, bonus: k.bonus, shares, styles: 0, dirty: 100000 + k.bonus - shares });
         expect(r.campaign.visit?.payout).toBe(100000 + k.bonus - shares);
         expect(campaignRefusal(r.campaign, { kind: 'heistOver', day: 1, result: 'success', take: 100000 })).toBe('The heist is over already');
     });

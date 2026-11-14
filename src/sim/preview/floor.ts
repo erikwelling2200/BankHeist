@@ -487,7 +487,7 @@ export function judgeEnd(
     const scratch: State = {
         ...placed,
         npcs: placed.npcs.map(n => (touched.has(n.id) ? clonePlain(n) : { ...n, route: n.route ? { ...n.route } : n.route })),
-        cameraReports: [...placed.cameraReports], barked: [...placed.barked]
+        cameraReports: [...placed.cameraReports], barked: [...placed.barked], record: { ...placed.record, witnesses: [...placed.record.witnesses] }
     };
     const { ctx, events } = scratchCtx({ world }, scratch);
     if (noise) reactToNoise(ctx, noise.ring, NOISES.dash.kind, `dash ${crew}`);

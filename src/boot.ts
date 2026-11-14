@@ -316,8 +316,8 @@ async function preparePlay(params: URLSearchParams): Promise<{ bank: ReturnType<
         location.replace(campaignAddress());
         return new Promise<never>(() => undefined);
     }
-    // A campaign heist's New heist goes back to the campaign.
-    const next = (tag ?? (resumed ? saved?.campaign : undefined)) ? campaignAddress() : undefined;
+    // A campaign heist's outcome goes on to its debrief (M6-05), on the campaign page.
+    const next = (tag ?? (resumed ? saved?.campaign : undefined)) ? campaignAddress('debrief') : undefined;
     writePlayAddress(generated, savedHeist(target));
     const setupMs = performance.measure('bank: heist', { start: started }).duration;
     installDebugHandle(session);
@@ -347,6 +347,6 @@ function planAddress(bank: GeneratedBank): string {
 }
 
 /** The campaign's readout's address (M6-01), keeping `still`. */
-function campaignAddress(): string {
-    return `${location.pathname}?campaign${new URLSearchParams(location.search).has('still') ? '&still' : ''}`;
+function campaignAddress(page?: 'debrief'): string {
+    return `${location.pathname}?campaign${page ? `&${page}` : ''}${new URLSearchParams(location.search).has('still') ? '&still' : ''}`;
 }

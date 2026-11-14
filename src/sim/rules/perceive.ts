@@ -21,6 +21,7 @@ import { placeCrew } from './place';
 import { reconsider } from './npc/intent';
 import { worldWalks } from './npc/walk';
 import { crewLook, readProfile, type CrewLook } from './profile';
+import { noteWitness } from './recordState';
 import { addSuspicion, expose, isEyesDown, isExposedTo, markSeen, refreshWant } from './suspicion';
 import { challenge, deadlineOutcome, hasWarned, isWarned } from './trespass';
 
@@ -649,6 +650,8 @@ export function applySightings(ctx: Ctx, sightings: readonly Sighting[]): void {
         const npc = state.npcs.find(n => n.id === s.observer);
         if (!npc || isEyesDown(npc)) continue;
         markSeen(state, npc, s.crew, at);
+        // A witness to an unmasked crew member's illegal act, for the debrief's Notoriety (§19.7, rules/record.ts).
+        if (s.outcome === '!' && s.why.includes('illegal')) noteWitness(state, npc.id, s.crew);
         if (s.outcome !== '-') ctx.emit({ type: 'perceptionCheck', npc: npc.id, crew: s.crew });
         if (s.outcome === '!') expose(ctx, npc, s.crew, s.why, at);
         else if (s.outcome === '+1' || s.outcome === '+2') addSuspicion(ctx, npc, s.crew, s.outcome === '+1' ? 1 : 2, s.why, at);

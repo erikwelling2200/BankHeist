@@ -442,6 +442,8 @@ export interface HudOptions {
     textScale?: number;
     /** The colour-blind preset of the signal palette (UI.md "Signal palette"). */
     colourBlind?: boolean;
+    /** The outcome screen's button, when it goes somewhere other than a new heist: a campaign heist's Debrief (M6-05). */
+    nextLabel?: string;
 }
 
 export interface HudHandle {

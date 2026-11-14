@@ -1,6 +1,6 @@
 import {
     campaignRefusal, COMPLICATIONS, CREW_BY_STAKES, drawRecruits, fenceCut, fenced, FRONT_COST, LAWYER_COST, launderPerDay, MARKET, motiveText, newCampaign, nextStep,
-    notorietyBand, timeline, type Campaign, type CampaignCommand, type Contract, type CrewMember, type Motive
+    notorietyBand, STYLES, timeline, type Campaign, type CampaignCommand, type Contract, type CrewMember, type Debrief, type DebriefCrew, type Motive
 } from '../../campaign';
 import { SIDE_OBJECTIVES } from '../../gen/objectives';
 import { escalatedEta, TIER_SPECS } from '../../gen/tiers';
@@ -23,6 +23,10 @@ import './campaign.css';
  *
  * The roster (§19.6, §19.7, M6-04): each crew member's traits, share, Notoriety, motive and where they are (ready,
  * injured, in jail, dead), the traits on offer to them, a lawyer and a debt to pay; and today's recruits to hire.
+ *
+ * The debrief (`?campaign&debrief`, UI.md "Debrief", §15.5, M6-05): the last heist's payout and its parts, the styles
+ * it earned and what each paid, each crew member's fate, injury, witnesses, tape and Notoriety, and what the Squeeze
+ * does next. A campaign heist's outcome screen opens it; the readout links it while there is one.
  */
 
 const dollars = (n: number): string => `$${n.toLocaleString('en-US')}`;
@@ -45,9 +49,21 @@ export function showCampaign(): void {
     document.body.append(root);
     const go = (query: string) => location.assign(`${location.pathname}?${query}${new URLSearchParams(location.search).has('still') ? '&still' : ''}`);
 
+    let debriefShown = new URLSearchParams(location.search).has('debrief');
     const render = (): void => {
         const campaign = loadCampaign(storage), broken = !campaign && storage.get('campaign') !== null;
-        root.replaceChildren(campaign ? campaignView(campaign) : startView(broken));
+        if (debriefShown && campaign?.debrief) root.replaceChildren(debriefView(campaign, campaign.debrief));
+        else root.replaceChildren(campaign ? campaignView(campaign) : startView(broken));
+    };
+    /** Shows the readout or the debrief, keeping the address in step (a reload shows the same). */
+    const showDebrief = (on: boolean): void => {
+        debriefShown = on;
+        const q = new URLSearchParams(location.search);
+        if (on) q.set('debrief', '');
+        else q.delete('debrief');
+        history.replaceState(null, '', `${location.pathname}?${q.toString().replace(/=(?=&|$)/g, '')}`);
+        render();
+        window.scrollTo(0, 0);
     };
 
     const el = <K extends keyof HTMLElementTagNameMap>(tag: K, cls: string, text?: string): HTMLElementTagNameMap[K] => {
@@ -129,6 +145,12 @@ export function showCampaign(): void {
             if (!v.result && here) p.append(' ', button('Resume it', 'cp-link cp-resume', () => go('')));
             box.append(p);
         }
+        if (c.debrief) {
+            const d = c.debrief;
+            const p = el('p', 'cp-last', `Day ${d.day}'s heist${d.contract ? ` at the ${contractName(d.contract)}` : ''}: ${d.abandoned ? 'abandoned' : RESULT_NAMES[d.result]}.`);
+            p.append(' ', button('Debrief', 'cp-link cp-debrief', () => showDebrief(true)));
+            box.append(p);
+        }
         if (c.days.length) {
             const days = el('p', 'cp-days');
             days.textContent = c.days.map(d => `${d.day}: ${ACTION_NAMES[d.action]}`).join(' · ');
@@ -151,6 +173,80 @@ export function showCampaign(): void {
         row.append(button('New campaign', 'cp-act cp-new', () => void askPlayer('Start a new campaign?', 'This one is lost for good.', 'Start new', 'Keep it')
             .then(yes => { if (yes) start(Math.floor(Math.random() * 0x100000000)); })));
         box.append(row);
+        return box;
+    }
+
+    /** What a style came to, in words. */
+    const REWARD_TEXT = { contact: 'A contact', paidBefore: 'Paid before at these stakes', nothing: 'Nothing to pay' } as const;
+    const FATE_TEXT = { escaped: 'Got away', arrested: 'Arrested', dead: 'Killed', left: 'Still in the bank when it was abandoned' } as const;
+
+    /** One crew member at the debrief: their fate, injury, witnesses and tape, and Notoriety. */
+    function debriefMember(m: DebriefCrew): HTMLElement {
+        const li = el('li', `db-member db-${m.fate}`);
+        li.dataset.crew = m.id;
+        const lines: string[] = [`${FATE_TEXT[m.fate]}.`];
+        if (m.injured) lines.push(`Injured: out ${m.injured} day${m.injured === 1 ? '' : 's'}.`);
+        const seen = [m.witnessed ? 'seen unmasked by a witness' : '', m.filmed ? 'on the tape left behind' : ''].filter(Boolean);
+        if (seen.length) lines.push(`${seen.join(', and ').replace(/^./, x => x.toUpperCase())}.`);
+        if (m.fate !== 'dead') lines.push(`Notoriety ${m.notoriety}${m.gained ? ` (+${m.gained})` : ''}: ${notorietyBand(m.notoriety)}.`);
+        const who = el('div', 'cp-terms');
+        who.append(el('span', 'cp-name', m.name), el('span', 'cp-note', lines.join(' ')));
+        li.append(who);
+        return li;
+    }
+
+    /** The last heist's debrief (UI.md "Debrief", §15.5, §19.7, §19.8). */
+    function debriefView(c: Campaign, d: Debrief): HTMLElement {
+        const box = el('section', 'cp-panel db');
+        const head = el('div', 'cp-head');
+        head.append(el('h1', 'cp-title', 'Debrief'), el('span', `db-result db-${d.abandoned ? 'abandoned' : d.result}`, d.abandoned ? 'Abandoned' : RESULT_NAMES[d.result]));
+        box.append(head);
+        const about = [`Day ${d.day}${d.contract ? `: the ${contractName(d.contract)}, ${STAKES_NAMES[d.contract.stakes].toLowerCase()}` : ''}.`];
+        if (d.objective) about.push(`Side objective, ${SIDE_OBJECTIVES[d.objective.kind].name}: ${d.objective.out ? 'brought out' : 'not brought out'}.`);
+        box.append(el('p', 'db-about', about.join(' ')));
+
+        // The payout (§15.5): the take, the client's bonus, less the shares, plus the styles.
+        const sums = el('dl', 'db-sums');
+        const row = (label: string, value: string, cls = '') => {
+            const dt = el('dt', cls, label), dd = el('dd', `cp-num-s ${cls}`, value);
+            sums.append(dt, dd);
+        };
+        row('Loot out', dollars(d.take));
+        if (d.bonus) row("Client's bonus", dollars(d.bonus));
+        if (d.shares) row("Crew's shares", `−${dollars(d.shares)}`, 'db-minus');
+        if (d.styleBonus) row('Styles', `+${dollars(d.styleBonus)}`, 'db-plus');
+        row('Dirty money in', dollars(d.payout), 'db-total');
+        sums.dataset.payout = String(d.payout);
+        box.append(el('h2', 'cp-sub', 'Payout'), sums);
+        if (d.contacts) box.append(el('p', 'cp-advantages db-contacts', `Contacts made: ${d.contacts}.`));
+
+        // The styles (§19.8): each earned, and what it paid.
+        const styles = el('ul', 'db-styles');
+        if (!d.styles.length) styles.append(el('li', 'cp-note', d.result === 'failure' ? 'A failed job earns no style.' : 'No style earned.'));
+        for (const s of d.styles) {
+            const li = el('li', `db-style db-${s.reward}`);
+            li.dataset.style = s.style;
+            const what = el('div', 'cp-terms');
+            what.append(el('span', 'cp-name', STYLES[s.style].name), el('span', 'cp-note', STYLES[s.style].text));
+            li.append(what, el('span', 'db-reward', s.reward === 'money' ? `+${dollars(s.amount)}` : REWARD_TEXT[s.reward]));
+            styles.append(li);
+        }
+        box.append(el('h2', 'cp-sub', 'Styles'), styles);
+
+        const crew = el('ul', 'db-crew');
+        for (const m of d.crew) crew.append(debriefMember(m));
+        box.append(el('h2', 'cp-sub', 'Crew'), crew);
+
+        // What the Squeeze does next (UI.md).
+        const next = nextStep(c);
+        const squeeze = [`${d.squeeze ? `The job added ${d.squeeze} to the Squeeze` : 'The job added nothing to the Squeeze'}: it stands at ${c.squeeze}.`];
+        if (next && c.phase === 'open') squeeze.push(`Next: ${next.name} at ${next.at}, day ${next.day} if nothing else adds to it.`);
+        else if (c.phase === 'raid') squeeze.push('The Raid has landed.');
+        box.append(el('h2', 'cp-sub', 'The Squeeze'), el('p', 'db-squeeze', squeeze.join(' ')));
+
+        const acts = el('div', 'cp-actions');
+        acts.append(button('Back to the campaign', 'cp-go cp-back', () => showDebrief(false)));
+        box.append(acts);
         return box;
     }
 

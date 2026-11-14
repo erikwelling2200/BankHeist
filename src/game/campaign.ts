@@ -1,10 +1,10 @@
 import {
-    campaignRefusal, CHAINS, offered, commitCampaign, COMPLICATION_IDS, CREW_BY_STAKES, DECAY_DAYS, favoursToday, knownIntel, MAX_ESCALATION, MAX_NOTORIETY, OBJECTIVE_KINDS,
+    campaignRefusal, CHAINS, isStyle, offered, reportOk, commitCampaign, COMPLICATION_IDS, CREW_BY_STAKES, DECAY_DAYS, favoursToday, knownIntel, MAX_ESCALATION, MAX_NOTORIETY, OBJECTIVE_KINDS,
     OBJECTIVE_OFFERS, readyCrew, ROSTER_MAX, STAKES, THRESHOLDS, ALL_THRESHOLDS, tidyOffers, type Campaign, type CampaignCommand, type CampaignEvent, type Contract, type CrewFates,
     type CrewMember, type IntelAsset, type Job, type Stakes
 } from '../campaign';
 import { ARCHETYPES, PLOTS, TIERS, type GeneratedBank } from '../gen/model';
-import { intelOf, isItem, ITEMS, SaveFormatError, stableJson, TRAITS, type DeepReadonly, type Intel, type ReadonlyWorld, type State } from '../sim';
+import { heistReport, intelOf, isItem, type HeistReport, ITEMS, SaveFormatError, stableJson, TRAITS, type DeepReadonly, type Intel, type ReadonlyWorld, type State } from '../sim';
 import { bankAddress, sameAddress, savedHeist, type BankAddress, type CampaignTag } from './heist';
 import { ASSETS, FAVOUR_CAP, gearOf, rosterMember, spent, type CrewPool, type HeistSetup, type Purse, type RosterMember } from './plan';
 import { Session, type IntelKeeper } from './session';
@@ -25,9 +25,9 @@ import type { SaveStorage } from './storage';
 export const CAMPAIGN_KEY = 'campaign';
 /**
  * The campaign save's format: a save of another format is refused, as the rules' saves are. 2: money (M6-03); 3:
- * contracts (M6-02); 4: the roster (M6-04).
+ * contracts (M6-02); 4: the roster (M6-04); 5: the debrief (M6-05: styles paid, the last debrief, a visit's report).
  */
-export const CAMPAIGN_FORMAT = 4;
+export const CAMPAIGN_FORMAT = 5;
 
 const PHASES = ['open', 'raid', 'finaleDue', 'over'];
 const ACTIONS = ['heist', 'case', 'layLow'];
@@ -85,6 +85,32 @@ function memberProblem(value: unknown, day: number): string | undefined {
     return undefined;
 }
 
+/** Why `value` isn't the rules' report of a heist (src/sim/rules/record.ts), or undefined. */
+function reportProblem(value: unknown): string | undefined {
+    return isRecord(value) && exactKeys(value, ['styles', 'witnessed', 'filmed']) && reportOk(value as unknown as HeistReport) ? undefined : 'a report is no report';
+}
+
+/** Why `value` isn't a debrief (src/campaign/campaign.ts `Debrief`), or undefined: its fields, each of its type, before today. */
+function debriefProblem(value: unknown, day: number): string | undefined {
+    if (!isRecord(value) || !exactKeys(value, ['day', 'contract', 'result', 'abandoned', 'take', 'bonus', 'shares', 'styleBonus', 'payout', 'styles', 'objective', 'contacts',
+        'squeeze', 'crew'])) return 'a debrief with other fields';
+    const d = value;
+    if (!isDay(d.day) || (d.day as number) >= day || !RESULTS.includes(d.result as string) || typeof d.abandoned !== 'boolean') return 'the debrief is of no heist';
+    if (d.abandoned && d.result !== 'failure') return 'the debrief is of no heist';
+    if (!['take', 'bonus', 'shares', 'styleBonus', 'payout', 'contacts', 'squeeze'].every(k => whole(d[k]))) return "the debrief's sums are not sums";
+    if (d.contract !== null && contractProblem(d.contract)) return "the debrief's contract is none";
+    const o = d.objective;
+    if (o !== null && (!isRecord(o) || !exactKeys(o, ['kind', 'out']) || !among(OBJECTIVE_KINDS, o.kind) || typeof o.out !== 'boolean')) return "the debrief's side objective is none";
+    const styles = d.styles;
+    if (!Array.isArray(styles) || !styles.every(x => isRecord(x) && exactKeys(x, ['style', 'reward', 'amount']) && isStyle(x.style)
+        && among(['money', 'contact', 'paidBefore', 'nothing'], x.reward) && whole(x.amount) && (x.reward === 'money') === ((x.amount as number) > 0))) return "the debrief's styles are not styles";
+    if (styles.reduce((n, x) => n + (x as { amount: number }).amount, 0) !== d.styleBonus) return "the debrief's styles don't add up";
+    if (!Array.isArray(d.crew) || !d.crew.every(m => isRecord(m) && exactKeys(m, ['id', 'name', 'fate', 'injured', 'witnessed', 'filmed', 'notoriety', 'gained'])
+        && typeof m.id === 'string' && typeof m.name === 'string' && among(['escaped', 'arrested', 'dead', 'left'], m.fate) && whole(m.injured)
+        && typeof m.witnessed === 'boolean' && typeof m.filmed === 'boolean' && whole(m.notoriety) && (m.notoriety as number) <= MAX_NOTORIETY && whole(m.gained))) return "the debrief's crew are no crew";
+    return undefined;
+}
+
 /** Why `value` isn't a roster, or undefined: crew members, each once, no more alive than `ROSTER_MAX`. */
 function rosterProblem(value: unknown, day: number): string | undefined {
     if (!Array.isArray(value)) return 'the roster is no roster';
@@ -107,7 +133,7 @@ export function campaignProblem(value: unknown): string | undefined {
     if (!isRecord(value)) return 'not a campaign';
     const v = value;
     if (!exactKeys(v, ['seed', 'day', 'squeeze', 'complications', 'landed', 'falseTip', 'phase', 'days', 'visit', 'intel', 'money', 'fronts', 'contacts', 'armoury', 'roster',
-        'contracts', 'hits', 'advantages', 'objectiveOffers'])) {
+        'contracts', 'hits', 'advantages', 'objectiveOffers', 'styles', 'debrief'])) {
         return 'a campaign with other fields';
     }
     if (!Number.isInteger(v.seed) || (v.seed as number) < 0 || (v.seed as number) > 0xffffffff) return 'the seed is no seed';
@@ -136,7 +162,7 @@ export function campaignProblem(value: unknown): string | undefined {
     }
     if (v.visit !== null) {
         const s = v.visit;
-        if (!isRecord(s) || !exactKeys(s, ['kind', 'day', 'bank', 'prior'], ['result', 'job', 'payout', 'contract', 'fates']) || !['heist', 'case'].includes(s.kind as string) || !isDay(s.day)
+        if (!isRecord(s) || !exactKeys(s, ['kind', 'day', 'bank', 'prior'], ['result', 'job', 'payout', 'contract', 'fates', 'report']) || !['heist', 'case'].includes(s.kind as string) || !isDay(s.day)
             || typeof s.bank !== 'string' || (s.result !== undefined && (s.kind !== 'heist' || !RESULTS.includes(s.result as string)))) return 'the visit is no visit';
         const j = s.job;
         if (j !== undefined && (s.kind !== 'heist' || !isRecord(j) || !exactKeys(j, ['crew', 'kits', 'stakes']) || !strings(j.crew) || !isRecord(j.kits)
@@ -144,6 +170,7 @@ export function campaignProblem(value: unknown): string | undefined {
         const f = s.fates;
         if (f !== undefined && (s.kind !== 'heist' || !isRecord(f) || !exactKeys(f, ['escaped', 'arrested', 'dead', 'downed', 'killers'])
             || !['escaped', 'arrested', 'dead', 'downed', 'killers'].every(k => strings(f[k])))) return "the visit's fates are none";
+        if (s.report !== undefined && (s.kind !== 'heist' || reportProblem(s.report))) return "the visit's report is none";
         // A take is paid in once, as a job ends other than in failure.
         if (s.payout !== undefined && (!whole(s.payout) || j === undefined || s.result === undefined || s.result === 'failure')) return 'the payout is no payout';
         const spent = days[(s.day as number) - 1] as Record<string, unknown> | undefined;
@@ -193,6 +220,12 @@ export function campaignProblem(value: unknown): string | undefined {
     if (!strings(got) || !got.every(k => among(OBJECTIVE_KINDS, k)) || new Set(got).size !== got.length) return 'the advantages are not side objectives';
     if (!isRecord(v.objectiveOffers) || !Object.entries(v.objectiveOffers).every(([k, n]) => among(OBJECTIVE_KINDS, k) && Number.isInteger(n) && (n as number) >= 1
         && (n as number) <= OBJECTIVE_OFFERS)) return 'the side objectives offered are no counts';
+    // The styles paid (§19.8): once each per stakes.
+    const paid = v.styles;
+    if (!isRecord(paid) || !exactKeys(paid, STAKES) || !STAKES.every(k => strings(paid[k]) && (paid[k] as string[]).every(isStyle) && new Set(paid[k] as string[]).size === (paid[k] as string[]).length)) {
+        return 'the styles paid are not styles';
+    }
+    if (v.debrief !== null) return debriefProblem(v.debrief, v.day as number);
     return undefined;
 }
 
@@ -375,15 +408,15 @@ export function campaignKeeper(storage: SaveStorage, tag: CampaignTag): IntelKee
         if (campaign.seed !== tag.seed || campaign.visit?.day !== tag.day || campaign.visit.bank !== bank) return 'drop';
         // Its result is in already (it ended, or was abandoned into the Raid): it learns nothing more for the campaign.
         if (campaign.visit.result) return 'drop';
-        const intel = intelOf(world, state), fates = crewFates(state), text = stableJson({ intel, fates }), ended = state.outcome?.result;
+        const intel = intelOf(world, state), fates = crewFates(state), report = heistReport(world, state), text = stableJson({ intel, fates, report }), ended = state.outcome?.result;
         let next = campaign;
         // What it learned, and what has become of its crew so far (settled if it is abandoned, decision 513).
-        if (text !== kept) next = commitCampaign(next, { kind: 'learn', bank, day: tag.day, intel, ...(next.visit?.kind === 'heist' ? { crew: fates } : {}) }).campaign;
+        if (text !== kept) next = commitCampaign(next, { kind: 'learn', bank, day: tag.day, intel, ...(next.visit?.kind === 'heist' ? { crew: fates, report } : {}) }).campaign;
         // Its end, with its take and the gear that came back: once, since a visit with a result takes no other (and drops the heist).
         if (ended && next.visit?.kind === 'heist' && !next.visit.result) {
             next = commitCampaign(next, {
                 kind: 'heistOver', day: tag.day, result: ended, take: takeOf(state), kept: gearKept(world, state), objectives: objectivesOut(world, state),
-                crew: crewFates(state)
+                crew: fates, report
             }).campaign;
         }
         if (next !== campaign && saveCampaign(storage, next)) kept = text;

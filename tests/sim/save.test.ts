@@ -78,7 +78,7 @@ describe('saving', () => {
  * NpcStatusMap, CarrierKindMap or adds a field must also fill it in below, or a change of shape goes unnoticed.
  */
 const SHAPE_HASHES: Record<number, string> = {
-    1: 'b4966c7b3d0b4cf9'
+    1: '9171619f40dd3708'
 };
 
 /** Paths whose objects are records by id, not structs. */
@@ -209,6 +209,7 @@ describe('the save format', () => {
         full.crew[0]!.traits = ['steadyHands'];
         full.jammers = [{ id: 'jammer-3', pos: { x: 1, y: 1 }, crew: 'jun', turn: 2 }];
         full.footage = [{ camera: 'cam', crew: 'jun', tile: { x: 1, y: 1 }, turn: 2 }];
+        full.record = { witnesses: [{ npc: 'teller', crew: 'jun' }], escapees: ['customer'], missed: 1, insideJob: true, wayIn: 'breach', assaultsHeld: 1, kills: [{ crew: 'jun', at: { x: 1, y: 1 } }] };
         full.response = { raised: 3, by: 'guardRadio', policeIn: 5, heat: 7 };
         full.heat = { owed: [{ cause: 'staffKilled', victim: 'guard' }], policeKilled: 1, releases: [4] };
         full.police = {
@@ -252,6 +253,7 @@ describe('the save format', () => {
                 intel: { blueprints: true, guardRota: true, seen: full.knowledge.seen, routines: ['guard'], opportunities: [{ id: 'smoke-break', how: 'overheard' }] },
                 patrol: { lane: [{ x: 0, y: 2 }, { x: 1, y: 2 }], turns: [5, 15] },
                 stashRooms: ['closet'],
+                nests: ['nest'],
                 staging: [{ id: 'street-west', name: 'Main street, west end', pos: { x: 0, y: 2 } }],
                 vehicles: [{ id: 'van', type: 'van', name: 'Crew van', width: 2, length: 4, start: { x: 1, y: 1, heading: 'w' } }],
                 building: ['lobby'],

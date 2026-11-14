@@ -83,7 +83,7 @@ describe('a heist pays as it starts and is paid as it ends', () => {
         c = r.campaign;
         expect(c.money.dirty).toBe(take - shares);
         expect(c.visit?.payout).toBe(take - shares);
-        expect(r.events).toContainEqual({ type: 'paid', day: 1, take, bonus: 0, shares, dirty: take - shares });
+        expect(r.events).toContainEqual({ type: 'paid', day: 1, take, bonus: 0, shares, styles: 0, dirty: take - shares });
         // Back: each one's own kit that came out with them, never what they picked up (Dex's guard LMG, Sol's shotgun
         // off a guard); the armour and the charge stayed behind.
         expect(c.armoury.pistol).toBe(2);

@@ -16,7 +16,8 @@ import type { Stakes } from './money';
  * - **Jail:** arrested, they are in jail: a lawyer gets them out (money and days); left there, each day they may talk
  *   (§19.2's +4 Squeeze, and +1 Notoriety for each of the crew who went on that job with them).
  * - **Death:** killed, they are gone, with their gear unless the body was carried out (the gear rules of decision 482).
- * - **Notoriety** (§19.7), 0–5: +2 on arrest (the witnesses and footage are the debrief's, M6-05); −1 for every two
+ * - **Notoriety** (§19.7), 0–5: +2 on arrest, +1 for a witness who lived and +1 for the tape (the debrief's, M6-05,
+ *   src/sim/rules/record.ts); −1 for every two
  *   days a crew member at liberty isn't deployed. The rules read it (src/sim/rules/profile.ts): Known crew read one
  *   profile higher to enforcers and cameras, Wanted to everyone. Every gain adds a point of Squeeze (§19.2).
  * - **Motives** (§19.6): met before the finale, a one-time contact (§19.4).
@@ -109,6 +110,9 @@ export const TALK_CHANCE = 1 / 3;
 export const MAX_NOTORIETY = 5;
 export const ARREST_NOTORIETY = 2;
 export const NAMED_NOTORIETY = 1;
+/** Notoriety at the debrief (§19.7, M6-05): seen unmasked at an illegal act by a witness who lived, and on the tape left behind. */
+export const WITNESS_NOTORIETY = 1;
+export const FOOTAGE_NOTORIETY = 1;
 export const DECAY_DAYS = 2;
 /** A trait offered every this many jobs survived, this many to choose from (§7.2). */
 export const TRAIT_EVERY = 2;

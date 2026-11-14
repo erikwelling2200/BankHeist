@@ -1,4 +1,5 @@
 import { sortedIds } from '../core/json';
+import { noteKill } from './recordState';
 import { registerWorldHook, type Ctx, type WorldPhase } from '../core/engine';
 import { samePos } from '../core/grid';
 import { registerActorCheck, registerCrewInit, registerNpcInit, registerRuleDefaults, registerStateInit } from '../core/state';
@@ -277,7 +278,9 @@ export function creditKill(state: State, by: string | undefined, victim?: string
     if (by === undefined || by === victim) return;
     // Wherever they are now: a tripwire or charge they left, or a teammate they downed, can kill after they are away or arrested.
     const killer = [...state.crew, ...state.escaped.map(e => e.crew), ...state.custody.map(c => c.crew)].find(c => c.id === by);
-    if (killer) killer.wounds.kills += 1;
+    if (!killer) return;
+    killer.wounds.kills += 1;
+    noteKill(state, killer.id, killer.pos);
 }
 
 /** An NPC dies (§11.12): it lies where it fell and never acts on anything it meant to do. Heat reads the kill off the state. */

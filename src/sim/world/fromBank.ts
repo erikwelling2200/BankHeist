@@ -343,6 +343,8 @@ export function worldFromBank(bank: GeneratedBank): ReadonlyWorld {
 
     const stashRooms = bank.rooms.filter(r => STASH_ROOMS.includes(r.type)).map(r => r.id).sort();
     // The bank's building: the rooms of its lot under a roof (a dye pack bursts once its cash leaves them, §15.1).
+    // The crew's sniper nests (§14.5): a kill from one counts for Overwatch (§19.8).
+    const nests = bank.rooms.filter(r => r.type === 'nest').map(r => r.id).sort();
     const building = bank.rooms.filter(r => r.bank && r.zone !== 'outdoors').map(r => r.id).sort();
     // The patrol car's lane (§16.3, §16.4): the main street from its west end to its east end, on the street's tiles.
     const west = bank.exits.find(e => e.id === 'street-west'), east = bank.exits.find(e => e.id === 'street-east');
@@ -369,7 +371,7 @@ export function worldFromBank(bank: GeneratedBank): ReadonlyWorld {
     const vehicles = bankVehicles(bank);
     const opportunities = bankOpportunities(bank, objects, people, doors, edges, locks);
     return freezeWorld({
-        width, height, tiles, edges, doors, objects, people, cameras, rules, stashRooms, building, locks, staging, ...(lane.length ? { patrol } : {}),
+        width, height, tiles, edges, doors, objects, people, cameras, rules, stashRooms, building, locks, staging, ...(nests.length ? { nests } : {}), ...(lane.length ? { patrol } : {}),
         ...(vehicles.length ? { vehicles } : {}), ...(routes.length ? { routes } : {}), ...(opportunities.length ? { opportunities } : {})
     });
 }

@@ -1,13 +1,14 @@
-import { isItem, ITEMS, type DeepReadonly, type Intel, type Trait } from '../sim';
+import { isItem, ITEMS, type DeepReadonly, type HeistReport, type Intel, type Trait } from '../sim';
 import type { SideObjectiveKind } from '../gen/objectives';
 import { COMPLICATIONS, drawComplications, type ComplicationId } from './complications';
 import { escalateChain, refreshContracts, type Contract } from './contracts';
 import { countItems, FENCE_CUT, fenced, FRONT_COST, LAUNDER_PER_DAY, MARKET, NERVOUS_FENCE_CUT, sharesOf, STAKES, STARTER_KIT, STARTING_CASH, type Stakes } from './money';
 import {
-    ARREST_NOTORIETY, CREW_BY_STAKES, DECAY_DAYS, drawRecruits, gainNotoriety, hired, INJURY_DAYS, LAWYER_COST, LAWYER_DAYS, LAY_LOW_HEALS, livingCrew, NAMED_NOTORIETY,
+    ARREST_NOTORIETY, CREW_BY_STAKES, FOOTAGE_NOTORIETY, WITNESS_NOTORIETY, DECAY_DAYS, drawRecruits, gainNotoriety, hired, INJURY_DAYS, LAWYER_COST, LAWYER_DAYS, LAY_LOW_HEALS, livingCrew, NAMED_NOTORIETY,
     ROSTER_MAX, sharesOfRoster, STARTING_ROSTER, talks, TRAIT_EVERY, tidyOffers, traitOffer, type CrewMember, type MotiveKind
 } from './roster';
 import { ALL_THRESHOLDS, projectedDay, SQUEEZE, THRESHOLDS, type SqueezeSource } from './squeeze';
+import { isStyle, STYLE_IDS, styleBonusOf, type StyleId } from './styles';
 
 /*
  * The campaign (GAME_DESIGN §19, implementation plan M6-01): the days, the Squeeze and its complications, and what the
@@ -30,6 +31,11 @@ import { ALL_THRESHOLDS, projectedDay, SQUEEZE, THRESHOLDS, type SqueezeSource }
  * The roster (§19.6, §19.7, M6-04, src/campaign/roster.ts): who is on the crew, their shares, traits, Notoriety and
  * motives. A heist's job is a contract's crew size of those free to go; its end hurts, jails or kills them, grows their
  * traits and Notoriety; the days heal them, wear their Notoriety down and may make a prisoner talk.
+ *
+ * The debrief (§15.5, §19.7, §19.8, M6-05): a heist's end comes with its report from the rules (the styles earned, who a
+ * living witness saw unmasked at an illegal act, who is on the tape left behind). Each style pays once per stakes (a
+ * share of the take, or a contact on a high-stakes job, src/campaign/styles.ts); a witness and the tape add a point of
+ * Notoriety each. What it all came to is kept as the last heist's `Debrief` until the next heist ends.
  */
 
 /** What spends a day (§19.3). */
@@ -61,6 +67,8 @@ export interface Visit {
     contract?: Contract;
     /** What had become of a heist's crew at its last save (the keeper's `learn`): settled if it is abandoned. */
     fates?: CrewFates;
+    /** The rules' report at its last save (the keeper's `learn`): its witnesses and tape stand if it is abandoned. */
+    report?: HeistReport;
     /** The dirty money it brought in once over: its take less the crew's shares. */
     payout?: number;
 }
@@ -131,6 +139,53 @@ export interface Campaign {
     advantages: SideObjectiveKind[];
     /** How many offers have held each side objective (once, and once more if missed). */
     objectiveOffers: Record<string, number>;
+    /** The styles paid for so far, by stakes (§19.8: once each per contract tier). */
+    styles: Record<Stakes, StyleId[]>;
+    /** The last heist's debrief (§15.5), until the next heist ends; null before the first. */
+    debrief: Debrief | null;
+}
+
+/** What a style earned on a heist came to (§19.8): a share of the take, a contact, paid already at these stakes, or nothing to pay. */
+export type StyleReward = 'money' | 'contact' | 'paidBefore' | 'nothing';
+
+/** One crew member at the debrief (§19.6, §19.7). */
+export interface DebriefCrew {
+    id: string;
+    name: string;
+    /** Got away, arrested, dead, or (an abandoned heist) still in the bank as it was left. */
+    fate: 'escaped' | 'arrested' | 'dead' | 'left';
+    /** Days out injured, 0 if not. */
+    injured: number;
+    /** Seen unmasked at an illegal act by a witness who lived (§19.7). */
+    witnessed: boolean;
+    /** On the tape the crew left behind (§8.12). */
+    filmed: boolean;
+    /** Their Notoriety after the heist, and what the heist added. */
+    notoriety: number;
+    gained: number;
+}
+
+/** What a heist came to (UI.md "Debrief", §15.5): the payout and its parts, the styles, each crew member, the Squeeze. */
+export interface Debrief {
+    day: number;
+    contract: Contract | null;
+    result: HeistResult;
+    /** Ended by the next day action, not played to its end. */
+    abandoned: boolean;
+    take: number;
+    bonus: number;
+    shares: number;
+    styleBonus: number;
+    /** Dirty money in: the take and the bonus less the shares, plus the styles' bonus. */
+    payout: number;
+    styles: { style: StyleId; reward: StyleReward; amount: number }[];
+    /** The contract's side objective, and whether its carrier got out with it. */
+    objective: { kind: SideObjectiveKind; out: boolean } | null;
+    /** Contacts the heist's end made (a high-stakes success, styles, motives). */
+    contacts: number;
+    /** The Squeeze its end added: a failed job, crew who gained Notoriety. */
+    squeeze: number;
+    crew: DebriefCrew[];
 }
 
 export type CampaignCommand =
@@ -141,12 +196,13 @@ export type CampaignCommand =
     /** Spends the day laying low. */
     | { kind: 'layLow' }
     /** What the visit of `day` to `bank` has learned so far (the heist's whole intel; what was known before is left out). */
-    | { kind: 'learn'; bank: string; day: number; intel: Intel; crew?: CrewFates }
+    | { kind: 'learn'; bank: string; day: number; intel: Intel; crew?: CrewFates; report?: HeistReport }
     /**
      * The heist of `day` ended: the loot's value that left (`take`), by crew id the gear each who escaped still carries
-     * unused (`kept`), and the side objectives that left with them (`objectives`).
+     * unused (`kept`), the side objectives that left with them (`objectives`), and the rules' report (`report`: the
+     * styles earned, witnesses and tape).
      */
-    | { kind: 'heistOver'; day: number; result: HeistResult; take?: number; kept?: Record<string, string[]>; objectives?: string[]; crew?: CrewFates }
+    | { kind: 'heistOver'; day: number; result: HeistResult; take?: number; kept?: Record<string, string[]>; objectives?: string[]; crew?: CrewFates; report?: HeistReport }
     /** An intel asset bought on the planning screen for the bank's heist (decision 401): paid now, known from now. */
     | { kind: 'buyIntel'; bank: string; asset: IntelAsset; cost: number; favours: number }
     /** Gear from the black market, into the armoury. */
@@ -182,8 +238,10 @@ export type CampaignEvent =
     | { type: 'stopped'; action: DayAction; reason: string }
     /** Clean money went: on a heist's assets, intel, gear, a front, a recruit's fee, a lawyer or a debt. */
     | { type: 'spent'; on: SpentOn; amount: number; clean: number }
-    /** A heist's take came in: its value, the client's bonus, the crew's shares, and the dirty money left. */
-    | { type: 'paid'; day: number; take: number; bonus: number; shares: number; dirty: number }
+    /** A heist's take came in: its value, the client's bonus, the crew's shares, the styles' bonus, and the dirty money left. */
+    | { type: 'paid'; day: number; take: number; bonus: number; shares: number; styles: number; dirty: number }
+    /** A style paid for the first time at its stakes (§19.8): a share of the take, or a contact. */
+    | { type: 'style'; style: StyleId; stakes: Stakes; reward: 'money' | 'contact'; amount: number }
     /** The board changed as a day came: offers posted and offers expired, by id. */
     | { type: 'offers'; posted: string[]; expired: string[] }
     /** A side objective came out with the crew (§19.5): a finale advantage. */
@@ -241,7 +299,7 @@ export function newCampaign(seed: number): Campaign {
         seed: seed >>> 0, day: 1, squeeze: 0, complications: drawComplications(seed >>> 0), landed: [], falseTip: false, phase: 'open',
         days: [], visit: null, intel: {},
         money: { clean: STARTING_CASH, dirty: 0 }, fronts: 0, contacts: 0, armoury: { ...STARTER_KIT } as Record<string, number>, roster: structuredClone(STARTING_ROSTER) as CrewMember[],
-        contracts: [], hits: {}, advantages: [], objectiveOffers: {}
+        contracts: [], hits: {}, advantages: [], objectiveOffers: {}, styles: { low: [], medium: [], high: [] }, debrief: null
     };
     refreshContracts(c);
     return c;
@@ -318,6 +376,7 @@ export function campaignRefusal(c: Campaign, cmd: CampaignCommand): string | und
         case 'learn':
             if (!c.visit || c.visit.day !== cmd.day || c.visit.bank !== cmd.bank) return "Not the day's visit";
             if (cmd.crew !== undefined && (c.visit.kind !== 'heist' || !fatesOk(cmd.crew))) return 'No fates';
+            if (cmd.report !== undefined && (c.visit.kind !== 'heist' || !reportOk(cmd.report))) return 'No report';
             return undefined;
         case 'heistOver':
             if (!c.visit || c.visit.kind !== 'heist' || c.visit.day !== cmd.day) return "Not the day's heist";
@@ -325,6 +384,7 @@ export function campaignRefusal(c: Campaign, cmd: CampaignCommand): string | und
             if (cmd.take !== undefined && !whole(cmd.take)) return 'No take';
             if (cmd.objectives !== undefined && !(Array.isArray(cmd.objectives) && cmd.objectives.every(k => typeof k === 'string'))) return 'No objectives';
             if (cmd.crew !== undefined && !fatesOk(cmd.crew)) return 'No fates';
+            if (cmd.report !== undefined && !reportOk(cmd.report)) return 'No report';
             return undefined;
         case 'buyIntel': {
             if (c.phase !== 'open') return 'No heist to plan';
@@ -406,11 +466,14 @@ export function commitCampaign(campaign: Campaign, cmd: CampaignCommand): { camp
             // A heist left unfinished when the next day comes was abandoned: a failed job (decision 443).
             const v = c.visit;
             if (v?.kind === 'heist' && !v.result) {
+                const from = events.length;
                 v.result = 'failure';
                 events.push({ type: 'jobFailed', day: v.day, abandoned: true });
-                // What had already become of its crew stands (decision 513): the dead, the arrested, the downed.
-                if (v.job && v.fates) settleCrew(c, events, v, 'failure', v.fates, add, true);
+                // What had already become of its crew stands (decision 513): the dead, the arrested, the downed, and
+                // what the witnesses saw and the tape holds (decision 524).
+                if (v.job && v.fates) settleCrew(c, events, v, 'failure', v.fates, add, true, v.report);
                 add('failedJob', SQUEEZE.failedJob);
+                c.debrief = debriefOf(c, v, { abandoned: true, take: 0, bonus: 0, shares: 0, styles: [], objectiveOut: false }, events.slice(from));
                 // The failure is settled first: if it landed the Raid, the day action doesn't happen (decision 446).
                 const stopped = campaignRefusal(c, cmd);
                 if (stopped) {
@@ -448,6 +511,7 @@ export function commitCampaign(campaign: Campaign, cmd: CampaignCommand): { camp
         case 'learn': {
             const v = c.visit!;
             if (cmd.crew) v.fates = structuredClone(cmd.crew);
+            if (cmd.report) v.report = structuredClone(cmd.report);
             const records = c.intel[cmd.bank] ??= [];
             const record = { day: v.day, intel: learnedOf(cmd.intel, v.prior) };
             const at = records.findIndex(r => r.day === v.day && r.favours === undefined);
@@ -460,28 +524,35 @@ export function commitCampaign(campaign: Campaign, cmd: CampaignCommand): { camp
             break;
         }
         case 'heistOver': {
-            const v = c.visit!;
+            const v = c.visit!, from = events.length;
             v.result = cmd.result;
             // The side objective counts once its carrier got out, even if the job failed (§19.5); only the contract's own.
             const objective = v.contract?.objective;
-            if (objective && (cmd.objectives ?? []).includes(objective) && !c.advantages.includes(objective)) {
+            const objectiveOut = !!objective && (cmd.objectives ?? []).includes(objective);
+            if (objective && objectiveOut && !c.advantages.includes(objective)) {
                 c.advantages.push(objective);
                 events.push({ type: 'objective', objective, day: v.day });
             }
+            const paid = { abandoned: false, take: 0, bonus: 0, shares: 0, styles: [] as Debrief['styles'], objectiveOut };
             if (cmd.result === 'failure') {
-                // Failure loses the gear brought in (§19.3), and there is no take.
+                // Failure loses the gear brought in (§19.3), and there is no take, nor any style (decision 523).
                 events.push({ type: 'jobFailed', day: cmd.day, abandoned: false });
                 add('failedJob', SQUEEZE.failedJob);
             } else if (v.job) {
                 // The client's bonus on a Success (decision 503): part of the job, so the crew take their shares of it too.
                 const take = cmd.take ?? 0, bonus = cmd.result === 'success' ? v.contract?.bonus ?? 0 : 0, shares = sharesOf(take + bonus, v.job.crew, sharesOfRoster(c.roster));
-                v.payout = Math.max(0, take + bonus - shares);
+                // The styles' bonus after the shares (§15.5: "minus … the crew's shares, plus style bonuses").
+                paid.styles = payStyles(c, events, v.job.stakes, cmd.report?.styles ?? [], take);
+                const styles = paid.styles.reduce((n, s) => n + s.amount, 0);
+                v.payout = Math.max(0, take + bonus - shares) + styles;
                 c.money.dirty += v.payout;
-                events.push({ type: 'paid', day: v.day, take, bonus, shares, dirty: c.money.dirty });
+                Object.assign(paid, { take, bonus, shares });
+                events.push({ type: 'paid', day: v.day, take, bonus, shares, styles, dirty: c.money.dirty });
                 returnGear(c, events, v.job, cmd.kept ?? {});
                 if (cmd.result === 'success' && v.job.stakes === 'high') addContact(c, events);
             }
-            if (v.job && cmd.crew) settleCrew(c, events, v, cmd.result, cmd.crew, add);
+            if (v.job && cmd.crew) settleCrew(c, events, v, cmd.result, cmd.crew, add, false, cmd.report);
+            c.debrief = debriefOf(c, v, paid, events.slice(from));
             break;
         }
         case 'buyIntel': {
@@ -606,6 +677,52 @@ type AddSqueeze = (source: SqueezeSource, points: number) => void;
 const ids = (v: unknown): v is string[] => Array.isArray(v) && v.every(x => typeof x === 'string');
 const fatesOk = (f: CrewFates): boolean =>
     typeof f === 'object' && f !== null && ids(f.escaped) && ids(f.arrested) && ids(f.dead) && ids(f.downed) && ids(f.killers);
+/** Whether `r` is a report of the rules' shape: styles (each once), and crew ids. */
+export const reportOk = (r: HeistReport): boolean =>
+    typeof r === 'object' && r !== null && Array.isArray(r.styles) && r.styles.every(isStyle) && new Set(r.styles).size === r.styles.length && ids(r.witnessed) && ids(r.filmed);
+
+/**
+ * Pays the styles a heist earned at its stakes (§19.8, decision 523), in `STYLE_IDS` order: each once per stakes, a
+ * contact on a high-stakes job, else `STYLE_BONUS` percent of the take. A style with nothing to pay (no take) isn't used up.
+ */
+function payStyles(c: Campaign, events: CampaignEvent[], stakes: Stakes, earned: readonly StyleId[], take: number): Debrief['styles'] {
+    const paid = c.styles[stakes];
+    return STYLE_IDS.filter(s => earned.includes(s)).map(style => {
+        if (paid.includes(style)) return { style, reward: 'paidBefore' as const, amount: 0 };
+        const amount = stakes === 'high' ? 0 : styleBonusOf(take);
+        if (stakes !== 'high' && amount <= 0) return { style, reward: 'nothing' as const, amount: 0 };
+        paid.push(style);
+        const reward = stakes === 'high' ? 'contact' as const : 'money' as const;
+        events.push({ type: 'style', style, stakes, reward, amount });
+        if (reward === 'contact') addContact(c, events);
+        return { style, reward, amount };
+    });
+}
+
+/** The debrief of a heist's end (§15.5, UI.md "Debrief"), from what it paid and what its end did (`events`). */
+function debriefOf(c: Campaign, v: Visit, paid: { abandoned: boolean; take: number; bonus: number; shares: number; styles: Debrief['styles']; objectiveOut: boolean },
+    events: readonly CampaignEvent[]): Debrief {
+    const fates = v.fates, report = v.report;
+    const crew: DebriefCrew[] = (v.job?.crew ?? []).flatMap(id => {
+        const m = c.roster.find(x => x.id === id);
+        if (!m) return [];
+        const fate = fates?.dead.includes(id) ? 'dead' : fates?.arrested.includes(id) ? 'arrested' : fates?.escaped.includes(id) ? 'escaped' : 'left';
+        const injured = events.find((e): e is Extract<CampaignEvent, { type: 'injured' }> => e.type === 'injured' && e.crew === id)?.days ?? 0;
+        const gained = events.reduce((n, e) => n + (e.type === 'notoriety' && e.crew === id && e.change > 0 ? e.change : 0), 0);
+        return [{
+            id, name: m.name, fate, injured, witnessed: fate !== 'dead' && !!report?.witnessed.includes(id), filmed: fate !== 'dead' && !!report?.filmed.includes(id),
+            notoriety: m.notoriety, gained
+        }];
+    });
+    return {
+        day: v.day, contract: v.contract ? structuredClone(v.contract) : null, result: v.result!, abandoned: paid.abandoned,
+        take: paid.take, bonus: paid.bonus, shares: paid.shares, styleBonus: paid.styles.reduce((n, s) => n + s.amount, 0), payout: v.payout ?? 0,
+        styles: paid.styles, objective: v.contract?.objective ? { kind: v.contract.objective, out: paid.objectiveOut } : null,
+        contacts: events.filter(e => e.type === 'contact').length,
+        squeeze: events.reduce((n, e) => n + (e.type === 'squeeze' ? e.points : 0), 0),
+        crew
+    };
+}
 
 function addContact(c: Campaign, events: CampaignEvent[]): void {
     c.contacts += 1;
@@ -642,7 +759,10 @@ function notoriety(events: CampaignEvent[], m: CrewMember, amount: number, add: 
  * a trait) and their motives may be met or broken; the arrested go to jail with +2 Notoriety; those who got away but
  * went down are out injured. Only the job's own crew, by what the rules' outcome says of them.
  */
-function settleCrew(c: Campaign, events: CampaignEvent[], v: Visit, result: HeistResult, fates: CrewFates, add: AddSqueeze, abandoned = false): void {
+function settleCrew(c: Campaign, events: CampaignEvent[], v: Visit, result: HeistResult, fates: CrewFates, add: AddSqueeze, abandoned = false, report?: HeistReport): void {
+    // The fates and report the debrief reads.
+    v.fates = structuredClone(fates);
+    if (report) v.report = structuredClone(report);
     for (const id of v.job!.crew) {
         const m = c.roster.find(x => x.id === id);
         if (!m) continue;
@@ -672,16 +792,22 @@ function settleCrew(c: Campaign, events: CampaignEvent[], v: Visit, result: Heis
                 }
             } else if (!abandoned && motive.kind === 'getEven' && result === 'success' && v.contract?.chain === motive.chain) meetMotive(c, events, m);
         }
+        // A witness who lived and the tape left behind add a point each (§19.7), gained with the arrest's as one gain
+        // (the Forgettable halve the whole of it, decision 524).
+        const seen = (report?.witnessed.includes(id) ? WITNESS_NOTORIETY : 0) + (report?.filmed.includes(id) ? FOOTAGE_NOTORIETY : 0);
         if (fates.arrested.includes(id)) {
             m.status = 'jailed';
             m.jail = { day: v.day, named: v.job!.crew.filter(x => x !== id), talked: false };
             delete m.injured;
             events.push({ type: 'jailed', crew: id });
-            notoriety(events, m, ARREST_NOTORIETY, add);
-        } else if (fates.downed.includes(id)) {
-            m.status = 'injured';
-            m.injured = INJURY_DAYS;
-            events.push({ type: 'injured', crew: id, days: INJURY_DAYS });
+            notoriety(events, m, ARREST_NOTORIETY + seen, add);
+        } else {
+            if (fates.downed.includes(id)) {
+                m.status = 'injured';
+                m.injured = INJURY_DAYS;
+                events.push({ type: 'injured', crew: id, days: INJURY_DAYS });
+            }
+            if (seen) notoriety(events, m, seen, add);
         }
     }
 }

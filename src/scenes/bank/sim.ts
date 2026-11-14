@@ -126,7 +126,7 @@ export interface PlayParts {
     power: PowerCut;
     /** The heist was resumed: show the recap card first (§20.6). */
     resumed: boolean;
-    /** Where the outcome's New heist goes, if not to planning the next heist in this bank: a campaign heist's campaign (M6-01). */
+    /** Where the outcome's New heist goes, if not to planning the next heist in this bank: a campaign heist's debrief (M6-01, M6-05). */
     next?: string;
 }
 
@@ -322,7 +322,7 @@ export class PlayMode {
                 const still = new URLSearchParams(location.search).has('still') ? '&still' : '';
                 window.location.assign(this.next ?? `${location.pathname}?plan&${new URLSearchParams({ ...this.address })}${still}`);
             }
-        });
+        }, this.next ? { nextLabel: 'Debrief' } : {});
         this.autoBar = mountAutoBar(document.body, {
             go: () => this.startAuto(null, null),
             stop: () => this.stopAuto(),

@@ -22,7 +22,7 @@ Top-down 2D pixel-art stealth game. Phaser 4 + TypeScript + Vite, shipped as an 
   saved by `src/game/campaign.ts`): days, the Squeeze and money (§19.4: laundering, the fence, the armoury and black
   market) and the contracts on offer (§19.3, `src/campaign/contracts.ts`) as plain HTML; its heists are only offered contracts', planned on
   `?plan&campaign&contract=…` in the contract's own bank (the address never picks it) with the campaign's money and gear,
-  and spend their day as they start. A bare `?seed=…` (an old link
+  and spend their day as they start; a campaign heist's outcome opens its debrief, `?campaign&debrief` (§15.5, §19.8: payout, styles, Notoriety). A bare `?seed=…` (an old link
   from when the viewer was the default page) opens the viewer as `?view&seed=…`, never a heist. Three layers, each only calling the one below:
   - `src/sim/` is the rules engine (implementation plan §2): pure and deterministic, no Phaser, clock or
     `Math.random`. A read-only `World` built once from the bank (`worldFromBank`) and a plain-JSON `State`; every

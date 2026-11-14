@@ -52,3 +52,20 @@ html.campaign-page #game, html.campaign-page .rotate-hint { display: none; }
 .cp-member.cp-dead { color: #8f866f; }
 .cp-member.cp-jailed .cp-note, .cp-member.cp-injured .cp-note { color: #e2a240; }
 .cp-crew-acts { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 4px; }
+/* The debrief (M6-05): the payout as a sum, each style with what it paid, each crew member's fate. */
+.db-result { font: 600 12px ui-monospace, Menlo, Consolas, monospace; text-transform: uppercase; letter-spacing: 0.1em; color: #e2a240; }
+.db-result.db-success { color: #7fc47a; }
+.db-result.db-failure, .db-result.db-abandoned { color: #d44638; }
+.db-sums { display: grid; grid-template-columns: 1fr auto; gap: 2px 16px; margin: 0; }
+.db-sums dt { color: #c9b98f; }
+.db-sums dd { margin: 0; text-align: right; font: 600 14px ui-monospace, Menlo, Consolas, monospace; }
+.db-sums .db-minus { color: #d4806f; }
+.db-sums .db-plus { color: #7fc47a; }
+.db-sums dt.db-total, .db-sums dd.db-total { padding-top: 4px; border-top: 1px solid rgba(242, 230, 200, 0.2); color: #f2c94c; font-weight: 600; }
+.db-sums dd.db-total { font-size: 18px; }
+.db-styles, .db-crew { margin: 0; padding: 0; list-style: none; }
+.db-style, .db-member { display: grid; grid-template-columns: 1fr auto; align-items: center; gap: 10px; padding: 6px 0; border-top: 1px solid rgba(242, 230, 200, 0.1); }
+.db-reward { font: 600 13px ui-monospace, Menlo, Consolas, monospace; color: #7fc47a; text-align: right; }
+.db-paidBefore .db-reward, .db-nothing .db-reward { color: #8f866f; font-weight: 500; font-size: 12px; }
+.db-member.db-dead { color: #8f866f; }
+.db-member.db-arrested .cp-note { color: #e2a240; }
